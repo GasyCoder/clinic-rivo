@@ -10,10 +10,13 @@ use App\Models\User;
 use App\Services\Administration\EmployeeAddressResolver;
 use App\Services\Administration\EmployeeIdentityNormalizer;
 use App\Services\Administration\EmployeePatientIdentityMapper;
+use App\Services\Administration\EmployeePhotoStore;
 use App\Services\Administration\HrReferenceResolver;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class UpdateEmployeeAction
 {
@@ -23,6 +26,7 @@ class UpdateEmployeeAction
         private readonly EmployeePatientIdentityMapper $patientIdentityMapper,
         private readonly UpdatePatientAction $updatePatient,
         private readonly HrReferenceResolver $referenceResolver,
+        private readonly EmployeePhotoStore $photos,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -34,48 +38,80 @@ class UpdateEmployeeAction
 
         Gate::forUser($actor)->authorize('update', $employee);
 
-        return DB::transaction(function () use ($employee, $data, $actor): Employee {
-            $employee = Employee::query()->lockForUpdate()->findOrFail($employee->getKey());
-            $data = $this->identityNormalizer->normalize($data);
-            $data = $this->referenceResolver->employeeData($data);
-            $data = $this->addressResolver->resolve($data, $actor, $employee);
+        // ADR-194 — une nouvelle photo remplace l'ancienne ; « retirer » la
+        // supprime. L'ancien fichier n'est effacé qu'une fois le dossier écrit.
+        $photo = $data['photo'] ?? null;
+        $removePhoto = (bool) ($data['remove_photo'] ?? false);
+        unset($data['photo'], $data['remove_photo']);
+        $newPhotoPath = $photo instanceof UploadedFile ? $this->photos->store($photo) : null;
+        $replacedPhotoPath = null;
 
-            $staffLink = PatientStaffLink::query()
-                ->active()
-                ->where('employee_id', $employee->getKey())
-                ->lockForUpdate()
-                ->first();
+        try {
+            $updated = DB::transaction(function () use ($employee, $data, $actor, $newPhotoPath, $removePhoto, &$replacedPhotoPath): Employee {
+                return $this->write($employee, $data, $actor, $newPhotoPath, $removePhoto, $replacedPhotoPath);
+            });
+        } catch (Throwable $exception) {
+            $this->photos->delete($newPhotoPath);
 
-            $candidateBirthDate = array_key_exists('birth_date', $data)
-                ? $data['birth_date']
-                : $employee->birth_date;
+            throw $exception;
+        }
 
-            if ($staffLink && empty($candidateBirthDate)) {
-                throw ValidationException::withMessages([
-                    'birth_date' => 'La date de naissance reste obligatoire tant que cet employé est relié à un dossier patient.',
-                ]);
-            }
+        $this->photos->delete($replacedPhotoPath);
 
-            $employee->fill($data)->save();
-            $employee->load(['addressEntry' => fn ($query) => $query->withTrashed()]);
+        return $updated;
+    }
 
-            if ($staffLink) {
-                $patient = Patient::withTrashed()
-                    ->lockForUpdate()
-                    ->findOrFail($staffLink->patient_id);
+    /** @param array<string, mixed> $data */
+    private function write(Employee $employee, array $data, User $actor, ?string $newPhotoPath, bool $removePhoto, ?string &$replacedPhotoPath): Employee
+    {
+        $employee = Employee::query()->lockForUpdate()->findOrFail($employee->getKey());
 
-                $this->updatePatient->execute(
-                    $patient,
-                    $this->patientIdentityMapper->map($employee),
-                    $actor,
-                );
-            }
+        if ($newPhotoPath || ($removePhoto && $employee->photo_path)) {
+            $replacedPhotoPath = $employee->photo_path;
+            $data['photo_path'] = $newPhotoPath;
+            $data['photo_updated_at'] = $newPhotoPath ? now() : null;
+        }
 
-            return $employee->refresh()->load([
-                'addressEntry' => fn ($query) => $query->withTrashed(),
-                'department' => fn ($query) => $query->withTrashed(),
-                'jobTitle' => fn ($query) => $query->withTrashed(),
+        $data = $this->identityNormalizer->normalize($data);
+        // ADR-194 — le couple département / fonction déjà enregistré reste toléré.
+        $data = $this->referenceResolver->employeeData($data, $employee);
+        $data = $this->addressResolver->resolve($data, $actor, $employee);
+
+        $staffLink = PatientStaffLink::query()
+            ->active()
+            ->where('employee_id', $employee->getKey())
+            ->lockForUpdate()
+            ->first();
+
+        $candidateBirthDate = array_key_exists('birth_date', $data)
+            ? $data['birth_date']
+            : $employee->birth_date;
+
+        if ($staffLink && empty($candidateBirthDate)) {
+            throw ValidationException::withMessages([
+                'birth_date' => 'La date de naissance reste obligatoire tant que cet employé est relié à un dossier patient.',
             ]);
-        });
+        }
+
+        $employee->fill($data)->save();
+        $employee->load(['addressEntry' => fn ($query) => $query->withTrashed()]);
+
+        if ($staffLink) {
+            $patient = Patient::withTrashed()
+                ->lockForUpdate()
+                ->findOrFail($staffLink->patient_id);
+
+            $this->updatePatient->execute(
+                $patient,
+                $this->patientIdentityMapper->map($employee),
+                $actor,
+            );
+        }
+
+        return $employee->refresh()->load([
+            'addressEntry' => fn ($query) => $query->withTrashed(),
+            'department' => fn ($query) => $query->withTrashed(),
+            'jobTitle' => fn ($query) => $query->withTrashed(),
+        ]);
     }
 }

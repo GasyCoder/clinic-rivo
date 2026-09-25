@@ -8,7 +8,11 @@ import HrPageHeader from '../Partials/HrPageHeader.vue';
 import EmployeeForm from './EmployeeForm.vue';
 
 defineOptions({ layout: AppLayout });
-const props = defineProps({ employee: Object, options: Object, departments: Array, jobTitles: Array, addresses: [Array, Object] });
+const props = defineProps({
+    employee: Object, options: Object, departments: Array, jobTitles: Array, addresses: [Array, Object],
+    // ADR-194 — le couple département/fonction déjà enregistré reste choisissable.
+    currentPair: { type: Object, default: null },
+});
 
 const form = useForm({
     employee_number: props.employee.employee_number,
@@ -24,9 +28,15 @@ const form = useForm({
     children_details: props.employee.children_details ?? '', badge: props.employee.badge ?? '', blouse: props.employee.blouse ?? '',
     phone: props.employee.phone ?? '', address_entry_uuid: props.employee.address_entry_uuid ?? '',
     new_address_label: '', observation: props.employee.observation ?? '', active: props.employee.active,
+    photo: null, remove_photo: false,
 });
 
-const submit = () => form.put(hrUrl(`/administration/employees/${props.employee.uuid}`));
+// ADR-194 — une photo part en multipart ; PHP ne lit pas un PUT multipart,
+// d'où un POST qui annonce PUT. Sans photo, le PUT reste un PUT.
+const url = hrUrl(`/administration/employees/${props.employee.uuid}`);
+const submit = () => (form.photo
+    ? form.transform((data) => ({ ...data, _method: 'put' })).post(url, { forceFormData: true })
+    : form.transform((data) => data).put(url));
 </script>
 
 <template>
@@ -35,6 +45,18 @@ const submit = () => form.put(hrUrl(`/administration/employees/${props.employee.
         <HrPageHeader :eyebrow="`${employee.employee_number} · Parcours guidé`" :title="`Modifier ${employee.name}`" description="Les changements d’identité sont synchronisés avec le dossier Patient lié lorsqu’il existe." icon="edit">
             <template #actions><Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" variant="outline"><ArrowLeft class="h-4 w-4" />Retour au dossier</Button></template>
         </HrPageHeader>
-        <EmployeeForm :form="form" :options="options" :departments="departments" :job-titles="jobTitles" :addresses="addresses" :current-email="employee.email" submit-label="Enregistrer les modifications" :cancel-href="hrUrl(`/administration/employees/${employee.uuid}`)" @submit="submit" />
+        <EmployeeForm
+            :form="form"
+            :options="options"
+            :departments="departments"
+            :job-titles="jobTitles"
+            :addresses="addresses"
+            :current-pair="currentPair"
+            :current-photo-url="employee.photo_url"
+            :current-email="employee.email"
+            submit-label="Enregistrer les modifications"
+            :cancel-href="hrUrl(`/administration/employees/${employee.uuid}`)"
+            @submit="submit"
+        />
     </div>
 </template>

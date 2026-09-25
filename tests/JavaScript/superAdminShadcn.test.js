@@ -118,7 +118,8 @@ test('les composants partagés migrent sans changer d’API', () => {
         assert.ok(! source.includes('UI/Icon.vue'));
     }
 
-    assert.match(header, /icon: \{ type: String, default: 'users' \}/);
+    // La chaîne reste acceptée (écrans existants) ; un composant lucide en plus.
+    assert.match(header, /icon: \{ type: (String|\[String, Object, Function\]), default: 'users' \}/);
     assert.match(header, /lucideIcon/);
     assert.match(iconInput, /icon: \{ type: String, required: true \}/);
     assert.match(iconInput, /lucideIcon/);

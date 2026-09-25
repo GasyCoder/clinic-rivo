@@ -14,6 +14,10 @@ class StoreEmployeeRequest extends EmployeeDataRequest
 
     public function rules(): array
     {
-        return $this->employeeRules();
+        return [
+            ...$this->employeeRules(),
+            // ADR-194 — « Nouveau stagiaire » : après le dossier, son stage.
+            'after' => ['sometimes', 'nullable', 'in:internship'],
+        ];
     }
 }

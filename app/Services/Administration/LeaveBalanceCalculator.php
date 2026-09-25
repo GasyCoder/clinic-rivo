@@ -112,6 +112,49 @@ class LeaveBalanceCalculator
         ];
     }
 
+    /**
+     * Le solde annuel d'un employé pour chaque type qui consomme le solde —
+     * exactement ce que l'aperçu d'une demande calculerait avant le premier
+     * jour (quota, jours acceptés, jours en attente). Aucune règle nouvelle :
+     * une fiche employé lit le solde, elle ne le recalcule pas autrement.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function annualBalances(Employee $employee, int $year): array
+    {
+        $baseQuery = LeaveRequest::query()
+            ->where('employee_id', $employee->getKey())
+            ->where('consumes_balance_snapshot', true)
+            ->whereYear('starts_on', $year);
+        $approved = (float) (clone $baseQuery)->where('status', LeaveRequestStatus::Approved->value)->sum('days_requested');
+        $pending = (float) (clone $baseQuery)->where('status', LeaveRequestStatus::Pending->value)->sum('days_requested');
+
+        return HrReferenceValue::query()
+            ->where('type', HrReferenceType::LeaveType->value)
+            ->where('active', true)
+            ->orderBy('position')
+            ->get()
+            ->map(fn (HrReferenceValue $type) => [$type, $this->rules($type)])
+            ->filter(fn (array $pair) => (bool) ($pair[1]['consumes_annual_balance'] ?? false)
+                && $this->decimalOrNull($pair[1]['annual_quota_days'] ?? null) !== null)
+            ->map(function (array $pair) use ($approved, $pending, $year): array {
+                [$type, $rules] = $pair;
+                $quota = $this->decimalOrNull($rules['annual_quota_days']);
+
+                return [
+                    'leave_type' => $type->label,
+                    'year' => $year,
+                    'annual_quota_days' => $this->format($quota),
+                    'approved_days' => $this->format($approved),
+                    'pending_days' => $this->format($pending),
+                    'balance' => $this->format($quota - $approved),
+                    'projected_balance' => $this->format($quota - $approved - $pending),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
     /** @param array<string, mixed> $preview */
     public function assertSufficientBalance(array $preview): void
     {

@@ -150,7 +150,8 @@ test('le dossier Fournisseurs utilise les tokens sémantiques', () => {
 test('les composants partagés gardent leur contrat d’icône en chaîne', () => {
     for (const name of ['UI/EmptyState', 'UI/ExplorerTile', 'UI/FolderCard', 'UI/FormSection']) {
         const source = shared(name);
-        assert.match(source, /icon: \{ type: String/, `${name} doit garder son icône en chaîne`);
+        // La chaîne reste acceptée ; un composant lucide peut l'être en plus.
+        assert.match(source, /icon: \{ type: (String|\[String\b)/, `${name} doit garder son icône en chaîne`);
         assert.match(source, /lucideIcon/, `${name} doit résoudre le nom via la table`);
     }
 

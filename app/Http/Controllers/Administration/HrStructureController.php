@@ -26,6 +26,10 @@ use Inertia\Response;
  * une seconde règle, il donne sa propre page à deux listes que les dossiers
  * Employé, le planning et l'import utilisent chaque jour. Servi au site et au
  * portail par `routes/hr.php` (ADR-187).
+ *
+ * ADR-194 — une fonction y liste aussi les départements où elle existe, et un
+ * département les fonctions qui lui sont reliées : le dossier employé ne propose
+ * que les fonctions du département choisi.
  */
 class HrStructureController extends Controller
 {
@@ -34,10 +38,15 @@ class HrStructureController extends Controller
         Gate::forUser($request->user())->authorize('viewAny', HrReferenceValue::class);
 
         $kind = HrStructureKind::fromRoute($request->route());
-        $relation = $kind->referenceType() === HrReferenceType::Department ? 'departmentEmployees' : 'jobTitleEmployees';
+        $isJobTitles = $kind === HrStructureKind::JobTitles;
+        $relation = $isJobTitles ? 'jobTitleEmployees' : 'departmentEmployees';
 
         $items = HrReferenceValue::withTrashed()
             ->ofType($kind->referenceType())
+            // ADR-194 — les liens fonction ↔ département, lus des deux côtés.
+            ->with($isJobTitles
+                ? ['departments' => fn ($query) => $query->withTrashed()->orderBy('label')]
+                : ['departmentJobTitles' => fn ($query) => $query->orderBy('label')])
             // Un dossier archivé ne compte plus : il ne travaille plus ici.
             ->withCount([
                 "{$relation} as employees_count",
@@ -56,11 +65,33 @@ class HrStructureController extends Controller
                 'delete_reason' => $reference->delete_reason,
                 'employees_count' => (int) $reference->employees_count,
                 'active_employees_count' => (int) $reference->active_employees_count,
+                'departments' => $isJobTitles
+                    ? $reference->departments->map(fn (HrReferenceValue $department) => [
+                        'uuid' => $department->uuid,
+                        'label' => $department->label,
+                        'archived' => $department->trashed(),
+                    ])->values()
+                    : null,
+                'job_titles' => $isJobTitles ? null : $reference->departmentJobTitles->pluck('label')->values(),
             ]);
 
         return Inertia::render('Administration/HrStructure/Index', [
             'kind' => $kind->value,
             'items' => $items,
+            // Les départements proposés à une fonction ; un département archivé
+            // n'est plus proposé, mais une fonction qui le porte le garde.
+            'departmentOptions' => $isJobTitles
+                ? HrReferenceValue::withTrashed()->ofType(HrReferenceType::Department)
+                    ->orderBy('position')->orderBy('label')->get()
+                    ->map(fn (HrReferenceValue $department) => [
+                        'uuid' => $department->uuid,
+                        'label' => $department->label,
+                        'archived' => $department->trashed(),
+                    ])->values()
+                : [],
+            // Pour un département : les fonctions sans aucun département, proposées partout.
+            'sharedJobTitles' => $isJobTitles ? [] : HrReferenceValue::query()->ofType(HrReferenceType::JobTitle)
+                ->whereDoesntHave('departments', fn ($query) => $query->withTrashed())->orderBy('label')->pluck('label')->values(),
         ]);
     }
 

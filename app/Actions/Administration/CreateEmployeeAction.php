@@ -7,9 +7,12 @@ use App\Models\User;
 use App\Services\Administration\EmployeeAddressResolver;
 use App\Services\Administration\EmployeeIdentityNormalizer;
 use App\Services\Administration\EmployeeNumberAllocator;
+use App\Services\Administration\EmployeePhotoStore;
 use App\Services\Administration\HrReferenceResolver;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Throwable;
 
 class CreateEmployeeAction
 {
@@ -18,6 +21,7 @@ class CreateEmployeeAction
         private readonly EmployeeIdentityNormalizer $identityNormalizer,
         private readonly HrReferenceResolver $referenceResolver,
         private readonly EmployeeNumberAllocator $numbers,
+        private readonly EmployeePhotoStore $photos,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -29,17 +33,35 @@ class CreateEmployeeAction
 
         Gate::forUser($actor)->authorize('create', Employee::class);
 
-        return DB::transaction(function () use ($data, $actor): Employee {
-            // ADR-191 — un matricule laissé vide reçoit le prochain du modèle du site.
-            if (trim((string) ($data['employee_number'] ?? '')) === '') {
-                $data['employee_number'] = $this->numbers->suggest();
-            }
+        $photo = $data['photo'] ?? null;
+        unset($data['photo'], $data['remove_photo']);
+        // ADR-194 — la photo est écrite avant la transaction ; si le dossier
+        // n'est pas créé, elle est retirée : aucun fichier sans dossier.
+        $photoPath = $photo instanceof UploadedFile ? $this->photos->store($photo) : null;
 
-            $data = $this->identityNormalizer->normalize($data);
-            $data = $this->referenceResolver->employeeData($data);
-            $employee = Employee::query()->create($this->addressResolver->resolve($data, $actor));
+        try {
+            return DB::transaction(function () use ($data, $actor, $photoPath): Employee {
+                // ADR-191 — un matricule laissé vide reçoit le prochain du modèle du site.
+                if (trim((string) ($data['employee_number'] ?? '')) === '') {
+                    $data['employee_number'] = $this->numbers->suggest();
+                }
 
-            return $employee->load(['addressEntry', 'department', 'jobTitle']);
-        });
+                $data = $this->identityNormalizer->normalize($data);
+                $data = $this->referenceResolver->employeeData($data);
+
+                if ($photoPath) {
+                    $data['photo_path'] = $photoPath;
+                    $data['photo_updated_at'] = now();
+                }
+
+                $employee = Employee::query()->create($this->addressResolver->resolve($data, $actor));
+
+                return $employee->load(['addressEntry', 'department', 'jobTitle']);
+            });
+        } catch (Throwable $exception) {
+            $this->photos->delete($photoPath);
+
+            throw $exception;
+        }
     }
 }

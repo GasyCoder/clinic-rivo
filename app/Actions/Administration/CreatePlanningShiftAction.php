@@ -3,6 +3,7 @@
 namespace App\Actions\Administration;
 
 use App\Enums\HrReferenceType;
+use App\Enums\PlanningShiftKind;
 use App\Models\Employee;
 use App\Models\PlanningShift;
 use App\Models\User;
@@ -27,6 +28,8 @@ class CreatePlanningShiftAction
 
         return PlanningShift::query()->create([
             ...$data,
+            // ADR-194 — un créneau sans type est du service, comme avant.
+            'kind' => $data['kind'] ?? PlanningShiftKind::Shift->value,
             'employee_id' => $employee->getKey(),
             'department_id' => $department?->getKey() ?? $employee->department_id,
         ])->load(['employee', 'department']);

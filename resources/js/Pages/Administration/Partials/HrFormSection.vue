@@ -1,35 +1,38 @@
 <script setup>
-import Icon from '@/Components/UI/Icon.vue';
+import { computed } from 'vue';
+import { lucideIcon } from '@/lib/icons';
+import Badge from '@/Components/Shadcn/Badge.vue';
 
-defineProps({
+/*
+ * Une étape d'un formulaire RH : son numéro (ou son icône), son titre, ce
+ * qu'on y demande. Les étapes se lisent de haut en bas, dans l'ordre du
+ * geste — jamais un mur de champs sans repère.
+ */
+const props = defineProps({
     number: [Number, String],
     title: String,
     description: String,
-    icon: { type: String, default: 'edit' },
-    tone: { type: String, default: 'primary' },
+    // Un composant lucide, ou un nom de la table `lib/icons.js`.
+    icon: { type: [String, Object, Function], default: 'edit' },
     optional: Boolean,
 });
 
-const tones = {
-    primary: 'bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300',
-    sky: 'bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
-    violet: 'bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300',
-    amber: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-    emerald: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-    slate: 'bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300',
-};
+const glyph = computed(() => (typeof props.icon === 'string' ? lucideIcon(props.icon) : props.icon));
 </script>
 
 <template>
-    <section class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-        <header class="flex items-start gap-3 border-b border-gray-200 bg-gray-50/70 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/40">
-            <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', tones[tone] ?? tones.primary]">
-                <span v-if="number" class="text-sm font-black">{{ number }}</span>
-                <Icon v-else :name="icon" />
+    <section class="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <header class="flex items-start gap-3 border-b border-border bg-muted/40 px-5 py-4">
+            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <span v-if="number" class="text-sm font-bold tabular-nums">{{ number }}</span>
+                <component :is="glyph" v-else class="h-4 w-4" aria-hidden="true" />
             </span>
             <div class="min-w-0 flex-1">
-                <div class="flex flex-wrap items-center gap-2"><h2 class="text-sm font-bold text-slate-800 dark:text-white">{{ title }}</h2><span v-if="optional" class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:bg-gray-900">Facultatif</span></div>
-                <p v-if="description" class="mt-1 text-xs leading-5 text-slate-500">{{ description }}</p>
+                <div class="flex flex-wrap items-center gap-2">
+                    <h2 class="text-sm font-semibold text-foreground">{{ title }}</h2>
+                    <Badge v-if="optional" variant="outline" class="px-1.5 py-0 text-[10px] uppercase tracking-wide">Facultatif</Badge>
+                </div>
+                <p v-if="description" class="mt-0.5 text-xs leading-5 text-muted-foreground">{{ description }}</p>
             </div>
         </header>
         <div class="p-5 sm:p-6"><slot /></div>

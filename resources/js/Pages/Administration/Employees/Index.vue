@@ -19,7 +19,7 @@ import {
     X,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Avatar from '@/Components/Shadcn/Avatar.vue';
+import EmployeePhoto from '@/Components/Administration/EmployeePhoto.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
@@ -64,7 +64,6 @@ const clearSearch = () => {
 
 const restore = (employee) => router.post(hrUrl(`/administration/employees/${employee.uuid}/restore`), {}, { preserveScroll: true });
 
-const initials = (employee) => `${employee.first_name?.[0] ?? ''}${employee.last_name?.[0] ?? ''}`.toUpperCase() || 'RH';
 
 /** « 2024-03-01 » → « 01/03/2024 », sans passer par un fuseau horaire. */
 const frenchDate = (iso) => (iso ? iso.split('-').reverse().join('/') : null);
@@ -259,9 +258,13 @@ const tileBadge = (employee) => (employee.archived ? 'Archivé' : (employee.acti
                         >
                             <td class="px-5 py-3">
                                 <Link :href="hrUrl(`/administration/employees/${employee.uuid}`)" class="group flex items-center gap-3">
-                                    <Avatar size="sm" :variant="employee.archived ? '' : 'primary-pale'" :text="initials(employee)" />
+                                    <!-- ADR-194 — la photo 4 × 4, sinon les initiales. -->
+                                    <EmployeePhoto :src="employee.photo_url" :name="employee.name" size="sm" :class="employee.archived && 'opacity-60 grayscale'" />
                                     <span class="min-w-0">
-                                        <span :class="cn('block truncate font-semibold group-hover:text-primary', employee.archived ? 'text-muted-foreground' : 'text-foreground')">{{ employee.name }}</span>
+                                        <span :class="cn('flex items-center gap-1.5 truncate font-semibold group-hover:text-primary', employee.archived ? 'text-muted-foreground' : 'text-foreground')">
+                                            {{ employee.name }}
+                                            <Badge v-if="employee.is_intern" variant="secondary" class="px-1.5 py-0 text-[10px] uppercase tracking-wide">Stagiaire</Badge>
+                                        </span>
                                         <span class="block font-mono text-xs text-muted-foreground">{{ employee.employee_number }}</span>
                                     </span>
                                 </Link>

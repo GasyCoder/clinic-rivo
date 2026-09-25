@@ -56,7 +56,8 @@ class HrStructureModuleTest extends TestCase
             ->post('/administration/job-titles', ['label' => 'Sage-femme', 'type' => HrReferenceType::Department->value])
             ->assertSessionHasNoErrors();
 
-        $created = HrReferenceValue::query()->where('label', 'Sage-femme')->firstOrFail();
+        // « Sage-femme » est aussi une filière de stage livrée (ADR-194) : on lit la valeur créée.
+        $created = HrReferenceValue::query()->where('label', 'Sage-femme')->latest('id')->firstOrFail();
         $this->assertSame(HrReferenceType::JobTitle, $created->type, 'le type ne vient jamais du navigateur');
         $this->assertSame('SAGE_FEMME', $created->code);
 

@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Enums\HrReferenceType;
 use App\Models\HrReferenceValue;
+use App\Support\Hr\DefaultJobTitleDepartments;
 use Illuminate\Database\Seeder;
 
 class HrReferenceSeeder extends Seeder
@@ -48,7 +49,20 @@ class HrReferenceSeeder extends Seeder
             'INTERN' => 'Stagiaire',
             'VOLUNTEER' => 'Bénévole',
         ],
+        // ADR-194 — les filières de stage, proposées puis modifiables.
+        'INTERNSHIP_FIELD' => [
+            'NURSING' => 'Infirmier',
+            'MIDWIFERY' => 'Sage-femme',
+            'MEDICINE' => 'Médecine',
+            'ANESTHESIA' => 'Anesthésie',
+            'LABORATORY' => 'Laboratoire',
+            'PHARMACY' => 'Pharmacie',
+            'ADMINISTRATION' => 'Administration',
+        ],
     ];
+
+    /** ADR-194 — les types de contrat qui sont des contrats de stage. */
+    private const INTERNSHIP_CONTRACT_TYPES = ['INTERN'];
 
     /** @var array<string, array{label: string, metadata: array<string, mixed>}> */
     private const LEAVE_TYPES = [
@@ -90,10 +104,18 @@ class HrReferenceSeeder extends Seeder
 
                 HrReferenceValue::withTrashed()->updateOrCreate(
                     ['type' => HrReferenceType::from($type), 'code' => $code],
-                    ['label' => $label, 'position' => $position, 'active' => true],
+                    [
+                        'label' => $label, 'position' => $position, 'active' => true,
+                        ...($type === 'CONTRACT_TYPE' && in_array($code, self::INTERNSHIP_CONTRACT_TYPES, true)
+                            ? ['metadata' => ['internship' => true]] : []),
+                    ],
                 );
             }
         }
+
+        // ADR-194 — relie les fonctions livrées à leurs départements, sans
+        // jamais réécrire une correspondance déjà réglée.
+        DefaultJobTitleDepartments::apply();
 
         foreach (array_values(self::LEAVE_TYPES) as $position => $definition) {
             $code = array_search($definition, self::LEAVE_TYPES, true);

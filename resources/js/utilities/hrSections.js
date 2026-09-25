@@ -23,7 +23,7 @@ export const hrSections = (base, can) => (CLINIC_WORKSPACES.find((workspace) => 
  * thème ; toute autre rubrique en a un, et un seul.
  */
 export const HR_SECTION_GROUPS = [
-    { key: 'people', label: 'Personnel', icon: Users, codes: ['hr-employees', 'hr-contracts', 'hr-documents', 'hr-professional-emails'] },
+    { key: 'people', label: 'Personnel', icon: Users, codes: ['hr-employees', 'hr-contracts', 'hr-internships', 'hr-documents', 'hr-professional-emails'] },
     { key: 'time', label: 'Temps de travail', icon: CalendarClock, codes: ['hr-attendance', 'hr-leave', 'hr-planning'] },
     { key: 'steering', label: 'Pilotage', icon: SlidersHorizontal, codes: ['hr-reports', 'hr-block-credit', 'hr-departments', 'hr-job-titles', 'hr-settings'] },
 ];

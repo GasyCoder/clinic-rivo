@@ -6,11 +6,13 @@ const props = defineProps({
     eyebrow: String,
     title: String,
     description: String,
-    icon: { type: String, default: 'users' },
+    // Un nom (table `lib/icons.js`) ou directement le composant lucide :
+    // un nom absent de la table retombait sur une icône de bac.
+    icon: { type: [String, Object, Function], default: 'users' },
     tone: { type: String, default: 'primary' },
 });
 
-const glyph = computed(() => lucideIcon(props.icon));
+const glyph = computed(() => (typeof props.icon === 'string' ? lucideIcon(props.icon) : props.icon));
 
 const tones = {
     primary: 'bg-primary/10 text-primary',

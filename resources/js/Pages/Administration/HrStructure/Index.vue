@@ -5,6 +5,7 @@ import {
     Archive,
     Briefcase,
     BriefcaseBusiness,
+    Building2,
     Check,
     CircleCheck,
     CircleOff,
@@ -30,6 +31,7 @@ import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
+import JobTitleDepartmentsPicker from '@/Components/Administration/JobTitleDepartmentsPicker.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
 import { hrUrl } from '@/utilities/hrUrl';
@@ -38,12 +40,17 @@ import { hrUrl } from '@/utilities/hrUrl';
  * ADR-188 — les modules Départements et Fonctions, une même page pour deux
  * référentiels. Mêmes droits que les Paramètres RH (`hr_settings.*`), mêmes
  * actions : l'écran ne décide rien, le serveur revérifie tout.
+ *
+ * ADR-194 — une fonction y porte aussi les départements où elle existe : le
+ * dossier employé ne propose que les fonctions du département choisi.
  */
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
     kind: { type: String, required: true },
     items: { type: Array, default: () => [] },
+    departmentOptions: { type: Array, default: () => [] },
+    sharedJobTitles: { type: Array, default: () => [] },
 });
 
 const { can } = usePermissions();
@@ -75,6 +82,7 @@ const COPY = {
     },
 };
 const copy = computed(() => COPY[props.kind] ?? COPY.departments);
+const isJobTitles = computed(() => props.kind === 'job-titles');
 /** L'adresse du module, ramenée au site choisi quand l'écran est ouvert sur le portail (ADR-187). */
 const basePath = computed(() => hrUrl(`/administration/${props.kind}`));
 
@@ -104,7 +112,7 @@ const shown = computed(() => {
     return props.items.filter((item) => {
         if (statusFilter.value === 'current' && item.archived) return false;
         if (statusFilter.value !== 'current' && stateOf(item) !== statusFilter.value) return false;
-        const haystack = normalize(`${item.label} ${item.code}`);
+        const haystack = normalize(`${item.label} ${item.code} ${(item.departments ?? []).map((department) => department.label).join(" ")}`);
 
         return terms.every((term) => haystack.includes(term));
     });
@@ -118,7 +126,7 @@ const totalEmployees = computed(() => props.items.filter((item) => ! item.archiv
 const editing = ref(null);
 const dialogOpen = ref(false);
 const codeTouched = ref(false);
-const form = useForm({ label: '', code: '', position: '', active: true });
+const form = useForm({ label: '', code: '', position: '', active: true, department_uuids: [] });
 
 /** Le code proposé depuis le libellé : la même règle que le serveur. */
 const codeFrom = (label) => String(label ?? '')
@@ -147,6 +155,7 @@ const openEdit = (item) => {
     form.code = item.code;
     form.position = item.position ?? '';
     form.active = item.active;
+    form.department_uuids = (item.departments ?? []).map((department) => department.uuid);
     codeTouched.value = true;
     dialogOpen.value = true;
     focusLabel();
@@ -157,7 +166,12 @@ const closeDialog = () => {
 };
 const submit = () => {
     const options = { preserveScroll: true, onSuccess: () => { dialogOpen.value = false; } };
-    const payload = (data) => ({ ...data, position: data.position === '' ? null : data.position });
+    const payload = (data) => ({
+        ...data,
+        position: data.position === '' ? null : data.position,
+        // Les départements ne concernent qu'une fonction (ADR-194).
+        department_uuids: isJobTitles.value ? data.department_uuids : undefined,
+    });
 
     if (editing.value) {
         form.transform(payload).put(`${basePath.value}/${editing.value.uuid}`, options);
@@ -271,6 +285,19 @@ const employeeLine = (item) => {
                             <span class="inline-flex items-center gap-1"><Users class="h-3 w-3" />{{ employeeLine(item) }}</span>
                             <span v-if="item.position">Ordre {{ item.position }}</span>
                         </p>
+                        <!-- ADR-194 — où la fonction existe ; pour un département, ses fonctions. -->
+                        <p v-if="isJobTitles" class="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                            <template v-if="item.departments?.length">
+                                <Building2 class="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                                <span v-for="department in item.departments" :key="department.uuid" :class="cn('rounded-full px-2 py-0.5 font-medium', department.archived ? 'bg-muted text-muted-foreground line-through' : 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300')">{{ department.label }}</span>
+                            </template>
+                            <span v-else class="text-muted-foreground">Proposée dans tous les départements</span>
+                        </p>
+                        <p v-else-if="! item.archived" class="mt-1 text-xs leading-5 text-muted-foreground">
+                            <template v-if="item.job_titles?.length">Fonctions : {{ item.job_titles.join(', ') }}</template>
+                            <template v-else>Aucune fonction reliée</template>
+                            <template v-if="sharedJobTitles.length"> · + {{ sharedJobTitles.length }} proposée{{ sharedJobTitles.length > 1 ? 's' : '' }} partout</template>
+                        </p>
                         <p v-if="item.archived && item.delete_reason" class="mt-1 text-xs text-muted-foreground">Motif : {{ item.delete_reason }}</p>
                     </div>
                     <div class="ms-auto flex shrink-0 items-center gap-1">
@@ -322,6 +349,7 @@ const employeeLine = (item) => {
                         <Input v-model="form.position" type="number" min="0" max="65535" inputmode="numeric" />
                     </FormField>
                 </div>
+                <JobTitleDepartmentsPicker v-if="isJobTitles" v-model="form.department_uuids" :departments="departmentOptions" :error="form.errors.department_uuids" />
                 <label v-if="editing" for="structure-active" class="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-muted/40 px-3.5 py-3">
                     <Checkbox id="structure-active" v-model="form.active" class="mt-0.5" />
                     <span>

@@ -88,6 +88,11 @@ class AppServiceProvider extends ServiceProvider
         // ADR-098 — « Médicaments & stock » is one page: the catalog view is
         // enough to open it, stock columns follow stock.view.
         Gate::define('view-pharmacy-catalog', fn (User $user): bool => $user->can('stock.view') || $user->can('medicines.view'));
+        // ADR-194 — la photo d'un employé se voit partout où son nom se voit
+        // déjà dans le module RH : dossier, planning, contrats, présences, congés.
+        Gate::define('view-employee-photo', fn (User $user): bool => $user->can('employees.view')
+            || $user->can('planning.view') || $user->can('contracts.view')
+            || $user->can('attendance.view') || $user->can('leave.view'));
         // ADR-172 — le dossier chirurgical imprimable s'ouvre au bloc comme à l'anesthésie ;
         // chaque feuille reste gardée par son propre droit (SurgicalDossierSheet).
         Gate::define('view-surgical-dossier', fn (User $user): bool => $user->can('surgery.view') || $user->can('anesthesia.view'));

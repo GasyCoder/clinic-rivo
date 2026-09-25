@@ -29,8 +29,17 @@ class AttendanceController extends Controller
         $from = $request->date('from')?->toDateString() ?? now()->startOfMonth()->toDateString();
         $to = $request->date('to')?->toDateString() ?? now()->endOfMonth()->toDateString();
         $employeeUuid = $this->employeeUuid($request);
+        // Une session sans sortie reste ouverte quelle que soit sa date : le
+        // chiffre de l'accueil RH les compte toutes, la liste doit toutes les
+        // montrer — une sortie oubliée le mois dernier n'est pas hors sujet.
+        $openOnly = $request->boolean('open');
 
-        $query = $this->recordsQuery($from, $to, $employeeUuid);
+        $query = $openOnly
+            ? AttendanceRecord::query()->whereNull('ended_at')->when($employeeUuid, fn (Builder $query) => $query->whereHas(
+                'employee',
+                fn (Builder $employee) => $employee->where('uuid', $employeeUuid),
+            ))
+            : $this->recordsQuery($from, $to, $employeeUuid);
         $records = (clone $query)
             ->with(['employee.department', 'employee.jobTitle'])
             ->latest('started_at')->paginate(30)->withQueryString()
@@ -39,7 +48,7 @@ class AttendanceController extends Controller
         return Inertia::render('Administration/Attendance/Index', [
             'records' => $records,
             'employees' => $this->employees(),
-            'filters' => ['from' => $from, 'to' => $to, 'employee' => $employeeUuid],
+            'filters' => ['from' => $from, 'to' => $to, 'employee' => $employeeUuid, 'open' => $openOnly],
             'summary' => [
                 'sessions' => (clone $query)->count(),
                 'employees' => (clone $query)->distinct('employee_id')->count('employee_id'),

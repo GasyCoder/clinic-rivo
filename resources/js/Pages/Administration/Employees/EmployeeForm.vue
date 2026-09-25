@@ -14,12 +14,14 @@ import {
     Hash,
     HeartHandshake,
     IdCard,
+    Info,
     ListPlus,
     Lock,
     Mail,
     MapPin,
     Pencil,
     Phone,
+    ScanFace,
     Shirt,
     Sparkles,
     User,
@@ -36,6 +38,8 @@ import ShadSelect from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
+import EmployeePhoto from '@/Components/Administration/EmployeePhoto.vue';
+import EmployeePhotoField from '@/Components/Administration/EmployeePhotoField.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
 import { hrUrl } from '@/utilities/hrUrl';
@@ -45,6 +49,12 @@ import { hrUrl } from '@/utilities/hrUrl';
  * sur le portail. Seuls le genre, le nom et le matricule sont exigés ; le reste
  * se complète plus tard depuis la fiche. Le compte de connexion ne se relie plus
  * ici mais depuis « Utilisateurs », à la création du compte (ADR-188).
+ *
+ * ADR-194 — la photo d'identité 4 × 4 se règle à tout moment : le bandeau
+ * d'identité, en tête de chaque étape, la porte avec le nom et le poste. Et la
+ * fonction suit le département : choisir « Laboratoire » ne propose que les
+ * fonctions de ce département (module Fonctions) ; le serveur refuse de toute
+ * façon un couple incohérent (JobTitleDepartmentGuard).
  */
 const props = defineProps({
     form: Object,
@@ -60,6 +70,11 @@ const props = defineProps({
     // ADR-191 — à la création : le matricule proposé selon le modèle du site.
     suggestedEmployeeNumber: { type: String, default: '' },
     employeeNumberModel: { type: String, default: '' },
+    // ADR-194 — le couple département/fonction déjà enregistré, toujours choisissable.
+    currentPair: { type: Object, default: null },
+    currentPhotoUrl: { type: String, default: null },
+    // ADR-194 — « Nouveau stagiaire » : le stage s'enregistre juste après.
+    internshipIntent: { type: Boolean, default: false },
 });
 const emit = defineEmits(['submit']);
 const { can } = usePermissions();
@@ -72,7 +87,7 @@ const steps = [
     { number: 5, label: 'Confirmer', hint: 'Contrôle du dossier', icon: CircleCheck },
 ];
 const stepFields = {
-    1: ['sex', 'last_name', 'first_name', 'birth_date', 'birth_place'],
+    1: ['sex', 'last_name', 'first_name', 'birth_date', 'birth_place', 'photo', 'remove_photo'],
     2: ['employee_number', 'department_uuid', 'job_title_uuid', 'hire_date'],
     3: ['phone', 'address_entry_uuid', 'new_address_label', 'identity_document_type', 'identity_document_number', 'identity_document_issued_on', 'identity_document_issued_at'],
     4: ['marital_status', 'children_count', 'children_details', 'diploma', 'education_level', 'badge', 'blouse', 'observation', 'active'],
@@ -84,12 +99,18 @@ const requiredLabels = { employee_number: 'Le matricule', last_name: 'Le nom', s
 const currentStep = ref(1);
 const maxStepReached = ref(1);
 const addressMode = ref(props.form.new_address_label ? 'new' : 'existing');
+const photoField = ref(null);
+const dropping = ref(false);
 const currentMeta = computed(() => steps[currentStep.value - 1]);
 const progress = computed(() => Math.round((currentStep.value / steps.length) * 100));
 const derivedCivility = computed(() => ({ M: 'Monsieur (M.)', F: 'Madame (Mme)' }[props.form.sex] || 'Attribuée après le choix du genre'));
-const employeeName = computed(() => [props.form.last_name, props.form.first_name].filter(Boolean).join(' ') || 'Identité à compléter');
-const selectedDepartment = computed(() => props.departments.find((item) => item.uuid === props.form.department_uuid)?.label || 'Non affecté');
-const selectedJobTitle = computed(() => props.jobTitles.find((item) => item.uuid === props.form.job_title_uuid)?.label || 'Fonction non renseignée');
+const typedName = computed(() => [props.form.last_name, props.form.first_name].filter(Boolean).join(' '));
+const employeeName = computed(() => typedName.value || 'Identité à compléter');
+const photoPreview = computed(() => photoField.value?.preview ?? (props.form.remove_photo ? null : props.currentPhotoUrl));
+const departmentRecord = computed(() => props.departments.find((item) => item.uuid === props.form.department_uuid));
+const jobTitleRecord = computed(() => props.jobTitles.find((item) => item.uuid === props.form.job_title_uuid));
+const selectedDepartment = computed(() => departmentRecord.value?.label || 'Non affecté');
+const selectedJobTitle = computed(() => jobTitleRecord.value?.label || 'Fonction non renseignée');
 const selectedAddress = computed(() => {
     if (addressMode.value === 'new') return props.form.new_address_label || 'Adresse non renseignée';
     return props.addresses.find((item) => item.uuid === props.form.address_entry_uuid)?.label || 'Adresse non renseignée';
@@ -108,7 +129,50 @@ const referenceOptions = (items, empty, archived) => [
     })),
 ];
 const departmentOptions = computed(() => referenceOptions(props.departments, 'Non affecté', 'archivé'));
-const jobTitleOptions = computed(() => referenceOptions(props.jobTitles, 'Non renseignée', 'archivée'));
+
+/*
+ * ADR-194 — département → fonctions. Une fonction reliée à aucun département
+ * reste proposée partout ; le couple déjà enregistré reste choisissable.
+ */
+const isCurrentPair = (departmentUuid, jobTitleUuid) => props.currentPair
+    && props.currentPair.department_uuid === departmentUuid
+    && props.currentPair.job_title_uuid === jobTitleUuid;
+const belongsTo = (jobTitle, departmentUuid) => ! departmentUuid
+    || (jobTitle.department_uuids ?? []).length === 0
+    || jobTitle.department_uuids.includes(departmentUuid)
+    || isCurrentPair(departmentUuid, jobTitle.uuid);
+const allowedJobTitles = computed(() => (props.jobTitles ?? []).filter((item) => belongsTo(item, props.form.department_uuid)));
+const jobTitleOptions = computed(() => {
+    const option = (item) => ({
+        value: item.uuid,
+        label: item.available ? item.label : `${item.label} — archivée`,
+        disabled: ! item.available,
+    });
+    const none = { value: '', label: 'Non renseignée' };
+
+    if (! props.form.department_uuid) return [none, ...allowedJobTitles.value.map(option)];
+
+    const own = allowedJobTitles.value.filter((item) => (item.department_uuids ?? []).includes(props.form.department_uuid) || isCurrentPair(props.form.department_uuid, item.uuid));
+    const shared = allowedJobTitles.value.filter((item) => (item.department_uuids ?? []).length === 0 && ! own.includes(item));
+
+    return [
+        none,
+        ...(own.length ? [{ label: `Fonctions de ${selectedDepartment.value}`, items: own.map(option) }] : []),
+        ...(shared.length ? [{ label: 'Proposées dans tous les départements', items: shared.map(option) }] : []),
+    ];
+});
+// Changer de département retire une fonction qui n'y existe pas, et le dit.
+const clearedJobTitle = ref('');
+watch(() => props.form.department_uuid, (departmentUuid) => {
+    const current = jobTitleRecord.value;
+    if (current && ! belongsTo(current, departmentUuid)) {
+        clearedJobTitle.value = current.label;
+        props.form.job_title_uuid = '';
+    } else {
+        clearedJobTitle.value = '';
+    }
+});
+watch(() => props.form.job_title_uuid, (value) => { if (value) clearedJobTitle.value = ''; });
 const addressOptions = computed(() => referenceOptions(props.addresses, 'Non renseignée', 'archivée'));
 const listOptions = (items, empty) => [{ value: '', label: empty }, ...(items ?? []).map((item) => ({ value: item.value, label: item.label }))];
 const identityTypeOptions = computed(() => listOptions(props.options?.identity_document_types, 'Non renseigné'));
@@ -133,6 +197,11 @@ const setAddressMode = (mode) => {
     if (mode === 'new') props.form.address_entry_uuid = '';
     else props.form.new_address_label = '';
     props.form.clearErrors('address_entry_uuid', 'new_address_label');
+};
+/** Photo : déposer une image sur le grand cadre de l'étape Identité. */
+const onDrop = (event) => {
+    dropping.value = false;
+    photoField.value?.acceptFile(event.dataTransfer?.files?.[0]);
 };
 const scrollToWizard = () => nextTick(() => document.getElementById('employee-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
 const stepState = (number) => (number === currentStep.value ? 'current' : number > maxStepReached.value ? 'locked' : number < currentStep.value ? 'done' : 'reached');
@@ -192,7 +261,7 @@ watch(
 );
 
 const recap = computed(() => [
-    { step: 1, label: 'Identité', icon: User, tone: 'text-primary', title: `${derivedCivility.value} · ${employeeName.value}`, lines: [frenchDate(props.form.birth_date) ? `Né(e) le ${frenchDate(props.form.birth_date)}${props.form.birth_place ? ` à ${props.form.birth_place}` : ''}` : 'Naissance non renseignée'] },
+    { step: 1, label: 'Identité', icon: User, tone: 'text-primary', photo: true, title: `${derivedCivility.value} · ${employeeName.value}`, lines: [frenchDate(props.form.birth_date) ? `Né(e) le ${frenchDate(props.form.birth_date)}${props.form.birth_place ? ` à ${props.form.birth_place}` : ''}` : 'Naissance non renseignée', photoPreview.value ? 'Photo d’identité ajoutée' : 'Sans photo'] },
     { step: 2, label: 'Poste', icon: Briefcase, tone: 'text-sky-600 dark:text-sky-400', title: props.form.employee_number || 'Matricule à saisir', mono: true, lines: [`${selectedJobTitle.value} · ${selectedDepartment.value}`] },
     { step: 3, label: 'Contact', icon: Phone, tone: 'text-cyan-600 dark:text-cyan-400', title: props.form.phone || props.currentEmail || 'Aucun contact renseigné', lines: [selectedAddress.value] },
     { step: 4, label: 'Compléments', icon: ListPlus, tone: 'text-violet-600 dark:text-violet-400', title: `${optionalDetailsCount.value} information(s) complémentaire(s)`, lines: [props.form.active ? 'Dossier actif' : 'Dossier inactif'] },
@@ -260,17 +329,56 @@ const recap = computed(() => [
             <Badge variant="outline" class="tabular-nums">{{ progress }} %</Badge>
         </div>
 
+        <!-- ADR-194 — le bandeau d'identité, à chaque étape : on voit qui l'on
+             enregistre, et la photo 4 × 4 se règle d'ici à tout moment. -->
+        <Card class="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <EmployeePhotoField
+                ref="photoField"
+                v-model="form.photo"
+                v-model:remove="form.remove_photo"
+                :current-url="currentPhotoUrl"
+                :name="typedName"
+                :error="form.errors.photo"
+            />
+            <div class="min-w-0 sm:text-end">
+                <p class="truncate text-base font-bold text-foreground">{{ employeeName }}</p>
+                <p class="mt-0.5 truncate text-xs text-muted-foreground">
+                    <span v-if="form.employee_number" class="font-mono">{{ form.employee_number }}</span>
+                    <span v-else>Matricule à venir</span>
+                    · {{ jobTitleRecord?.label || 'Fonction à choisir' }}<span v-if="departmentRecord"> · {{ departmentRecord.label }}</span>
+                </p>
+                <Badge v-if="internshipIntent" variant="secondary" class="mt-1.5"><GraduationCap class="h-3.5 w-3.5" />Stagiaire — le stage suit ce dossier</Badge>
+            </div>
+        </Card>
+
         <!-- 1 · Identité -->
         <Card v-if="currentStep === 1" class="grid overflow-hidden lg:grid-cols-[300px_minmax(0,1fr)]">
             <aside class="border-b border-border bg-muted/40 p-5 lg:border-b-0 lg:border-e">
-                <span class="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary"><User class="h-5 w-5" /></span>
-                <h2 class="mt-4 font-heading text-lg font-bold text-foreground">Identité essentielle</h2>
-                <p class="mt-2 text-sm leading-6 text-muted-foreground">Comme à l’accueil Patient, commencez uniquement par identifier la personne. La civilité n’est plus une saisie séparée.</p>
-                <div class="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
-                    <p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300"><Sparkles class="h-3.5 w-3.5" /> Automatisation active</p>
-                    <p class="mt-1 text-sm font-semibold text-emerald-800 dark:text-emerald-200">Civilité : {{ derivedCivility }}</p>
-                    <p class="mt-1 text-xs leading-5 text-emerald-700/80 dark:text-emerald-300/80">Cette valeur est recalculée et sécurisée par le serveur.</p>
-                </div>
+                <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Photo d’identité 4 × 4</p>
+                <button
+                    type="button"
+                    :class="cn(
+                        'group mt-3 grid aspect-square w-full max-w-[13rem] place-items-center overflow-hidden rounded-xl border-2 border-dashed bg-card transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        dropping ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50',
+                    )"
+                    aria-label="Choisir ou déposer la photo d’identité"
+                    @click="photoField?.open()"
+                    @dragover.prevent="dropping = true"
+                    @dragleave.prevent="dropping = false"
+                    @drop.prevent="onDrop"
+                >
+                    <img v-if="photoPreview" :src="photoPreview" alt="Aperçu de la photo d’identité" class="h-full w-full object-cover">
+                    <span v-else class="flex flex-col items-center gap-2 px-4 text-center text-muted-foreground">
+                        <ScanFace class="h-9 w-9" />
+                        <span class="text-sm font-semibold text-foreground">Ajouter la photo</span>
+                        <span class="text-xs leading-5">Cliquez ou déposez une image, puis cadrez le visage.</span>
+                    </span>
+                </button>
+                <ul class="mt-4 space-y-1.5 text-xs leading-5 text-muted-foreground">
+                    <li class="flex gap-2"><Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />Visage de face, fond clair</li>
+                    <li class="flex gap-2"><Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />JPEG, PNG ou WebP</li>
+                    <li class="flex gap-2"><Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />Recadrée en carré, gardée en privé</li>
+                </ul>
             </aside>
             <div class="space-y-6 p-5 sm:p-6">
                 <FormField as="div" label="Genre" required :error="form.errors.sex">
@@ -313,6 +421,9 @@ const recap = computed(() => [
                         <IconInput id="birth_place" v-model="form.birth_place" :icon="MapPin" :class="fieldClass('birth_place')" />
                     </FormField>
                 </div>
+                <p class="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs leading-5 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+                    <Sparkles class="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>Civilité : <strong>{{ derivedCivility }}</strong> — calculée depuis le genre et sécurisée par le serveur.</span>
+                </p>
             </div>
         </Card>
 
@@ -321,7 +432,12 @@ const recap = computed(() => [
             <aside class="border-b border-border bg-sky-50/60 p-5 dark:bg-sky-950/15 lg:border-b-0 lg:border-e">
                 <span class="grid h-11 w-11 place-items-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"><Briefcase class="h-5 w-5" /></span>
                 <h2 class="mt-4 font-heading text-lg font-bold text-foreground">Affectation professionnelle</h2>
-                <p class="mt-2 text-sm leading-6 text-muted-foreground">Le matricule est l’identifiant RH local. La fonction sélectionnée devient la référence unique ; son libellé historique est synchronisé en arrière-plan.</p>
+                <p class="mt-2 text-sm leading-6 text-muted-foreground">Choisissez d’abord le département : la liste des fonctions ne montre ensuite que celles qui y existent. Le matricule est l’identifiant RH local.</p>
+                <p class="mt-3 text-xs leading-5 text-muted-foreground">
+                    La correspondance fonctions ↔ départements se règle dans le
+                    <Link v-if="can('hr_settings.view')" :href="hrUrl('/administration/job-titles')" class="font-semibold text-primary hover:underline">module Fonctions</Link>
+                    <span v-else>module Fonctions</span>.
+                </p>
                 <p class="mt-4 rounded-lg border border-border bg-card/80 p-3 text-xs leading-5 text-muted-foreground">La création d’un dossier n’ouvre ni compte utilisateur ni contrat. Un compte de connexion se relie à cette fiche depuis « Utilisateurs », au moment de le créer.</p>
             </aside>
             <div class="grid content-start gap-4 p-5 sm:grid-cols-2 sm:p-6">
@@ -347,7 +463,14 @@ const recap = computed(() => [
                     <p v-if="! jobTitles?.length" class="mt-1.5 text-xs leading-5 text-muted-foreground">
                         Aucune fonction n’est encore créée<template v-if="can('hr_settings.view')"> : <Link :href="hrUrl('/administration/job-titles')" class="font-semibold text-primary hover:underline">ouvrir le module Fonctions</Link></template>.
                     </p>
+                    <p v-else class="mt-1.5 text-xs text-muted-foreground">
+                        <template v-if="form.department_uuid">{{ allowedJobTitles.length }} fonction{{ allowedJobTitles.length > 1 ? 's' : '' }} pour {{ selectedDepartment }}.</template>
+                        <template v-else>Choisissez un département pour ne voir que ses fonctions.</template>
+                    </p>
                 </FormField>
+                <p v-if="clearedJobTitle" class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 sm:col-span-2 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                    <Info class="mt-0.5 h-3.5 w-3.5 shrink-0" />« {{ clearedJobTitle }} » n’existe pas dans {{ selectedDepartment }} : choisissez une fonction de ce département.
+                </p>
             </div>
         </Card>
 
@@ -537,8 +660,13 @@ const recap = computed(() => [
                             <span :class="cn('flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide', item.tone)"><component :is="item.icon" class="h-3.5 w-3.5" />{{ item.label }}</span>
                             <Pencil class="h-3.5 w-3.5 text-muted-foreground transition-colors group-hover:text-primary" />
                         </span>
-                        <strong :class="cn('mt-3 block break-words text-base text-foreground', item.mono && 'font-mono')">{{ item.title }}</strong>
-                        <span v-for="(line, index) in item.lines" :key="index" class="mt-1 block text-xs text-muted-foreground">{{ line }}</span>
+                        <span :class="cn('mt-3 flex items-center gap-3', ! item.photo && 'block')">
+                            <EmployeePhoto v-if="item.photo" :src="photoPreview" :name="typedName" size="md" />
+                            <span class="min-w-0">
+                                <strong :class="cn('block break-words text-base text-foreground', item.mono && 'font-mono')">{{ item.title }}</strong>
+                                <span v-for="(line, index) in item.lines" :key="index" class="mt-1 block text-xs text-muted-foreground">{{ line }}</span>
+                            </span>
+                        </span>
                     </button>
                 </div>
             </Card>
@@ -548,9 +676,13 @@ const recap = computed(() => [
                     <h2 class="mt-4 font-heading text-lg font-bold text-emerald-900 dark:text-emerald-100">Ce qui sera automatisé</h2>
                     <ul class="mt-3 space-y-2.5 text-sm leading-5 text-emerald-800 dark:text-emerald-200">
                         <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Civilité calculée depuis le genre.</span></li>
-                        <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Fonction historique synchronisée avec le référentiel.</span></li>
+                        <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Fonction vérifiée pour le département choisi.</span></li>
+                        <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Photo recadrée en 4 × 4 et gardée en privé.</span></li>
                         <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Nouvelle adresse ajoutée une seule fois au référentiel.</span></li>
                     </ul>
+                    <p v-if="internshipIntent" class="mt-4 flex gap-2 rounded-lg bg-card p-3 text-xs leading-5 text-foreground ring-1 ring-border">
+                        <GraduationCap class="mt-0.5 h-4 w-4 shrink-0 text-primary" />Après l’enregistrement, vous saisirez son stage : filière, école, encadrant et dates.
+                    </p>
                     <p class="mt-5 rounded-lg border border-emerald-200 bg-card/70 p-3 text-xs leading-5 text-emerald-800 dark:border-emerald-900 dark:text-emerald-200">Le compte utilisateur, le contrat et le dossier patient ne sont jamais créés implicitement : chacun possède ses propres droits et son propre audit.</p>
                 </div>
             </Card>

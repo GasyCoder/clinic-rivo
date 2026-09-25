@@ -9,6 +9,7 @@ use App\Models\Concerns\SoftDeletable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
@@ -39,6 +40,35 @@ class HrReferenceValue extends Model
     public function scopeOfType(Builder $query, HrReferenceType $type): Builder
     {
         return $query->where('type', $type->value);
+    }
+
+    /**
+     * ADR-194 — une fonction liste les départements où elle existe. Sans
+     * aucun lien, elle reste proposée partout.
+     */
+    public function departments(): BelongsToMany
+    {
+        return $this->belongsToMany(self::class, 'hr_job_title_departments', 'job_title_id', 'department_id')
+            ->withTimestamps();
+    }
+
+    /** Les fonctions reliées à ce département. */
+    public function departmentJobTitles(): BelongsToMany
+    {
+        return $this->belongsToMany(self::class, 'hr_job_title_departments', 'department_id', 'job_title_id')
+            ->withTimestamps();
+    }
+
+    public function internshipContracts(): HasMany
+    {
+        return $this->hasMany(EmploymentContract::class, 'internship_field_id');
+    }
+
+    /** ADR-194 — un type de contrat marqué « contrat de stage » dans Paramètres RH. */
+    public function isInternshipContractType(): bool
+    {
+        return $this->type === HrReferenceType::ContractType
+            && (bool) ($this->metadata['internship'] ?? false);
     }
 
     public function departmentEmployees(): HasMany
@@ -78,7 +108,8 @@ class HrReferenceValue extends Model
             || $this->contracts()->withTrashed()->exists()
             || $this->planningShifts()->exists()
             || $this->leaveRequests()->exists()
-            || $this->attestationDocuments()->withTrashed()->exists();
+            || $this->attestationDocuments()->withTrashed()->exists()
+            || $this->internshipContracts()->withTrashed()->exists();
     }
 
     protected function auditModule(): ?string

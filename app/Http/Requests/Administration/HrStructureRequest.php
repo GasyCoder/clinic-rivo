@@ -62,6 +62,15 @@ class HrStructureRequest extends FormRequest
             ],
             'active' => ['sometimes', 'boolean'],
             'position' => ['nullable', 'integer', 'min:0', 'max:65535'],
+            // ADR-194 — les départements où cette fonction existe. Omettre la
+            // clé laisse les liens tels quels ; une liste vide les retire tous.
+            'department_uuids' => [Rule::excludeUnless($type === HrReferenceType::JobTitle), 'sometimes', 'array', 'max:100'],
+            'department_uuids.*' => [
+                Rule::excludeUnless($type === HrReferenceType::JobTitle), 'uuid', 'distinct',
+                Rule::exists('hr_reference_values', 'uuid')
+                    ->where('type', HrReferenceType::Department->value)
+                    ->whereNull('deleted_at'),
+            ],
         ];
     }
 
@@ -78,7 +87,10 @@ class HrStructureRequest extends FormRequest
 
     public function attributes(): array
     {
-        return ['label' => 'libellé', 'code' => 'code', 'position' => 'ordre'];
+        return [
+            'label' => 'libellé', 'code' => 'code', 'position' => 'ordre',
+            'department_uuids' => 'départements', 'department_uuids.*' => 'département',
+        ];
     }
 
     public function referenceType(): HrReferenceType

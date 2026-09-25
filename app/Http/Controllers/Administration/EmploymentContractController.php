@@ -19,6 +19,7 @@ use App\Models\GeneratedDocument;
 use App\Models\HrReferenceValue;
 use App\Services\Administration\HrPresenter;
 use App\Services\Spreadsheet\ExcelWorkbook;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -34,7 +35,7 @@ class EmploymentContractController extends Controller
     {
         Gate::forUser($request->user())->authorize('viewAny', EmploymentContract::class);
         $search = trim((string) $request->query('q', ''));
-        $status = in_array($request->query('status'), ['current', 'future', 'ended', 'archived', 'all'], true)
+        $status = in_array($request->query('status'), ['current', 'ending', 'future', 'ended', 'archived', 'all'], true)
             ? $request->query('status') : 'current';
         $today = now()->toDateString();
 
@@ -44,6 +45,9 @@ class EmploymentContractController extends Controller
             ->when($status === 'current', fn ($query) => $query
                 ->whereDate('starts_on', '<=', $today)
                 ->where(fn ($period) => $period->whereNull('ends_on')->orWhereDate('ends_on', '>=', $today)))
+            // La définition du chiffre « contrats qui finissent sous 30 jours »
+            // de l'accueil RH (HrOverviewService) : la carte ouvre cette liste.
+            ->when($status === 'ending', fn ($query) => $this->endingSoon($query))
             ->when($status === 'future', fn ($query) => $query->whereDate('starts_on', '>', $today))
             ->when($status === 'ended', fn ($query) => $query->whereDate('ends_on', '<', $today))
             ->when($search !== '', fn ($query) => $query->where(function ($nested) use ($search): void {
@@ -54,7 +58,7 @@ class EmploymentContractController extends Controller
                         ->orWhere('last_name', 'like', "%{$search}%"))
                     ->orWhereHas('contractType', fn ($type) => $type->where('label', 'like', "%{$search}%"));
             }))
-            ->with(['employee.department', 'employee.jobTitle', 'contractType' => fn ($query) => $query->withTrashed()])
+            ->with(['employee.department', 'employee.jobTitle', 'contractType' => fn ($query) => $query->withTrashed(), 'internshipField', 'internshipSupervisor'])
             ->latest('starts_on')->paginate(20)->withQueryString()
             ->through(fn ($contract) => $this->presenter->contract($contract));
 
@@ -64,6 +68,7 @@ class EmploymentContractController extends Controller
             'summary' => [
                 'current' => EmploymentContract::query()->whereDate('starts_on', '<=', $today)
                     ->where(fn ($period) => $period->whereNull('ends_on')->orWhereDate('ends_on', '>=', $today))->count(),
+                'ending' => $this->endingSoon(EmploymentContract::query())->count(),
                 'future' => EmploymentContract::query()->whereDate('starts_on', '>', $today)->count(),
                 'ended' => EmploymentContract::query()->whereDate('ends_on', '<', $today)->count(),
                 'archived' => EmploymentContract::onlyTrashed()->count(),
@@ -75,19 +80,26 @@ class EmploymentContractController extends Controller
     {
         Gate::forUser($request->user())->authorize('create', EmploymentContract::class);
 
+        $formData = $this->formData();
+
         return Inertia::render('Administration/Contracts/Create', [
-            ...$this->formData(),
+            ...$formData,
             'selectedEmployeeUuid' => $request->query('employee'),
+            // ADR-194 — « Enregistrer un stage » ouvre le formulaire sur le
+            // premier type marqué contrat de stage.
+            'selectedContractTypeUuid' => $request->query('type') === 'stage'
+                ? collect($formData['contractTypes'])->firstWhere('internship', true)['uuid'] ?? null
+                : null,
         ]);
     }
 
     public function edit(Request $request, EmploymentContract $contract): Response
     {
         Gate::forUser($request->user())->authorize('update', $contract);
-        $contract->load(['employee.department', 'employee.jobTitle', 'contractType']);
+        $contract->load(['employee.department', 'employee.jobTitle', 'contractType', 'internshipField', 'internshipSupervisor']);
 
         return Inertia::render('Administration/Contracts/Edit', [
-            ...$this->formData(),
+            ...$this->formData($contract),
             'contract' => $this->presenter->contract($contract),
         ]);
     }
@@ -127,7 +139,7 @@ class EmploymentContractController extends Controller
     {
         abort_unless($request->user()->can('contracts.print'), 403);
         Gate::forUser($request->user())->authorize('view', $contract);
-        $contract->load(['employee.department', 'employee.jobTitle', 'employee.addressEntry', 'contractType']);
+        $contract->load(['employee.department', 'employee.jobTitle', 'employee.addressEntry', 'contractType', 'internshipField', 'internshipSupervisor']);
 
         $user = $request->user();
 
@@ -161,11 +173,12 @@ class EmploymentContractController extends Controller
     {
         abort_unless($request->user()->can('contracts.export'), 403);
         $contracts = EmploymentContract::withTrashed()
-            ->with(['employee', 'contractType' => fn ($query) => $query->withTrashed()])
+            ->with(['employee', 'contractType' => fn ($query) => $query->withTrashed(), 'internshipField', 'internshipSupervisor'])
             ->latest('starts_on')->get();
 
         return $excel->download('contrats-'.now()->format('Y-m-d'), 'Contrats', [
             'UUID', 'Matricule', 'Employé', 'Type', 'Référence', 'Signature', 'Début', 'Fin essai', 'Fin', 'État', 'Observation',
+            'Filière de stage', 'École', 'Niveau', 'Encadrant',
         ], $contracts->map(fn ($contract) => [
             $contract->uuid, $contract->employee->employee_number,
             trim($contract->employee->last_name.' '.$contract->employee->first_name),
@@ -173,19 +186,55 @@ class EmploymentContractController extends Controller
             $contract->signed_on?->toDateString(), $contract->starts_on?->toDateString(),
             $contract->trial_ends_on?->toDateString(), $contract->ends_on?->toDateString(),
             $contract->trashed() ? 'ARCHIVÉ' : 'ACTIF', $contract->observation,
+            $contract->internshipField?->label, $contract->internship_school, $contract->internship_level,
+            $contract->internshipSupervisor
+                ? trim($contract->internshipSupervisor->last_name.' '.$contract->internshipSupervisor->first_name)
+                : null,
         ]));
     }
 
     /** @return array<string, mixed> */
-    private function formData(): array
+    private function formData(?EmploymentContract $contract = null): array
     {
         return [
             'employees' => Employee::query()->where('active', true)
                 ->with(['department', 'jobTitle'])->orderBy('last_name')->get()
                 ->map(fn ($employee) => $this->presenter->employeeOption($employee)),
+            // ADR-194 — `internship` : le type ouvre la section « Stage » du formulaire.
             'contractTypes' => HrReferenceValue::query()->ofType(HrReferenceType::ContractType)
                 ->where('active', true)->orderBy('position')->orderBy('label')->get()
-                ->map(fn ($type) => ['uuid' => $type->uuid, 'label' => $type->label]),
+                ->map(fn (HrReferenceValue $type) => [
+                    'uuid' => $type->uuid,
+                    'label' => $type->label,
+                    'internship' => $type->isInternshipContractType(),
+                ]),
+            // La filière déjà enregistrée reste proposée même archivée.
+            'internshipFields' => HrReferenceValue::withTrashed()->ofType(HrReferenceType::InternshipField)
+                ->where(function ($query) use ($contract): void {
+                    $query->where(fn ($active) => $active->where('active', true)->whereNull('deleted_at'));
+                    if ($contract?->internship_field_id) {
+                        $query->orWhere('id', $contract->internship_field_id);
+                    }
+                })
+                ->orderBy('position')->orderBy('label')->get()
+                ->map(fn (HrReferenceValue $field) => [
+                    'uuid' => $field->uuid,
+                    'label' => $field->label,
+                    'available' => $field->active && ! $field->trashed(),
+                ]),
         ];
+    }
+
+    /**
+     * Les contrats qui finissent dans les 30 prochains jours — la même règle
+     * que le chiffre de l'accueil RH, pour que la carte et la liste disent le
+     * même nombre.
+     *
+     * @param  Builder<EmploymentContract>  $query
+     * @return Builder<EmploymentContract>
+     */
+    private function endingSoon($query)
+    {
+        return $query->whereBetween('ends_on', [now()->toDateString(), now()->addDays(30)->toDateString()]);
     }
 }

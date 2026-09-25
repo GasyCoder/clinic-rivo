@@ -146,6 +146,9 @@ abstract class EmployeeDataRequest extends FormRequest
             // à la création du compte, plus depuis la fiche : refusé en clair
             // plutôt qu'ignoré, pour qu'un ancien client le sache.
             'user_uuid' => ['prohibited'],
+            // ADR-194 — photo d'identité 4 × 4, recadrée et réencodée par le serveur.
+            'photo' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:5120', 'dimensions:min_width=120,min_height=120'],
+            'remove_photo' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -211,6 +214,8 @@ abstract class EmployeeDataRequest extends FormRequest
             'observation' => 'observation',
             'active' => 'état actif',
             'user_uuid' => 'compte de connexion',
+            'photo' => 'photo d’identité',
+            'remove_photo' => 'retrait de la photo',
         ];
     }
 
@@ -220,6 +225,10 @@ abstract class EmployeeDataRequest extends FormRequest
             'employee_number.unique' => 'Ce matricule est déjà utilisé, y compris par un dossier archivé.',
             'user_uuid.prohibited' => 'Le compte de connexion se relie depuis « Utilisateurs », à la création ou à la modification du compte.',
             'email.prohibited' => 'L’email d’un employé est son adresse professionnelle : elle se demande depuis sa fiche, une fois l’employé enregistré.',
+            'photo.image' => 'La photo doit être une image (JPEG, PNG ou WebP).',
+            'photo.mimes' => 'La photo doit être une image JPEG, PNG ou WebP.',
+            'photo.max' => 'La photo ne doit pas dépasser 5 Mo.',
+            'photo.dimensions' => 'La photo est trop petite : 120 × 120 pixels au minimum.',
         ];
     }
 }

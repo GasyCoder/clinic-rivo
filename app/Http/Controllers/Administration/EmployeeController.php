@@ -18,26 +18,36 @@ use App\Http\Requests\Administration\ImportEmployeesRequest;
 use App\Http\Requests\Administration\StoreEmployeeRequest;
 use App\Http\Requests\Administration\UpdateEmployeeRequest;
 use App\Models\AddressEntry;
+use App\Models\AttendanceRecord;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
 use App\Models\HrDocument;
 use App\Models\HrReferenceValue;
+use App\Models\LeaveRequest;
+use App\Models\PlanningShift;
 use App\Models\ProfessionalMailbox;
 use App\Services\Administration\EmployeeNumberAllocator;
 use App\Services\Administration\HrPresenter;
+use App\Services\Administration\InternshipDirectory;
+use App\Services\Administration\LeaveBalanceCalculator;
 use App\Services\Administration\ProfessionalMailboxPresenter;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use App\Support\ProfessionalEmailAddress;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class EmployeeController extends Controller
 {
-    public function __construct(private readonly HrPresenter $presenter) {}
+    public function __construct(
+        private readonly HrPresenter $presenter,
+        private readonly InternshipDirectory $internships,
+    ) {}
 
     public function index(Request $request): Response
     {
@@ -68,6 +78,8 @@ class EmployeeController extends Controller
                 'department' => fn ($query) => $query->withTrashed(),
                 'jobTitle' => fn ($query) => $query->withTrashed(),
             ])
+            // ADR-194 — le repère « Stagiaire » de la ligne, en une requête.
+            ->withExists(['contracts as has_current_internship' => fn ($query) => $this->internships->currentInternships($query)])
             ->orderBy('last_name')->orderBy('first_name')
             ->paginate(20)->withQueryString()
             ->through(fn (Employee $employee) => $this->presenter->employee($employee));
@@ -94,6 +106,24 @@ class EmployeeController extends Controller
             // ADR-191 — proposé, jamais réservé : le RH peut le corriger.
             'suggestedEmployeeNumber' => $numbers->suggest(),
             'employeeNumberModel' => $numbers->format()->format(0),
+            // ADR-194 — « Nouveau stagiaire » : le dossier d'abord, puis son stage.
+            'internshipIntent' => $request->boolean('stagiaire')
+                && $request->user()->can('contracts.create')
+                && $this->internships->hasInternshipType(),
+        ]);
+    }
+
+    /** ADR-194 — la photo 4 × 4, lue sur le disque privé après contrôle du droit. */
+    public function photo(Employee $employee): BinaryFileResponse
+    {
+        abort_unless($employee->hasPhoto() && Storage::disk('local')->exists($employee->photo_path), 404);
+
+        return response()->file(Storage::disk('local')->path($employee->photo_path), [
+            'Content-Type' => 'image/jpeg',
+            // L'adresse change avec la photo (`v`) : elle peut rester en cache,
+            // mais seulement dans le navigateur de la personne autorisée.
+            'Cache-Control' => 'private, max-age=604800',
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 
@@ -110,7 +140,7 @@ class EmployeeController extends Controller
         $contracts = $request->user()->can('contracts.view')
             ? EmploymentContract::withTrashed()
                 ->where('employee_id', $employee->getKey())
-                ->with(['employee.department', 'employee.jobTitle', 'contractType' => fn ($query) => $query->withTrashed()])
+                ->with(['employee.department', 'employee.jobTitle', 'contractType' => fn ($query) => $query->withTrashed(), 'internshipField', 'internshipSupervisor'])
                 ->latest('starts_on')->get()->map(fn ($contract) => $this->presenter->contract($contract))
             : collect();
         $documents = $request->user()->can('hr_documents.view')
@@ -119,10 +149,35 @@ class EmployeeController extends Controller
                 ->latest()->get()->map(fn ($document) => $this->presenter->document($document))
             : collect();
 
+        // Le dossier d'une personne réunit ce que les écrans RH montrent
+        // séparément. Chaque bloc garde le droit qui possède sa donnée ;
+        // sans lui, il n'est pas servi — jamais servi vide (ADR-102).
+        $user = $request->user();
+        $leave = $user->can('leave.view') ? [
+            'balances' => app(LeaveBalanceCalculator::class)->annualBalances($employee, now()->year),
+            'recent' => LeaveRequest::query()->where('employee_id', $employee->getKey())
+                ->with(['employee.department', 'employee.jobTitle', 'leaveType' => fn ($query) => $query->withTrashed(), 'decidedBy:id,name'])
+                ->latest('starts_on')->limit(8)->get()->map(fn ($leave) => $this->presenter->leave($leave)),
+        ] : null;
+        $attendance = $user->can('attendance.view')
+            ? AttendanceRecord::query()->where('employee_id', $employee->getKey())
+                ->with(['employee.department', 'employee.jobTitle'])
+                ->latest('started_at')->limit(8)->get()->map(fn ($record) => $this->presenter->attendance($record))
+            : null;
+        $planning = $user->can('planning.view')
+            ? PlanningShift::query()->where('employee_id', $employee->getKey())
+                ->where('ends_at', '>=', now())
+                ->with(['employee.department', 'employee.jobTitle', 'department' => fn ($query) => $query->withTrashed()])
+                ->orderBy('starts_at')->limit(8)->get()->map(fn ($shift) => $this->presenter->planning($shift))
+            : null;
+
         return Inertia::render('Administration/Employees/Show', [
             'employee' => $this->presenter->employee($employee),
             'contracts' => $contracts,
             'documents' => $documents,
+            'leave' => $leave,
+            'attendance' => $attendance,
+            'planning' => $planning,
             'documentOptions' => $this->documentOptions(),
             'attestationTypes' => $this->references(HrReferenceType::AttestationType),
             'professionalEmail' => $this->professionalEmail($request, $employee),
@@ -175,7 +230,13 @@ class EmployeeController extends Controller
 
     public function store(StoreEmployeeRequest $request, CreateEmployeeAction $action): RedirectResponse
     {
-        $employee = $action->execute($request->validated(), $request->user());
+        $employee = $action->execute($request->safe()->except('after'), $request->user());
+
+        // ADR-194 — un stagiaire : le dossier est créé, son stage vient ensuite.
+        if ($request->validated('after') === 'internship' && $request->user()->can('contracts.create')) {
+            return to_route('administration.contracts.create', ['employee' => $employee->uuid, 'type' => 'stage'])
+                ->with('status', "Dossier {$employee->employee_number} créé. Enregistrez maintenant son stage : filière, école, encadrant et dates.");
+        }
 
         return to_route('administration.employees.show', $employee)
             ->with('status', "Dossier Employé {$employee->employee_number} créé.");
@@ -183,7 +244,7 @@ class EmployeeController extends Controller
 
     public function update(UpdateEmployeeRequest $request, Employee $employee, UpdateEmployeeAction $action): RedirectResponse
     {
-        $employee = $action->execute($employee, $request->validated(), $request->user());
+        $employee = $action->execute($employee, $request->safe()->except('after'), $request->user());
 
         return to_route('administration.employees.show', $employee)
             ->with('status', "Dossier Employé {$employee->employee_number} mis à jour.");
@@ -298,7 +359,13 @@ class EmployeeController extends Controller
         return [
             'addresses' => $addresses,
             'departments' => $this->references(HrReferenceType::Department, $employee?->department_id),
-            'jobTitles' => $this->references(HrReferenceType::JobTitle, $employee?->job_title_id),
+            'jobTitles' => $this->jobTitleOptions($employee?->job_title_id),
+            // ADR-194 — le couple déjà enregistré reste choisissable, même s'il
+            // ne suit plus la correspondance (JobTitleDepartmentGuard).
+            'currentPair' => $employee ? [
+                'department_uuid' => $employee->department?->uuid,
+                'job_title_uuid' => $employee->jobTitle?->uuid,
+            ] : null,
             'options' => [
                 'sexes' => [
                     ['value' => PatientSex::Male->value, 'label' => 'Masculin'],
@@ -328,6 +395,32 @@ class EmployeeController extends Controller
             ->map(fn ($reference) => [
                 'uuid' => $reference->uuid, 'label' => $reference->label,
                 'available' => $reference->active && ! $reference->trashed(),
+            ])->all();
+    }
+
+    /**
+     * ADR-194 — chaque fonction dit les départements où elle existe ; le
+     * formulaire ne propose que celles du département choisi. Une liste vide
+     * veut dire « tous les départements ».
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function jobTitleOptions(?int $historicalId = null): array
+    {
+        return HrReferenceValue::withTrashed()->ofType(HrReferenceType::JobTitle)
+            ->where(function ($query) use ($historicalId): void {
+                $query->where(fn ($active) => $active->where('active', true)->whereNull('deleted_at'));
+                if ($historicalId) {
+                    $query->orWhere('id', $historicalId);
+                }
+            })
+            ->with(['departments' => fn ($query) => $query->withTrashed()])
+            ->orderBy('position')->orderBy('label')->get()
+            ->map(fn (HrReferenceValue $reference) => [
+                'uuid' => $reference->uuid,
+                'label' => $reference->label,
+                'available' => $reference->active && ! $reference->trashed(),
+                'department_uuids' => $reference->departments->pluck('uuid')->values()->all(),
             ])->all();
     }
 

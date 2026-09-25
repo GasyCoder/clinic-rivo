@@ -137,7 +137,10 @@ test('the employee form and its pages are written in shadcn and keep their HR ad
     const edit = fs.readFileSync('resources/js/Pages/Administration/Employees/Edit.vue', 'utf8');
 
     assert.match(create, /form\.post\(hrUrl\('\/administration\/employees'\)\)/);
-    assert.match(edit, /form\.put\(hrUrl\(`\/administration\/employees\/\$\{props\.employee\.uuid\}`\)\)/);
+    // ADR-194 — une photo part en multipart : un POST qui annonce PUT ; sans photo, un PUT.
+    assert.match(edit, /const url = hrUrl\(`\/administration\/employees\/\$\{props\.employee\.uuid\}`\)/);
+    assert.match(edit, /\.post\(url, \{ forceFormData: true \}\)/);
+    assert.match(edit, /\.put\(url\)/);
 
     for (const source of [form, create, edit]) {
         assert.doesNotMatch(source, /Components\/UI\/(Icon|Button|Input|CheckBox|Avatar)\.vue/);

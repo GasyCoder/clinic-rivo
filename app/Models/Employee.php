@@ -28,6 +28,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'marital_status', 'children_count', 'diploma', 'education_level',
     'children_details', 'badge', 'blouse', 'profession', 'phone', 'email',
     'address', 'address_entry_id', 'observation', 'active',
+    'photo_path', 'photo_updated_at',
 ])]
 class Employee extends Model
 {
@@ -51,6 +52,7 @@ class Employee extends Model
             'marital_status' => MaritalStatus::class,
             'children_count' => 'integer',
             'active' => 'boolean',
+            'photo_updated_at' => 'datetime',
         ];
     }
 
@@ -122,6 +124,12 @@ class Employee extends Model
     public function staffBlockCreditMovements(): HasMany
     {
         return $this->hasMany(StaffBlockCreditMovement::class)->latest('id');
+    }
+
+    /** ADR-194 — la photo d'identité 4 × 4, sur le disque privé. */
+    public function hasPhoto(): bool
+    {
+        return filled($this->photo_path);
     }
 
     public function isAvailableForPatientLink(): bool

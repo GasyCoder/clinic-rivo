@@ -9,6 +9,7 @@ use App\Models\HrReferenceValue;
 use App\Models\User;
 use App\Services\Administration\EmployeeIdentityNormalizer;
 use App\Services\Administration\EmployeeNumberAllocator;
+use App\Services\Administration\JobTitleDepartmentGuard;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -25,6 +26,7 @@ class ImportEmployeesAction
         private readonly ExcelWorkbook $excel,
         private readonly EmployeeIdentityNormalizer $identityNormalizer,
         private readonly EmployeeNumberAllocator $numbers,
+        private readonly JobTitleDepartmentGuard $jobTitles,
     ) {}
 
     /** @return array{created: int, contracts: int} */
@@ -147,6 +149,11 @@ class ImportEmployeesAction
         }
         if ($departmentLabel && ! $department) {
             $errors[] = "Ligne {$line} : le département « {$departmentLabel} » n’existe pas dans les paramètres RH.";
+        }
+        // ADR-194 — la même règle qu'au formulaire : une ligne ne crée pas un
+        // « Gardien » au Laboratoire parce qu'elle arrive par un fichier.
+        if ($job && $department && ! $this->jobTitles->allows($department, $job)) {
+            $errors[] = "Ligne {$line} : la fonction « {$job->label} » n’existe pas dans le département « {$department->label} » (voir le module Fonctions).";
         }
         if ($contractLabel && ! $contract) {
             $errors[] = "Ligne {$line} : le type de contrat « {$contractLabel} » n’existe pas dans les paramètres RH.";

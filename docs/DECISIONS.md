@@ -17506,3 +17506,91 @@ et de `equipment.maintenance.manage` (maintenance des équipements) — d'où le
 La maintenance technique de déploiement (`php artisan down`, base arrêtée) reste celle de Laravel : elle ne peut pas
 lire un message rangé en base. Une saisie non enregistrée au moment de la fermeture peut être perdue : le bandeau des
 24 heures sert à l'éviter ; les brouillons serveur existants (ADR-073) restent.
+
+---
+
+# ADR-194 — RH : fonctions par département, photo 4 × 4, stagiaires et planning de garde
+
+**Status:** ACCEPTED (2026-09-25 — demande explicite du propriétaire, quatre arbitrages : une fonction peut
+appartenir à plusieurs départements ; la correspondance de départ est une proposition modifiable ; un stagiaire
+est un employé avec un contrat de stage ; un créneau est du service ou une garde, lu en calendrier)
+
+Le CDC nomme les fonctions internes par service (§9) sans dire comment un formulaire les restreint, ni rien des
+stagiaires, de la photo ou des gardes : les règles ci-dessous sont celles du propriétaire. **Complète l'ADR-066**
+(socle RH), **l'ADR-188** (modules Départements et Fonctions) et **l'ADR-187** (RH servies au portail).
+
+## Une fonction existe dans un ou plusieurs départements
+
+`hr_job_title_departments` relie une fonction aux départements où elle existe. Le dossier employé ne propose
+que les fonctions du département choisi — « Gardien » n'apparaît pas au Laboratoire —, groupées « Fonctions de
+… » puis « Proposées dans tous les départements ». Changer de département retire une fonction qui n'y existe pas
+et le dit.
+
+```text
+aucun lien          la fonction reste proposée partout : aucune ne disparaît avant d'avoir été réglée
+couple déjà posé    un dossier garde son couple département / fonction, même incohérent, tant qu'on
+                    ne change ni l'un ni l'autre (corriger un téléphone ne bloque pas)
+serveur             JobTitleDepartmentGuard refuse un couple incohérent, à la saisie comme à l'import
+                    Excel — l'écran n'est jamais la seule garde
+```
+
+La correspondance se règle dans le **module Fonctions** (ADR-188) : chaque fonction porte ses départements en
+pastilles (`JobTitleDepartmentsPicker`), et un département affiche ses fonctions. Omettre `department_uuids`
+laisse les liens tels quels ; une liste vide les retire. Un département archivé n'est plus proposé mais reste
+sur la fonction qui le porte. Chaque changement est audité à part (`hr_reference.departments.update`, ancienne
+et nouvelle liste). La correspondance livrée (`DefaultJobTitleDepartments`, lue sur le CDC §9) n'est qu'une
+**proposition** : elle ne relie qu'une fonction encore sans département et n'écrase jamais un réglage de la
+clinique. Mêmes droits que le module : `hr_settings.*`.
+
+## Photo d'identité 4 × 4
+
+Le dossier employé a une photo, réglable à chaque étape depuis le bandeau d'identité (glisser-déposer, recadrage
+carré dans le navigateur). Le serveur ne se fie pas au recadrage : `EmployeePhotoStore` relit l'image, la recoupe
+au carré central, la ramène à 600 px et la réencode en JPEG, ce qui retire les métadonnées (GPS, appareil). Elle
+vit sur le disque **privé** et se lit par `GET /administration/employees/{uuid}/photo` (capacité
+`view-employee-photo` : qui peut voir un employé, son planning, ses contrats, présences ou congés). JPEG, PNG ou
+WebP, 5 Mo, 120 px au moins. Remplacer ou retirer supprime l'ancien fichier ; une création échouée n'en laisse
+aucun. La photo paraît dans la liste, la fiche, le planning, les stages et la fiche imprimée (cadre réel 4 × 4 cm,
+vide pour la coller à la main). Sur le portail, son adresse est relayée par l'API du site comme toute pièce RH.
+
+## Stagiaires : un employé, un contrat de stage
+
+Un stagiaire est un **dossier employé** (identité, photo, service d'accueil) et un **contrat** dont le type est
+marqué « Contrat de stage » dans Paramètres RH (`metadata.internship`, lu sur le type, jamais sur son libellé).
+Un tel contrat demande sa **filière** (référentiel `INTERNSHIP_FIELD` : Infirmier, Sage-femme, Laboratoire…,
+administrable), et garde école, niveau et encadrant (un employé, jamais le stagiaire lui-même).
+
+```text
+Stages               /administration/internships (contracts.view) : en cours, à venir, terminés,
+                     tous ; filtre par filière ; recherche ; photo du stagiaire et de l'encadrant
+Nouveau stagiaire    le dossier d'abord (employees/create?stagiaire=1), puis le contrat de stage
+                     s'ouvre, type déjà choisi — exige contracts.create
+annuaire             un repère « Stagiaire » sur qui a un stage en cours
+```
+
+Un contrat importé sans filière s'affiche « filière à compléter ». La prise en charge Personnel (ADR-052) n'est
+pas modifiée : être stagiaire ne donne aucun droit de couverture.
+
+## Deux plannings, un calendrier
+
+Un créneau est du **service** (planning du personnel) ou une **garde** (`planning_shifts.kind`, `SHIFT` par
+défaut). Jour, nuit ou 24 h se lisent sur ses heures, ce n'est pas une catégorie. La page Planning a deux
+onglets — « Planning du personnel », « Planning de garde » — et trois vues : **semaine** (une ligne par
+personne, une colonne par jour), **mois** et **liste** ; une case vide ouvre la création sur ce jour et ce type.
+L'impression et l'export suivent le type choisi. Aucun chevauchement n'est interdit (ADR-066).
+
+## Portail et droits
+
+Tous ces écrans passent par `hrUrl()` et sont servis au portail (ADR-187). Aucune permission nouvelle :
+`employees.*`, `contracts.*`, `planning.*`, `hr_settings.*`. Migrations `2026_10_29_090000` à `093000`, à
+jouer sur chaque site et sur le portail.
+
+## Signalé, non tranché
+
+```text
+fonctions « partout »      une fonction sans département reste proposée partout : c'est voulu
+                           pour la transition, à resserrer quand la clinique aura tout réglé
+filière à l'import         l'import crée un contrat de stage sans filière (« à compléter »)
+gardes et disponibilité    la disponibilité d'un chirurgien au bloc (ADR-168) lit tous les créneaux,
+                           service et garde confondus
+```

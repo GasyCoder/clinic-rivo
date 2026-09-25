@@ -19,6 +19,7 @@ import {
     FileSearch,
     FileText,
     FlaskConical,
+    GraduationCap,
     Heart,
     IdCard,
     Library,
@@ -128,13 +129,15 @@ export const CLINIC_WORKSPACES = [
         // /administration/users stays with « Utilisateurs & accès ».
         exact: true,
         // ADR-066 — the sidebar is the HR space's only navigation (no tab bar).
-        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/departments', '/administration/job-titles', '/administration/settings'],
+        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/internships', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/departments', '/administration/job-titles', '/administration/settings'],
         permission: 'employees.view',
         tone: 'navy',
         children: [
             { code: 'hr-home', icon: LayoutDashboard, label: 'Accueil RH', link: '/administration', permission: 'employees.view' },
             { code: 'hr-employees', icon: Users, label: 'Employés', link: '/administration/employees', activeLinks: ['/administration/employees'], permission: 'employees.view' },
             { code: 'hr-contracts', icon: FileText, label: 'Contrats', link: '/administration/contracts', activeLinks: ['/administration/contracts'], permission: 'contracts.view' },
+            // ADR-194 — les stagiaires et leurs stages (contrats de stage).
+            { code: 'hr-internships', icon: GraduationCap, label: 'Stages', link: '/administration/internships', activeLinks: ['/administration/internships'], permission: 'contracts.view' },
             { code: 'hr-documents', icon: Copy, label: 'Documents', link: '/administration/generated-documents', activeLinks: ['/administration/generated-documents'], permission: 'generated_documents.view' },
             { code: 'hr-professional-emails', icon: AtSign, label: 'Emails professionnels', link: '/administration/professional-emails', activeLinks: ['/administration/professional-emails'], permission: 'professional_emails.view' },
             { code: 'hr-attendance', icon: Clock, label: 'Présences', link: '/administration/attendance', activeLinks: ['/administration/attendance'], permission: 'attendance.view' },

@@ -18,6 +18,12 @@ class HrReferenceDataRequest extends FormRequest
                 $this->merge([$field => str($this->input($field))->squish()->toString()]);
             }
         }
+
+        // Un type de contrat ne porte qu'un réglage : « contrat de stage ».
+        // Les règles de congé ne le concernent pas.
+        if ($this->input('type') === HrReferenceType::ContractType->value && is_array($this->input('metadata'))) {
+            $this->merge(['metadata' => ['internship' => $this->boolean('metadata.internship')]]);
+        }
     }
 
     public function authorize(): bool
@@ -29,10 +35,21 @@ class HrReferenceDataRequest extends FormRequest
             : ($this->user()?->can('create', HrReferenceValue::class) ?? false);
     }
 
+    public function attributes(): array
+    {
+        return [
+            'department_uuids' => 'départements',
+            'department_uuids.*' => 'département',
+            'metadata.internship' => 'contrat de stage',
+        ];
+    }
+
     public function rules(): array
     {
         $reference = $this->route('reference');
         $isLeaveType = fn (): bool => $this->input('type') === HrReferenceType::LeaveType->value;
+        $isContractType = $this->input('type') === HrReferenceType::ContractType->value;
+        $isJobTitle = fn (): bool => $this->input('type') === HrReferenceType::JobTitle->value;
 
         return [
             'type' => ['required', new Enum(HrReferenceType::class)],
@@ -50,7 +67,20 @@ class HrReferenceDataRequest extends FormRequest
             ],
             'active' => ['required', 'boolean'],
             'position' => ['nullable', 'integer', 'min:0', 'max:65535'],
-            'metadata' => [Rule::excludeUnless($isLeaveType), 'required', 'array'],
+            // ADR-194 — un type de contrat peut être marqué « contrat de stage ».
+            'metadata' => $isContractType
+                ? ['sometimes', 'array']
+                : [Rule::excludeUnless($isLeaveType), 'required', 'array'],
+            'metadata.internship' => $isContractType ? ['sometimes', 'boolean'] : ['exclude'],
+            // ADR-194 — les départements où cette fonction existe. Omettre la
+            // clé laisse les liens tels quels ; une liste vide les retire tous.
+            'department_uuids' => [Rule::excludeUnless($isJobTitle), 'sometimes', 'array', 'max:100'],
+            'department_uuids.*' => [
+                Rule::excludeUnless($isJobTitle), 'uuid', 'distinct',
+                Rule::exists('hr_reference_values', 'uuid')
+                    ->where('type', HrReferenceType::Department->value)
+                    ->whereNull('deleted_at'),
+            ],
             'metadata.consumes_annual_balance' => [Rule::excludeUnless($isLeaveType), 'required', 'boolean'],
             'metadata.annual_quota_days' => [
                 Rule::excludeUnless($isLeaveType),

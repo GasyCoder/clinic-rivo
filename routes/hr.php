@@ -8,6 +8,7 @@ use App\Http\Controllers\Administration\HrDocumentController;
 use App\Http\Controllers\Administration\HrReferenceController;
 use App\Http\Controllers\Administration\HrReportController;
 use App\Http\Controllers\Administration\HrStructureController;
+use App\Http\Controllers\Administration\InternshipController;
 use App\Http\Controllers\Administration\LeaveController;
 use App\Http\Controllers\Administration\PlanningController;
 use App\Http\Controllers\Administration\ProfessionalMailboxController;
@@ -54,6 +55,8 @@ Route::post('/professional-emails/{mailbox}/suspend', [ProfessionalMailboxContro
 Route::post('/professional-emails/{mailbox}/reactivate', [ProfessionalMailboxController::class, 'reactivate'])->name('professional-emails.reactivate')->middleware('can:professional_emails.activate');
 Route::post('/professional-emails/{mailbox}/password', [ProfessionalMailboxController::class, 'resetPassword'])->name('professional-emails.password')->middleware('can:professional_emails.update');
 Route::get('/employees/{employee}/print', [EmployeeController::class, 'print'])->name('employees.print')->middleware('can:employees.print')->withTrashed();
+// ADR-194 — la photo d'identité 4 × 4, lue sur le disque privé du site.
+Route::get('/employees/{employee}/photo', [EmployeeController::class, 'photo'])->name('employees.photo')->middleware('can:view-employee-photo')->withTrashed();
 Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update')->middleware('can:employees.update');
 Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy')->middleware('can:employees.delete');
 Route::post('/employees/{employee}/restore', [EmployeeController::class, 'restore'])->name('employees.restore')->middleware('can:employees.restore')->withTrashed();
@@ -67,6 +70,9 @@ Route::get('/contracts/{contract}/print', [EmploymentContractController::class, 
 Route::put('/contracts/{contract}', [EmploymentContractController::class, 'update'])->name('contracts.update')->middleware('can:contracts.update');
 Route::delete('/contracts/{contract}', [EmploymentContractController::class, 'destroy'])->name('contracts.destroy')->middleware('can:contracts.archive');
 Route::post('/contracts/{contract}/restore', [EmploymentContractController::class, 'restore'])->name('contracts.restore')->middleware('can:contracts.restore')->withTrashed();
+
+// ADR-194 — les stages : les contrats de stage, lus avec leur filière.
+Route::get('/internships', [InternshipController::class, 'index'])->name('internships.index')->middleware('can:contracts.view');
 
 Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index')->middleware('can:attendance.view');
 Route::get('/attendance/export', [AttendanceController::class, 'export'])->name('attendance.export')->middleware('can:attendance.export');

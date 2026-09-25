@@ -1,118 +1,201 @@
 <script setup>
+import { computed, ref, watch } from 'vue';
+import { Briefcase, Building2, CalendarClock, CalendarRange, Check, Clock, Info, Moon, Pencil, RefreshCw, ShieldPlus, Sun } from 'lucide-vue-next';
+import Badge from '@/Components/Shadcn/Badge.vue';
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
-import { computed, ref } from 'vue';
-import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Select from '@/Components/Shadcn/Select.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
+import TimeSelect from '@/Components/Shadcn/TimeSelect.vue';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
+import EmployeePhoto from '@/Components/Administration/EmployeePhoto.vue';
 import HrEmployeePicker from '../Partials/HrEmployeePicker.vue';
 import HrFormActions from '../Partials/HrFormActions.vue';
 import HrFormSection from '../Partials/HrFormSection.vue';
+import { cn } from '@/lib/cn';
+import { PERIOD_LABELS, addDays, durationMinutes, endOnSameOrNextDay, formatDuration, shiftPeriod } from '@/utilities/planningCalendar';
 
+/*
+ * Un créneau du planning (ADR-066) — ADR-194 : du service (planning du
+ * personnel) ou une garde. Le plus souvent sur une journée : un jour, une
+ * heure de début, une heure de fin — une fin qui n'est pas après le début
+ * tombe le lendemain (garde 19 h → 7 h). « Sur plusieurs jours » garde deux
+ * dates et heures complètes. Aucune heure n'est proposée d'office.
+ */
 const props = defineProps({
     form: Object,
     employees: [Array, Object],
     departments: [Array, Object],
+    kinds: { type: [Array, Object], default: () => [] },
+    presetDate: { type: String, default: null },
     cancelHref: String,
     submitLabel: String,
 });
-
 defineEmits(['submit']);
 
+// --- Type --------------------------------------------------------------------
+const KIND_META = {
+    SHIFT: { icon: Briefcase, hint: 'Planning du personnel : le service de la journée.', placeholder: 'Ex. Consultation, permanence, bloc' },
+    ON_CALL: { icon: ShieldPlus, hint: 'Planning de garde : jour, nuit ou 24 h.', placeholder: 'Ex. Garde de nuit, garde du week-end' },
+};
+
+// --- Employé et département -------------------------------------------------------
 const initialEmployee = props.employees.find((employee) => employee.uuid === props.form.employee_uuid);
-const useEmployeeDepartment = ref(
-    !props.form.department_uuid || props.form.department_uuid === initialEmployee?.department_uuid,
-);
+const useEmployeeDepartment = ref(!props.form.department_uuid || props.form.department_uuid === initialEmployee?.department_uuid);
 const selectedEmployee = computed(() => props.employees.find((employee) => employee.uuid === props.form.employee_uuid));
-const selectedDepartment = computed(() => {
-    if (useEmployeeDepartment.value) {
-        return selectedEmployee.value?.department || 'Aucun département dans le dossier';
-    }
-
-    return props.departments.find((department) => department.uuid === props.form.department_uuid)?.label || 'Département à sélectionner';
-});
-const periodLabel = computed(() => {
-    if (!props.form.starts_at || !props.form.ends_at) return 'Période à compléter';
-
-    const formatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
-    return `${formatter.format(new Date(props.form.starts_at))} → ${formatter.format(new Date(props.form.ends_at))}`;
-});
+const departmentOptions = computed(() => props.departments.map((item) => ({ value: item.uuid, label: item.label })));
+const appliedDepartment = computed(() => (useEmployeeDepartment.value
+    ? selectedEmployee.value?.department || 'Aucun département au dossier'
+    : props.departments.find((item) => item.uuid === props.form.department_uuid)?.label || 'Département à choisir'));
 const chooseEmployeeDepartment = () => {
     useEmployeeDepartment.value = true;
     props.form.department_uuid = '';
     props.form.clearErrors('department_uuid');
 };
-const chooseAnotherDepartment = () => {
-    useEmployeeDepartment.value = false;
+
+// --- Période -----------------------------------------------------------------------
+const split = (value) => (value ? { day: String(value).slice(0, 10), time: String(value).slice(11, 16) } : { day: '', time: '' });
+const start = split(props.form.starts_at);
+const end = split(props.form.ends_at);
+const spansDays = start.day && end.day && end.day > addDays(start.day, 1);
+const mode = ref(spansDays ? 'multi' : 'day');
+const day = ref(start.day || props.presetDate || '');
+const startTime = ref(start.time);
+const endTime = ref(end.time);
+
+watch([mode, day, startTime, endTime], () => {
+    if (mode.value !== 'day') return;
+    props.form.starts_at = day.value && startTime.value ? `${day.value}T${startTime.value}` : '';
+    props.form.ends_at = endOnSameOrNextDay(day.value, startTime.value, endTime.value) ?? '';
+}, { immediate: true });
+const switchMode = (next) => {
+    if (next === 'day') {
+        const s = split(props.form.starts_at);
+        const e = split(props.form.ends_at);
+        day.value = s.day || day.value;
+        startTime.value = s.time;
+        endTime.value = e.time;
+    }
+    mode.value = next;
 };
-const fieldClass = 'block h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-sky-950';
-const areaClass = 'block min-h-28 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
+
+const endsNextDay = computed(() => mode.value === 'day' && startTime.value && endTime.value && endTime.value <= startTime.value);
+const preview = computed(() => (props.form.starts_at && props.form.ends_at ? { starts_at: props.form.starts_at, ends_at: props.form.ends_at } : null));
+const previewPeriod = computed(() => (preview.value ? shiftPeriod(preview.value) : null));
+const previewDuration = computed(() => (preview.value ? durationMinutes(preview.value) : 0));
+const fmt = (value) => new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
+    .format(new Date(`${String(value).slice(0, 16)}:00Z`));
+const PERIOD_ICONS = { DAY: Sun, NIGHT: Moon, LONG: Clock };
 </script>
 
 <template>
     <form class="space-y-4" @submit.prevent="$emit('submit')">
         <ValidationErrorSummary :errors="form.errors" />
 
-        <div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
             <main class="space-y-4">
-                <HrFormSection number="1" title="Employé et affectation" description="Le département du dossier est proposé automatiquement. Changez-le uniquement pour ce créneau si nécessaire." tone="sky">
-                    <div class="space-y-5">
-                        <HrEmployeePicker id="planning_employee" v-model="form.employee_uuid" :employees="employees" label="Employé planifié" required :error="form.errors.employee_uuid" />
+                <HrFormSection number="1" title="Quel planning ?" description="Le service de la journée, ou une garde.">
+                    <div class="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Type de créneau">
+                        <button
+                            v-for="kind in kinds"
+                            :key="kind.value"
+                            type="button"
+                            role="radio"
+                            :aria-checked="form.kind === kind.value"
+                            :class="cn('flex items-start gap-3 rounded-xl border p-4 text-start transition',
+                                form.kind === kind.value
+                                    ? kind.value === 'ON_CALL' ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-200 dark:bg-violet-950/30 dark:ring-violet-900' : 'border-sky-500 bg-sky-50 ring-2 ring-sky-200 dark:bg-sky-950/30 dark:ring-sky-900'
+                                    : 'border-border hover:border-primary/40')"
+                            @click="form.kind = kind.value"
+                        >
+                            <span :class="cn('grid h-9 w-9 shrink-0 place-items-center rounded-lg',
+                                form.kind === kind.value ? (kind.value === 'ON_CALL' ? 'bg-violet-600 text-white' : 'bg-sky-600 text-white') : 'bg-muted text-muted-foreground')"
+                            ><component :is="KIND_META[kind.value]?.icon" class="h-4 w-4" /></span>
+                            <span><span class="block text-sm font-semibold text-foreground">{{ kind.label }}</span><span class="mt-0.5 block text-xs leading-5 text-muted-foreground">{{ KIND_META[kind.value]?.hint }}</span></span>
+                        </button>
+                    </div>
+                    <p v-if="form.errors.kind" class="mt-2 text-xs text-destructive">{{ form.errors.kind }}</p>
+                </HrFormSection>
 
-                        <fieldset>
-                            <legend class="mb-2 text-sm font-medium text-slate-700 dark:text-white">Département appliqué</legend>
-                            <div class="grid gap-3 md:grid-cols-2">
-                                <button type="button" :class="['rounded-xl border p-4 text-start transition', useEmployeeDepartment ? 'border-sky-400 bg-sky-50 ring-2 ring-sky-100 dark:bg-sky-950/30 dark:ring-sky-950' : 'border-gray-200 hover:border-sky-300 dark:border-gray-800']" @click="chooseEmployeeDepartment">
-                                    <span class="flex items-start gap-3"><span :class="['mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', useEmployeeDepartment ? 'bg-sky-600 text-white' : 'bg-gray-100 text-slate-400 dark:bg-gray-900']"><Icon name="reload" /></span><span><strong class="block text-sm text-slate-800 dark:text-white">Département du dossier</strong><small class="mt-1 block leading-5 text-slate-500">{{ selectedEmployee?.department || 'Sélectionnez d’abord un employé' }}</small></span></span>
-                                </button>
-                                <button type="button" :class="['rounded-xl border p-4 text-start transition', !useEmployeeDepartment ? 'border-sky-400 bg-sky-50 ring-2 ring-sky-100 dark:bg-sky-950/30 dark:ring-sky-950' : 'border-gray-200 hover:border-sky-300 dark:border-gray-800']" @click="chooseAnotherDepartment">
-                                    <span class="flex items-start gap-3"><span :class="['mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', !useEmployeeDepartment ? 'bg-sky-600 text-white' : 'bg-gray-100 text-slate-400 dark:bg-gray-900']"><Icon name="edit" /></span><span><strong class="block text-sm text-slate-800 dark:text-white">Affectation différente</strong><small class="mt-1 block leading-5 text-slate-500">Valable uniquement pour ce créneau.</small></span></span>
-                                </button>
-                            </div>
-                        </fieldset>
-
-                        <div v-if="!useEmployeeDepartment">
-                            <label for="planning_department" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Autre département <span class="text-red-500">*</span></label>
-                            <select id="planning_department" v-model="form.department_uuid" :class="fieldClass" required>
-                                <option value="">Sélectionner un département</option>
-                                <option v-for="department in departments" :key="department.uuid" :value="department.uuid">{{ department.label }}</option>
-                            </select>
-                            <FormError v-if="form.errors.department_uuid">{{ form.errors.department_uuid }}</FormError>
+                <HrFormSection number="2" title="Qui, et dans quel service ?" description="Le département du dossier est repris ; changez-le seulement pour ce créneau.">
+                    <div class="space-y-4">
+                        <HrEmployeePicker id="planning_employee" v-model="form.employee_uuid" :employees="employees" label="Personne planifiée" required :error="form.errors.employee_uuid" />
+                        <div class="grid gap-3 md:grid-cols-2">
+                            <button type="button" :class="cn('flex items-start gap-3 rounded-xl border p-3.5 text-start transition', useEmployeeDepartment ? 'border-primary bg-primary/5 ring-1 ring-ring/25' : 'border-border hover:border-primary/40')" @click="chooseEmployeeDepartment">
+                                <RefreshCw class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                <span><span class="block text-sm font-semibold text-foreground">Département du dossier</span><span class="text-xs text-muted-foreground">{{ selectedEmployee?.department || 'Choisissez d’abord la personne' }}</span></span>
+                            </button>
+                            <button type="button" :class="cn('flex items-start gap-3 rounded-xl border p-3.5 text-start transition', !useEmployeeDepartment ? 'border-primary bg-primary/5 ring-1 ring-ring/25' : 'border-border hover:border-primary/40')" @click="useEmployeeDepartment = false">
+                                <Pencil class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                <span><span class="block text-sm font-semibold text-foreground">Un autre département</span><span class="text-xs text-muted-foreground">Pour ce créneau seulement.</span></span>
+                            </button>
                         </div>
-
-                        <div v-else class="flex items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-300">
-                            <Icon class="mt-0.5 shrink-0" name="info" />
-                            <p><strong>{{ selectedDepartment }}.</strong> À l’enregistrement, le serveur reprend automatiquement l’affectation présente dans le dossier de l’employé.</p>
-                        </div>
+                        <FormField v-if="!useEmployeeDepartment" as="div" label="Département du créneau" required :error="form.errors.department_uuid">
+                            <Select id="planning_department" v-model="form.department_uuid" :options="departmentOptions" :icon="Building2" placeholder="Choisir un département" class="w-full min-w-0" aria-label="Département du créneau" />
+                        </FormField>
                     </div>
                 </HrFormSection>
 
-                <HrFormSection number="2" title="Objet et période" description="Définissez le créneau réel. La fin doit être postérieure au début." tone="sky">
-                    <div class="grid gap-4 lg:grid-cols-2">
-                        <div class="lg:col-span-2"><label for="planning_title" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Objet du créneau</label><input id="planning_title" v-model="form.title" :class="fieldClass" maxlength="255" placeholder="Ex. Garde, permanence, consultation"><FormError v-if="form.errors.title">{{ form.errors.title }}</FormError></div>
-                        <div><label for="planning_starts_at" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Début <span class="text-red-500">*</span></label><DateTimePicker id="planning_starts_at" v-model="form.starts_at" required /><FormError v-if="form.errors.starts_at">{{ form.errors.starts_at }}</FormError></div>
-                        <div><label for="planning_ends_at" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Fin <span class="text-red-500">*</span></label><DateTimePicker id="planning_ends_at" v-model="form.ends_at" required /><FormError v-if="form.errors.ends_at">{{ form.errors.ends_at }}</FormError></div>
+                <HrFormSection number="3" title="Quand ?" description="Une fin qui n’est pas après le début tombe le lendemain.">
+                    <div class="mb-4 inline-flex rounded-lg bg-muted p-0.5" role="tablist" aria-label="Durée">
+                        <button type="button" role="tab" :aria-selected="mode === 'day'" :class="cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition', mode === 'day' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')" @click="switchMode('day')"><CalendarClock class="h-3.5 w-3.5" />Sur une journée</button>
+                        <button type="button" role="tab" :aria-selected="mode === 'multi'" :class="cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition', mode === 'multi' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')" @click="switchMode('multi')"><CalendarRange class="h-3.5 w-3.5" />Sur plusieurs jours</button>
+                    </div>
+                    <div v-if="mode === 'day'" class="grid gap-4 md:grid-cols-3">
+                        <FormField as="div" label="Jour" required :error="form.errors.starts_at"><DatePicker id="planning_day" v-model="day" format="long" /></FormField>
+                        <FormField as="div" label="Début" required><TimeSelect id="planning_start" v-model="startTime" aria-label="Heure de début" /></FormField>
+                        <FormField as="div" label="Fin" required :error="form.errors.ends_at">
+                            <TimeSelect id="planning_end" v-model="endTime" aria-label="Heure de fin" />
+                            <p v-if="endsNextDay" class="mt-1.5 flex items-center gap-1 text-xs font-medium text-violet-700 dark:text-violet-300"><Moon class="h-3.5 w-3.5" />Se termine le lendemain</p>
+                        </FormField>
+                    </div>
+                    <div v-else class="grid gap-4 md:grid-cols-2">
+                        <FormField as="div" label="Début" required :error="form.errors.starts_at"><DateTimePicker id="planning_starts_at" v-model="form.starts_at" required /></FormField>
+                        <FormField as="div" label="Fin" required :error="form.errors.ends_at"><DateTimePicker id="planning_ends_at" v-model="form.ends_at" required /></FormField>
                     </div>
                 </HrFormSection>
 
-                <HrFormSection title="Observation" description="Ajoutez uniquement une précision utile à l’organisation du service." icon="edit" tone="slate" optional>
-                    <label for="planning_observation" class="sr-only">Observation</label>
-                    <textarea id="planning_observation" v-model="form.observation" :class="areaClass" maxlength="5000" placeholder="Consignes ou information complémentaire" />
-                    <FormError v-if="form.errors.observation">{{ form.errors.observation }}</FormError>
+                <HrFormSection :icon="Pencil" title="Objet et consignes" description="Ce que la personne fait sur ce créneau, et ce qu’elle doit savoir." optional>
+                    <div class="space-y-4">
+                        <FormField label="Objet" :error="form.errors.title"><Input id="planning_title" v-model="form.title" maxlength="255" :placeholder="KIND_META[form.kind]?.placeholder" /></FormField>
+                        <FormField label="Observation" :error="form.errors.observation"><Textarea id="planning_observation" v-model="form.observation" rows="3" maxlength="5000" placeholder="Consignes, joignable au…" /></FormField>
+                    </div>
                 </HrFormSection>
             </main>
 
             <aside class="space-y-4 xl:sticky xl:top-4">
-                <section class="overflow-hidden rounded-2xl border border-sky-200 bg-sky-50 shadow-sm dark:border-sky-900 dark:bg-sky-950/20">
-                    <div class="border-b border-sky-200 px-5 py-4 dark:border-sky-900"><p class="text-[11px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-300">Aperçu du créneau</p><h2 class="mt-1 text-base font-bold text-slate-800 dark:text-white">{{ selectedEmployee?.name || 'Employé à sélectionner' }}</h2><p class="mt-1 text-xs text-slate-500">{{ selectedEmployee?.employee_number || 'Matricule à venir' }}</p></div>
-                    <dl class="divide-y divide-sky-100 px-5 text-sm dark:divide-sky-900/70"><div class="py-3"><dt class="text-xs text-slate-500">Affectation</dt><dd class="mt-1 font-bold text-slate-800 dark:text-white">{{ selectedDepartment }}</dd><dd class="text-xs text-slate-500">{{ useEmployeeDepartment ? 'Reprise du dossier employé' : 'Exception pour ce créneau' }}</dd></div><div class="py-3"><dt class="text-xs text-slate-500">Objet</dt><dd class="mt-1 font-bold text-slate-800 dark:text-white">{{ form.title || 'Non précisé' }}</dd></div><div class="py-3"><dt class="text-xs text-slate-500">Période</dt><dd class="mt-1 font-bold leading-5 text-slate-800 dark:text-white">{{ periodLabel }}</dd></div></dl>
+                <section class="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+                    <div class="border-b border-border bg-muted/40 px-5 py-4">
+                        <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Aperçu</p>
+                        <div class="mt-2 flex items-center gap-3">
+                            <EmployeePhoto :src="selectedEmployee?.photo_url" :name="selectedEmployee?.name ?? ''" size="md" />
+                            <div class="min-w-0">
+                                <p class="truncate text-sm font-semibold text-foreground">{{ selectedEmployee?.name || 'Personne à choisir' }}</p>
+                                <p class="truncate text-xs text-muted-foreground">{{ selectedEmployee?.job_title || selectedEmployee?.employee_number || '—' }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <dl class="divide-y divide-border px-5 text-sm">
+                        <div class="py-3"><dt class="text-xs text-muted-foreground">Planning</dt><dd class="mt-1"><Badge :variant="form.kind === 'ON_CALL' ? 'secondary' : 'outline'"><component :is="KIND_META[form.kind]?.icon" class="h-3.5 w-3.5" />{{ kinds.find((kind) => kind.value === form.kind)?.planning }}</Badge></dd></div>
+                        <div class="py-3"><dt class="text-xs text-muted-foreground">Département</dt><dd class="mt-1 font-semibold text-foreground">{{ appliedDepartment }}</dd></div>
+                        <div class="py-3">
+                            <dt class="text-xs text-muted-foreground">Période</dt>
+                            <dd v-if="preview" class="mt-1 space-y-1">
+                                <p class="font-semibold text-foreground">{{ fmt(preview.starts_at) }} → {{ fmt(preview.ends_at) }}</p>
+                                <p class="flex items-center gap-1.5 text-xs text-muted-foreground"><component :is="PERIOD_ICONS[previewPeriod]" class="h-3.5 w-3.5" />{{ PERIOD_LABELS[previewPeriod] }} · {{ formatDuration(previewDuration) }}</p>
+                            </dd>
+                            <dd v-else class="mt-1 text-muted-foreground">Jour et heures à choisir</dd>
+                        </div>
+                    </dl>
                 </section>
-
-                <section class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                    <div class="flex gap-3"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-950"><Icon name="info" /></span><div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Planning factuel</h2><p class="mt-1 text-xs leading-5 text-slate-500">Le créneau organise le service. Il ne crée ni absence, ni retard, ni heure supplémentaire et aucun chevauchement n’est bloqué automatiquement.</p></div></div>
+                <section class="flex gap-3 rounded-2xl border border-border bg-card p-4 text-xs leading-5 text-muted-foreground shadow-sm">
+                    <Info class="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />Le planning organise le service. Il ne crée ni absence, ni retard, ni heure supplémentaire, et un chevauchement reste visible sans être bloqué.
                 </section>
             </aside>
         </div>
 
-        <HrFormActions :cancel-href="cancelHref" :submit-label="submitLabel" :processing="form.processing" submit-icon="calender-date" />
+        <HrFormActions :cancel-href="cancelHref" :submit-label="submitLabel" :processing="form.processing" :submit-icon="Check" />
     </form>
 </template>

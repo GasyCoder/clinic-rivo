@@ -2,6 +2,8 @@
 
 namespace App\Services\Administration;
 
+use App\Enums\HrReferenceType;
+use App\Enums\PlanningShiftKind;
 use App\Models\AttendanceRecord;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
@@ -25,6 +27,11 @@ class HrPresenter
             'job_title' => $employee->jobTitle?->label ?? $employee->profession,
             'hire_date' => $employee->hire_date?->toDateString(),
             'active' => $employee->active,
+            // ADR-194 — la photo 4 × 4 se lit par un contrôleur qui revérifie
+            // le droit ; `v` change l'adresse quand la photo change.
+            'photo_url' => $employee->photo_path
+                ? route('administration.employees.photo', ['employee' => $employee->uuid, 'v' => $employee->photo_updated_at?->timestamp])
+                : null,
         ];
     }
 
@@ -62,6 +69,8 @@ class HrPresenter
                 ? $employee->addressEntry->active && ! $employee->addressEntry->trashed()
                 : true,
             'observation' => $employee->observation,
+            // ADR-194 — servi seulement quand la liste l'a calculé (withExists).
+            'is_intern' => (bool) ($employee->getAttributes()['has_current_internship'] ?? false),
             // ADR-168 — servi seulement quand la relation est chargée : la liste
             // paginée ne paie pas une requête par ligne pour un champ de fiche.
             'user_uuid' => $employee->relationLoaded('user') ? $employee->user?->uuid : null,
@@ -91,7 +100,30 @@ class HrPresenter
             'starts_on' => $contract->starts_on?->toDateString(),
             'trial_ends_on' => $contract->trial_ends_on?->toDateString(),
             'ends_on' => $contract->ends_on?->toDateString(),
+            // Jours avant la fin, tant qu'elle n'est pas passée : la liste
+            // signale ce que l'accueil RH compte dans « finissent sous 30 jours ».
+            'ends_in_days' => $contract->ends_on && ! $contract->ends_on->isBefore(today())
+                ? (int) today()->diffInDays($contract->ends_on)
+                : null,
+            // L'état réel du contrat, lu sur ses dates : « actif » pour tout
+            // contrat non archivé faisait passer un contrat terminé pour en cours.
+            'state' => match (true) {
+                $contract->trashed() => 'archived',
+                $contract->starts_on && $contract->starts_on->isAfter(today()) => 'future',
+                $contract->ends_on && $contract->ends_on->isBefore(today()) => 'ended',
+                default => 'current',
+            },
             'observation' => $contract->observation,
+            // ADR-194 — le stage, quand le type est un contrat de stage.
+            'internship' => $contract->isInternship() ? [
+                'field_uuid' => $contract->internshipField?->uuid,
+                'field' => $contract->internshipField?->label,
+                'school' => $contract->internship_school,
+                'level' => $contract->internship_level,
+                'supervisor' => $contract->internshipSupervisor
+                    ? $this->employeeOption($contract->internshipSupervisor)
+                    : null,
+            ] : null,
             'archived' => $contract->trashed(),
             'delete_reason' => $contract->delete_reason,
             'created_at' => $contract->created_at?->toIso8601String(),
@@ -156,6 +188,9 @@ class HrPresenter
             'employee' => $this->employeeOption($shift->employee),
             'department_uuid' => $shift->department?->uuid,
             'department' => $shift->department?->label,
+            // ADR-194 — service (planning du personnel) ou garde.
+            'kind' => ($shift->kind ?? PlanningShiftKind::Shift)->value,
+            'kind_label' => ($shift->kind ?? PlanningShiftKind::Shift)->label(),
             'title' => $shift->title,
             'starts_at' => $shift->starts_at?->toIso8601String(),
             'ends_at' => $shift->ends_at?->toIso8601String(),
@@ -197,6 +232,15 @@ class HrPresenter
             'active' => $reference->active,
             'position' => $reference->position,
             'metadata' => $reference->metadata,
+            // ADR-194 — les départements où cette fonction existe (vide : partout).
+            'departments' => $reference->type === HrReferenceType::JobTitle && $reference->relationLoaded('departments')
+                ? $reference->departments->map(fn (HrReferenceValue $department) => [
+                    'uuid' => $department->uuid,
+                    'label' => $department->label,
+                    'archived' => $department->trashed(),
+                ])->values()->all()
+                : [],
+            'internship' => $reference->isInternshipContractType(),
             'archived' => $reference->trashed(),
             'delete_reason' => $reference->delete_reason,
         ];

@@ -680,6 +680,11 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] « Compte de connexion » retiré du formulaire Employé ; à la création d'un compte, choix « Personnel clinique » (fiche Employé, nom et email proposés) ou « Externe », dans l'assistant du portail et l'écran Utilisateurs du site ; une fiche, un compte ; audité (ADR-188)
 - [x] Formulaire Employé (création et modification) en shadcn-vue : parcours en cinq étapes avec icônes, référentiels archivés visibles mais non choisissables, résumé des erreurs qui mène au champ
 - [x] Compte « Personnel clinique » : recherche de la personne en auto-complétion d'abord (accents ignorés, clavier, surlignage), Nom et Email ensuite, repris de sa fiche RH — au portail comme au site (ADR-188, amendement du 2026-09-25)
+- [x] Fonctions par département : le dossier employé ne propose que les fonctions du département choisi, refus serveur d'un couple incohérent (saisie et import), correspondance réglée dans le module Fonctions, proposition livrée depuis le CDC §9 (ADR-194)
+- [x] Photo d'identité 4 × 4 du dossier employé : recadrage, stockage privé réencodé, affichée dans la liste, la fiche, le planning, les stages et la fiche imprimée (ADR-194)
+- [x] Stagiaires : employé + contrat de stage (filière, école, niveau, encadrant), page « Stages » filtrable, parcours « Nouveau stagiaire », repère dans l'annuaire (ADR-194)
+- [x] Planning du personnel et planning de garde : deux onglets, calendrier semaine / mois / liste, impression et export par type (ADR-194)
+- [ ] Filière d'un stage importé par Excel, gardes distinguées pour la disponibilité au bloc — à décider (ADR-194)
 - [x] Adresses email professionnelles : demande par le RH depuis la fiche employé, création par le Super Admin chez l'hébergeur (API cPanel o2switch), mot de passe montré une fois, adresse reportée sur la fiche (ADR-190)
 - [x] Suspension au départ de l'employé (vue « À suspendre »), réactivation, nouveau mot de passe ; jamais de suppression ; reprise sans double création si le site ne confirme pas (ADR-190)
 - [x] Accès à l'hébergeur vérifié sur abyssin.o2switch.net avec le mot de passe du compte : o2switch refuse l'authentification Basic sur l'API, le client ouvre une session cPanel puis la ferme (ADR-190, correction du 2026-09-25)

@@ -3,12 +3,13 @@ import { computed } from 'vue';
 import { lucideIcon } from '@/lib/icons';
 
 const props = defineProps({
-    icon: { type: String, default: 'inbox' },
+    // Un nom (table `lib/icons.js`) ou directement le composant lucide.
+    icon: { type: [String, Object, Function], default: 'inbox' },
     title: { type: String, default: 'Aucune donnée' },
     description: String,
 });
 
-const glyph = computed(() => lucideIcon(props.icon));
+const glyph = computed(() => (typeof props.icon === 'string' ? lucideIcon(props.icon) : props.icon));
 </script>
 
 <template>

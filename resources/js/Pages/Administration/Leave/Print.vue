@@ -1,4 +1,5 @@
 <script setup>
+import { hrSiteName, hrUrl } from '@/utilities/hrUrl';
 import { Head, Link, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
@@ -19,7 +20,7 @@ const printPage = () => window.print();
 
     <div class="mx-auto max-w-4xl space-y-3">
         <div class="print-actions flex justify-between">
-            <Button :as="Link" href="/administration/leave" size="rg" variant="white-outline">
+            <Button :as="Link" :href="hrUrl('/administration/leave')" size="rg" variant="white-outline">
                 <Icon name="arrow-left" /><span class="ms-2">Retour</span>
             </Button>
             <Button size="rg" @click="printPage">
@@ -31,7 +32,7 @@ const printPage = () => window.print();
             <header class="flex items-start justify-between gap-6 border-b-2 border-slate-900 pb-4">
                 <div>
                     <strong class="uppercase">{{ page.props.site?.brand || 'Clinique Saint Georges' }}</strong>
-                    <p class="text-xs">Site {{ page.props.site?.name || '' }}</p>
+                    <p class="text-xs">Site {{ hrSiteName() }}</p>
                 </div>
                 <div class="text-end">
                     <h1 class="text-xl font-black uppercase">Demande de congé</h1>

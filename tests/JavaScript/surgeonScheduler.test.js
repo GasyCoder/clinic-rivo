@@ -51,10 +51,15 @@ test('la page ne choisit plus un chirurgien par le nom de son rôle', () => {
     assert.match(header, /aide\$\{assistants\.value\.length > 1 \? 's' : ''\}/);
 });
 
-test('le formulaire RH relie un compte sans en créer ni donner de droit', () => {
-    assert.match(employeeForm, /label="Compte de connexion"/);
-    assert.match(employeeForm, /Aucun compte n’est créé et aucun droit n’est donné/);
-    assert.match(employeeForm, /'user_uuid'\]/);
+test('le compte se relie à sa fiche depuis « Utilisateurs », plus depuis le formulaire RH (ADR-183)', () => {
+    const picker = fs.readFileSync('resources/js/Components/Users/AccountKindPicker.vue', 'utf8');
+
+    assert.doesNotMatch(employeeForm, /Compte de connexion"|user_uuid/);
+    assert.match(picker, /label: 'Personnel clinique'/);
+    assert.match(picker, /label: 'Externe'/);
+    for (const page of ['resources/js/Pages/SuperAdmin/Users/Index.vue', 'resources/js/Pages/Administration/Users/Index.vue']) {
+        assert.match(fs.readFileSync(page, 'utf8'), /<AccountKindPicker/, `${page} propose Personnel clinique / Externe`);
+    }
 });
 
 test('l’écran de programmation est écrit en shadcn, sans DashWind', () => {

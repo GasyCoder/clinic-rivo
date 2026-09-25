@@ -2,7 +2,6 @@
 
 namespace App\Actions\Administration;
 
-use App\Services\Settings\AppSettings;
 use App\Models\DocumentTemplate;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
@@ -10,6 +9,8 @@ use App\Models\GeneratedDocument;
 use App\Models\LeaveRequest;
 use App\Models\User;
 use App\Services\Administration\DocumentFormDataResolver;
+use App\Services\Settings\AppSettings;
+use App\Support\Authorization\RemoteActorAttribution;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -69,6 +70,7 @@ class CreateGeneratedDocumentAction
                 'rendered_html_snapshot' => $pageOneHtml.DocumentFormDataResolver::PAGE_BREAK_HTML.$template->content_html
                     .($withDirectorSignature ? $this->resolver->renderDirectorSignature($this->settings) : ''),
                 'generated_by' => $actor->getKey(),
+                ...RemoteActorAttribution::fields('generated', $actor),
             ]);
         });
     }

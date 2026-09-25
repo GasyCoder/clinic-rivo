@@ -3,6 +3,7 @@
 namespace App\Services\Audit;
 
 use App\Models\AuditLog;
+use App\Models\RemoteSuperAdmin;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
@@ -40,11 +41,17 @@ class Auditor
         // dispatching a real request, the request's own resolver was never
         // wired — the auth guard is the one source that's always correct.
         $actor ??= Auth::user();
+        $localId = $actor?->getAuthIdentifier();
+
+        // Sans compte local — un acteur système, ou le Super Admin du portail
+        // qui agit par l'API du site (ADR-182) —, c'est son identité distante
+        // qui signe l'entrée : jamais une ligne d'audit sans auteur.
+        $external = $localId === null ? $this->externalIdentity($actor) : ['uuid' => null, 'name' => null];
 
         return AuditLog::create([
-            'user_id' => $actor?->getAuthIdentifier(),
-            'external_actor_uuid' => $actor ? null : ($this->request->attributes->get('rivo_actor_uuid') ?: null),
-            'external_actor_name' => $actor ? null : ($this->request->attributes->get('rivo_actor_name') ?: null),
+            'user_id' => $localId,
+            'external_actor_uuid' => $external['uuid'],
+            'external_actor_name' => $external['name'],
             'action' => $action,
             'module' => $module,
             'site_code' => config('rivo.site.code'),
@@ -59,6 +66,19 @@ class Auditor
             'user_agent' => $this->request->userAgent(),
             'request_uuid' => $this->requestUuid(),
         ]);
+    }
+
+    /** @return array{uuid: ?string, name: ?string} */
+    private function externalIdentity(?Authenticatable $actor): array
+    {
+        if ($actor instanceof RemoteSuperAdmin) {
+            return ['uuid' => $actor->externalUuid() ?: null, 'name' => $actor->externalName() ?: null];
+        }
+
+        return [
+            'uuid' => $this->request->attributes->get('rivo_actor_uuid') ?: null,
+            'name' => $this->request->attributes->get('rivo_actor_name') ?: null,
+        ];
     }
 
     /**

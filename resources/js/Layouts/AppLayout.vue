@@ -1,11 +1,13 @@
 <script setup>
 import { ref } from 'vue';
+import { usePage } from '@inertiajs/vue3';
 
 import Sidebar from '@/Components/Layout/Sidebar.vue';
 import Header from '@/Components/Layout/Header.vue';
 import Footer from '@/Components/Layout/Footer.vue';
 import ToastContainer from '@/Components/UI/ToastContainer.vue';
 import PageSkeleton from '@/Components/Layout/PageSkeleton.vue';
+import HrPortalBar from '@/Components/Administration/HrPortalBar.vue';
 import { usePageLoading } from '@/composables/usePageLoading';
 
 import { useThemeSync } from '@/composables/useThemeSync';
@@ -23,6 +25,9 @@ useThemeSync();
 // annulée, elle réapparaît telle qu'elle était, saisie comprise.
 const pageLoading = usePageLoading();
 
+// ADR-182 — un écran RH d'un site, affiché par le portail : sa navigation RH.
+const page = usePage();
+
 const sidebarVisibility = ref(false);
 const sidebarCompact = ref(false);
 </script>
@@ -39,6 +44,7 @@ const sidebarCompact = ref(false);
                 <div :class="{ container: true, 'max-w-none': !container }">
                     <PageSkeleton v-if="pageLoading.active" :path="pageLoading.path" />
                     <div v-show="! pageLoading.active">
+                        <HrPortalBar v-if="page.props.hrContext" />
                         <slot />
                     </div>
                 </div>

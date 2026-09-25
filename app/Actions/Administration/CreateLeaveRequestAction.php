@@ -11,6 +11,7 @@ use App\Models\LeaveRequest;
 use App\Models\User;
 use App\Services\Administration\HrReferenceResolver;
 use App\Services\Administration\LeaveBalanceCalculator;
+use App\Support\Authorization\RemoteActorAttribution;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -111,6 +112,7 @@ class CreateLeaveRequestAction
                         'size' => $justification->getSize(),
                         'issued_on' => now()->toDateString(),
                         'uploaded_by' => $actor->getKey(),
+                        ...RemoteActorAttribution::fields('uploaded', $actor),
                     ]);
                 }
 

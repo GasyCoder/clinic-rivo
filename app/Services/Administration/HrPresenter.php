@@ -9,6 +9,7 @@ use App\Models\HrDocument;
 use App\Models\HrReferenceValue;
 use App\Models\LeaveRequest;
 use App\Models\PlanningShift;
+use App\Support\Authorization\RemoteActorAttribution;
 
 class HrPresenter
 {
@@ -141,7 +142,7 @@ class HrPresenter
             'status_label' => $leave->status->label(),
             'decided_at' => $leave->decided_at?->toIso8601String(),
             'decision_reason' => $leave->decision_reason,
-            'decided_by' => $leave->decidedBy?->name,
+            'decided_by' => RemoteActorAttribution::name($leave->decidedBy?->name, $leave->external_decided_by_name),
             'cancelled_at' => $leave->cancelled_at?->toIso8601String(),
             'cancel_reason' => $leave->cancel_reason,
         ];

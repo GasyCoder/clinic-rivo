@@ -33,6 +33,21 @@ test('the shell offers the three templates and falls back on the cover', () => {
     assert.match(shell, /site\.value\.authCoverUrl/, 'l’image de fond vient du site');
 });
 
+/** Exigence du propriétaire : le logo de la page de connexion est toujours au centre. */
+test('the login logo is always centered', () => {
+    const mark = read('resources/js/Components/Auth/BrandMark.vue');
+
+    assert.match(mark, /class="mb-8 flex min-h-16 items-center justify-center" data-auth-logo/);
+    assert.match(mark, /class="mx-auto h-auto w-full max-w-\[270px\] object-contain object-center"/);
+    assert.match(mark, /<div v-else class="flex items-center justify-center gap-3">/, 'les initiales, à défaut de logo, sont centrées aussi');
+    assert.doesNotMatch(mark, /object-left/);
+
+    // Chaque modèle passe par ce seul composant : aucun ne peut réécrire le logo à gauche.
+    const shell = read('resources/js/Components/Auth/AuthShell.vue');
+    assert.equal(shell.match(/<BrandMark \/>/g)?.length, 3);
+    assert.doesNotMatch(shell, /logo_url/);
+});
+
 test('the password field is labelled before its show/hide button', () => {
     const field = read('resources/js/Components/Shadcn/PasswordInput.vue');
 

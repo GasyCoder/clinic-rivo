@@ -1,4 +1,5 @@
 <script setup>
+import { hrUrl } from '@/utilities/hrUrl';
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
@@ -15,7 +16,7 @@ const printPage = () => window.print();
 
     <div class="mx-auto max-w-4xl space-y-3">
         <div class="print-actions flex justify-between">
-            <Button :as="Link" href="/administration/generated-documents" size="rg" variant="white-outline">
+            <Button :as="Link" :href="hrUrl('/administration/generated-documents')" size="rg" variant="white-outline">
                 <Icon name="arrow-left" /><span class="ms-2">Retour</span>
             </Button>
             <Button size="rg" @click="printPage">

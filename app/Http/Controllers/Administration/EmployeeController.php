@@ -22,7 +22,6 @@ use App\Models\Employee;
 use App\Models\EmploymentContract;
 use App\Models\HrDocument;
 use App\Models\HrReferenceValue;
-use App\Models\User;
 use App\Services\Administration\HrPresenter;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use Illuminate\Http\RedirectResponse;
@@ -257,7 +256,6 @@ class EmployeeController extends Controller
 
         return [
             'addresses' => $addresses,
-            'accounts' => $this->linkableAccounts($employee),
             'departments' => $this->references(HrReferenceType::Department, $employee?->department_id),
             'jobTitles' => $this->references(HrReferenceType::JobTitle, $employee?->job_title_id),
             'options' => [
@@ -274,42 +272,6 @@ class EmployeeController extends Controller
                 ])->all(),
             ],
         ];
-    }
-
-    /**
-     * ADR-168 — les comptes qu'une fiche peut relier : actifs, pas déjà reliés
-     * à une autre fiche (archives comprises), plus celui déjà relié. Nom, rôle et
-     * profil suffisent à reconnaître la personne ; rien d'autre n'est servi.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    private function linkableAccounts(?Employee $employee): array
-    {
-        $takenIds = Employee::withTrashed()
-            ->whereNotNull('user_id')
-            ->when($employee, fn ($query) => $query->whereKeyNot($employee->getKey()))
-            ->pluck('user_id');
-
-        return User::query()
-            ->with(['role:id,code,name', 'professionalProfile:id,name'])
-            ->whereNotIn('id', $takenIds)
-            ->where(function ($query) use ($employee): void {
-                $query->where(fn ($active) => $active->where('active', true)->whereNull('deactivated_at'));
-
-                if ($employee?->user_id) {
-                    $query->orWhere('id', $employee->user_id);
-                }
-            })
-            ->whereDoesntHave('role', fn ($role) => $role->where('code', 'SUPER_ADMIN'))
-            ->orderBy('name')
-            ->get(['id', 'uuid', 'name', 'role_id', 'professional_profile_id', 'active', 'deactivated_at'])
-            ->map(fn (User $user) => [
-                'uuid' => $user->uuid,
-                'name' => $user->name,
-                'role' => $user->role?->name,
-                'profile' => $user->professionalProfile?->name,
-                'available' => $user->active && ! $user->deactivated_at,
-            ])->all();
     }
 
     /** @return array<int, array<string, mixed>> */

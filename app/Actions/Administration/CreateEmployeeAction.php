@@ -4,7 +4,6 @@ namespace App\Actions\Administration;
 
 use App\Models\Employee;
 use App\Models\User;
-use App\Services\Administration\EmployeeAccountResolver;
 use App\Services\Administration\EmployeeAddressResolver;
 use App\Services\Administration\EmployeeIdentityNormalizer;
 use App\Services\Administration\HrReferenceResolver;
@@ -17,7 +16,6 @@ class CreateEmployeeAction
         private readonly EmployeeAddressResolver $addressResolver,
         private readonly EmployeeIdentityNormalizer $identityNormalizer,
         private readonly HrReferenceResolver $referenceResolver,
-        private readonly EmployeeAccountResolver $accountResolver,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -28,7 +26,6 @@ class CreateEmployeeAction
         return DB::transaction(function () use ($data, $actor): Employee {
             $data = $this->identityNormalizer->normalize($data);
             $data = $this->referenceResolver->employeeData($data);
-            $data = $this->accountResolver->resolve($data);
             $employee = Employee::query()->create($this->addressResolver->resolve($data, $actor));
 
             return $employee->load(['addressEntry', 'department', 'jobTitle']);

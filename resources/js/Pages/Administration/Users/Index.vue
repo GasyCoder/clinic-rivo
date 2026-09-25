@@ -5,7 +5,8 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/Shadcn/Avatar.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import { Check, ChevronRight, CircleAlert, CircleCheck, CircleX, Lock, LockOpen, Pencil, Search, ShieldCheck, UserPlus, Users, X } from 'lucide-vue-next';
+import AccountKindPicker from '@/Components/Users/AccountKindPicker.vue';
+import { Check, ChevronRight, CircleAlert, CircleCheck, CircleX, IdCard, Lock, LockOpen, Pencil, Search, ShieldCheck, UserPlus, UserRound, Users, X } from 'lucide-vue-next';
 import Input from '@/Components/Shadcn/Input.vue';
 import { usePermissions } from '@/composables/usePermissions';
 
@@ -16,6 +17,8 @@ const props = defineProps({
     roles: Array,
     permissionCatalog: Array,
     filters: Object,
+    /** ADR-183 — les fiches Employé qu'un compte peut relier. */
+    employees: { type: Array, default: () => [] },
 });
 
 const page = usePage();
@@ -39,7 +42,20 @@ const form = useForm({
     password_confirmation: '',
     permission_overrides: [],
     sync_profile_permissions: false,
+    // ADR-183 — personnel clinique (une fiche Employé) ou externe : choisi, jamais par défaut.
+    account_kind: '',
+    employee_uuid: '',
 });
+const createEmployeeHref = computed(() => (can('employees.create') ? '/administration/employees/create' : ''));
+const accountKindLabel = (user) => (user.account_kind === 'STAFF' ? 'Personnel clinique' : user.account_kind === 'EXTERNAL' ? 'Externe' : null);
+
+/** Choisir une fiche propose son nom et son email, sans écraser une saisie. */
+const prefilled = ref({ name: '', email: '' });
+const onEmployeePick = (employee) => {
+    if (form.name.trim() === '' || form.name === prefilled.value.name) form.name = employee.name;
+    if (employee.email && (form.email.trim() === '' || form.email === prefilled.value.email)) form.email = employee.email;
+    prefilled.value = { name: employee.name, email: employee.email ?? '' };
+};
 
 const deactivationForm = useForm({ reason: '' });
 
@@ -188,6 +204,7 @@ const openCreate = () => {
     resetPermissionEffects();
     originalProfileOverrides.value = [];
     form.sync_profile_permissions = false;
+    prefilled.value = { name: '', email: '' };
     formOpen.value = true;
 };
 
@@ -203,6 +220,9 @@ const openEdit = (user) => {
     resetPermissionEffects(user.permission_overrides);
     originalProfileOverrides.value = (user.permission_overrides ?? []).filter((override) => override.source === 'PROFILE');
     form.sync_profile_permissions = false;
+    form.account_kind = user.account_kind ?? '';
+    form.employee_uuid = user.employee?.uuid ?? '';
+    prefilled.value = { name: '', email: '' };
     formOpen.value = true;
 };
 
@@ -346,6 +366,13 @@ const performSubmit = () => {
             delete payload.sync_profile_permissions;
         }
 
+        // Un compte externe n'envoie aucune fiche ; un choix absent n'envoie rien.
+        payload.employee_uuid = payload.account_kind === 'STAFF' ? payload.employee_uuid : null;
+        if (! payload.account_kind) {
+            delete payload.account_kind;
+            delete payload.employee_uuid;
+        }
+
         return payload;
     });
 
@@ -476,6 +503,9 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                                             <span v-if="user.is_current" class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Vous</span>
                                         </div>
                                         <span class="mt-0.5 block truncate text-xs text-muted-foreground">{{ user.email }}</span>
+                                        <span v-if="accountKindLabel(user)" class="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground" :title="user.employee ? `Fiche ${user.employee.employee_number}` : 'Aucune fiche employé'">
+                                            <component :is="user.employee ? IdCard : UserRound" class="h-3 w-3" />{{ accountKindLabel(user) }}<template v-if="user.employee"> · <span class="font-mono">{{ user.employee.employee_number }}</span></template>
+                                        </span>
                                     </div>
                                 </div>
                             </td>
@@ -567,6 +597,16 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                         <div v-if="form.errors.user" class="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
                             {{ form.errors.user }}
                         </div>
+
+                        <AccountKindPicker
+                            v-model:kind="form.account_kind"
+                            v-model:employee-uuid="form.employee_uuid"
+                            :employees="employees"
+                            :current-user-uuid="editingUser?.uuid ?? ''"
+                            :errors="form.errors"
+                            :create-employee-href="createEmployeeHref"
+                            @pick="onEmployeePick"
+                        />
 
                         <div class="grid gap-4 sm:grid-cols-2">
                             <div>
@@ -698,7 +738,7 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
 
                     <footer class="flex flex-col-reverse gap-3 border-t border-border px-5 py-4 sm:flex-row sm:justify-end">
                         <Button size="rg" variant="white-outline" type="button" :disabled="form.processing" @click="closeForm">Annuler</Button>
-                        <Button size="rg" variant="primary" type="submit" :disabled="form.processing">
+                        <Button size="rg" variant="primary" type="submit" :disabled="form.processing || ! form.account_kind || (form.account_kind === 'STAFF' && ! form.employee_uuid)">
                             <Check class="h-4.5 w-4.5" />
                             {{ form.processing ? 'Enregistrement…' : (isEditing ? 'Enregistrer' : 'Créer le compte') }}
                         </Button>

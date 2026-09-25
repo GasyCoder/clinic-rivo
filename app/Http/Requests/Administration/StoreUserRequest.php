@@ -4,6 +4,7 @@ namespace App\Http\Requests\Administration;
 
 use App\Models\ProfessionalProfile;
 use App\Support\SecurePassword;
+use App\Support\Users\AccountKindRules;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -26,6 +27,8 @@ class StoreUserRequest extends FormRequest
     public function rules(): array
     {
         return [
+            // ADR-183 — personnel clinique (une fiche Employé) ou externe.
+            ...AccountKindRules::rules(creating: true),
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')],
             'password' => ['required', 'confirmed', SecurePassword::rule()],
@@ -61,6 +64,7 @@ class StoreUserRequest extends FormRequest
     public function messages(): array
     {
         return [
+            ...AccountKindRules::messages(),
             'password.confirmed' => 'La confirmation du mot de passe ne correspond pas.',
             'password.min' => 'Le mot de passe doit contenir au moins 12 caractères.',
             'email.unique' => 'Cette adresse email est déjà utilisée.',

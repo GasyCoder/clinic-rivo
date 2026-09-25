@@ -44,6 +44,7 @@ import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import FormError from '@/Components/UI/FormError.vue';
+import AccountKindPicker from '@/Components/Users/AccountKindPicker.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
 import { matchesSearchTerms } from '@/utilities/permissionWorkspace';
@@ -84,6 +85,9 @@ const form = useForm({
     professional_profile_id: '',
     password: '',
     password_confirmation: '',
+    // ADR-183 — personnel clinique (une fiche Employé) ou externe : choisi, jamais par défaut.
+    account_kind: '',
+    employee_uuid: '',
 });
 const deactivationForm = useForm({ reason: '' });
 const forceDeleteTargets = ref([]);
@@ -98,6 +102,22 @@ const isEditing = computed(() => editingUser.value !== null);
 const selectedSite = computed(() => props.sites.find((site) => site.site.code === selectedSiteCode.value));
 const users = computed(() => selectedSite.value?.data?.users ?? []);
 const roles = computed(() => selectedSite.value?.data?.roles ?? []);
+const employees = computed(() => selectedSite.value?.data?.employees ?? []);
+const createEmployeeHref = computed(() => (can('employees.create') ? `/super-admin/sites/${selectedSiteCode.value}/rh/employees/create` : ''));
+const accountKindLabel = (user) => (user.account_kind === 'STAFF' ? 'Personnel clinique' : user.account_kind === 'EXTERNAL' ? 'Externe' : null);
+
+/**
+ * Choisir une fiche propose son nom et son email au compte, sans écraser une
+ * saisie : un champ n'est repris que s'il est vide ou s'il vient de la fiche
+ * choisie juste avant.
+ */
+const prefilled = ref({ name: '', email: '' });
+const onEmployeePick = (employee) => {
+    if (form.name.trim() === '' || form.name === prefilled.value.name) form.name = employee.name;
+    if (employee.email && (form.email.trim() === '' || form.email === prefilled.value.email)) form.email = employee.email;
+    prefilled.value = { name: employee.name, email: employee.email ?? '' };
+};
+const kindReady = computed(() => form.account_kind === 'EXTERNAL' || (form.account_kind === 'STAFF' && form.employee_uuid !== ''));
 
 // Selection is scoped to the visible, active users of the current site —
 // switching site, or a manageable user disappearing after a page refresh
@@ -189,6 +209,7 @@ const togglePassword = () => {
 };
 
 const step1Valid = computed(() => {
+    if (! kindReady.value) return false;
     if (form.name.trim() === '' || ! emailValid.value) return false;
     // Password is only ever set here when editing — creation never asks
     // for one, the account is provisioned by email invitation instead.
@@ -201,6 +222,8 @@ const step2Valid = computed(() => form.role_id !== '' && (!selectedRoleProfiles.
 /** Ce qui retient le bouton de l'étape : dit en clair, jamais un bouton grisé muet (ADR-154). */
 const blocker = computed(() => {
     if (step.value === 1) {
+        if (form.account_kind === '') return 'Indiquez s’il s’agit du personnel de la clinique ou d’une personne externe.';
+        if (form.account_kind === 'STAFF' && form.employee_uuid === '') return 'Choisissez la fiche employé de cette personne.';
         if (form.name.trim() === '') return 'Renseignez le nom complet.';
         if (form.email.trim() === '') return 'Renseignez l’email professionnel.';
         if (! emailValid.value) return 'L’adresse email n’est pas valide.';
@@ -217,6 +240,7 @@ const blocker = computed(() => {
 });
 
 const checklist = computed(() => [
+    { key: 'kind', label: form.account_kind === 'STAFF' ? 'Fiche employé reliée' : 'Personnel clinique ou externe', done: kindReady.value },
     { key: 'name', label: 'Nom complet', done: form.name.trim() !== '' },
     { key: 'email', label: 'Email professionnel valide', done: emailValid.value },
     { key: 'role', label: 'Rôle métier', done: form.role_id !== '' },
@@ -246,7 +270,7 @@ const openCreate = () => {
     step.value = 1;
     maxStepReached.value = 1;
     view.value = 'form';
-    focusField('user-name');
+    focusField('account-kind-staff');
 };
 
 const openEdit = (user) => {
@@ -259,6 +283,8 @@ const openEdit = (user) => {
     form.professional_profile_id = user.professional_profile?.id ?? '';
     form.password = '';
     form.password_confirmation = '';
+    form.account_kind = user.account_kind ?? '';
+    form.employee_uuid = user.employee?.uuid ?? '';
     resetFormHelpers();
     step.value = 1;
     maxStepReached.value = 2;
@@ -272,6 +298,7 @@ function resetFormHelpers() {
     passwordOpen.value = false;
     emailTouched.value = false;
     roleSearch.value = '';
+    prefilled.value = { name: '', email: '' };
 }
 
 /** Le formulaire remplace la liste : on repart du haut, le curseur dans le premier champ. */
@@ -368,7 +395,7 @@ watch(step, async () => {
  * utilisé ») arrive pendant qu'on est à l'étape 2 : on revient là où se
  * corrige le champ, au lieu de laisser un bouton qui échoue sans rien dire.
  */
-const STEP_ONE_FIELDS = ['name', 'email', 'password', 'password_confirmation'];
+const STEP_ONE_FIELDS = ['account_kind', 'employee_uuid', 'name', 'email', 'password', 'password_confirmation'];
 
 watch(() => form.errors, (errors) => {
     if (step.value === 2 && STEP_ONE_FIELDS.some((field) => errors?.[field])) {
@@ -449,6 +476,17 @@ const roleRequiresProfile = (roleId) => Boolean(roles.value.find((item) => Numbe
  */
 const submitUser = () => {
     const options = { preserveScroll: true, onSuccess: dismissForm };
+
+    // Un compte externe n'envoie aucune fiche ; un choix absent n'envoie rien (le lien reste tel quel).
+    form.transform((data) => {
+        const payload = { ...data, employee_uuid: data.account_kind === 'STAFF' ? data.employee_uuid : null };
+        if (! payload.account_kind) {
+            delete payload.account_kind;
+            delete payload.employee_uuid;
+        }
+
+        return payload;
+    });
 
     if (editingUser.value) {
         form.put(`/super-admin/workspaces/users/${selectedSiteCode.value}/${editingUser.value.uuid}`, options);
@@ -678,6 +716,9 @@ const pageTitle = computed(() => {
                                         <div class="min-w-0">
                                             <span class="truncate text-sm font-bold text-foreground">{{ user.name }}</span>
                                             <span class="mt-0.5 block truncate text-xs text-muted-foreground">{{ user.email }}</span>
+                                            <span v-if="accountKindLabel(user)" class="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground" :title="user.employee ? `Fiche ${user.employee.employee_number}` : 'Aucune fiche employé'">
+                                                <component :is="user.employee ? IdCard : UserRound" class="h-3 w-3" />{{ accountKindLabel(user) }}<template v-if="user.employee"> · <span class="font-mono">{{ user.employee.employee_number }}</span></template>
+                                            </span>
                                         </div>
                                     </div>
                                 </td>
@@ -725,6 +766,9 @@ const pageTitle = computed(() => {
                             <div class="min-w-0 flex-1">
                                 <p class="truncate text-sm font-bold text-foreground">{{ user.name }}</p>
                                 <p class="mt-0.5 truncate text-xs text-muted-foreground">{{ user.email }}</p>
+                                <p v-if="accountKindLabel(user)" class="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                                    <component :is="user.employee ? IdCard : UserRound" class="h-3 w-3" />{{ accountKindLabel(user) }}<template v-if="user.employee"> · <span class="font-mono">{{ user.employee.employee_number }}</span></template>
+                                </p>
                             </div>
                             <span :class="cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', user.active ? 'bg-emerald-500' : 'bg-muted-foreground')" :title="user.active ? 'Actif' : 'Désactivé'" />
                         </div>
@@ -845,6 +889,17 @@ const pageTitle = computed(() => {
                         </div>
 
                         <div class="space-y-6 px-5 py-5 sm:px-6">
+                            <AccountKindPicker
+                                v-model:kind="form.account_kind"
+                                v-model:employee-uuid="form.employee_uuid"
+                                :employees="employees"
+                                :current-user-uuid="editingUser?.uuid ?? ''"
+                                :errors="form.errors"
+                                :create-employee-href="createEmployeeHref"
+                                :site-name="selectedSite?.site.name ?? ''"
+                                @pick="onEmployeePick"
+                            />
+
                             <div class="grid gap-5 md:grid-cols-2">
                                 <div>
                                     <FormField label="Nom complet" required :error="form.errors.name">
@@ -1101,6 +1156,12 @@ const pageTitle = computed(() => {
                             <div class="flex items-start justify-between gap-3 px-5 py-2.5">
                                 <dt class="flex items-center gap-2 text-muted-foreground"><Server class="h-3.5 w-3.5" />Site</dt>
                                 <dd class="text-end font-medium text-foreground">{{ selectedSite?.site.name }}</dd>
+                            </div>
+                            <div class="flex items-start justify-between gap-3 px-5 py-2.5">
+                                <dt class="flex items-center gap-2 text-muted-foreground"><Users class="h-3.5 w-3.5" />Personne</dt>
+                                <dd :class="cn('text-end font-medium', form.account_kind ? 'text-foreground' : 'text-muted-foreground')">
+                                    {{ form.account_kind === 'EXTERNAL' ? 'Externe' : form.account_kind === 'STAFF' ? (employees.find((employee) => employee.uuid === form.employee_uuid)?.employee_number ?? 'Fiche à choisir') : 'À choisir' }}
+                                </dd>
                             </div>
                             <div class="flex items-start justify-between gap-3 px-5 py-2.5">
                                 <dt class="flex items-center gap-2 text-muted-foreground"><Briefcase class="h-3.5 w-3.5" />Rôle</dt>

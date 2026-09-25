@@ -2,11 +2,13 @@
 
 namespace App\Services\Authorization;
 
+use App\Enums\AccountKind;
 use App\Models\AuditLog;
 use App\Models\Permission;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Administration\EmployeeAccountLinker;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -51,6 +53,10 @@ class RbacPresenter
             'last_login_at' => $user->last_login_at?->toIso8601String(),
             'deactivated_at' => $user->deactivated_at?->toIso8601String(),
             'deactivation_reason' => $user->deactivation_reason,
+            // ADR-183 — personnel clinique (relié à sa fiche Employé) ou externe.
+            // Lu seulement si la fiche a été chargée : une liste la charge en
+            // une requête, jamais une par compte.
+            ...$this->accountKind($user),
             // ADR-062: a UI hint only — ForceDeleteUserAction re-verifies
             // this authoritatively regardless of what the client sends back.
             'deletable' => $user->last_login_at === null
@@ -63,6 +69,21 @@ class RbacPresenter
                 'source_profile_id' => $permission->pivot->source_profile_id,
                 'source_profile_name' => $sourceProfileNames->get($permission->pivot->source_profile_id),
             ])->values(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function accountKind(User $user): array
+    {
+        if (! $user->relationLoaded('employee')) {
+            return [];
+        }
+
+        $employee = EmployeeAccountLinker::summary($user->employee);
+
+        return [
+            'account_kind' => ($employee ? AccountKind::Staff : AccountKind::External)->value,
+            'employee' => $employee,
         ];
     }
 

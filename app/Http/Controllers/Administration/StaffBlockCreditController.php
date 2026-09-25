@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers\Administration;
 
-use App\Services\Settings\AppSettings;
 use App\Actions\Administration\AllocateStaffBlockCreditAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\AllocateStaffBlockCreditRequest;
 use App\Models\Employee;
 use App\Models\StaffBlockCreditMovement;
 use App\Services\Finance\StaffBlockCreditLedger;
+use App\Services\Settings\AppSettings;
+use App\Support\Authorization\RemoteActorAttribution;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -63,7 +64,7 @@ class StaffBlockCreditController extends Controller
                     'episode_number' => $movement->episode?->episode_number,
                     'billable_item_uuid' => $movement->billableItem?->uuid,
                     'billable_item_description' => $movement->billableItem?->description,
-                    'created_by' => $movement->creator?->name,
+                    'created_by' => RemoteActorAttribution::name($movement->creator?->name, $movement->external_created_by_name),
                     'created_at' => $movement->created_at?->toIso8601String(),
                 ])
             : null;

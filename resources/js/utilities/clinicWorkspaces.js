@@ -7,6 +7,7 @@ import {
     BedDouble,
     BookOpenCheck,
     Briefcase,
+    BriefcaseBusiness,
     Building2,
     CalendarDays,
     CalendarRange,
@@ -22,6 +23,7 @@ import {
     Library,
     LayoutDashboard,
     Microscope,
+    Network,
     Package,
     Pill,
     Plus,
@@ -125,7 +127,7 @@ export const CLINIC_WORKSPACES = [
         // /administration/users stays with « Utilisateurs & accès ».
         exact: true,
         // ADR-066 — the sidebar is the HR space's only navigation (no tab bar).
-        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/settings'],
+        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/departments', '/administration/job-titles', '/administration/settings'],
         permission: 'employees.view',
         tone: 'navy',
         children: [
@@ -138,6 +140,9 @@ export const CLINIC_WORKSPACES = [
             { code: 'hr-planning', icon: CalendarRange, label: 'Planning', link: '/administration/planning', activeLinks: ['/administration/planning'], permission: 'planning.view' },
             { code: 'hr-reports', icon: BarChart3, label: 'Rapports', link: '/administration/reports', activeLinks: ['/administration/reports'], permission: 'hr_reports.view' },
             { code: 'hr-block-credit', icon: Wallet, label: 'Crédit Bloc', link: '/administration/staff-block-credits', activeLinks: ['/administration/staff-block-credits'], permission: 'staff_block_credits.view' },
+            // ADR-183 — les deux référentiels de structure ont leur module.
+            { code: 'hr-departments', icon: Network, label: 'Départements', link: '/administration/departments', activeLinks: ['/administration/departments'], permission: 'hr_settings.view' },
+            { code: 'hr-job-titles', icon: BriefcaseBusiness, label: 'Fonctions', link: '/administration/job-titles', activeLinks: ['/administration/job-titles'], permission: 'hr_settings.view' },
             { code: 'hr-settings', icon: Settings, label: 'Paramètres', link: '/administration/settings', activeLinks: ['/administration/settings'], permission: 'hr_settings.view' },
         ],
     },

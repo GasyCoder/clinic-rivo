@@ -27,10 +27,17 @@ class HrReferenceController extends Controller
     {
         Gate::forUser($request->user())->authorize('viewAny', HrReferenceValue::class);
 
+        // ADR-183 — départements et fonctions ont leur propre module : les
+        // lister ici aussi donnerait deux écrans pour la même liste.
+        $types = collect(HrReferenceType::cases())
+            ->reject(fn (HrReferenceType $type) => in_array($type, [HrReferenceType::Department, HrReferenceType::JobTitle], true));
+
         return Inertia::render('Administration/Settings/Index', [
-            'references' => HrReferenceValue::withTrashed()->orderBy('type')->orderBy('position')->orderBy('label')
+            'references' => HrReferenceValue::withTrashed()
+                ->whereIn('type', $types->map->value)
+                ->orderBy('type')->orderBy('position')->orderBy('label')
                 ->get()->map(fn ($reference) => $this->presenter->reference($reference))->groupBy('type'),
-            'types' => collect(HrReferenceType::cases())->map(fn ($type) => [
+            'types' => $types->values()->map(fn ($type) => [
                 'value' => $type->value, 'label' => $type->label(),
             ]),
             'leaveDayCountMethods' => collect(LeaveDayCountMethod::cases())->map(fn ($method) => [

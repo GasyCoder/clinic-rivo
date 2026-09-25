@@ -1,4 +1,5 @@
 <script setup>
+import { hrUrl } from '@/utilities/hrUrl';
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import FormError from '@/Components/UI/FormError.vue';
@@ -47,7 +48,7 @@ const loadPreview = async () => {
     previewError.value = '';
 
     try {
-        const response = await fetch('/administration/leave/preview', {
+        const response = await fetch(hrUrl('/administration/leave/preview'), {
             method: 'POST',
             credentials: 'same-origin',
             headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken() },

@@ -49,6 +49,7 @@ class UserAdministrationTest extends TestCase
             'password' => 'Valid-password1!',
             'password_confirmation' => 'Valid-password1!',
             'role_id' => Role::query()->where('code', 'RECEPTION')->value('id'),
+            'account_kind' => 'EXTERNAL',
         ];
     }
 

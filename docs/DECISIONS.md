@@ -14023,6 +14023,8 @@ choisit.
 chirurgien lui-même, il coche Moi-même, mais il peut ajouter d'autres ; si c'est un compte Soins
 ou Médecine, il sélectionne les disponibles, un, deux, trois… » ; trois arbitrages : un principal
 et des aides, disponibilité selon le planning RH, profil métier dans le rôle Chirurgie)
+; le lien compte ↔ fiche Employé ne se pose plus depuis le formulaire Employé mais depuis
+« Utilisateurs », à la création du compte (**ADR-183**).
 
 **Complète l'ADR-048** (la programmation du bloc), **amende l'ADR-033** (le rôle SURGERY reçoit
 ses profils métier) et s'appuie sur **l'ADR-066** (planning RH). Le CDC nomme les fonctions du bloc
@@ -16491,3 +16493,232 @@ d'écran
 Limite : la forme est déduite de l'adresse, pas de la page elle-même (Inertia ne connaît le
 composant d'arrivée qu'avec la réponse). Une page à l'adresse atypique reçoit la forme « liste ».
 Les pages hors mise en page principale (connexion, feuilles plein écran) n'en ont pas.
+
+---
+
+# ADR-181 — Le Super Admin du portail détient réellement toutes les permissions
+
+**Status:** ACCEPTED (2026-09-25 — signalement du propriétaire : « le Super Admin contrôle tout, pourquoi ne voit-il pas certains modules ? »)
+
+**Rend vraie** une règle que les ADR-025, ADR-027 et ADR-064 affirmaient déjà : sur `admin.rivo.mg`, le rôle
+`SUPER_ADMIN` reçoit automatiquement toutes les permissions. Aucune règle de résolution ne change
+(`DENY individuel > ALLOW individuel > socle du rôle`), aucun rôle n'est contourné par son nom (ADR-007).
+
+## Le constat
+
+Seul `RolePermissionSeeder` accordait tout au Super Admin, et il ne se rejoue plus sur une base en service
+(ADR-064). Ce qui est arrivé ensuite n'atteignait donc jamais le portail :
+
+```text
+absentes de la base du portail   18   créées seulement par PermissionSeeder
+                                      (document_templates.*, generated_documents.*, debts.*,
+                                       care_consumables.*, episodes.settlement.view…)
+non accordées au SUPER_ADMIN     26   ajoutées par des migrations qui ne pensaient qu'aux rôles
+                                      cliniques (hospitalization.*, newborns.*, transfers.*…)
+```
+
+Deux effets : des entrées disparaissaient de son menu — « Canevas de documents », un droit RH
+(ADR-070) —, et comme le portail transmet ses droits à chaque appel (`X-Rivo-Actor-Permissions`), le site
+refusait les commandes correspondantes.
+
+## La règle
+
+`SyncPortalSuperAdminPermissionsAction` s'exécute à la fin de chaque `php artisan migrate`, **même sans
+migration en attente** (`MigrationsEnded` et `NoPendingMigrations`) :
+
+```text
+portail   crée chaque permission du catalogue (PermissionSeeder) qui manque, puis accorde au
+          SUPER_ADMIN toutes les permissions de la base ; audit role.permissions.portal_sync
+          (créées, accordées), seulement quand quelque chose change
+site      aucun effet : le SUPER_ADMIN n'y reçoit rien (ADR-027)
+```
+
+Elle n'ajoute que ce qui manque : elle ne retire rien, ne touche aucun autre rôle ni aucune exception
+individuelle — un `DENY` nominatif garde la priorité (ADR-033). Aucune permission nouvelle, aucune
+migration : jouer `php artisan migrate` sur le portail suffit à rétablir une base qui a dérivé.
+
+## Signalé, non tranché
+
+Le catalogue complet représente 7,7 Ko dans l'en-tête `X-Rivo-Actor-Permissions`, contre 6,7 Ko avant.
+Un nginx réglé par défaut refuse une ligne d'en-tête de plus de 8 Ko (`large_client_header_buffers 4 8k`) :
+la marge est faible, et chaque nouvelle permission la réduit. Élargir ce tampon sur les sites, ou transmettre
+les droits autrement, est à décider avant la mise en production.
+
+---
+
+# ADR-182 — Le Super Admin gère les Ressources humaines d'un site depuis le portail
+
+**Status:** ACCEPTED (2026-09-25 — arbitrage explicite du propriétaire : « Consulter et gérer », après
+signalement de l'écart avec le CDC)
+
+**Corrige un écart avec le CDC** : §18 donne au Super Admin un accès global (`hr.*` compris) et §2 dit que
+le portail « consulte et administre » les sites par API. La page RH du portail n'affichait que des compteurs,
+et l'accueil RH du site affirmait « le portail central ne voit que ces chiffres, jamais les dossiers » — un
+choix d'implémentation (ADR-066), jamais une décision. **Aucune règle RH ne change** : ce sont les écrans, les
+droits et les actions du site.
+
+## Un seul espace RH, servi deux fois
+
+```text
+routes/hr.php          les 65 routes RH, écrites une fois
+  /administration/…            l'espace RH du site, pour ses comptes (inchangé)
+  /api/v1/super-admin/hr/…     le même espace, pour le portail, derrière rivo.site-api
+/super-admin/sites/{site}/rh/… le relais du portail (SiteHumanResourcesController)
+```
+
+Le portail transmet la requête du Super Admin à l'API du site (`SiteHrGateway`), le site exécute ses propres
+contrôleurs, et le portail affiche **la même page Vue** avec les données reçues. Jamais d'accès à la base du
+site (ADR-004, ADR-027).
+
+## Côté site : un acteur distant, pas un compte
+
+`ActAsRemoteSuperAdmin` fait du Super Admin l'utilisateur de la requête : `RemoteSuperAdmin`, un `User`
+**jamais enregistré** (toute écriture le refuse), sans identifiant local, dont les droits sont **ceux que le
+portail a transmis** pour cet appel. Il ne se crée que derrière le jeton du site. Les `can:` des routes, les
+règles, les FormRequests et les actions RH le traitent comme n'importe quel compte : aucune n'a été réécrite.
+
+C'est un autre mécanisme que le `CatalogActor` de l'ADR-098, choisi parce que les 37 actions RH attendent un
+`User` : les convertir une à une aurait réécrit tout le module pour le même résultat. Les deux coexistent.
+
+`ServeHrScreensAsJson` traduit les réponses sans toucher aux contrôleurs : page Inertia → son JSON, redirection
+→ `{redirect, status, error}`, erreurs en session → 422, fichier et JSON inchangés. `back()` revient à la page
+d'où vient le Super Admin (le portail envoie son chemin en `Referer`).
+
+## Qui a fait quoi
+
+```text
+audit             user_id vide, external_actor_uuid/name = le Super Admin (Auditor)
+fiche avec auteur external_*_by_uuid/name : congé décidé ou annulé, pièce RH déposée,
+                  document généré, mouvement de crédit Bloc (created_by devient facultatif)
+écran             « Nom (portail) » quand l'auteur n'est pas un compte du site
+```
+
+## Côté portail
+
+```text
+écrans autorisés   Administration/Index et les sous-dossiers RH seulement ; tout autre composant → 404
+adresses           les liens du site (…/administration/…, …/api/v1/super-admin/hr/…) deviennent
+                   /super-admin/sites/{site}/rh/… ; les autres sont laissés tels quels
+écritures          une seule tentative, avec clé d'idempotence ; un fichier part en multipart
+                   (PUT/DELETE → POST + _method)
+aperçu fetch()     la réponse JSON du site, statut compris
+site absent        annoncé, rien n'est appelé
+droit d'entrée     employees.view ; chaque écran et chaque geste gardent leur propre droit, revérifié
+                   par le site
+```
+
+Dans les écrans, chaque adresse RH passe par `hrUrl()` (`utilities/hrUrl.js`) : inchangée sur le site,
+ramenée à `/super-admin/sites/{site}/rh` sur le portail, qui fournit `hrContext`. La barre `HrPortalBar`
+reprend les rubriques du menu RH du site, avec leurs droits, le site en cours et le passage aux autres.
+« Établissements › site › Ressources humaines » mène désormais à cet espace ; l'ancienne vitrine redirige.
+
+## La page « Ressources humaines » du portail (amendement du même jour)
+
+Demande du propriétaire : `/super-admin/workspaces/hr` n'était qu'un tableau de chiffres. Elle devient le point
+d'entrée RH du portail, en shadcn (ADR-099) :
+
+```text
+Vue d'ensemble   chiffres de tous les sites connectés ; « À traiter » : ce qui attend une décision, site
+                 par site, chaque ligne ouvrant la liste ; « Comparer les sites » : un tableau (« À
+                 traiter » / « Effectif du jour »), chaque chiffre ouvrant sa liste sur le site, « Gérer »
+                 par site, total des sites connectés ; une carte par site sur téléphone
+Un site          statut, « Gérer les RH », accès direct aux rubriques (celles du menu RH du site, avec
+                 leurs droits), chiffres cliquables, effectif par département avec sa part
+Confort          le site choisi reste dans l'adresse (`?site=A`, visite côté navigateur, aucun appel aux
+                 sites) ; « Actualiser » réinterroge les sites ; un site hors ligne ou non configuré le
+                 dit une fois, avec la suite à donner
+```
+
+Les compteurs RH (`HrFigures`) deviennent un seul bloc compact en deux groupes, « À traiter » puis « Effectif
+du jour », au lieu de sept grandes cartes sur deux rangées inégales : une tuile par chiffre (icône et nombre,
+libellé court en entier dessous, phrase complète au survol), un nombre à traiter non nul en ambre, un zéro
+discret. Environ 125 px de haut au lieu de 210, sur l'accueil RH du site, son panneau de la vue d'ensemble et
+le portail.
+
+Un chiffre masqué par les droits s'écrit « — », jamais 0 (ADR-102). Libellés des chiffres et liste des
+rubriques sont écrits une fois (`utilities/hrFigures.js`, `utilities/hrSections.js`) et partagés par l'accueil
+RH du site, la barre RH et cette page.
+
+## Signalé, non tranché
+
+- Les écrans RH sont encore en DashWind : seules leurs adresses ont été touchées (ADR-099).
+- Les pages imprimées affichent la marque du portail (ADR-179), le nom du site étant, lui, celui du site.
+- L'en-tête des droits transmis (ADR-181) grossit avec le catalogue : même réserve.
+
+---
+
+# ADR-183 — Départements et Fonctions en modules ; le compte se relie à sa fiche depuis « Utilisateurs »
+
+**Status:** ACCEPTED (2026-09-25 — exigence explicite du propriétaire : « on va créer modules
+Départements, Fonctions, et je pense on doit supprimer Compte de connexion car dans la RH rien à voir,
+mais dans la page de création [de compte] avoir le lien RH : Personnel clinique ou Externe ; si
+personnel clinique on peut directement sélectionner »)
+
+**Amende l'ADR-168** (le lien compte ↔ fiche se posait depuis le formulaire Employé) et **complète
+l'ADR-066** (référentiels RH). Le CDC ne décrit ni la gestion des départements et des fonctions, ni le
+rattachement d'un compte à une fiche Employé : les règles ci-dessous sont celles du propriétaire.
+
+## Départements et Fonctions, chacun son module
+
+Deux entrées dans le menu RH, au site comme au portail (ADR-182) : `/administration/departments` et
+`/administration/job-titles`. Ils gèrent le **même référentiel** que les Paramètres RH
+(`hr_reference_values`, types `DEPARTMENT` et `JOB_TITLE`), avec les **mêmes actions** et les **mêmes
+droits** (`hr_settings.*`) — aucune permission nouvelle, aucune migration.
+
+```text
+liste        libellé, code, nombre de dossiers employés (actifs / inactifs), ordre, état
+compteurs    En service · Actifs · Inactifs · Archivés — chaque carte filtre
+créer        libellé ; le code se déduit du libellé (modifiable) ; ordre facultatif
+modifier     libellé, code, ordre, « proposé dans les formulaires » (actif)
+archiver     motif obligatoire ; les dossiers qui le portent le gardent (ADR-066)
+restaurer    depuis le filtre « Archivés » ; un libellé archivé se restaure, il ne se recrée pas
+```
+
+Le type se lit sur l'adresse (`HrStructureKind`), jamais sur une valeur envoyée : une fonction ne se
+modifie pas par l'adresse des départements (404). Les Paramètres RH ne listent plus ces deux types :
+deux écrans pour la même liste finiraient par se contredire ; ils y renvoient. Un formulaire Employé
+dont la liste est vide renvoie vers le module.
+
+## Le compte de connexion quitte la fiche Employé
+
+Le champ « Compte de connexion » est retiré du formulaire Employé. Le serveur refuse désormais
+`user_uuid` sur une fiche (`prohibited`, message qui dit où le relier) plutôt que de l'ignorer. La
+fiche affiche toujours le compte qui la porte, en lecture.
+
+## « Personnel clinique » ou « Externe », à la création du compte
+
+L'assistant de compte du portail et l'écran « Utilisateurs » du site demandent **d'abord** qui
+utilisera le compte (`AccountKindPicker`, un seul composant) :
+
+```text
+Personnel clinique   choisir la fiche Employé (recherche nom, matricule, fonction) ; son nom et son
+                     email sont proposés au compte, sans écraser une saisie
+Externe              aucune fiche : aucun planning RH ne vaut pour ce compte
+```
+
+```text
+création        le choix est obligatoire (account_kind) — jamais une valeur par défaut
+modification    omettre le choix laisse le lien tel quel (ADR-074) ; changer de fiche délie
+                l'ancienne ; « Externe » délie
+une fiche       un seul compte, archives comprises ; une fiche déjà portée est montrée avec le nom
+                du compte, et refusée par le serveur
+en poste        un nouveau lien exige une fiche active et non archivée ; un lien déjà posé survit
+audit           user.employee.link / user.employee.unlink sur le compte
+```
+
+« Personnel clinique » ou « Externe » **n'est pas stocké** : il se lit sur le lien
+`employees.user_id` (`AccountKind`). Un drapeau séparé pourrait dire « personnel » sans fiche. Le lien
+ne donne aucun droit et ne crée aucun compte (ADR-168) ; la disponibilité d'un chirurgien au bloc le
+lit toujours de la même façon.
+
+`EmployeeAccountLinker` porte la règle, appelé dans la transaction de `CreateUserAction` et
+`UpdateUserAction`. `AccountKindRules` est la même validation pour l'API du site (portail) et l'écran
+du site. L'API sert les fiches reliables (`data.employees`) et, pour chaque compte, `account_kind` et
+sa fiche ; les listes de comptes affichent « Personnel clinique · matricule » ou « Externe ».
+
+## Ce qui ne change pas
+
+Les comptes déjà reliés depuis une fiche gardent leur lien. Aucune donnée n'est migrée. Les droits de
+création de compte (`users.create`, `roles.assign`) et de paramétrage RH (`hr_settings.*`) sont
+inchangés.
+

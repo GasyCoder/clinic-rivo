@@ -2,10 +2,12 @@
 
 namespace App\Providers;
 
+use App\Actions\Role\SyncPortalSuperAdminPermissionsAction;
 use App\Models\Permission;
 use App\Models\User;
 use App\Services\Settings\AppSettings;
 use Illuminate\Database\Events\MigrationsEnded;
+use Illuminate\Database\Events\NoPendingMigrations;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
@@ -36,6 +38,15 @@ class AppServiceProvider extends ServiceProvider
         // Vider ce cache à la fin de chaque migration couvre toutes les
         // migrations, passées et futures, sans compter sur chacune d'elles.
         Event::listen(MigrationsEnded::class, fn () => Cache::forget(Permission::CACHE_KEY));
+
+        // ADR-181 — sur le portail, le Super Admin détient toutes les
+        // permissions : chaque `php artisan migrate` le rétablit, même sans
+        // migration en attente, pour qu'aucun droit ajouté plus tard ne lui
+        // manque. Sans effet sur un site clinique.
+        Event::listen(
+            [MigrationsEnded::class, NoPendingMigrations::class],
+            fn () => app(SyncPortalSuperAdminPermissionsAction::class)->execute(),
+        );
 
         // ADR-009 / CDC §11: the three columns every SoftDeletable model
         // needs, declared once so they can never drift between migrations.

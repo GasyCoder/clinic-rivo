@@ -1,4 +1,5 @@
 <script setup>
+import { hrUrl } from '@/utilities/hrUrl';
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
@@ -20,7 +21,7 @@ const periodLabel = computed(() => {
     const formatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' });
     return `Du ${formatter.format(new Date(`${from.value}T00:00:00`))} au ${formatter.format(new Date(`${to.value}T00:00:00`))}`;
 });
-const apply = () => router.get('/administration/reports', { from: from.value, to: to.value }, { preserveState: true, replace: true });
+const apply = () => router.get(hrUrl('/administration/reports'), { from: from.value, to: to.value }, { preserveState: true, replace: true });
 const localDate = (date) => {
     const offset = date.getTimezoneOffset();
     return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 10);
@@ -59,7 +60,7 @@ const periodMetrics = computed(() => [
     <Head title="Rapports RH" />
     <div class="space-y-5">
         <HrPageHeader eyebrow="Pilotage administratif" title="Rapports RH" description="Analysez des indicateurs factuels sur les dossiers, contrats, présences, congés et plannings de la période." icon="reports" tone="emerald">
-            <template #actions><Button v-if="can('hr_reports.print')" :as="Link" :href="`/administration/reports/print?${periodQuery}`" size="rg" variant="white-outline"><Icon name="printer" /><span class="ms-2">Imprimer</span></Button><Button v-if="can('hr_reports.export')" as="a" :href="`/administration/reports/export?${periodQuery}`" size="rg"><Icon name="download" /><span class="ms-2">Exporter Excel</span></Button></template>
+            <template #actions><Button v-if="can('hr_reports.print')" :as="Link" :href="hrUrl(`/administration/reports/print?${periodQuery}`)" size="rg" variant="white-outline"><Icon name="printer" /><span class="ms-2">Imprimer</span></Button><Button v-if="can('hr_reports.export')" as="a" :href="hrUrl(`/administration/reports/export?${periodQuery}`)" size="rg"><Icon name="download" /><span class="ms-2">Exporter Excel</span></Button></template>
         </HrPageHeader>
 
         <form class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950" @submit.prevent="apply">

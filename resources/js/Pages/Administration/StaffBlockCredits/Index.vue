@@ -1,4 +1,5 @@
 <script setup>
+import { hrUrl } from '@/utilities/hrUrl';
 import { computed, ref, watch } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -33,7 +34,7 @@ const creditMetrics = computed(() => props.selectedEmployee ? [
     { key: 'reversed', label: 'Réversé', value: props.selectedEmployee.credit.reversed, tone: 'text-violet-700 dark:text-violet-300' },
 ] : []);
 const projectedBalance = computed(() => Number(props.selectedEmployee?.credit.available ?? 0) + Number(allocationForm.amount || 0));
-const submitSearch = () => router.get('/administration/staff-block-credits', {
+const submitSearch = () => router.get(hrUrl('/administration/staff-block-credits'), {
     q: query.value || undefined,
     employee: props.selectedEmployee?.uuid,
 }, { preserveState: true, replace: true });
@@ -41,7 +42,7 @@ const clearSearch = () => {
     query.value = '';
     submitSearch();
 };
-const selectEmployee = (employee) => router.get('/administration/staff-block-credits', {
+const selectEmployee = (employee) => router.get(hrUrl('/administration/staff-block-credits'), {
     q: query.value || undefined,
     employee: employee.uuid,
 }, { preserveState: true, replace: true });
@@ -54,7 +55,7 @@ watch(() => props.selectedEmployee?.uuid, () => {
     resetAllocation();
     showAllocation.value = false;
 });
-const allocate = () => allocationForm.post(`/administration/staff-block-credits/${props.selectedEmployee.uuid}`, {
+const allocate = () => allocationForm.post(hrUrl(`/administration/staff-block-credits/${props.selectedEmployee.uuid}`), {
     preserveScroll: true,
     onSuccess: () => {
         resetAllocation();

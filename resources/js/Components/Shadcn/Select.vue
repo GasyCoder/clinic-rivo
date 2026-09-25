@@ -28,6 +28,8 @@ const props = defineProps({
      * parce que certains référentiels sont classés — les allergènes par
      * famille (ADR-032) — et qu'aplatir la liste ferait perdre ce
      * classement au lieu de simplement changer son apparence.
+     * `disabled: true` montre une entrée sans la laisser choisir — un
+     * référentiel archivé reste lisible sur un dossier qui le porte déjà.
      */
     options: { type: Array, required: true },
     placeholder: { type: String, default: 'Sélectionner' },
@@ -84,6 +86,7 @@ const isGroup = (option) => Array.isArray(option?.items);
                                 v-for="item in option.items"
                                 :key="itemValue(item)"
                                 :value="itemValue(item)"
+                                :disabled="Boolean(item.disabled)"
                                 class="relative flex cursor-default select-none items-center rounded-md py-2 pe-8 ps-3 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                             >
                                 <SelectItemText>{{ item.label }}</SelectItemText>
@@ -95,6 +98,7 @@ const isGroup = (option) => Array.isArray(option?.items);
                         <SelectItem
                             v-else
                             :value="itemValue(option)"
+                            :disabled="Boolean(option.disabled)"
                             class="relative flex cursor-default select-none items-center rounded-md py-2 pe-8 ps-3 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                         >
                             <SelectItemText>{{ option.label }}</SelectItemText>

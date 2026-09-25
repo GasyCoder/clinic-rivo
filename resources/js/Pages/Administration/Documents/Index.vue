@@ -1,4 +1,5 @@
 <script setup>
+import { hrUrl } from '@/utilities/hrUrl';
 import { ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -14,7 +15,7 @@ const props = defineProps({ documents: Object, filters: Object });
 const { can } = usePermissions();
 const search = ref(props.filters?.q ?? '');
 const submitSearch = () => {
-    router.get('/administration/generated-documents', { q: search.value || undefined }, { preserveState: true, replace: true });
+    router.get(hrUrl('/administration/generated-documents'), { q: search.value || undefined }, { preserveState: true, replace: true });
 };
 const formatDate = (value) => value
     ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
@@ -25,7 +26,7 @@ const formatDate = (value) => value
     <Head title="Documents générés" />
     <div class="space-y-5">
         <HrPageHeader eyebrow="Contrats, attestations, certificats, lettres…" title="Documents générés" description="Chaque document reste figé tel qu’il a été produit : modifier l’employé ou le canevas ensuite ne change jamais un document déjà généré." icon="copy" tone="primary">
-            <template #actions><Button v-if="can('generated_documents.create')" :as="Link" href="/administration/generated-documents/create" size="rg"><Icon name="plus" /><span class="ms-2">Générer un document</span></Button></template>
+            <template #actions><Button v-if="can('generated_documents.create')" :as="Link" :href="hrUrl('/administration/generated-documents/create')" size="rg"><Icon name="plus" /><span class="ms-2">Générer un document</span></Button></template>
         </HrPageHeader>
 
         <form class="flex gap-2" @submit.prevent="submitSearch">
@@ -43,7 +44,7 @@ const formatDate = (value) => value
                     <p class="mt-1 text-sm text-slate-500">{{ document.employee.name }} ({{ document.employee.employee_number }})</p>
                     <p class="mt-1 text-xs text-slate-400">Généré le {{ formatDate(document.created_at) }}<span v-if="document.generated_by"> · {{ document.generated_by }}</span></p>
                 </div>
-                <Button v-if="can('generated_documents.print')" :as="Link" :href="`/administration/generated-documents/${document.uuid}/print`" size="rg" variant="white-outline"><Icon name="printer" /><span class="ms-2">Ouvrir</span></Button>
+                <Button v-if="can('generated_documents.print')" :as="Link" :href="hrUrl(`/administration/generated-documents/${document.uuid}/print`)" size="rg" variant="white-outline"><Icon name="printer" /><span class="ms-2">Ouvrir</span></Button>
             </article>
             <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950"><HrPagination :paginator="documents" /></div>
         </section>

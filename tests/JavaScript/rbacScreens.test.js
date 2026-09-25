@@ -80,7 +80,7 @@ test('l’assistant de compte guide sans jamais envoyer trop tôt', () => {
     assert.match(users, /form\.role_id = '';/);
     assert.doesNotMatch(users, /form\.role_id = roles\.value\.find/);
     assert.match(users, /const blocker = computed\(/);
-    assert.match(users, /STEP_ONE_FIELDS = \['name', 'email', 'password', 'password_confirmation'\]/);
+    assert.match(users, /STEP_ONE_FIELDS = \['account_kind', 'employee_uuid', 'name', 'email', 'password', 'password_confirmation'\]/);
     assert.match(users, /role="radiogroup" aria-label="Rôle métier"/);
     assert.match(users, /aria-label="Aperçu du compte"/);
 });

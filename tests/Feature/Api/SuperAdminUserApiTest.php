@@ -65,6 +65,7 @@ class SuperAdminUserApiTest extends TestCase
             'password' => 'Correct-Horse-Battery-9!',
             'password_confirmation' => 'Correct-Horse-Battery-9!',
             'role_id' => $receptionRoleId,
+            'account_kind' => 'EXTERNAL',
             'permission_overrides' => [
                 ['permission_id' => $permissionId, 'effect' => 'deny'],
             ],
@@ -156,6 +157,7 @@ class SuperAdminUserApiTest extends TestCase
             'password' => 'Correct-Horse-Battery-9!',
             'password_confirmation' => 'Correct-Horse-Battery-9!',
             'role_id' => $profile->role_id,
+            'account_kind' => 'EXTERNAL',
             'professional_profile_id' => $profile->id,
             'sync_profile_permissions' => true,
             'permission_overrides' => [],
@@ -190,6 +192,7 @@ class SuperAdminUserApiTest extends TestCase
                 'name' => 'Nirina Rasoa',
                 'email' => 'nirina@example.test',
                 'role_id' => $receptionRoleId,
+                'account_kind' => 'EXTERNAL',
             ]);
 
         // The account exists whatever the mail server does: the email is a

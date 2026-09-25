@@ -55,7 +55,7 @@ const selected = ref([
 const toast = useToastStore();
 /** Dit une seule fois par ouverture du formulaire, pas à chaque changement d'heure. */
 let unlinkedNotified = false;
-const UNLINKED_MESSAGE = '« Non vérifié » : aucune fiche RH n’est reliée à ce compte, le planning ne peut rien dire. Les RH la relient dans Ressources humaines › Employés.';
+const UNLINKED_MESSAGE = '« Non vérifié » : aucune fiche RH n’est reliée à ce compte, le planning ne peut rien dire. Elle se relie en modifiant le compte, dans « Utilisateurs » (Personnel clinique).';
 
 const roster = ref([]);
 const loading = ref(false);

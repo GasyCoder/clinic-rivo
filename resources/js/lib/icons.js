@@ -54,6 +54,7 @@ import {
     Truck,
     User,
     UserCheck,
+    UserPlus,
     Users,
 } from 'lucide-vue-next';
 
@@ -101,6 +102,7 @@ const ICONS = {
     'setting-alt': Settings2,
     'shield-check': ShieldCheck,
     trash: Trash2,
+    'user-add': UserPlus,
     'user-check': UserCheck,
     'user-list': UsersRound,
     newborn: Baby,

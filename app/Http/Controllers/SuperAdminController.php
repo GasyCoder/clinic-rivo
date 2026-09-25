@@ -2,21 +2,26 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\RedirectResponse;
 use App\Services\SuperAdmin\PortalDirectory;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class SuperAdminController extends Controller
 {
-    public function site(Request $request, string $site, PortalDirectory $directory): Response
+    public function site(Request $request, string $site, PortalDirectory $directory): Response|RedirectResponse
     {
         $siteData = $directory->site($site);
         $requestedModule = mb_strtoupper((string) $request->query('module', 'OVERVIEW'));
         $module = collect($siteData['modules'])->firstWhere('code', $requestedModule);
 
         abort_unless($module, 404);
+
+        // ADR-182 — un ancien lien vers la vitrine RH mène à l'espace RH du site.
+        if ($module['code'] === 'HR') {
+            return redirect()->route('super-admin.sites.hr', ['site' => $siteData['code']]);
+        }
 
         return Inertia::render('SuperAdmin/Sites/Show', [
             'clinic' => $siteData,

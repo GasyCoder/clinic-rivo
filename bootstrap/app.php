@@ -1,9 +1,6 @@
 <?php
 
-use App\Support\RequiredAbilities;
-use Illuminate\Auth\Access\AuthorizationException;
-use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
-
+use App\Http\Middleware\ActAsRemoteSuperAdmin;
 use App\Http\Middleware\ApplySearchEngineVisibility;
 use App\Http\Middleware\AuthenticateRivoSiteApi;
 use App\Http\Middleware\EnsureActiveAccount;
@@ -11,10 +8,14 @@ use App\Http\Middleware\EnsureApiIdempotency;
 use App\Http\Middleware\EnsureDeploymentAccount;
 use App\Http\Middleware\EnsureSiteType;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\ServeHrScreensAsJson;
+use App\Support\RequiredAbilities;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -48,6 +49,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'site.type' => EnsureSiteType::class,
             'rivo.site-api' => AuthenticateRivoSiteApi::class,
             'api.idempotent' => EnsureApiIdempotency::class,
+            // ADR-182 — les Ressources humaines d'un site, gérées depuis le portail.
+            'rivo.remote-actor' => ActAsRemoteSuperAdmin::class,
+            'rivo.hr-screens' => ServeHrScreensAsJson::class,
         ]);
 
         $middleware->redirectGuestsTo('/login');

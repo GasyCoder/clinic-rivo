@@ -339,6 +339,7 @@ class ProfessionalProfilePermissionSyncTest extends TestCase
             'password' => 'Valid-password1!',
             'password_confirmation' => 'Valid-password1!',
             'role_id' => $profile->role_id,
+            'account_kind' => 'EXTERNAL',
             'professional_profile_id' => $profile->id,
             'permission_overrides' => $manualOverrides,
             'sync_profile_permissions' => $syncRecommendations,

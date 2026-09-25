@@ -143,8 +143,10 @@ abstract class EmployeeDataRequest extends FormRequest
             'new_address_label' => ['nullable', 'string', 'max:255'],
             'observation' => ['nullable', 'string', 'max:5000'],
             'active' => ['required', 'boolean'],
-            // ADR-168 — compte de connexion relié : son planning RH devient lisible.
-            'user_uuid' => ['sometimes', 'nullable', 'uuid'],
+            // ADR-183 — le compte de connexion se relie depuis « Utilisateurs »,
+            // à la création du compte, plus depuis la fiche : refusé en clair
+            // plutôt qu'ignoré, pour qu'un ancien client le sache.
+            'user_uuid' => ['prohibited'],
         ];
     }
 
@@ -217,6 +219,7 @@ abstract class EmployeeDataRequest extends FormRequest
     {
         return [
             'employee_number.unique' => 'Ce matricule est déjà utilisé, y compris par un dossier archivé.',
+            'user_uuid.prohibited' => 'Le compte de connexion se relie depuis « Utilisateurs », à la création ou à la modification du compte.',
         ];
     }
 }

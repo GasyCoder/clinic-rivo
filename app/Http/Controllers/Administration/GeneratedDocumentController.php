@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Administration;
 
-use App\Services\Settings\AppSettings;
 use App\Actions\Administration\CreateGeneratedDocumentAction;
 use App\Actions\Administration\PreviewGeneratedDocumentAction;
 use App\Enums\DocumentDataContext;
@@ -16,6 +15,8 @@ use App\Models\GeneratedDocument;
 use App\Models\LeaveRequest;
 use App\Services\Administration\DocumentFormFieldCatalog;
 use App\Services\Administration\HrPresenter;
+use App\Services\Settings\AppSettings;
+use App\Support\Authorization\RemoteActorAttribution;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -190,7 +191,7 @@ class GeneratedDocumentController extends Controller
             'template_name' => $document->template_name_snapshot,
             'document_type' => $document->document_type_snapshot,
             'employee' => $this->presenter->employeeOption($document->employee),
-            'generated_by' => $document->generatedBy?->name,
+            'generated_by' => RemoteActorAttribution::name($document->generatedBy?->name, $document->external_generated_by_name),
             'created_at' => $document->created_at?->toIso8601String(),
         ];
     }

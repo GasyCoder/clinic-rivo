@@ -1,81 +1,97 @@
 <script setup>
 import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
-import { ChevronRight } from 'lucide-vue-next';
+import { ArrowUpRight } from 'lucide-vue-next';
 import { lucideIcon } from '@/lib/icons';
-import Card from '@/Components/Shadcn/Card.vue';
+import { cn } from '@/lib/cn';
+import { HR_SITE_BASE, mapHrPath } from '@/utilities/hrPath';
+import { HR_FIGURE_TONES as TONES, HR_FIGURES, isVisibleFigure } from '@/utilities/hrFigures';
 
 /**
  * ADR-066 — the HR figures, identical wherever they appear: the site overview,
  * the HR space and the central portal. Same order, same words, same colours.
- * At the clinic each card opens its list; on the portal they are read-only.
- * A null figure means the account may not see it, and the card is hidden.
+ * Each tile may open its list: the clinic HR space, or on the portal the HR
+ * space of the chosen site (ADR-182).
+ * A null figure means the account may not see it, and the tile is hidden.
+ *
+ * One compact block in two groups — what waits for a decision, then the day's
+ * headcount — rather than seven large cards on two uneven rows.
  */
 const props = defineProps({
     summary: { type: Object, required: true },
-    // true at the clinic: each card links to the list behind the figure.
+    // true at the clinic: each tile links to the list behind the figure.
     linkable: { type: Boolean, default: false },
-    // 'todo' = only what waits for a decision; 'all' adds the headcount row.
+    // 'todo' = only what waits for a decision; 'all' adds the headcount group.
     show: { type: String, default: 'all' },
+    // ADR-182 — where the lists live: the clinic HR space, or a site's HR
+    // space on the portal (`/super-admin/sites/A/rh`).
+    base: { type: String, default: HR_SITE_BASE },
 });
 
-const TONES = {
-    amber: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300',
-    sky: 'bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-300',
-    rose: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300',
-    primary: 'bg-primary/10 text-primary dark:bg-primary-950/40 dark:text-primary-300',
-    emerald: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300',
-    violet: 'bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300',
-};
+const target = (href) => mapHrPath(href, props.base);
 
-const todo = computed(() => [
-    { key: 'pending_leave', icon: 'calendar', label: 'Congés à décider', href: '/administration/leave?status=PENDING', tone: 'amber' },
-    { key: 'open_attendance', icon: 'clock', label: 'Présences sans heure de sortie', href: '/administration/attendance', tone: 'sky' },
-    { key: 'contracts_ending_soon', icon: 'file-docs', label: 'Contrats qui finissent sous 30 jours', href: '/administration/contracts', tone: 'rose' },
-].filter((item) => props.summary[item.key] !== null && props.summary[item.key] !== undefined));
+const figures = (group) => HR_FIGURES
+    .filter((item) => item.group === group && isVisibleFigure(props.summary, item.key))
+    .map((item) => ({
+        ...item,
+        value: Number(props.summary[item.key] ?? 0),
+        hint: item.key === 'active_employees' && props.summary.inactive_employees !== undefined
+            ? `${props.summary.inactive_employees} inactif · ${props.summary.archived_employees} archivé`
+            : null,
+    }));
 
-const headcount = computed(() => [
-    { key: 'active_employees', icon: 'users', label: 'Employés actifs', href: '/administration/employees', tone: 'primary', hint: props.summary.inactive_employees !== undefined ? `${props.summary.inactive_employees} inactif(s) · ${props.summary.archived_employees} archivé(s)` : null },
-    { key: 'current_contracts', icon: 'file-docs', label: 'Contrats en cours', href: '/administration/contracts', tone: 'sky' },
-    { key: 'today_attendance', icon: 'check-circle', label: 'Pointés aujourd’hui', href: '/administration/attendance', tone: 'emerald' },
-    { key: 'upcoming_shifts', icon: 'calender-date', label: 'Créneaux dans 7 jours', href: '/administration/planning', tone: 'violet' },
-].filter((item) => props.summary[item.key] !== null && props.summary[item.key] !== undefined));
+const groups = computed(() => [
+    { key: 'todo', label: 'À traiter', items: figures('todo') },
+    ...(props.show === 'all' ? [{ key: 'headcount', label: 'Effectif du jour', items: figures('headcount') }] : []),
+].filter((group) => group.items.length));
+
+const pending = (item) => item.group === 'todo' && item.value > 0;
 </script>
 
 <template>
-    <div class="space-y-3">
-        <div v-if="todo.length" class="grid gap-3 md:grid-cols-3">
-            <Card
-                v-for="item in todo"
-                :key="item.key"
-                :class="[summary[item.key] ? 'border-amber-200 dark:border-amber-900' : '', linkable && 'transition hover:border-primary/30 hover:shadow-md']"
-            >
-                <component :is="linkable ? Link : 'div'" :href="linkable ? item.href : undefined" class="flex items-center gap-4 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                    <span :class="['flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl', TONES[item.tone]]"><component :is="lucideIcon(item.icon)" class="h-5 w-5" /></span>
-                    <span class="min-w-0">
-                        <span :class="['block text-3xl font-bold tabular-nums', summary[item.key] ? 'text-foreground' : 'text-muted-foreground/40']">{{ summary[item.key] }}</span>
-                        <span class="block text-sm text-muted-foreground">{{ item.label }}</span>
-                    </span>
-                    <ChevronRight class="ms-auto text-muted-foreground h-5 w-5" v-if="linkable" />
-                </component>
-            </Card>
-        </div>
-
-        <div v-if="show === 'all' && headcount.length" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Card
-                v-for="item in headcount"
-                :key="item.key"
-                :class="[linkable && 'transition hover:border-primary/30 hover:shadow-md']"
-            >
-                <component :is="linkable ? Link : 'div'" :href="linkable ? item.href : undefined" class="flex items-center gap-3 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                    <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xl', TONES[item.tone]]"><component :is="lucideIcon(item.icon)" class="h-5 w-5" /></span>
-                    <span class="min-w-0">
-                        <span class="block text-2xl font-bold tabular-nums text-foreground">{{ summary[item.key] }}</span>
-                        <span class="block text-xs text-muted-foreground">{{ item.label }}</span>
-                        <span v-if="item.hint" class="block text-[11px] text-muted-foreground">{{ item.hint }}</span>
-                    </span>
-                </component>
-            </Card>
-        </div>
+    <div
+        v-if="groups.length"
+        :class="cn(
+            'grid overflow-hidden rounded-xl border border-border bg-card shadow-sm',
+            groups.length > 1 && 'lg:grid-cols-[3fr_4fr] lg:divide-x lg:divide-border max-lg:divide-y max-lg:divide-border',
+        )"
+    >
+        <section v-for="group in groups" :key="group.key" :aria-label="group.label" class="p-2">
+            <p class="px-2 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{{ group.label }}</p>
+            <ul :class="cn('grid grid-cols-2 gap-1', group.key === 'todo' ? 'sm:grid-cols-3' : 'sm:grid-cols-4')">
+                <li v-for="item in group.items" :key="item.key">
+                    <component
+                        :is="linkable ? Link : 'div'"
+                        :href="linkable ? target(item.href) : undefined"
+                        :title="item.label"
+                        :aria-label="`${item.label} : ${item.value}`"
+                        :class="cn(
+                            'group relative flex h-full flex-col gap-1.5 rounded-lg px-2.5 py-2',
+                            pending(item) && 'bg-amber-50/70 dark:bg-amber-950/25',
+                            linkable && 'transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        )"
+                    >
+                        <span class="flex items-center gap-2">
+                            <span :class="['grid h-7 w-7 shrink-0 place-items-center rounded-md', TONES[item.tone]]">
+                                <component :is="lucideIcon(item.icon)" class="h-3.5 w-3.5" />
+                            </span>
+                            <span
+                                :class="cn(
+                                    'text-xl font-bold leading-none tabular-nums',
+                                    pending(item) ? 'text-amber-700 dark:text-amber-300' : item.value ? 'text-foreground' : 'text-muted-foreground/50',
+                                )"
+                            >{{ item.value }}</span>
+                        </span>
+                        <span class="text-xs font-medium leading-snug text-muted-foreground">{{ item.tile }}</span>
+                        <span v-if="item.hint" class="-mt-1 text-[11px] leading-tight text-muted-foreground/80">{{ item.hint }}</span>
+                        <ArrowUpRight
+                            v-if="linkable"
+                            class="absolute end-2 top-2.5 h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                            aria-hidden="true"
+                        />
+                    </component>
+                </li>
+            </ul>
+        </section>
     </div>
 </template>

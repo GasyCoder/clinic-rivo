@@ -9,6 +9,7 @@ use App\Models\HrDocument;
 use App\Models\LeaveRequest;
 use App\Models\User;
 use App\Services\Administration\HrReferenceResolver;
+use App\Support\Authorization\RemoteActorAttribution;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
@@ -63,6 +64,7 @@ class StoreHrDocumentAction
                 'issued_on' => $data['issued_on'] ?? null,
                 'notes' => $data['notes'] ?? null,
                 'uploaded_by' => $actor->getKey(),
+                ...RemoteActorAttribution::fields('uploaded', $actor),
             ]);
         } catch (Throwable $exception) {
             Storage::disk('local')->delete($path);

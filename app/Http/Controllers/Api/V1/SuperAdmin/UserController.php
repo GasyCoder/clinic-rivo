@@ -13,9 +13,11 @@ use App\Models\AuditLog;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Administration\EmployeeAccountLinker;
 use App\Services\Authorization\RbacPresenter;
 use App\Services\Catalog\CatalogActor;
 use App\Support\SecurePassword;
+use App\Support\Users\AccountKindRules;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,11 +28,14 @@ use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
-    public function __construct(private readonly RbacPresenter $presenter) {}
+    public function __construct(
+        private readonly RbacPresenter $presenter,
+        private readonly EmployeeAccountLinker $employeeLinker,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
-        $this->authorizeActor($request, 'users.view');
+        $actor = $this->authorizeActor($request, 'users.view');
 
         $search = trim((string) $request->query('search', ''));
         $status = in_array($request->query('status'), ['active', 'inactive', 'all'], true)
@@ -40,7 +45,10 @@ class UserController extends Controller
         $sourceProfileNames = ProfessionalProfile::query()->pluck('name', 'id');
 
         $userModels = User::query()
-            ->with(['role:id,code,name', 'professionalProfile:id,role_id,code,name', 'permissions:id,name'])
+            ->with([
+                'role:id,code,name', 'professionalProfile:id,role_id,code,name', 'permissions:id,name',
+                'employee' => fn ($query) => $query->withTrashed()->with(['jobTitle:id,label', 'department:id,label']),
+            ])
             ->whereHas('role', fn ($role) => $role->where('code', '!=', 'SUPER_ADMIN'))
             ->when($search !== '', fn ($query) => $query->where(
                 fn ($nested) => $nested->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"),
@@ -76,11 +84,17 @@ class UserController extends Controller
 
         $permissions = $this->presenter->permissionCatalog();
 
+        // ADR-183 — les fiches Employé qu'un compte peut relier, pour l'assistant.
+        $employees = $actor->can('users.create') || $actor->can('users.update')
+            ? $this->employeeLinker->linkableEmployees()
+            : [];
+
         return response()->json([
             'data' => [
                 'users' => $users,
                 'roles' => $roles,
                 'permission_catalog' => $permissions,
+                'employees' => $employees,
             ],
             'meta' => [
                 'site' => ['code' => config('rivo.site.code'), 'name' => config('rivo.site.name')],
@@ -243,6 +257,8 @@ class UserController extends Controller
     private function validated(Request $request, ?int $ignoreUserId = null): array
     {
         return $request->validate([
+            // ADR-183 — personnel clinique (une fiche Employé) ou externe.
+            ...AccountKindRules::rules(creating: $ignoreUserId === null),
             'name' => ['required', 'string', 'max:255'],
             'email' => [
                 'required', 'string', 'email', 'max:255',
@@ -270,7 +286,7 @@ class UserController extends Controller
             'permission_overrides' => ['sometimes', 'array'],
             'permission_overrides.*.permission_id' => ['required', 'integer', 'distinct', Rule::exists('permissions', 'id')],
             'permission_overrides.*.effect' => ['required', Rule::in(['allow', 'deny'])],
-        ]);
+        ], AccountKindRules::messages());
     }
 
     /**

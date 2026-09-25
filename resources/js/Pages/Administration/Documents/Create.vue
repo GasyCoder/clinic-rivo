@@ -1,4 +1,5 @@
 <script setup>
+import { hrUrl } from '@/utilities/hrUrl';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -88,7 +89,7 @@ const loadPreview = async () => {
     previewError.value = '';
 
     try {
-        const response = await fetch('/administration/generated-documents/preview', {
+        const response = await fetch(hrUrl('/administration/generated-documents/preview'), {
             method: 'POST',
             credentials: 'same-origin',
             headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
@@ -140,7 +141,7 @@ watch(
 onBeforeUnmount(() => clearTimeout(previewTimer));
 
 const submit = () => {
-    form.post('/administration/generated-documents', { preserveScroll: true });
+    form.post(hrUrl('/administration/generated-documents'), { preserveScroll: true });
 };
 </script>
 
@@ -149,7 +150,7 @@ const submit = () => {
 
     <div class="w-full space-y-4">
         <div>
-            <Link href="/administration/generated-documents" class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-primary-600"><Icon name="arrow-left" />Documents générés</Link>
+            <Link :href="hrUrl('/administration/generated-documents')" class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-primary-600"><Icon name="arrow-left" />Documents générés</Link>
             <h1 class="mt-1 font-heading text-xl font-bold text-slate-700 dark:text-white">Générer un document</h1>
             <p class="mt-1 text-sm text-slate-500">Choisissez un canevas et une personne : les informations déjà connues sont remplies automatiquement.</p>
         </div>
@@ -238,7 +239,7 @@ const submit = () => {
                 </section>
 
                 <div class="flex justify-end gap-2">
-                    <Button :as="Link" href="/administration/generated-documents" size="rg" variant="white-outline">Annuler</Button>
+                    <Button :as="Link" :href="hrUrl('/administration/generated-documents')" size="rg" variant="white-outline">Annuler</Button>
                     <Button type="submit" size="rg" :disabled="form.processing || !readyForPreview">
                         <Icon class="text-lg" name="file-text" /><span class="ms-2">{{ form.processing ? 'Génération…' : 'Générer le document' }}</span>
                     </Button>

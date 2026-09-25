@@ -7,6 +7,7 @@ use App\Exceptions\InvalidLeaveRequestTransitionException;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use App\Services\Audit\Auditor;
+use App\Support\Authorization\RemoteActorAttribution;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -76,6 +77,7 @@ class LeaveRequest extends Model
 
         $this->status = $status;
         $this->decided_by = Auth::id();
+        $this->forceFill(RemoteActorAttribution::fields('decided'));
         $this->decided_at = now();
         $this->decision_reason = $reason;
         $this->save();
@@ -96,6 +98,7 @@ class LeaveRequest extends Model
 
         $this->status = LeaveRequestStatus::Cancelled;
         $this->cancelled_by = Auth::id();
+        $this->forceFill(RemoteActorAttribution::fields('cancelled'));
         $this->cancelled_at = now();
         $this->cancel_reason = $reason;
         $this->save();

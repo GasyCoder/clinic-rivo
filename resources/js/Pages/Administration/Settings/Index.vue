@@ -1,6 +1,7 @@
 <script setup>
+import { hrUrl } from '@/utilities/hrUrl';
 import { computed, ref, watch } from 'vue';
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
@@ -8,11 +9,12 @@ import HrEmptyState from '../Partials/HrEmptyState.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import HrStatCard from '../Partials/HrStatCard.vue';
 import { usePermissions } from '@/composables/usePermissions';
+import { ArrowRight, BriefcaseBusiness, Network } from 'lucide-vue-next';
 
 defineOptions({ layout: AppLayout });
 const props = defineProps({ references: Object, types: [Array, Object], leaveDayCountMethods: [Array, Object] });
 const { can } = usePermissions();
-const selectedType = ref(props.types?.[0]?.value ?? 'DEPARTMENT');
+const selectedType = ref(props.types?.[0]?.value ?? 'CONTRACT_TYPE');
 const editingUuid = ref(null);
 const defaultLeaveRules = () => ({ consumes_annual_balance: false, annual_quota_days: null, max_days_per_request: null, requires_attachment: false, requires_approval: true, day_count_method: 'CALENDAR_DAYS_INCLUSIVE' });
 const createForm = useForm({ type: selectedType.value, code: '', label: '', active: true, position: 0, metadata: defaultLeaveRules() });
@@ -50,7 +52,7 @@ const chooseType = (type) => {
     createForm.metadata = defaultLeaveRules();
     codeTouched.value = false;
 };
-const submitCreate = () => createForm.post('/administration/settings', {
+const submitCreate = () => createForm.post(hrUrl('/administration/settings'), {
     preserveScroll: true,
     onSuccess: () => {
         createForm.reset('code', 'label', 'position');
@@ -60,16 +62,30 @@ const submitCreate = () => createForm.post('/administration/settings', {
     },
 });
 const startEdit = (item) => { editingUuid.value = item.uuid; editForm.type = item.type; editForm.code = item.code; editForm.label = item.label; editForm.active = item.active; editForm.position = item.position; editForm.metadata = { ...defaultLeaveRules(), ...(item.metadata ?? {}) }; editForm.clearErrors(); };
-const submitEdit = (item) => editForm.put(`/administration/settings/${item.uuid}`, { preserveScroll: true, onSuccess: () => editingUuid.value = null });
+const submitEdit = (item) => editForm.put(hrUrl(`/administration/settings/${item.uuid}`), { preserveScroll: true, onSuccess: () => editingUuid.value = null });
 const archiveForm = (uuid) => archiveForms.value[uuid] ??= useForm({ reason: '' });
-const archive = (item) => archiveForm(item.uuid).delete(`/administration/settings/${item.uuid}`, { preserveScroll: true });
-const restore = (item) => router.post(`/administration/settings/${item.uuid}/restore`, {}, { preserveScroll: true });
+const archive = (item) => archiveForm(item.uuid).delete(hrUrl(`/administration/settings/${item.uuid}`), { preserveScroll: true });
+const restore = (item) => router.post(hrUrl(`/administration/settings/${item.uuid}/restore`), {}, { preserveScroll: true });
 </script>
 
 <template>
     <Head title="Paramètres RH" />
     <div class="space-y-5">
-        <HrPageHeader eyebrow="Référentiels et règles configurables" title="Paramètres RH" description="Gérez les départements, fonctions, contrats, congés et attestations. Les règles de congé sont appliquées par le serveur, sans calcul dupliqué dans les formulaires." icon="setting" tone="slate" />
+        <HrPageHeader eyebrow="Référentiels et règles configurables" title="Paramètres RH" description="Gérez les types de contrat, de congé et d’attestation. Les règles de congé sont appliquées par le serveur, sans calcul dupliqué dans les formulaires." icon="setting" tone="slate" />
+
+        <!-- ADR-183 — départements et fonctions ont chacun leur module. -->
+        <nav class="grid gap-3 sm:grid-cols-2" aria-label="Structure RH">
+            <Link
+                v-for="module in [{ href: hrUrl('/administration/departments'), label: 'Départements', hint: 'Services de la clinique', icon: Network }, { href: hrUrl('/administration/job-titles'), label: 'Fonctions', hint: 'Postes et métiers', icon: BriefcaseBusiness }]"
+                :key="module.href"
+                :href="module.href"
+                class="group flex items-center gap-3 rounded-xl border border-border bg-card p-3.5 shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><component :is="module.icon" class="h-5 w-5" /></span>
+                <span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-foreground">{{ module.label }}</span><span class="block text-xs text-muted-foreground">{{ module.hint }} · se gèrent dans leur module</span></span>
+                <ArrowRight class="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </Link>
+        </nav>
 
         <div class="grid gap-5 xl:grid-cols-[270px_minmax(0,1fr)]">
             <aside class="space-y-4 xl:sticky xl:top-4">

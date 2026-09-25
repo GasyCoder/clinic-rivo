@@ -7,6 +7,7 @@ use App\Models\Permission;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Administration\EmployeeAccountLinker;
 use App\Services\Audit\Auditor;
 use App\Services\Authorization\UserAdministrationGuard;
 use App\Services\Catalog\CatalogActor;
@@ -21,6 +22,7 @@ class CreateUserAction
         private readonly UserAdministrationGuard $guard,
         private readonly Auditor $auditor,
         private readonly SyncProfessionalProfilePermissionsAction $syncProfilePermissions,
+        private readonly EmployeeAccountLinker $employeeLinker,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -110,6 +112,9 @@ class CreateUserAction
                 );
             }
 
+            // ADR-183 — personnel clinique relié à sa fiche Employé, ou externe.
+            $this->employeeLinker->apply($user, $data, $actorUser);
+
             $this->auditor->record(
                 'user.role.assign',
                 entity: $user,
@@ -155,7 +160,7 @@ class CreateUserAction
                 );
             }
 
-            return $user->load(['role', 'professionalProfile', 'permissions']);
+            return $user->load(['role', 'professionalProfile', 'permissions', 'employee' => fn ($query) => $query->withTrashed()]);
         });
     }
 

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\SuperAdmin\AddressEntryController;
 use App\Http\Controllers\Api\V1\SuperAdmin\AnalysisCatalogController;
+use App\Http\Controllers\Api\V1\SuperAdmin\AppSettingsController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CashRegisterController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\DocumentTemplateController;
@@ -17,7 +18,6 @@ use App\Http\Controllers\Api\V1\SuperAdmin\PharmacyProcurementController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PharmacySupplierController;
 use App\Http\Controllers\Api\V1\SuperAdmin\ReportController as SuperAdminReportController;
 use App\Http\Controllers\Api\V1\SuperAdmin\RoleController as SuperAdminRoleController;
-use App\Http\Controllers\Api\V1\SuperAdmin\AppSettingsController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
 use App\Http\Controllers\Api\V1\SuperAdmin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -26,6 +26,13 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
     ->prefix('v1/super-admin')
     ->name('api.v1.super-admin.')
     ->group(function () {
+        // ADR-182 — l'espace RH du site, géré depuis le portail : les mêmes
+        // routes, contrôleurs et droits que /administration (routes/hr.php).
+        Route::prefix('hr')
+            ->name('hr.')
+            ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
+            ->group(base_path('routes/hr.php'));
+
         Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
         Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore');
         Route::delete('/trash/{category}/{uuid}', [TrashController::class, 'destroy'])->name('trash.force-delete');

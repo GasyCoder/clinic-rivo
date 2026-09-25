@@ -1,4 +1,5 @@
 <script setup>
+import { hrUrl } from '@/utilities/hrUrl';
 import { computed, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -16,7 +17,7 @@ const { can } = usePermissions();
 const forms = ref({});
 const total = computed(() => Object.values(props.summary).reduce((sum, value) => sum + Number(value ?? 0), 0));
 const actionForm = (uuid, action) => forms.value[`${uuid}-${action}`] ??= useForm({ reason: '' });
-const act = (leave, action) => actionForm(leave.uuid, action).post(`/administration/leave/${leave.uuid}/${action}`, { preserveScroll: true });
+const act = (leave, action) => actionForm(leave.uuid, action).post(hrUrl(`/administration/leave/${leave.uuid}/${action}`), { preserveScroll: true });
 const tone = (status) => ({ PENDING: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300', APPROVED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300', REJECTED: 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300', CANCELLED: 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300' }[status]);
 const statusMeta = {
     PENDING: { icon: 'clock', tone: 'amber' },
@@ -30,12 +31,12 @@ const statusMeta = {
     <Head title="Congés" />
     <div class="space-y-5">
         <HrPageHeader eyebrow="Demandes, soldes et décisions" title="Congés" description="Suivez les demandes calculées selon les règles configurées. Toute approbation recalcule le solde depuis l’historique puis enregistre une décision auditée." icon="calendar" tone="amber">
-            <template #actions><Button v-if="can('leave.create')" :as="Link" href="/administration/leave/create" size="rg"><Icon name="plus" /><span class="ms-2">Nouvelle demande</span></Button></template>
+            <template #actions><Button v-if="can('leave.create')" :as="Link" :href="hrUrl('/administration/leave/create')" size="rg"><Icon name="plus" /><span class="ms-2">Nouvelle demande</span></Button></template>
         </HrPageHeader>
 
         <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <Link href="/administration/leave?status=ALL"><HrStatCard label="Toutes" :value="total" hint="Tous les états" icon="reports" tone="primary" :active="filterStatus === 'ALL'" /></Link>
-            <Link v-for="status in statuses" :key="status.value" :href="`/administration/leave?status=${status.value}`"><HrStatCard :label="status.label" :value="summary[status.value]" :hint="status.value === 'PENDING' ? 'Décision à prendre' : 'Décisions enregistrées'" :icon="statusMeta[status.value]?.icon" :tone="statusMeta[status.value]?.tone" :active="filterStatus === status.value" /></Link>
+            <Link :href="hrUrl('/administration/leave?status=ALL')"><HrStatCard label="Toutes" :value="total" hint="Tous les états" icon="reports" tone="primary" :active="filterStatus === 'ALL'" /></Link>
+            <Link v-for="status in statuses" :key="status.value" :href="hrUrl(`/administration/leave?status=${status.value}`)"><HrStatCard :label="status.label" :value="summary[status.value]" :hint="status.value === 'PENDING' ? 'Décision à prendre' : 'Décisions enregistrées'" :icon="statusMeta[status.value]?.icon" :tone="statusMeta[status.value]?.tone" :active="filterStatus === status.value" /></Link>
         </section>
 
         <section v-if="leaves.data.length" class="space-y-3">
@@ -43,7 +44,7 @@ const statusMeta = {
                 <div class="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto]">
                     <div><div class="flex flex-wrap items-center gap-2"><h2 class="font-bold text-slate-800 dark:text-white">{{ leave.employee.name }}</h2><span :class="['rounded-full px-2.5 py-1 text-xs font-bold', tone(leave.status)]">{{ leave.status_label }}</span></div><p class="mt-1 font-mono text-xs text-slate-400">{{ leave.employee.employee_number }}</p><span v-if="leave.leave_type" class="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase text-amber-700 dark:bg-amber-950 dark:text-amber-300">{{ leave.leave_type }}</span><p class="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{{ leave.reason }}</p></div>
                     <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm"><div><dt class="text-xs text-slate-400">Premier jour</dt><dd class="mt-1 font-bold text-slate-700 dark:text-white">{{ leave.starts_on }}</dd></div><div><dt class="text-xs text-slate-400">Dernier jour</dt><dd class="mt-1 font-bold text-slate-700 dark:text-white">{{ leave.returns_on }}</dd></div><div><dt class="text-xs text-slate-400">Durée calculée</dt><dd class="mt-1 font-bold text-slate-700 dark:text-white">{{ leave.days_requested ?? 'N/R' }} jour(s)</dd></div><div><dt class="text-xs text-slate-400">Solde prévisionnel</dt><dd class="mt-1 truncate font-bold text-slate-700 dark:text-white">{{ leave.consumes_balance_snapshot ? `${leave.projected_remaining_days_snapshot} jour(s)` : 'Non concerné' }}</dd></div></dl>
-                    <Button v-if="can('leave.print')" :as="Link" :href="`/administration/leave/${leave.uuid}/print`" icon size="rg" variant="white-outline" title="Imprimer"><Icon name="printer" /></Button>
+                    <Button v-if="can('leave.print')" :as="Link" :href="hrUrl(`/administration/leave/${leave.uuid}/print`)" icon size="rg" variant="white-outline" title="Imprimer"><Icon name="printer" /></Button>
                 </div>
                 <div v-if="leave.decision_reason || leave.cancel_reason" class="flex items-start gap-2 border-t border-gray-100 bg-gray-50/50 px-5 py-3 text-xs text-slate-500 dark:border-gray-900 dark:bg-gray-1000/20"><Icon class="mt-0.5 shrink-0" name="check-circle" /><p><strong class="text-slate-600 dark:text-slate-300">Décision :</strong> {{ leave.decision_reason || leave.cancel_reason }}<span v-if="leave.decided_by"> · {{ leave.decided_by }}</span></p></div>
                 <details v-if="leave.status === 'PENDING' && (can('leave.approve') || can('leave.reject') || can('leave.cancel'))" class="group border-t border-gray-200 dark:border-gray-900">

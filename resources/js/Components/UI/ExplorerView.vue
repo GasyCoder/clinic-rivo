@@ -60,7 +60,7 @@ const setView = (value) => {
                 </button>
             </div>
             <span class="text-sm tabular-nums text-muted-foreground">{{ count }} {{ countLabel }}{{ count > 1 ? 's' : '' }}</span>
-            <div v-if="$slots.toolbar" class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2"><slot name="toolbar" /></div>
+            <div v-if="$slots.toolbar" class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 max-sm:basis-full"><slot name="toolbar" /></div>
         </div>
         <slot name="above" />
 
@@ -73,7 +73,10 @@ const setView = (value) => {
             </div>
         </template>
         <div v-else class="bg-card">
-            <EmptyState :icon="emptyIcon" :title="emptyTitle" :description="emptyDescription" />
+            <EmptyState :icon="emptyIcon" :title="emptyTitle" :description="emptyDescription">
+                <!-- Ce qu'on peut faire d'une liste vide : créer, importer… -->
+                <template v-if="$slots.empty" #default><slot name="empty" /></template>
+            </EmptyState>
         </div>
         <slot name="footer" />
     </section>

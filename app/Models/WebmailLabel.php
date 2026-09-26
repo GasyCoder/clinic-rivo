@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 /**
- * ADR-194 — un libellé de la messagerie d'un compte : un nom et une couleur ici,
+ * ADR-195 — un libellé de la messagerie d'un compte : un nom et une couleur ici,
  * un mot-clé IMAP sur les messages de sa boîte. Le mot-clé ne change jamais : le
  * renommer ne touche aucun message.
  */

@@ -41,7 +41,7 @@ import {
 } from '@/utilities/webmail';
 
 /**
- * ADR-194 — la liste d'un dossier : sélection multiple et actions groupées,
+ * ADR-195 — la liste d'un dossier : sélection multiple et actions groupées,
  * recherche sur le serveur, filtres Non lus / Favoris, pagination.
  *
  * La liste ne montre pas d'extrait du message : l'afficher obligerait à lire

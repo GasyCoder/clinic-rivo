@@ -14,7 +14,7 @@ use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * ADR-194 — remet aux contrôleurs la boîte choisie, avec le mot de passe gardé
+ * ADR-195 — remet aux contrôleurs la boîte choisie, avec le mot de passe gardé
  * dans la session. Sans mot de passe : la page d'ouverture.
  *
  * La connexion au serveur n'a lieu qu'au premier usage (LazyMailServer) : une

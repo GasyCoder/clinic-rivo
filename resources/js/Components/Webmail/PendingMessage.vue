@@ -5,7 +5,7 @@ import { cn } from '@/lib/cn';
 import { avatarTone, formatFullDate, initialsOf, senderLabel } from '@/utilities/webmail';
 
 /**
- * ADR-194 — un message qui s'ouvre. Ce que la ligne cliquée dit déjà (objet,
+ * ADR-195 — un message qui s'ouvre. Ce que la ligne cliquée dit déjà (objet,
  * expéditeur, date) s'affiche tout de suite ; seul le corps attend le serveur.
  */
 defineProps({

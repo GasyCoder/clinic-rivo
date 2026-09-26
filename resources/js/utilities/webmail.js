@@ -1,5 +1,5 @@
 /**
- * ADR-194 — la messagerie : ce que l'écran calcule, écrit une fois et testé.
+ * ADR-195 — la messagerie : ce que l'écran calcule, écrit une fois et testé.
  *
  * Rien ici ne décide d'une règle : le serveur relit les adresses, nettoie le
  * corps et choisit les dossiers. Ces fonctions ne servent qu'à l'affichage et à
@@ -269,7 +269,7 @@ export function frameDocument(bodyHtml, { allowRemote = false, printHeader = nul
 const fold = (value) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 /**
- * ADR-194 — les boîtes qu'on peut ouvrir, filtrées par ce qu'on tape : nom,
+ * ADR-195 — les boîtes qu'on peut ouvrir, filtrées par ce qu'on tape : nom,
  * adresse, fonction ou site, sans accents ni majuscules, tous les mots.
  *
  * @param {Array<{owner: string, address: string, job?: string|null, site_name?: string|null}>} boxes
@@ -313,7 +313,7 @@ export const REMOVING_ACTIONS = ['archive', 'spam', 'inbox', 'trash', 'delete', 
 const messageKey = (message) => `${message.folder}:${message.uid}`;
 
 /**
- * ADR-194 — ce qu'une action change à l'écran, sans attendre le serveur (à ~260 ms
+ * ADR-195 — ce qu'une action change à l'écran, sans attendre le serveur (à ~260 ms
  * aller-retour, il confirme en arrière-plan). Seuls les accessoires modifiés sont
  * rendus ; si le serveur refuse, Inertia rétablit les précédents.
  *
@@ -402,7 +402,7 @@ export function applyActionLocally(props, request) {
 }
 
 /**
- * ADR-194 — ce qui ne change pas d'un dossier ou d'un message à l'autre : la boîte,
+ * ADR-195 — ce qui ne change pas d'un dossier ou d'un message à l'autre : la boîte,
  * ses libellés, ses modèles, les collègues, les limites et l'espace utilisé. Une
  * navigation dans la messagerie ne les redemande pas au serveur.
  */
@@ -474,7 +474,7 @@ export function toFormData(data, form = new FormData(), prefix = '') {
 }
 
 /**
- * ADR-194 — ce que la page recharge après un envoi : l'avis seulement — un
+ * ADR-195 — ce que la page recharge après un envoi : l'avis seulement — un
  * rechargement partiel qui ne touche pas au serveur de messagerie —, sauf dans
  * Envoyés ou Brouillons, dont la liste change. Un brouillon change le compteur des
  * brouillons.

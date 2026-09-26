@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
-/** ADR-194 — les modèles de message d'un compte, insérés en rédigeant. */
+/** ADR-195 — les modèles de message d'un compte, insérés en rédigeant. */
 class WebmailTemplateController extends Controller
 {
     public function store(Request $request): RedirectResponse

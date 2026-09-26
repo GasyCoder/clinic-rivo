@@ -6,7 +6,7 @@ use App\Services\Webmail\OutgoingMessage;
 use App\Support\Webmail\EmailHtmlSanitizer;
 use PHPUnit\Framework\TestCase;
 
-/** ADR-194 — le HTML d'un message reçu est rendu sûr ; celui qu'on écrit n'a qu'un jeu fermé de balises. */
+/** ADR-195 — le HTML d'un message reçu est rendu sûr ; celui qu'on écrit n'a qu'un jeu fermé de balises. */
 class EmailHtmlSanitizerTest extends TestCase
 {
     public function test_a_received_message_loses_everything_that_can_run_or_track(): void

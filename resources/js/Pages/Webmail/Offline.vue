@@ -7,7 +7,7 @@ import Button from '@/Components/Shadcn/Button.vue';
 import RefreshIcon from '@/Components/Shadcn/RefreshIcon.vue';
 
 /**
- * ADR-194 — le serveur de messagerie ne répond pas. Rien n'est perdu : les
+ * ADR-195 — le serveur de messagerie ne répond pas. Rien n'est perdu : les
  * messages restent chez l'hébergeur. On réessaie, ou on ferme la boîte.
  */
 defineOptions({ layout: AppLayout });

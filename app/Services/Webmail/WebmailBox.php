@@ -5,7 +5,7 @@ namespace App\Services\Webmail;
 use App\Models\ProfessionalMailbox;
 
 /**
- * ADR-194 — la boîte ouverte dans la messagerie : l'adresse, son titulaire et
+ * ADR-195 — la boîte ouverte dans la messagerie : l'adresse, son titulaire et
  * son site. Une valeur, pas un modèle : sur le portail, l'adresse vit dans la
  * base d'un site et n'est connue que par son API (ADR-004) ; sur un site, elle
  * vient de la base locale. La messagerie ne lit rien d'autre sur elle.

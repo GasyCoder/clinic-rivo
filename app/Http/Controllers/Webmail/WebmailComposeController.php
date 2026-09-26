@@ -19,7 +19,7 @@ use Illuminate\Validation\ValidationException;
 use Symfony\Component\Mime\Email;
 
 /**
- * ADR-194 — envoyer un message, ou le garder en brouillon. Il part de l'adresse
+ * ADR-195 — envoyer un message, ou le garder en brouillon. Il part de l'adresse
  * du titulaire, par le serveur d'envoi de l'hébergeur ; sa copie va dans Envoyés.
  *
  * L'envoi est audité (destinataires, objet, nombre de pièces jointes) : un message

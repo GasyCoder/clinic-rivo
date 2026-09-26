@@ -137,7 +137,7 @@ export function orderGroup(items, storedOrder) {
  * @param {(permission: string) => boolean} options.can
  * @param {Record<string, string[]>} options.stored  the account's stored order per group
  * @param {string} options.overviewLabel
- * @param {boolean} options.webmail  ADR-194 — the account holds an active professional
+ * @param {boolean} options.webmail  ADR-195 — the account holds an active professional
  *   address: its mailbox is listed next to the overview. Not a permission — only
  *   the titular of an address ever reads it, so no right could open it.
  */

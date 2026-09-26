@@ -9,7 +9,7 @@ use App\Models\WebmailLabel;
 use App\Models\WebmailTemplate;
 
 /**
- * ADR-194 — ce que chaque écran de la messagerie reçoit, en plus de sa liste ou
+ * ADR-195 — ce que chaque écran de la messagerie reçoit, en plus de sa liste ou
  * de son message : la boîte, ses dossiers et leurs compteurs, les libellés et les
  * modèles du compte, les collègues joignables et l'espace utilisé.
  */

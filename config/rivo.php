@@ -248,7 +248,7 @@ return [
     ],
 
     /*
-     * ADR-194 — la messagerie : la boîte pro de l'employé chez l'hébergeur, lue en
+     * ADR-195 — la messagerie : la boîte pro de l'employé chez l'hébergeur, lue en
      * IMAP et envoyée en SMTP. Aucun secret ici : le mot de passe de la boîte est
      * saisi par son titulaire et ne vit que dans sa session. Sans hôte réglé, celui
      * de l'hébergement (RIVO_MAIL_HOSTING_URL) sert pour les deux.

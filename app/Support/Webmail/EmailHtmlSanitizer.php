@@ -8,7 +8,7 @@ use DOMNode;
 use DOMXPath;
 
 /**
- * ADR-194 — le HTML d'un message, rendu sûr.
+ * ADR-195 — le HTML d'un message, rendu sûr.
  *
  * Lecture (`forDisplay`) : un message reçu vient de n'importe qui. Il est affiché
  * dans un cadre isolé (iframe sandbox, sans script) ; ce nettoyage en est la

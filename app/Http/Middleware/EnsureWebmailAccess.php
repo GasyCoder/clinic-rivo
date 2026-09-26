@@ -9,7 +9,7 @@ use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * ADR-194 — la messagerie s'ouvre à qui en a la permission et a une boîte à
+ * ADR-195 — la messagerie s'ouvre à qui en a la permission et a une boîte à
  * ouvrir : la sienne (`webmail.view`) ou celle d'un autre employé
  * (`webmail.open_any`). Sinon, une page dit pourquoi et quoi faire : jamais un
  * simple refus.

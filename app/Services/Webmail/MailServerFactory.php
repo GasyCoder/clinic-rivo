@@ -3,7 +3,7 @@
 namespace App\Services\Webmail;
 
 /**
- * ADR-194 — ouvre la boîte d'une adresse. En production, la vraie boîte chez
+ * ADR-195 — ouvre la boîte d'une adresse. En production, la vraie boîte chez
  * l'hébergeur ; les tests remplacent cette fabrique par une boîte en mémoire.
  */
 class MailServerFactory

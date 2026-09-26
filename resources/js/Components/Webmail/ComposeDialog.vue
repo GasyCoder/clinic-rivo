@@ -26,7 +26,7 @@ import {
 } from '@/utilities/webmail';
 
 /**
- * ADR-194 — rédiger un message : nouveau, réponse, réponse à tous, transfert, ou
+ * ADR-195 — rédiger un message : nouveau, réponse, réponse à tous, transfert, ou
  * brouillon repris. Il part de l'adresse du titulaire ; le serveur relit tout
  * (destinataires, corps, pièces jointes) avant l'envoi.
  *
@@ -205,7 +205,7 @@ const payload = (data) => Object.fromEntries(Object.entries(data).filter(([, val
 const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content ?? '';
 
 /**
- * ADR-194 — envoyer ne fait plus attendre : la fenêtre se ferme aussitôt, le message
+ * ADR-195 — envoyer ne fait plus attendre : la fenêtre se ferme aussitôt, le message
  * part en arrière-plan (quelques secondes vers le serveur d'envoi), un avis dit
  * quand il est parti. Refusé — adresse, serveur, boîte refermée —, il revient dans
  * la fenêtre, intact, avec la raison. Rien n'est perdu.

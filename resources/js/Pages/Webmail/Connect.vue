@@ -29,7 +29,7 @@ import { cn } from '@/lib/cn';
 import { avatarTone, filterBoxes, groupBoxesBySite, initialsOf, WEBMAIL_BASE } from '@/utilities/webmail';
 
 /**
- * ADR-194 — ouvrir une boîte. Sa propre boîte (`webmail.view`), ou, avec
+ * ADR-195 — ouvrir une boîte. Sa propre boîte (`webmail.view`), ou, avec
  * `webmail.open_any`, celle d'un autre employé — sur ce site, ou depuis le
  * portail sur n'importe quel site. Dans tous les cas, le mot de passe de la
  * boîte : c'est le serveur de messagerie qui l'exige, et RIVO ne le connaît pas

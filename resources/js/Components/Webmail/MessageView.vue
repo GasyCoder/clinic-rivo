@@ -49,7 +49,7 @@ import {
 } from '@/utilities/webmail';
 
 /**
- * ADR-194 — un message ouvert : ses actions, ses destinataires, son corps dans un
+ * ADR-195 — un message ouvert : ses actions, ses destinataires, son corps dans un
  * cadre isolé, ses pièces jointes, et de quoi répondre ou transférer.
  */
 const props = defineProps({

@@ -137,7 +137,7 @@ Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.
     Route::put('/profil/apparence', [ProfileController::class, 'updateAppearance'])->name('profile.appearance.update');
 });
 
-// ADR-194 — la messagerie : les boîtes pro, chez l'hébergeur (IMAP/SMTP). Sa propre boîte
+// ADR-195 — la messagerie : les boîtes pro, chez l'hébergeur (IMAP/SMTP). Sa propre boîte
 // avec `webmail.view`, celle d'un autre employé avec `webmail.open_any` — sur un site, ou
 // depuis le portail pour tous les sites (API). Le mot de passe vit dans la session, jamais en base.
 Route::middleware(['auth', 'account.active', 'account.deployment', 'webmail.access'])

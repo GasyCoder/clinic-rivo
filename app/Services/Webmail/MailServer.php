@@ -5,7 +5,7 @@ namespace App\Services\Webmail;
 use Symfony\Component\Mime\Email;
 
 /**
- * ADR-194 — une boîte de messagerie ouverte : ce que RIVO sait lui demander.
+ * ADR-195 — une boîte de messagerie ouverte : ce que RIVO sait lui demander.
  *
  * Deux implémentations : `ImapMailServer` (la vraie boîte chez l'hébergeur, IMAP +
  * SMTP) et `FakeMailServer` (en mémoire, pour les tests). Les messages restent

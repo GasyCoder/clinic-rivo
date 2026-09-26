@@ -25,7 +25,7 @@ import {
 import { cn } from '@/lib/cn';
 
 /**
- * ADR-194 — le corps d'un message, rédigé comme dans un traitement de texte.
+ * ADR-195 — le corps d'un message, rédigé comme dans un traitement de texte.
  *
  * Les mises en forme proposées sont exactement celles que le serveur garde à
  * l'envoi (`EmailHtmlSanitizer::forSending`) : rien de ce qu'on voit ici ne

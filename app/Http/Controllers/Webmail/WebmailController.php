@@ -14,7 +14,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * ADR-194 — la messagerie : la liste d'un dossier, et la lecture d'un message.
+ * ADR-195 — la messagerie : la liste d'un dossier, et la lecture d'un message.
  * Tout est lu en direct sur le serveur de messagerie ; rien n'est copié dans RIVO.
  */
 class WebmailController extends Controller

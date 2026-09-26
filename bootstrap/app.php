@@ -61,7 +61,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'rivo.remote-actor' => ActAsRemoteSuperAdmin::class,
             'rivo.hr-screens' => ServeHrScreensAsJson::class,
             'rivo.site-only' => KeepPhysicalActsAtSite::class,
-            // ADR-194 — la messagerie : une boîte à ouvrir (permissions), puis la boîte ouverte.
+            // ADR-195 — la messagerie : une boîte à ouvrir (permissions), puis la boîte ouverte.
             'webmail.access' => EnsureWebmailAccess::class,
             'webmail.open' => OpenWebmailMailbox::class,
         ]);
@@ -69,7 +69,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectGuestsTo('/login');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        // ADR-194 — la boîte s'ouvre au premier usage (LazyMailServer) : un mot de
+        // ADR-195 — la boîte s'ouvre au premier usage (LazyMailServer) : un mot de
         // passe refusé ou un serveur injoignable se découvre dans le contrôleur. Il se
         // dit comme à l'ouverture : mot de passe redemandé, ou page « serveur
         // injoignable » — jamais une erreur 500. Ce sont des situations prévues : le

@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** ADR-194 — un message type d'un compte, à insérer en rédigeant. */
+/** ADR-195 — un message type d'un compte, à insérer en rédigeant. */
 #[Fillable(['user_id', 'name', 'subject', 'body_html'])]
 class WebmailTemplate extends Model
 {

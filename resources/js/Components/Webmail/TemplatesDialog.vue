@@ -11,7 +11,7 @@ import EmailEditor from '@/Components/Webmail/EmailEditor.vue';
 import { WEBMAIL_BASE } from '@/utilities/webmail';
 
 /**
- * ADR-194 — les modèles de message du compte : une réponse qui revient souvent
+ * ADR-195 — les modèles de message du compte : une réponse qui revient souvent
  * (« Bien reçu », « Résultats disponibles »…), insérée d'un clic en rédigeant.
  * Ils n'appartiennent qu'au compte ; leur corps est nettoyé par le serveur comme
  * celui d'un message.

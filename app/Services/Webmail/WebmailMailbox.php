@@ -9,7 +9,7 @@ use Illuminate\Validation\ValidationException;
 use Symfony\Component\Mime\Email;
 
 /**
- * ADR-194 — la boîte d'un titulaire, telle que la messagerie la présente : ses
+ * ADR-195 — la boîte d'un titulaire, telle que la messagerie la présente : ses
  * dossiers reconnus et nommés en français, la page d'un dossier, un message prêt à
  * lire, les actions groupées, l'envoi et les brouillons. Toutes les règles de la
  * messagerie sont ici ; les contrôleurs ne font que les appeler.

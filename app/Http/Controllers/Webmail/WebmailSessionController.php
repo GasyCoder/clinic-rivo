@@ -18,7 +18,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * ADR-194 — ouvrir et fermer une boîte. Sa propre boîte avec `webmail.view`, celle
+ * ADR-195 — ouvrir et fermer une boîte. Sa propre boîte avec `webmail.view`, celle
  * d'un autre employé avec `webmail.open_any` — choisie parmi les adresses actives,
  * relues côté serveur, jamais décrites par le navigateur.
  *

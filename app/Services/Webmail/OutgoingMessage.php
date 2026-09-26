@@ -8,7 +8,7 @@ use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 
 /**
- * ADR-194 — un message rédigé dans RIVO, prêt à partir. Le serveur relit tout :
+ * ADR-195 — un message rédigé dans RIVO, prêt à partir. Le serveur relit tout :
  * les adresses, le corps (un jeu fermé de balises), les pièces jointes ; rien de
  * ce que le navigateur envoie n'est pris tel quel.
  */

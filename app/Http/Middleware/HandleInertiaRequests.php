@@ -90,7 +90,7 @@ class HandleInertiaRequests extends Middleware
                 // début, bandeau pour le compte qui la traverse, avis sur la connexion.
                 'maintenance' => app(SiteMaintenanceState::class)->sharedProp($user),
             ],
-            // ADR-194 — la messagerie : proposée selon les permissions (`webmail.view`,
+            // ADR-195 — la messagerie : proposée selon les permissions (`webmail.view`,
             // `webmail.open_any`) ; `connected` dit si une boîte est ouverte.
             'webmail' => fn () => [
                 'available' => app(WebmailAccess::class)->canUse($user),

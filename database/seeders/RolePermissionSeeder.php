@@ -20,7 +20,7 @@ class RolePermissionSeeder extends Seeder
      */
     private const GRANTS = [
         'ADMINISTRATION' => [
-            // ADR-194 — la messagerie : sa propre boîte professionnelle.
+            // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
             // ADR-192 — une remise durable accordée à un patient est une dérogation habilitée.
             'discounts.view', 'discounts.approve',
@@ -80,7 +80,7 @@ class RolePermissionSeeder extends Seeder
             'analysis_catalog.import', 'analysis_catalog.export',
         ],
         'LOGISTICS' => [
-            // ADR-194 — la messagerie : sa propre boîte professionnelle.
+            // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
             'logistics.view', 'logistics.manage',
             'administrative_stock.view', 'administrative_stock.entry',
@@ -96,7 +96,7 @@ class RolePermissionSeeder extends Seeder
         'SUPPORT' => [],
         'MAINTENANCE' => [],
         'RECEPTION' => [
-            // ADR-194 — la messagerie : sa propre boîte professionnelle.
+            // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
             'reception.view',
             // ADR-192 — la Caisse applique la remise en encaissant.
@@ -148,7 +148,7 @@ class RolePermissionSeeder extends Seeder
             'receipts.view', 'receipts.print',
         ],
         'MEDICINE' => [
-            // ADR-194 — la messagerie : sa propre boîte professionnelle.
+            // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
             'medical_record.view',
             'consultations.view', 'consultations.create', 'consultations.update',
@@ -213,7 +213,7 @@ class RolePermissionSeeder extends Seeder
         // only to accounts explicitly assigned those permissions (normally
         // the ANESTHETIST profile), never to the whole NURSE role.
         'NURSE' => [
-            // ADR-194 — la messagerie : sa propre boîte professionnelle.
+            // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
             'care.view', 'care.create', 'care.update', 'care.complete',
             'vitals.view', 'vitals.create', 'vitals.update', 'medical_orders.view',
@@ -242,7 +242,7 @@ class RolePermissionSeeder extends Seeder
         // separate Anesthesia workspace is granted explicitly per account;
         // it is never implied by surgery.view (ADR-048).
         'SURGERY' => [
-            // ADR-194 — la messagerie : sa propre boîte professionnelle.
+            // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
             'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule', 'surgery.reset',
             'surgery.preoperative.view', 'surgery.preoperative.validate',
@@ -260,7 +260,7 @@ class RolePermissionSeeder extends Seeder
         // medicines.create/update and every catalog/tariff mutation remain
         // reserved to Super Admin by ADR-024.
         'PHARMACY' => [
-            // ADR-194 — la messagerie : sa propre boîte professionnelle.
+            // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
             'pharmacy.view', 'pharmacy.dispense', 'pharmacy.dispense.prepare_invoice', 'pharmacy.dispense.print',
             // ADR-104 — `pharmacy.counter_sales.create` quitte ce socle :
@@ -304,7 +304,7 @@ class RolePermissionSeeder extends Seeder
         // Minimal follow-through only (request tracking + result entry) —
         // sample/analysis workflow itself remains unbuilt.
         'LABORATORY' => [
-            // ADR-194 — la messagerie : sa propre boîte professionnelle.
+            // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
             'paraclinical_requests.view',
             'laboratory_orders.view', 'laboratory_results.view', 'laboratory_results.create',

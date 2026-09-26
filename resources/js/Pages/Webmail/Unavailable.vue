@@ -6,7 +6,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 
 /**
- * ADR-194 — pourquoi ce compte n'a aucune boîte à ouvrir, et quoi faire. La
+ * ADR-195 — pourquoi ce compte n'a aucune boîte à ouvrir, et quoi faire. La
  * messagerie dépend des permissions : `webmail.view` ouvre sa propre boîte —
  * l'adresse active de la fiche employé reliée au compte —, `webmail.open_any`
  * celle d'un autre employé. Jamais un refus muet.

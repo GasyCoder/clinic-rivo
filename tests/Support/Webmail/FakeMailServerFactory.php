@@ -7,7 +7,7 @@ use App\Services\Webmail\MailServerFactory;
 use App\Services\Webmail\WebmailAuthenticationFailed;
 use App\Services\Webmail\WebmailUnavailable;
 
-/** ADR-194 — la fabrique des tests : une boîte en mémoire par adresse, un mot de passe chacune. */
+/** ADR-195 — la fabrique des tests : une boîte en mémoire par adresse, un mot de passe chacune. */
 final class FakeMailServerFactory extends MailServerFactory
 {
     /** @var array<string, array{password: string, server: FakeMailServer}> */

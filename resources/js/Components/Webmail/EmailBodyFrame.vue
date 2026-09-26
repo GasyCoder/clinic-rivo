@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref } from 'vue';
 import { frameDocument } from '@/utilities/webmail';
 
 /**
- * ADR-194 — le corps d'un message reçu, dans un cadre isolé.
+ * ADR-195 — le corps d'un message reçu, dans un cadre isolé.
  *
  * Le HTML arrive déjà nettoyé par le serveur ; le cadre est la seconde barrière :
  * `sandbox` sans `allow-scripts` — aucun script ne s'exécute, même oublié par le

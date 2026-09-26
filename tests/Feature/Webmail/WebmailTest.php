@@ -24,7 +24,7 @@ use Tests\Support\Webmail\FakeMailServerFactory;
 use Tests\TestCase;
 
 /**
- * ADR-194 — la messagerie : la boîte pro du titulaire, et de lui seul ; le mot de
+ * ADR-195 — la messagerie : la boîte pro du titulaire, et de lui seul ; le mot de
  * passe dans la session, jamais en base ; les messages lus en direct, jamais
  * copiés ; un HTML reçu rendu sûr ; l'envoi audité.
  */

@@ -27,7 +27,7 @@ import {
 } from '@/utilities/webmail';
 
 /**
- * ADR-194 — la messagerie professionnelle : la boîte du titulaire, lue en
+ * ADR-195 — la messagerie professionnelle : la boîte du titulaire, lue en
  * direct sur le serveur de messagerie. Rien n'est copié dans RIVO ; le mot de
  * passe de la boîte n'est gardé que dans la session, chiffré.
  *

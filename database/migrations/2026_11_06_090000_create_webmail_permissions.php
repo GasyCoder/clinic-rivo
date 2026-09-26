@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * ADR-194 (amendement du 2026-09-25) — la messagerie dépend des permissions :
+ * ADR-195 (amendement du 2026-09-25) — la messagerie dépend des permissions :
  *
  *  - `webmail.view`     : la messagerie apparaît, et le compte ouvre sa propre boîte.
  *                          Accordée aux rôles opérationnels des sites — sauf SUPPORT et

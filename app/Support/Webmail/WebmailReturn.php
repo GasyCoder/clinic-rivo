@@ -6,7 +6,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
 /**
- * ADR-194 — où revenir après une action ou un envoi.
+ * ADR-195 — où revenir après une action ou un envoi.
  *
  * `back()` suffit presque toujours. Pas quand l'action fait disparaître le message
  * qu'on lit (archivé, mis à la corbeille, brouillon envoyé) : revenir à son adresse

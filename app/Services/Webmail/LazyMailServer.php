@@ -6,7 +6,7 @@ use Closure;
 use Symfony\Component\Mime\Email;
 
 /**
- * ADR-194 — la boîte, ouverte seulement quand on s'en sert.
+ * ADR-195 — la boîte, ouverte seulement quand on s'en sert.
  *
  * Se connecter coûte ~1,1 s depuis Madagascar (chiffrement et identification) : une
  * requête qui n'a rien à demander au serveur de messagerie — un rechargement partiel

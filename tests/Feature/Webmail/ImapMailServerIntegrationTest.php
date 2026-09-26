@@ -8,7 +8,7 @@ use App\Services\Webmail\WebmailAuthenticationFailed;
 use Tests\TestCase;
 
 /**
- * ADR-194 — le vrai client IMAP/SMTP, contre un serveur de messagerie de test.
+ * ADR-195 — le vrai client IMAP/SMTP, contre un serveur de messagerie de test.
  *
  * Ne s'exécute que si un serveur est déclaré, jamais contre une boîte réelle :
  *

@@ -14,7 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * ADR-194 — une action sur un ou plusieurs messages : lu, favori, archiver,
+ * ADR-195 — une action sur un ou plusieurs messages : lu, favori, archiver,
  * indésirable, corbeille, supprimer définitivement, déplacer, libeller. Seule la
  * suppression définitive est auditée : c'est la seule qu'on ne rattrape pas.
  */

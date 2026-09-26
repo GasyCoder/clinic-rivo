@@ -2,7 +2,7 @@
 import Skeleton from '@/Components/Shadcn/Skeleton.vue';
 
 /**
- * ADR-194 — la liste d'un dossier qui arrive : son nom tout de suite, ses lignes en
+ * ADR-195 — la liste d'un dossier qui arrive : son nom tout de suite, ses lignes en
  * squelette. La colonne des dossiers, elle, ne bouge pas.
  */
 defineProps({

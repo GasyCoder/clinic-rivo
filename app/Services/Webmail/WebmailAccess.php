@@ -10,7 +10,7 @@ use App\Services\SuperAdmin\PortalSiteApiClient;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * ADR-194 (amendement du 2026-09-25) — qui ouvre quelle boîte : c'est une
+ * ADR-195 (amendement du 2026-09-25) — qui ouvre quelle boîte : c'est une
  * question de permissions.
  *
  *  - `webmail.view`     : la messagerie apparaît, et le compte ouvre SA boîte —

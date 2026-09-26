@@ -5,7 +5,7 @@ import { cn } from '@/lib/cn';
 import { avatarTone, initialsOf, isEmail } from '@/utilities/webmail';
 
 /**
- * ADR-194 — un champ de destinataires : une pastille par adresse, les collègues
+ * ADR-195 — un champ de destinataires : une pastille par adresse, les collègues
  * proposés au fil de la frappe. La valeur remontée est le texte que le serveur
  * relit (« a@x, Nom <b@y> ») : c'est lui qui décide ce qui est valable.
  *

@@ -22,7 +22,7 @@ import { cn } from '@/lib/cn';
 import { avatarTone, folderUrl, formatSize, initialsOf, labelColor, quotaPercent, WEBMAIL_BASE, WEBMAIL_CACHE_TAG, WEBMAIL_STATIC_PROPS } from '@/utilities/webmail';
 
 /**
- * ADR-194 — la colonne de gauche : écrire, les dossiers et leurs non-lus, les
+ * ADR-195 — la colonne de gauche : écrire, les dossiers et leurs non-lus, les
  * libellés du compte, les collègues joignables et l'espace utilisé.
  */
 const props = defineProps({
@@ -84,7 +84,7 @@ const counter = (folder) => (folder.role === 'drafts' ? folder.total : folder.un
                 </div>
             </div>
 
-            <!-- ADR-194 — la boîte d'un autre employé se dit en permanence : une pastille, le détail au clic. -->
+            <!-- ADR-195 — la boîte d'un autre employé se dit en permanence : une pastille, le détail au clic. -->
             <Popover v-if="mailbox.own === false" align="start" width-class="w-[min(18rem,calc(100vw-2rem))]">
                 <template #trigger>
                     <button

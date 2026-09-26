@@ -5,7 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * ADR-194 — la messagerie ne garde aucun message dans RIVO : ils restent chez
+ * ADR-195 — la messagerie ne garde aucun message dans RIVO : ils restent chez
  * l'hébergeur. Elle ne range que ce qui appartient au compte lui-même :
  *
  *   ses libellés   un nom, une couleur et le mot-clé IMAP posé sur les messages ;

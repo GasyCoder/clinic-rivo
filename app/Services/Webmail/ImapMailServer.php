@@ -21,7 +21,7 @@ use Webklex\PHPIMAP\IMAP;
 use Webklex\PHPIMAP\Message;
 
 /**
- * ADR-194 — la vraie boîte chez l'hébergeur : IMAP pour lire, SMTP pour envoyer
+ * ADR-195 — la vraie boîte chez l'hébergeur : IMAP pour lire, SMTP pour envoyer
  * (webklex/php-imap, sans l'extension imap de PHP, absente de PHP 8.4).
  *
  * Chaque aller-retour compte : le serveur est à ~260 ms (Madagascar ↔ o2switch).

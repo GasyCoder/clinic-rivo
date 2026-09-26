@@ -2,7 +2,7 @@
 
 namespace App\Services\Webmail;
 
-/** ADR-194 — le serveur refuse l'adresse et le mot de passe. */
+/** ADR-195 — le serveur refuse l'adresse et le mot de passe. */
 class WebmailAuthenticationFailed extends WebmailUnavailable
 {
     public const MESSAGE = 'Le serveur de messagerie refuse ce mot de passe.';

@@ -7,7 +7,7 @@ use App\Services\Webmail\WebmailUnavailable;
 use Symfony\Component\Mime\Email;
 
 /**
- * ADR-194 — une boîte en mémoire, pour les tests : les mêmes réponses que la vraie,
+ * ADR-195 — une boîte en mémoire, pour les tests : les mêmes réponses que la vraie,
  * sans serveur. Ses dossiers suivent la disposition de cPanel (« INBOX.Sent »…) ;
  * Archives et Indésirables n'existent pas d'avance, pour vérifier qu'ils se créent.
  */

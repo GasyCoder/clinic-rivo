@@ -79,7 +79,7 @@
     to { opacity: 1; }
 }
 
-/* ADR-194 — la barre fine qui court au-dessus d'une liste en cours de relecture. */
+/* ADR-195 — la barre fine qui court au-dessus d'une liste en cours de relecture. */
 @keyframes webmail-progress {
     from { transform: translateX(-100%); }
     to { transform: translateX(300%); }

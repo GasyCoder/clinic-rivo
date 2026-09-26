@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Crypt;
 use Throwable;
 
 /**
- * ADR-194 — la boîte ouverte et son mot de passe, saisi à l'ouverture, gardés
+ * ADR-195 — la boîte ouverte et son mot de passe, saisi à l'ouverture, gardés
  * chiffrés dans la session et nulle part ailleurs : jamais en base, jamais dans
  * un journal (ADR-190). Ils disparaissent à la déconnexion de RIVO, quand on
  * ferme la boîte, ou dès que l'adresse n'est plus la même (suspendue, changée).

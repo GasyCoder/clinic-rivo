@@ -130,7 +130,7 @@ const adminMenu = computed(() => [
     { heading: 'Organisation' },
     { icon: Briefcase, text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },
     { icon: AtSign, text: 'Emails professionnels', link: '/super-admin/professional-emails', permission: 'professional_emails.view' },
-    // ADR-194 — ouvrir la boîte professionnelle d'un employé, sur n'importe quel site.
+    // ADR-195 — ouvrir la boîte professionnelle d'un employé, sur n'importe quel site.
     { key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', permission: 'webmail.open_any' },
     { icon: Package, text: 'Logistique & équipements', link: '/super-admin/workspaces/logistics', permission: 'logistics.view' },
     { icon: ShieldCheck, text: 'Gardiennage', link: '/super-admin/workspaces/guarding', permission: 'guarding.view' },

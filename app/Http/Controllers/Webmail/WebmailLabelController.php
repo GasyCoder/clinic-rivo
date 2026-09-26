@@ -10,7 +10,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-194 — les libellés d'un compte : un nom et une couleur. Le mot-clé posé sur
+ * ADR-195 — les libellés d'un compte : un nom et une couleur. Le mot-clé posé sur
  * les messages ne change jamais ; supprimer un libellé le retire de la liste, les
  * messages gardent un mot-clé que plus rien n'affiche.
  */

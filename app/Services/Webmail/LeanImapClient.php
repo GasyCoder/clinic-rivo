@@ -5,7 +5,7 @@ namespace App\Services\Webmail;
 use Webklex\PHPIMAP\Client;
 
 /**
- * ADR-194 — le client IMAP de la bibliothèque, sans ses allers-retours inutiles.
+ * ADR-195 — le client IMAP de la bibliothèque, sans ses allers-retours inutiles.
  *
  * La bibliothèque vérifie la connexion avant CHAQUE commande en envoyant un NOOP
  * au serveur : à 260 ms l'aller-retour (Madagascar ↔ o2switch), une page de dossier

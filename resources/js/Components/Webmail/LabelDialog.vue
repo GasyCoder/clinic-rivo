@@ -11,7 +11,7 @@ import { cn } from '@/lib/cn';
 import { LABEL_COLORS, WEBMAIL_BASE, labelColor } from '@/utilities/webmail';
 
 /**
- * ADR-194 — créer, renommer ou retirer un libellé. Il n'appartient qu'au compte ;
+ * ADR-195 — créer, renommer ou retirer un libellé. Il n'appartient qu'au compte ;
  * il est posé sur les messages comme un mot-clé du serveur de messagerie. Le
  * retirer ne supprime aucun message.
  */

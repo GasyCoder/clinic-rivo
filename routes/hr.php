@@ -100,7 +100,10 @@ Route::get('/generated-documents', [GeneratedDocumentController::class, 'index']
 Route::get('/generated-documents/create', [GeneratedDocumentController::class, 'create'])->name('generated-documents.create')->middleware('can:generated_documents.create');
 Route::post('/generated-documents/preview', [GeneratedDocumentController::class, 'preview'])->name('generated-documents.preview')->middleware('can:generated_documents.create');
 Route::post('/generated-documents', [GeneratedDocumentController::class, 'store'])->name('generated-documents.store')->middleware('can:generated_documents.create');
-Route::get('/generated-documents/{generatedDocument}/print', [GeneratedDocumentController::class, 'print'])->name('generated-documents.print')->middleware('can:generated_documents.print');
+// ADR-199 — un document archivé reste consultable ; « supprimer » l'archive, avec un motif.
+Route::get('/generated-documents/{generatedDocument}/print', [GeneratedDocumentController::class, 'print'])->name('generated-documents.print')->middleware('can:generated_documents.print')->withTrashed();
+Route::delete('/generated-documents/{generatedDocument}', [GeneratedDocumentController::class, 'destroy'])->name('generated-documents.destroy')->middleware('can:generated_documents.archive');
+Route::post('/generated-documents/{generatedDocument}/restore', [GeneratedDocumentController::class, 'restore'])->name('generated-documents.restore')->middleware('can:generated_documents.restore')->withTrashed();
 
 Route::get('/planning', [PlanningController::class, 'index'])->name('planning.index')->middleware('can:planning.view');
 Route::get('/planning/export', [PlanningController::class, 'export'])->name('planning.export')->middleware('can:planning.export');

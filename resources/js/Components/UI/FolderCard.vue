@@ -5,7 +5,8 @@ import { lucideIcon } from '@/lib/icons';
 import { cn } from '@/lib/cn';
 
 const props = defineProps({
-    href: { type: String, required: true },
+    /** Sans adresse, le dossier est un bouton : il s'ouvre sur place (`open`). */
+    href: { type: String, default: null },
     title: { type: String, required: true },
     subtitle: String,
     meta: String,
@@ -15,6 +16,7 @@ const props = defineProps({
     muted: { type: Boolean, default: false },
 });
 
+const emit = defineEmits(['open']);
 const glyph = computed(() => lucideIcon(props.icon));
 
 const TONES = {
@@ -28,13 +30,16 @@ const TONES = {
 </script>
 
 <template>
-    <Link
-        :href="href"
+    <component
+        :is="href ? Link : 'button'"
+        :href="href ?? undefined"
+        :type="href ? undefined : 'button'"
         :class="cn(
             'group flex flex-col items-center rounded-xl border border-transparent px-3 py-5 text-center transition-colors',
             'hover:border-border hover:bg-accent/50 focus-visible:border-primary focus-visible:outline-none',
             muted && 'opacity-60',
         )"
+        @click="! href && emit('open')"
     >
         <span class="relative">
             <component :is="glyph" :class="cn('h-14 w-14 transition-transform group-hover:scale-105', TONES[tone] ?? TONES.amber)" />
@@ -43,5 +48,5 @@ const TONES = {
         <span class="mt-3 line-clamp-2 text-sm font-semibold text-foreground">{{ title }}</span>
         <span v-if="subtitle" class="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{{ subtitle }}</span>
         <span v-if="meta" class="mt-0.5 text-[11px] text-muted-foreground">{{ meta }}</span>
-    </Link>
+    </component>
 </template>

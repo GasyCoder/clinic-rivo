@@ -20,6 +20,7 @@ import TableCell from '@tiptap/extension-table-cell';
 import { FontSize } from '@/tiptap/FontSize';
 import { BlockStyle, parseStyle, stringifyStyle } from '@/tiptap/BlockStyle';
 import { convertDocxToPages, extractPdfPages } from '@/tiptap/documentImport';
+import { familyKey } from '@/utilities/documentFamilies';
 
 defineOptions({ layout: AppLayout });
 
@@ -27,6 +28,9 @@ const props = defineProps({
     targetSite: { type: Object, required: true },
     template: { type: Object, default: null },
     dataContexts: { type: Array, default: () => [] },
+    families: { type: Array, default: () => [] },
+    /** ADR-199 — « Nouveau canevas » depuis un dossier : son type et son contexte. */
+    preset: { type: Object, default: null },
 });
 
 const isEditing = computed(() => props.template !== null);
@@ -49,8 +53,8 @@ const contextMismatch = computed(() => {
 const isArchivedTemplate = computed(() => props.template?.archived ?? false);
 
 const form = useForm({
-    document_type: props.template?.document_type ?? '',
-    data_context: props.template?.data_context ?? (props.dataContexts[0]?.value ?? ''),
+    document_type: props.template?.document_type ?? props.preset?.document_type ?? '',
+    data_context: props.template?.data_context ?? props.preset?.data_context ?? (props.dataContexts[0]?.value ?? ''),
     name: props.template?.name ?? '',
     description: props.template?.description ?? '',
     active: props.template?.active ?? true,
@@ -338,7 +342,10 @@ watch(() => [form.document_type, form.data_context, form.name, form.description,
     isDirty.value = true;
 });
 
-const backUrl = `/super-admin/workspaces/document-templates?site=${props.targetSite.code}`;
+// ADR-199 — on revient au dossier du canevas (celui de son type), pas à la racine.
+const backFolder = familyKey(props.template?.document_type ?? props.preset?.document_type ?? '');
+const backFolderLabel = props.families.find((family) => family.key === backFolder)?.label ?? 'Canevas de documents';
+const backUrl = `/super-admin/workspaces/document-templates?site=${props.targetSite.code}${props.template || props.preset ? `&dossier=${encodeURIComponent(backFolder)}` : ''}`;
 const leaveEditor = () => {
     if (isDirty.value && !confirm('Des modifications ne sont pas enregistrées. Quitter sans enregistrer ?')) return;
     router.visit(backUrl);
@@ -374,7 +381,7 @@ const submit = () => {
     <div class="w-full space-y-4">
         <header class="flex flex-wrap items-center justify-between gap-3">
             <div>
-                <button type="button" class="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-primary" @click="leaveEditor"><ArrowLeft class="h-4 w-4" />Canevas de documents</button>
+                <button type="button" class="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-primary" @click="leaveEditor"><ArrowLeft class="h-4 w-4" />{{ template || preset ? backFolderLabel : 'Canevas de documents' }}</button>
                 <h1 class="mt-1 font-heading text-xl font-bold text-foreground">{{ isEditing ? `Modifier « ${template.name} »` : 'Nouveau canevas' }}</h1>
                 <p class="mt-1 text-xs text-muted-foreground">Site destinataire : <strong>{{ targetSite.name }}</strong><span v-if="isEditing && template.generated_documents_count"> · {{ template.generated_documents_count }} document(s) déjà généré(s) — toute modification crée une nouvelle version, sans affecter ceux-là.</span></p>
             </div>

@@ -145,13 +145,34 @@ class EmploymentContractController extends Controller
         return to_route('administration.contracts.index')->with('status', 'Contrat restauré.');
     }
 
-    public function print(Request $request, EmploymentContract $contract): Response
+    public function print(Request $request, EmploymentContract $contract): Response|RedirectResponse
     {
         abort_unless($request->user()->can('contracts.print'), 403);
         Gate::forUser($request->user())->authorize('view', $contract);
         $contract->load(['employee.department', 'employee.jobTitle', 'employee.addressEntry', 'contractType', 'internshipField', 'internshipSupervisor']);
 
         $user = $request->user();
+
+        // ADR-199 — « Imprimer » un contrat prend le document tout seul : celui déjà
+        // produit pour ce contrat, sinon le seul canevas de contrat, prérempli.
+        // `?choisir=1` garde l'écran de choix (autre canevas, fiche résumé).
+        if (! $request->boolean('choisir') && ! $contract->trashed()) {
+            $existing = GeneratedDocument::query()->where('employment_contract_id', $contract->getKey())->latest('created_at')->value('uuid');
+            if ($existing && $user->can('generated_documents.print')) {
+                return to_route('administration.generated-documents.print', $existing);
+            }
+
+            $only = DocumentTemplate::query()->where('active', true)
+                ->where('data_context', DocumentDataContext::EmployeeAndContract->value)->pluck('uuid');
+            if ($only->count() === 1 && $user->can('generated_documents.create')) {
+                return to_route('administration.generated-documents.create', [
+                    'template' => $only->first(),
+                    'employee' => $contract->employee->uuid,
+                    'contract' => $contract->uuid,
+                    'dossier' => 'CONTRAT',
+                ]);
+            }
+        }
 
         return Inertia::render('Administration/Contracts/Print', [
             'contract' => $this->presenter->contract($contract),

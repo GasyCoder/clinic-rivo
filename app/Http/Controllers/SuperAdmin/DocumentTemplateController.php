@@ -6,6 +6,7 @@ use App\Enums\DocumentDataContext;
 use App\Http\Controllers\Controller;
 use App\Services\Administration\DocumentFormFieldCatalog;
 use App\Services\SuperAdmin\PortalSiteApiClient;
+use App\Support\Documents\DocumentFamily;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,7 +28,9 @@ class DocumentTemplateController extends Controller
         return Inertia::render('SuperAdmin/DocumentTemplates/Index', [
             'sites' => $client->documentTemplatesForAllSites($request->user(), ['status' => 'ALL']),
             'selectedSiteCode' => $selectedSite ?: null,
+            'selectedFolder' => filled($request->query('dossier')) ? DocumentFamily::key((string) $request->query('dossier')) : null,
             'dataContexts' => $this->dataContextOptions(),
+            'families' => $this->familyOptions(),
         ]);
     }
 
@@ -39,11 +42,20 @@ class DocumentTemplateController extends Controller
         // this check the Super Admin could compose a whole document only to
         // learn it can't be delivered when they finally click "Enregistrer".
         $this->assertSiteReachable($site);
+        // ADR-199 — « Nouveau canevas » depuis un dossier arrive réglé sur son
+        // type et sur le contexte que ce dossier attend.
+        $folder = filled($request->query('type')) ? DocumentFamily::key((string) $request->query('type')) : null;
 
         return Inertia::render('SuperAdmin/DocumentTemplates/Editor', [
-            'targetSite' => $this->siteMeta($site),
+            'targetSite' => $this->siteMeta(mb_strtoupper($site)),
             'template' => null,
             'dataContexts' => $this->dataContextOptions(),
+            'families' => $this->familyOptions(),
+            'preset' => $folder === null ? null : [
+                'document_type' => $folder,
+                'data_context' => DocumentFamily::context($folder)->value,
+                'folder_label' => DocumentFamily::label($folder),
+            ],
         ]);
     }
 
@@ -54,19 +66,24 @@ class DocumentTemplateController extends Controller
         abort_unless($detail['ok'], 503, $detail['message'] ?? 'Le site ne répond pas actuellement.');
 
         return Inertia::render('SuperAdmin/DocumentTemplates/Editor', [
-            'targetSite' => $this->siteMeta($site),
+            'targetSite' => $this->siteMeta(mb_strtoupper($site)),
             'template' => $detail['data'],
             'dataContexts' => $this->dataContextOptions(),
+            'families' => $this->familyOptions(),
+            'preset' => null,
         ]);
     }
 
     public function store(Request $request, PortalSiteApiClient $client): RedirectResponse
     {
         $siteCode = $this->validatedSiteCode($request);
+        $payload = $this->templatePayload($request);
 
+        // ADR-199 — le canevas créé se retrouve dans son dossier.
         return $this->respond(
-            $client->createDocumentTemplate($siteCode, $this->templatePayload($request), $request->user()),
+            $client->createDocumentTemplate($siteCode, $payload, $request->user()),
             'Canevas créé.',
+            route('super-admin.document-templates.index', ['site' => $siteCode, 'dossier' => DocumentFamily::key($payload['document_type'])]),
         );
     }
 
@@ -210,7 +227,21 @@ class DocumentTemplateController extends Controller
         return ['code' => $site['code'], 'name' => $site['name']];
     }
 
-    /** @return array<int, array<string, string>> */
+    /**
+     * ADR-199 — les dossiers de canevas : un par type, avec le contexte attendu.
+     *
+     * @return list<array{key: string, label: string, context: string}>
+     */
+    private function familyOptions(): array
+    {
+        return collect(DocumentFamily::FAMILIES)->map(fn (array $family, string $key) => [
+            'key' => $key,
+            'label' => $family['label'],
+            'context' => $family['context']->value,
+        ])->values()->all();
+    }
+
+    /** @return array<int, array<string, mixed>> */
     private function dataContextOptions(): array
     {
         $catalog = app(DocumentFormFieldCatalog::class);
@@ -221,14 +252,14 @@ class DocumentTemplateController extends Controller
             'label' => $context->label(),
             'fields' => collect($catalog->fieldsForContext($context))->pluck('label')->values()->all(),
             'offered_from' => match ($context) {
-                DocumentDataContext::EmployeeOnly => ['Documents › Générer un document'],
-                DocumentDataContext::EmployeeAndContract => ['Documents › Générer un document', '« Imprimer » d’un contrat'],
-                DocumentDataContext::EmployeeAndLeave => ['Documents › Générer un document', '« Imprimer » d’un congé'],
+                DocumentDataContext::EmployeeOnly => ['Documents › le dossier de son type'],
+                DocumentDataContext::EmployeeAndContract => ['Documents › Contrats', '« Imprimer » d’un contrat'],
+                DocumentDataContext::EmployeeAndLeave => ['Documents › Congés', '« Imprimer » d’un congé'],
             },
         ])->values()->all();
     }
 
-    private function respond(array $result, string $successMessage): RedirectResponse
+    private function respond(array $result, string $successMessage, ?string $successUrl = null): RedirectResponse
     {
         if (! $result['ok']) {
             $errors = collect($result['errors'] ?? [])->mapWithKeys(
@@ -240,6 +271,6 @@ class DocumentTemplateController extends Controller
             return back()->withErrors($errors ?: ['site_code' => $result['message']]);
         }
 
-        return back()->with('status', $result['message'] ?: $successMessage);
+        return ($successUrl ? redirect($successUrl) : back())->with('status', $result['message'] ?: $successMessage);
     }
 }

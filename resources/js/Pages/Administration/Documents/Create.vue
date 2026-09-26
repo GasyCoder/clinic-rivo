@@ -3,7 +3,7 @@ import { hrUrl } from '@/utilities/hrUrl';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import {
-    ArrowLeft, CalendarRange, Check, FileSignature, FileText, LoaderCircle, PenLine, Search, UserRound, X,
+    ArrowLeft, CalendarRange, Check, FileSignature, FileText, History, LoaderCircle, PenLine, Search, UserRound, X,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import EmployeePhoto from '@/Components/Administration/EmployeePhoto.vue';
@@ -19,6 +19,7 @@ import Select from '@/Components/Shadcn/Select.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
+import { familyKey } from '@/utilities/documentFamilies';
 
 defineOptions({ layout: AppLayout });
 
@@ -31,6 +32,10 @@ const props = defineProps({
     prefill: { type: Object, default: () => ({}) },
     /** ADR-184 — `{ name, title, has_signature }` réglé pour le site. */
     director: { type: Object, default: () => ({ name: null, title: 'Directeur général', has_signature: false }) },
+    /** ADR-199 — « Modifier » : le document que la nouvelle version remplacera (archivé à la génération). */
+    replaces: { type: Object, default: null },
+    /** Ouvert depuis un dossier (Contrats, Congés…) : ses canevas d'abord. */
+    folder: { type: String, default: null },
 });
 
 /** Un directeur est réglé pour ce site : son nom ou sa signature. */
@@ -43,7 +48,9 @@ const form = useForm({
     employee_uuid: props.prefill.employee_uuid || '',
     employment_contract_uuid: props.prefill.employment_contract_uuid || '',
     leave_request_uuid: props.prefill.leave_request_uuid || '',
-    form_data: {},
+    // « Modifier » repart des valeurs de la page 1 du document remplacé.
+    form_data: { ...(props.prefill.form_data ?? {}) },
+    replaces_uuid: props.replaces?.uuid ?? null,
     // Cochée d'office dès qu'un directeur est réglé ; la décocher reste possible.
     with_director_signature: Boolean(props.director?.name || props.director?.has_signature),
 });
@@ -60,7 +67,8 @@ const activeFields = computed(() => props.formFieldsByContext[selectedTemplate.v
 // preview refresh must never clobber that in-progress edit with the
 // auto-filled value again (this is what makes "pre-filled but still
 // editable" actually work).
-const touchedFields = ref(new Set());
+// Les valeurs reprises d'un document remplacé comptent comme saisies : l'aperçu ne les écrase pas.
+const touchedFields = ref(new Set(Object.keys(props.prefill.form_data ?? {})));
 const markTouched = (key) => touchedFields.value.add(key);
 
 // Changer de canevas garde le contrat ou le congé déjà choisi quand le nouveau
@@ -166,6 +174,10 @@ const submit = () => {
  * quel. Le document généré est figé et imprimable.
  */
 const { can } = usePermissions();
+const backFolder = computed(() => props.folder || props.replaces?.folder || null);
+const backHref = computed(() => (backFolder.value
+    ? hrUrl(`/administration/generated-documents?dossier=${encodeURIComponent(backFolder.value)}`)
+    : hrUrl('/administration/generated-documents')));
 
 // 1 · Quel document ? Les canevas, rangés par type.
 const templateGroups = computed(() => {
@@ -176,7 +188,10 @@ const templateGroups = computed(() => {
         groups.get(key).push(template);
     }
 
-    return [...groups.entries()].map(([type, items]) => ({ type, items }));
+    return [...groups.entries()]
+        .map(([type, items]) => ({ type, items }))
+        // Le dossier d'où l'on vient d'abord (ADR-199).
+        .sort((a, b) => Number(familyKey(b.type) === props.folder) - Number(familyKey(a.type) === props.folder));
 });
 
 // 2 · Pour qui ? Une recherche au lieu d'une longue liste déroulante.
@@ -217,12 +232,21 @@ const stepDone = computed(() => ({
             tone="primary"
         >
             <template #actions>
-                <Button :as="Link" :href="hrUrl('/administration/generated-documents')" variant="outline"><ArrowLeft class="h-4 w-4" />Documents générés</Button>
+                <Button :as="Link" :href="backHref" variant="outline"><ArrowLeft class="h-4 w-4" />{{ folder ? 'Retour au dossier' : 'Documents' }}</Button>
             </template>
         </PageHeader>
 
         <form class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_440px]" @submit.prevent="submit">
             <div class="space-y-4">
+                <!-- ADR-199 — « Modifier » : une nouvelle version ; l'ancienne sera archivée, jamais effacée. -->
+                <div v-if="replaces" class="flex items-start gap-3 rounded-xl border border-amber-300/60 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100" role="status">
+                    <History class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <p>
+                        <strong>Nouvelle version de « {{ replaces.template_name }} »</strong> pour {{ replaces.employee.name }}, reprise telle qu’elle a été générée. Corrigez ce qu’il faut puis générez :
+                        l’ancienne version sera <strong>archivée</strong> (gardée, consultable dans le dossier), jamais effacée.
+                    </p>
+                </div>
+
                 <!-- 1 · Quel document ? -->
                 <Card class="p-5">
                     <header class="flex items-start gap-3">
@@ -371,9 +395,9 @@ const stepDone = computed(() => ({
 
                 <div class="flex flex-wrap items-center justify-end gap-2">
                     <p v-if="! readyForPreview" class="me-auto text-sm text-muted-foreground">Choisissez un canevas, une personne<template v-if="needsContract || needsLeave"> et {{ needsContract ? 'son contrat' : 'sa demande de congé' }}</template>.</p>
-                    <Button :as="Link" :href="hrUrl('/administration/generated-documents')" variant="outline">Annuler</Button>
+                    <Button :as="Link" :href="backHref" variant="outline">Annuler</Button>
                     <Button v-if="can('generated_documents.create')" type="submit" :disabled="form.processing || ! readyForPreview">
-                        <LoaderCircle v-if="form.processing" class="h-4 w-4 animate-spin" /><FileSignature v-else class="h-4 w-4" />{{ form.processing ? 'Génération…' : 'Générer le document' }}
+                        <LoaderCircle v-if="form.processing" class="h-4 w-4 animate-spin" /><FileSignature v-else class="h-4 w-4" />{{ form.processing ? 'Génération…' : replaces ? 'Générer la nouvelle version' : 'Générer le document' }}
                     </Button>
                 </div>
             </div>

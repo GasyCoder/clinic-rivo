@@ -106,4 +106,52 @@ class DocumentTemplatesPortalTest extends TestCase
             && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'document_templates.create')
             && $request->header('X-Rivo-Actor-Name')[0] === $superAdmin->name);
     }
+
+    /** ADR-199 — les canevas en dossiers : le dossier suit l'adresse. */
+    public function test_the_canevas_page_opens_on_the_requested_folder(): void
+    {
+        Http::fake(['*' => Http::response(['data' => ['templates' => [], 'summary' => ['active' => 0, 'archived' => 0], 'document_types' => []]], 200)]);
+
+        $this->actingAs($this->superAdmin())->get('/super-admin/workspaces/document-templates?site=A&dossier=Congé')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('selectedSiteCode', 'A')
+                ->where('selectedFolder', 'CONGE')
+                ->has('families', 7)
+                ->where('families.1', ['key' => 'CONGE', 'label' => 'Congés', 'context' => 'EMPLOYEE_AND_LEAVE']));
+    }
+
+    /** « Nouveau canevas » depuis un dossier arrive réglé sur son type et son contexte. */
+    public function test_a_new_canevas_from_a_folder_is_preset_to_its_type_and_context(): void
+    {
+        $this->actingAs($this->superAdmin())->get('/super-admin/workspaces/document-templates/A/create?type=contrat')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/DocumentTemplates/Editor')
+                ->where('preset.document_type', 'CONTRAT')
+                ->where('preset.data_context', 'EMPLOYEE_AND_CONTRACT')
+                ->where('preset.folder_label', 'Contrats'));
+
+        $this->actingAs($this->superAdmin())->get('/super-admin/workspaces/document-templates/A/create')
+            ->assertInertia(fn ($page) => $page->where('preset', null));
+    }
+
+    public function test_a_created_canevas_lands_in_its_folder(): void
+    {
+        Http::fake(['https://a.test/*' => Http::response(['message' => 'Canevas créé.', 'data' => ['uuid' => 'n-1']], 201)]);
+
+        $this->actingAs($this->superAdmin())->post('/super-admin/workspaces/document-templates', [
+            'site_code' => 'A',
+            'document_type' => 'Congé',
+            'data_context' => 'EMPLOYEE_AND_LEAVE',
+            'name' => 'Décision de congé',
+            'content' => ['type' => 'doc', 'content' => []],
+            'content_html' => '<p>Décision.</p>',
+        ])->assertRedirect('/super-admin/workspaces/document-templates?site=A&dossier=CONGE');
+    }
+
+    private function superAdmin(): User
+    {
+        return User::factory()->create(['role_id' => Role::query()->where('code', 'SUPER_ADMIN')->value('id')]);
+    }
 }

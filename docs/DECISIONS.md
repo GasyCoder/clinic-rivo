@@ -18202,3 +18202,82 @@ dossier « Nouveau stagiaire » sans contrat   reste listé en employé tant que
 export Excel des employés                     inchangé : il contient encore les stagiaires
 demande de congé en attente                   ne compte pas « en congé » : seule une demande acceptée le fait
 ```
+
+---
+
+# ADR-199 — Documents du personnel en dossiers ; « Imprimer » un contrat prend son document
+
+**Status:** ACCEPTED (2026-09-26 — demande explicite du propriétaire : « mettre dossier par dossier comme
+l'interface des fournisseurs ; quand j'imprime le contrat, il prend automatiquement le contrat dans les
+documents ; dans les documents : modifier, supprimer, voir, archiver, générer ; et aussi congé, attestation… » ;
+deux arbitrages : dossiers au portail **et** au site ; « Modifier » = nouvelle version, « Supprimer » = archiver)
+
+**Complète l'ADR-070/087** (canevas et documents générés) et **l'ADR-198** (document d'un congé). Le CDC ne décrit
+aucune gestion documentaire RH : les règles ci-dessous sont celles du propriétaire. « Contrats » reste la fiche RH
+du contrat (dates, type, référence) ; ce qui fusionne, c'est l'accès au **document** du contrat.
+
+## Un dossier par type, des deux côtés
+
+`App\Support\Documents\DocumentFamily` range un type de document (libellé libre du Super Admin, ADR-070) dans un
+dossier, sans accents ni casse (« Congé » et « CONGE » vont ensemble) :
+
+```text
+CONTRAT → Contrats       Personnel + contrat de travail
+CONGE → Congés           Personnel + demande de congé
+ATTESTATION, CERTIFICAT, LETTRE, DECISION, AUTRE   Personnel uniquement
+un type libre            son propre dossier, après les sept : rien ne disparaît
+```
+
+`resources/js/utilities/documentFamilies.js` reproduit la même règle à l'écran (test) et donne la teinte de chaque
+dossier. Les deux écrans se lisent comme les fournisseurs (`FolderCard`, qui s'ouvre désormais aussi sur place) :
+
+```text
+portail   Canevas de documents : site, puis dossiers ; un dossier liste ses canevas (en service / archivés) avec
+          Générer (sur le site, par les écrans RH relayés — ADR-187), Modifier (lecture seule s'il est archivé),
+          Dupliquer, Activer / Désactiver, Archiver, Restaurer, et « Documents produits sur <site> » ;
+          « Nouveau canevas » depuis un dossier arrive réglé sur son type et son contexte ; un canevas créé
+          retombe dans son dossier ; l'adresse suit (`?site=A&dossier=CONTRAT`), sans rappeler les sites ;
+          un canevas des dossiers Contrats ou Congés réglé sur un autre contexte est signalé « Attendu : … »
+          (il ne reprendrait pas les dates — ADR-198), sans rien bloquer
+site      Documents : dossiers (canevas actifs, documents, archivés, dernier produit) ; un dossier montre ses
+          canevas (Générer) et ses documents, actifs ou archivés ; une recherche traverse tous les dossiers
+```
+
+## Un document ne se réécrit pas et ne s'efface pas
+
+Un document produit reste un instantané figé (ADR-070/087). Les gestes demandés s'y traduisent ainsi :
+
+```text
+Voir       la feuille, même archivée (lecture seule, avec la version qui la remplace)
+Modifier   `create?from=<uuid>` : nouvelle version préremplie (canevas en vigueur de la même lignée, personne,
+           contrat ou congé, page 1) ; à la génération l'ancienne est archivée, motif « Remplacé par une nouvelle
+           version. », et la nouvelle garde `replaces_document_id`. Même personne exigée
+Supprimer  archiver avec un motif (Soft Delete, ADR-009) : `generated_documents.archive`
+Restaurer  `generated_documents.restore` ; refusé tant qu'une version plus récente est en vigueur
+Générer    depuis le dossier, le canevas choisi ; ses canevas passent en tête du formulaire
+```
+
+Aucune suppression physique. Les deux droits sont enregistrés par migration (`2026_11_05_090000`, avec
+`replaces_document_id` et `external_deleted_by_*` pour le Super Admin qui archive depuis le portail) et accordés
+à ADMINISTRATION ; le Super Admin du portail les reçoit à la migration (ADR-186).
+
+## « Imprimer » un contrat prend son document
+
+`EmploymentContractController::print` :
+
+```text
+un document existe déjà pour ce contrat       sa feuille s'ouvre
+sinon, un seul canevas de contrat actif       la génération s'ouvre, personne et contrat choisis
+sinon (aucun ou plusieurs canevas)            l'écran de choix, comme avant
+`?choisir=1`                                  l'écran de choix, toujours (autre canevas, fiche résumé)
+```
+
+Un contrat archivé garde l'écran de choix. La feuille d'un document ramène à sa source (le contrat ou le congé) et
+à son dossier.
+
+## Signalé, non tranché
+
+```text
+un contrat à plusieurs documents   « Imprimer » ouvre le plus récent ; les autres restent dans le dossier Contrats
+congé                              l'impression d'un congé propose ses canevas (ADR-198) sans ouvrir seul un
+                                   document déjà produit — à aligner sur le contrat si le RH le demande

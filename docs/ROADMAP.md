@@ -683,6 +683,11 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] « Générer un document » refait en shadcn et expliqué ; Présences avec un onglet « Aujourd'hui » (présents, partis, attendus, en congé) et entrée/sortie en un clic (ADR-198)
 - [x] Bouton « Imprimer » des Présences et des Rapports RH réparé (window.print dans le gabarit) (ADR-198)
 - [ ] Export Excel des employés sans les stagiaires — à décider (ADR-198)
+- [x] Documents du personnel en dossiers (Contrats, Congés, Attestations, Certificats, Lettres, Décisions, Autres) au site comme au portail, à la manière des fournisseurs (ADR-199)
+- [x] Document produit : voir, modifier (nouvelle version préremplie, l'ancienne archivée), archiver avec motif, restaurer — jamais effacé ; droits `generated_documents.archive` / `.restore` (ADR-199)
+- [x] « Imprimer » un contrat ouvre son document déjà produit, sinon la génération avec le seul canevas de contrat ; `?choisir=1` garde l'écran de choix (ADR-199)
+- [x] Canevas du portail en dossiers : générer, modifier, dupliquer, activer, archiver, restaurer par dossier ; « Nouveau canevas » réglé sur le type du dossier (ADR-199)
+- [ ] Impression d'un congé qui ouvre seule le document déjà produit, comme le contrat — à décider (ADR-199)
 - [ ] Autres écrans RH à passer en shadcn-vue (contrats, présences, congés, planning, rapports, paramètres, documents, crédit Bloc) — seules leurs adresses ont été touchées (ADR-187)
 - [x] Espace RH : menu latéral en groupe, panneau « à traiter » sur la Vue d'ensemble, accueil et liste des employés refondus
 - [x] Présences et congés : chevauchements refusés pour un même employé

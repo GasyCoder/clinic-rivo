@@ -266,7 +266,14 @@ class GeneratedDocumentsTest extends TestCase
         $contractTemplate = $this->template(DocumentDataContext::EmployeeAndContract, '<p>Contrat.</p>');
         $this->template(DocumentDataContext::EmployeeOnly, '<p>Attestation.</p>');
 
+        // ADR-199 — un seul canevas de contrat : « Imprimer » ouvre la génération tout seul.
         $this->actingAs($this->administration)->get("/administration/contracts/{$contract->uuid}/print")
+            ->assertRedirect(route('administration.generated-documents.create', [
+                'template' => $contractTemplate->uuid, 'employee' => $employee->uuid, 'contract' => $contract->uuid, 'dossier' => 'CONTRAT',
+            ]));
+
+        // `?choisir=1` garde l'écran de choix.
+        $this->actingAs($this->administration)->get("/administration/contracts/{$contract->uuid}/print?choisir=1")
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Administration/Contracts/Print')

@@ -30,9 +30,11 @@ use App\Services\Administration\EmployeeNumberAllocator;
 use App\Services\Administration\HrPresenter;
 use App\Services\Administration\InternshipDirectory;
 use App\Services\Administration\LeaveBalanceCalculator;
+use App\Services\Administration\LeaveToday;
 use App\Services\Administration\ProfessionalMailboxPresenter;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use App\Support\ProfessionalEmailAddress;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -47,19 +49,22 @@ class EmployeeController extends Controller
     public function __construct(
         private readonly HrPresenter $presenter,
         private readonly InternshipDirectory $internships,
+        private readonly LeaveToday $leaveToday,
     ) {}
 
     public function index(Request $request): Response
     {
         Gate::forUser($request->user())->authorize('viewAny', Employee::class);
         $search = trim((string) $request->query('q', ''));
-        $status = in_array($request->query('status'), ['active', 'inactive', 'archived', 'all'], true)
+        $status = in_array($request->query('status'), ['active', 'on_leave', 'inactive', 'archived', 'all'], true)
             ? $request->query('status') : 'active';
 
-        $employees = Employee::query()
+        // ADR-198 — un stagiaire n'est pas un employé : il vit dans « Stages ».
+        $employees = $this->staff()
             ->when($status === 'archived', fn ($query) => $query->onlyTrashed())
             ->when($status === 'all', fn ($query) => $query->withTrashed())
             ->when($status === 'active', fn ($query) => $query->where('active', true))
+            ->when($status === 'on_leave', fn ($query) => $this->leaveToday->employees($query->where('active', true)))
             ->when($status === 'inactive', fn ($query) => $query->where('active', false))
             ->when($search !== '', function ($query) use ($search): void {
                 $query->where(function ($nested) use ($search): void {
@@ -81,18 +86,32 @@ class EmployeeController extends Controller
             // ADR-194 — le repère « Stagiaire » de la ligne, en une requête.
             ->withExists(['contracts as has_current_internship' => fn ($query) => $this->internships->currentInternships($query)])
             ->orderBy('last_name')->orderBy('first_name')
-            ->paginate(20)->withQueryString()
-            ->through(fn (Employee $employee) => $this->presenter->employee($employee));
+            ->paginate(20)->withQueryString();
+        // Le congé en cours de chaque ligne, en une requête : « Actif » et « En congé » se lisent ensemble.
+        $onLeave = $this->leaveToday->byEmployee($employees->getCollection()->modelKeys());
+        $employees->through(fn (Employee $employee) => [
+            ...$this->presenter->employee($employee),
+            'on_leave' => $onLeave[$employee->getKey()] ?? null,
+        ]);
 
         return Inertia::render('Administration/Employees/Index', [
             'employees' => $employees,
             'filters' => ['q' => $search, 'status' => $status],
             'summary' => [
-                'active' => Employee::query()->where('active', true)->count(),
-                'inactive' => Employee::query()->where('active', false)->count(),
-                'archived' => Employee::onlyTrashed()->count(),
+                'active' => $this->staff()->where('active', true)->count(),
+                'on_leave' => $this->leaveToday->employees($this->staff()->where('active', true))->count(),
+                'inactive' => $this->staff()->where('active', false)->count(),
+                'archived' => $this->staff()->onlyTrashed()->count(),
+                // Ils ne sont pas ici : la page le dit, et mène à « Stages ».
+                'interns' => $this->internships->interns(Employee::query())->count(),
             ],
         ]);
+    }
+
+    /** Les dossiers du personnel, stagiaires exclus (ADR-198). */
+    private function staff(): Builder
+    {
+        return $this->internships->withoutInterns(Employee::query());
     }
 
     public function create(Request $request): Response
@@ -173,6 +192,8 @@ class EmployeeController extends Controller
 
         return Inertia::render('Administration/Employees/Show', [
             'employee' => $this->presenter->employee($employee),
+            // ADR-197 — données sensibles : servies seulement avec leur droit, jamais vides.
+            'payroll' => $user->can('employees.payroll.view') ? $this->presenter->payroll($employee) : null,
             'contracts' => $contracts,
             'documents' => $documents,
             'leave' => $leave,
@@ -225,6 +246,10 @@ class EmployeeController extends Controller
         return Inertia::render('Administration/Employees/Edit', [
             ...$this->formData($request, $employee),
             'employee' => $this->presenter->employee($employee),
+            // ADR-197 — prérempli pour qui peut lire ou modifier la rémunération.
+            'payroll' => $request->user()->can('employees.payroll.view') || $request->user()->can('employees.payroll.update')
+                ? $this->presenter->payroll($employee)
+                : null,
         ]);
     }
 
@@ -280,6 +305,7 @@ class EmployeeController extends Controller
 
         return Inertia::render('Administration/Employees/Print', [
             'employee' => $this->presenter->employee($employee),
+            'payroll' => $request->user()->can('employees.payroll.view') ? $this->presenter->payroll($employee) : null,
         ]);
     }
 

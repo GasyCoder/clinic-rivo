@@ -54,7 +54,10 @@ class SiteHrThroughPortalApiTest extends TestCase
         $this->withHeaders($this->headers(['employees.view']))
             ->getJson('/api/v1/super-admin/hr')
             ->assertOk()
-            ->assertJsonPath('component', 'Administration/Index');
+            ->assertJsonPath('component', 'Administration/Index')
+            // L'effectif par département vit dans l'accueil RH du site, que le portail relaie.
+            ->assertJsonPath('props.departments.0.label', 'Non affecté')
+            ->assertJsonPath('props.departments.0.employees_count', 1);
     }
 
     public function test_each_screen_keeps_its_own_permission(): void

@@ -30,6 +30,8 @@ class RolePermissionSeeder extends Seeder
             'employees.delete', 'employees.restore',
             'employees.import', 'employees.export', 'employees.print',
             'employees.patient_lookup',
+            // ADR-197 — la rémunération et le compte bancaire, réservés au RH.
+            'employees.payroll.view', 'employees.payroll.update',
             // ADR-133 — une liste de patients est une donnée personnelle.
             'patients.export',
             'staff_block_credits.view', 'staff_block_credits.allocate',
@@ -60,6 +62,7 @@ class RolePermissionSeeder extends Seeder
             // what it actually produces (generated_documents.*).
             'document_templates.view',
             'generated_documents.view', 'generated_documents.create', 'generated_documents.print',
+            'generated_documents.archive', 'generated_documents.restore',
             'attendance.view', 'attendance.create', 'attendance.update',
             'attendance.export', 'attendance.print',
             'leave.view', 'leave.create', 'leave.approve', 'leave.reject',

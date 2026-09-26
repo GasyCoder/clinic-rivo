@@ -13,6 +13,8 @@ class AdministrationController extends Controller
     {
         return Inertia::render('Administration/Index', [
             'summary' => $overview->summary(),
+            // L'effectif par département : la même lecture que celle servie au portail.
+            'departments' => $overview->departments(),
             'siteName' => config('rivo.site.name'),
         ]);
     }

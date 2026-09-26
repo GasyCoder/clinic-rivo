@@ -8,7 +8,9 @@ import {
     Download,
     Eye,
     FileSpreadsheet,
+    GraduationCap,
     Mail,
+    Palmtree,
     Pencil,
     Phone,
     RotateCcw,
@@ -77,6 +79,8 @@ const total = computed(() => Number(props.summary?.active ?? 0) + Number(props.s
 const STATUS_CARDS = [
     { value: 'all', label: 'Tous les dossiers', hint: 'Actifs, inactifs et archivés', icon: Users, tone: 'bg-primary/10 text-primary', bar: 'bg-primary' },
     { value: 'active', label: 'Actifs', hint: 'En poste', icon: CircleCheck, tone: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300', bar: 'bg-emerald-500' },
+    // ADR-198 — en congé aujourd'hui : toujours actifs (le dossier reste en service), mais absents.
+    { value: 'on_leave', label: 'En congé aujourd’hui', hint: 'Actifs, absents ce jour', icon: Palmtree, tone: 'bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-300', bar: 'bg-sky-500' },
     { value: 'inactive', label: 'Inactifs', hint: 'Dossier gardé, hors poste', icon: CirclePause, tone: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300', bar: 'bg-amber-500' },
     { value: 'archived', label: 'Archivés', hint: 'Restaurables', icon: Archive, tone: 'bg-muted text-muted-foreground', bar: 'bg-muted-foreground/60' },
 ];
@@ -108,8 +112,11 @@ const emptyDescription = computed(() => (total.value === 0
     ? 'Créez un premier dossier, ou importez le personnel depuis le modèle Excel.'
     : 'Changez la recherche ou le filtre d’état.'));
 
-const tileTone = (employee) => (employee.archived ? 'slate' : (employee.active ? 'emerald' : 'amber'));
-const tileBadge = (employee) => (employee.archived ? 'Archivé' : (employee.active ? null : 'Inactif'));
+const tileTone = (employee) => (employee.archived ? 'slate' : (employee.active ? (employee.on_leave ? 'sky' : 'emerald') : 'amber'));
+const tileBadge = (employee) => (employee.archived ? 'Archivé' : (employee.active ? (employee.on_leave ? 'En congé' : null) : 'Inactif'));
+
+// ADR-198 — les stagiaires ne sont pas des employés : la page le dit, et mène à « Stages ».
+const interns = computed(() => Number(props.summary?.interns ?? 0));
 </script>
 
 <template>
@@ -145,7 +152,7 @@ const tileBadge = (employee) => (employee.archived ? 'Archivé' : (employee.acti
         </PageHeader>
 
         <!-- Les compteurs sont les filtres : un clic affiche ce qu'ils comptent. -->
-        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4" role="group" aria-label="Filtrer par état">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5" role="group" aria-label="Filtrer par état">
             <button
                 v-for="card in cards"
                 :key="card.value"
@@ -178,6 +185,12 @@ const tileBadge = (employee) => (employee.archived ? 'Archivé' : (employee.acti
                 <span v-else class="text-[11px] text-muted-foreground">{{ card.hint }}</span>
             </button>
         </div>
+
+        <p v-if="interns" class="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 py-2.5 text-sm text-muted-foreground">
+            <GraduationCap class="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            {{ interns }} stagiaire{{ interns > 1 ? 's' : '' }} ne figure{{ interns > 1 ? 'nt' : '' }} pas ici : un stagiaire n’est pas un employé.
+            <Link v-if="can('contracts.view')" :href="hrUrl('/administration/internships')" class="font-semibold text-primary hover:underline">Voir les stages</Link>
+        </p>
 
         <ExplorerView
             storage-key="hr-employees"
@@ -223,6 +236,7 @@ const tileBadge = (employee) => (employee.archived ? 'Archivé' : (employee.acti
                     :key="employee.uuid"
                     :href="hrUrl(`/administration/employees/${employee.uuid}`)"
                     icon="user"
+                    :image="employee.photo_url"
                     :tone="tileTone(employee)"
                     :badge="tileBadge(employee)"
                     :title="employee.name"
@@ -287,6 +301,11 @@ const tileBadge = (employee) => (employee.archived ? 'Archivé' : (employee.acti
                                 <Badge v-if="employee.archived" variant="outline"><Archive class="h-3 w-3" />Archivé</Badge>
                                 <Badge v-else-if="employee.active" variant="success"><CircleCheck class="h-3 w-3" />Actif</Badge>
                                 <Badge v-else variant="warning"><CirclePause class="h-3 w-3" />Inactif</Badge>
+                                <!-- ADR-198 — en service, mais en congé ce jour : les deux se lisent. -->
+                                <span v-if="employee.on_leave && ! employee.archived" class="mt-1 flex flex-col gap-0.5">
+                                    <Badge variant="secondary" class="w-fit bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200"><Palmtree class="h-3 w-3" />En congé</Badge>
+                                    <span class="text-[11px] text-muted-foreground">{{ employee.on_leave.type ? `${employee.on_leave.type} · ` : '' }}jusqu’au {{ frenchDate(employee.on_leave.until) }}</span>
+                                </span>
                             </td>
                             <td class="px-5 py-3">
                                 <div class="flex justify-end gap-1">

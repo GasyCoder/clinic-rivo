@@ -4,6 +4,7 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Enums\DocumentDataContext;
 use App\Http\Controllers\Controller;
+use App\Services\Administration\DocumentFormFieldCatalog;
 use App\Services\SuperAdmin\PortalSiteApiClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -212,8 +213,18 @@ class DocumentTemplateController extends Controller
     /** @return array<int, array<string, string>> */
     private function dataContextOptions(): array
     {
-        return collect(DocumentDataContext::cases())->map(fn ($context) => [
-            'value' => $context->value, 'label' => $context->label(),
+        $catalog = app(DocumentFormFieldCatalog::class);
+
+        // ADR-198 — ce que le RH verra : les champs de la page 1, et où le canevas lui est proposé.
+        return collect(DocumentDataContext::cases())->map(fn (DocumentDataContext $context) => [
+            'value' => $context->value,
+            'label' => $context->label(),
+            'fields' => collect($catalog->fieldsForContext($context))->pluck('label')->values()->all(),
+            'offered_from' => match ($context) {
+                DocumentDataContext::EmployeeOnly => ['Documents › Générer un document'],
+                DocumentDataContext::EmployeeAndContract => ['Documents › Générer un document', '« Imprimer » d’un contrat'],
+                DocumentDataContext::EmployeeAndLeave => ['Documents › Générer un document', '« Imprimer » d’un congé'],
+            },
         ])->values()->all();
     }
 

@@ -4,23 +4,34 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
 use App\Services\SuperAdmin\PortalSiteApiClient;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * ADR-066 — HR of every site, read-only, through each site's API. The figures
- * and their names are those of the clinic HR space (HrOverviewService).
+ * ADR-066 / ADR-187 — les RH de tous les sites, comparées, par l'API de chacun.
+ * Les chiffres et leurs noms sont ceux de l'espace RH du site (HrOverviewService).
+ *
+ * L'accueil RH d'un site n'existe qu'une fois : c'est l'écran du site, relayé
+ * (`/super-admin/sites/{code}/rh`). Cette page ne garde que le comparatif ;
+ * une ancienne adresse `?site=A` mène à l'accueil du site.
  */
 class HumanResourcesController extends Controller
 {
     private const FIGURES = [
         'active_employees', 'inactive_employees', 'archived_employees', 'current_contracts',
-        'contracts_ending_soon', 'today_attendance', 'open_attendance', 'pending_leave', 'upcoming_shifts',
+        'contracts_ending_soon', 'today_attendance', 'open_attendance', 'pending_leave', 'upcoming_shifts', 'on_leave_today',
     ];
 
-    public function __invoke(Request $request, PortalSiteApiClient $client): Response
+    public function __invoke(Request $request, PortalSiteApiClient $client): Response|RedirectResponse
     {
+        $code = $request->query('site');
+
+        if (is_string($code) && collect(config('rivo.clinics', []))->contains('code', $code)) {
+            return redirect()->route('super-admin.sites.hr', ['site' => $code]);
+        }
+
         $sites = collect($client->humanResourcesForAllSites($request->user()));
         $online = $sites->where('ok', true);
 

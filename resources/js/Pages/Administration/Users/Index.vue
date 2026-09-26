@@ -1,6 +1,7 @@
 <script setup>
-import { computed, nextTick, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
+import { requestedEmployeeUuid } from '@/utilities/employeeAccount';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/Shadcn/Avatar.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -225,6 +226,18 @@ const openCreate = () => {
     prefilled.value = { name: '', email: '' };
     formOpen.value = true;
 };
+
+// ADR-188 — « Créer son compte » depuis une fiche employé (`?employe=`) : l'assistant
+// s'ouvre sur « Personnel clinique » et cette fiche, nom et email repris.
+onMounted(() => {
+    const uuid = requestedEmployeeUuid(page.url);
+    const employee = uuid ? props.employees.find((candidate) => candidate.uuid === uuid && ! candidate.account) : null;
+    if (! employee || ! canCreate.value) return;
+    openCreate();
+    form.account_kind = 'STAFF';
+    form.employee_uuid = employee.uuid;
+    onEmployeePick(employee);
+});
 
 const openEdit = (user) => {
     editingUser.value = user;

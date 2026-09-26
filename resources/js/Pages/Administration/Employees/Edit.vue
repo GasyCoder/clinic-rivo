@@ -6,13 +6,17 @@ import { ArrowLeft } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import EmployeeForm from './EmployeeForm.vue';
+import { usePermissions } from '@/composables/usePermissions';
 
 defineOptions({ layout: AppLayout });
 const props = defineProps({
     employee: Object, options: Object, departments: Array, jobTitles: Array, addresses: [Array, Object],
     // ADR-194 — le couple département/fonction déjà enregistré reste choisissable.
     currentPair: { type: Object, default: null },
+    // ADR-197 — la rémunération et le compte bancaire, servis avec leur droit.
+    payroll: { type: Object, default: null },
 });
+const { can } = usePermissions();
 
 const form = useForm({
     employee_number: props.employee.employee_number,
@@ -29,6 +33,13 @@ const form = useForm({
     phone: props.employee.phone ?? '', address_entry_uuid: props.employee.address_entry_uuid ?? '',
     new_address_label: '', observation: props.employee.observation ?? '', active: props.employee.active,
     photo: null, remove_photo: false,
+    // ADR-197 — envoyés seulement avec le droit ; omis, ils restent tels quels.
+    ...(can('employees.payroll.update') ? {
+        remuneration_type: props.payroll?.remuneration_type ?? '',
+        remuneration_amount: props.payroll?.remuneration_amount ?? '',
+        bank_account_number: props.payroll?.bank_account_number ?? '',
+        bank_account_holder: props.payroll?.bank_account_holder ?? '',
+    } : {}),
 });
 
 // ADR-194 — une photo part en multipart ; PHP ne lit pas un PUT multipart,

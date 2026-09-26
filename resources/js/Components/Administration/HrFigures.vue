@@ -53,12 +53,12 @@ const pending = (item) => item.group === 'todo' && item.value > 0;
         v-if="groups.length"
         :class="cn(
             'grid overflow-hidden rounded-xl border border-border bg-card shadow-sm',
-            groups.length > 1 && 'lg:grid-cols-[3fr_4fr] lg:divide-x lg:divide-border max-lg:divide-y max-lg:divide-border',
+            groups.length > 1 && 'lg:grid-cols-[3fr_5fr] lg:divide-x lg:divide-border max-lg:divide-y max-lg:divide-border',
         )"
     >
         <section v-for="group in groups" :key="group.key" :aria-label="group.label" class="p-2">
             <p class="px-2 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{{ group.label }}</p>
-            <ul :class="cn('grid grid-cols-2 gap-1', group.key === 'todo' ? 'sm:grid-cols-3' : 'sm:grid-cols-4')">
+            <ul :class="cn('grid grid-cols-2 gap-1', group.key === 'todo' ? 'sm:grid-cols-3' : 'sm:grid-cols-5')">
                 <li v-for="item in group.items" :key="item.key">
                     <component
                         :is="linkable ? Link : 'div'"

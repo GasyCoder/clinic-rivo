@@ -183,8 +183,8 @@ const canDecide = computed(() => can('leave.approve') || can('leave.reject') || 
                             :href="hrUrl(`/administration/leave/${leave.uuid}/print`)"
                             size="icon"
                             variant="outline"
-                            :aria-label="`Imprimer la demande de ${leave.employee.name}`"
-                            title="Imprimer"
+                            :aria-label="`Imprimer la demande ou le document officiel du congé de ${leave.employee.name}`"
+                            title="Imprimer · document officiel"
                         ><Printer class="h-4 w-4" /></Button>
                     </div>
                 </footer>

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\EmployeeRemunerationType;
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
 use App\Enums\PatientCivility;
@@ -29,6 +30,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'children_details', 'badge', 'blouse', 'profession', 'phone', 'email',
     'address', 'address_entry_id', 'observation', 'active',
     'photo_path', 'photo_updated_at',
+    // ADR-197 — rémunération déclarée et compte bancaire (droits employees.payroll.*).
+    'remuneration_type', 'remuneration_amount', 'bank_account_number', 'bank_account_holder',
 ])]
 class Employee extends Model
 {
@@ -53,6 +56,8 @@ class Employee extends Model
             'children_count' => 'integer',
             'active' => 'boolean',
             'photo_updated_at' => 'datetime',
+            'remuneration_type' => EmployeeRemunerationType::class,
+            'remuneration_amount' => 'decimal:2',
         ];
     }
 

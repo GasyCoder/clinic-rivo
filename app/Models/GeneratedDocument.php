@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'document_template_id', 'template_name_snapshot', 'document_type_snapshot',
-    'employee_id', 'employment_contract_id', 'leave_request_id',
+    'employee_id', 'employment_contract_id', 'leave_request_id', 'replaces_document_id',
     'form_data_snapshot', 'rendered_html_snapshot',
     'generated_by',
 ])]
@@ -44,6 +44,18 @@ class GeneratedDocument extends Model
     public function leaveRequest(): BelongsTo
     {
         return $this->belongsTo(LeaveRequest::class);
+    }
+
+    /** ADR-199 — la version que ce document remplace (archivée). */
+    public function replaces(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'replaces_document_id')->withTrashed();
+    }
+
+    /** La version qui a remplacé celui-ci, s'il y en a une. */
+    public function replacedBy(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(self::class, 'replaces_document_id')->withTrashed()->latestOfMany();
     }
 
     public function generatedBy(): BelongsTo

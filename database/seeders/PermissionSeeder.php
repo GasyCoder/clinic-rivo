@@ -84,6 +84,9 @@ class PermissionSeeder extends Seeder
         'employees.import' => 'Importer les employés',
         'employees.export' => 'Exporter les employés',
         'employees.print' => 'Imprimer une fiche employé',
+        // ADR-197 — rémunération déclarée et compte bancaire : données sensibles, droits à part.
+        'employees.payroll.view' => 'Voir la rémunération et le compte bancaire d’un employé',
+        'employees.payroll.update' => 'Modifier la rémunération et le compte bancaire d’un employé',
         // Vue volontairement minimale du dossier RH pour relier un membre du
         // personnel à son dossier patient, sans exposer contrats ou données RH.
         'employees.patient_lookup' => 'Rechercher un employé pour son dossier patient',
@@ -144,6 +147,8 @@ class PermissionSeeder extends Seeder
         'generated_documents.view' => 'Voir les documents générés',
         'generated_documents.create' => 'Générer un document administratif',
         'generated_documents.print' => 'Imprimer un document généré',
+        'generated_documents.archive' => 'Archiver un document généré (ou le remplacer par une nouvelle version)',
+        'generated_documents.restore' => 'Restaurer un document généré archivé',
         'attendance.view' => 'Voir les présences',
         'attendance.create' => 'Enregistrer une présence',
         'attendance.update' => 'Modifier une présence',

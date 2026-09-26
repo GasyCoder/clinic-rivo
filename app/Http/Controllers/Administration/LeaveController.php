@@ -6,6 +6,7 @@ use App\Actions\Administration\ApproveLeaveRequestAction;
 use App\Actions\Administration\CancelLeaveRequestAction;
 use App\Actions\Administration\CreateLeaveRequestAction;
 use App\Actions\Administration\RejectLeaveRequestAction;
+use App\Enums\DocumentDataContext;
 use App\Enums\HrReferenceType;
 use App\Enums\LeaveRequestStatus;
 use App\Http\Controllers\Controller;
@@ -13,7 +14,9 @@ use App\Http\Requests\Administration\CancelLeaveRequest;
 use App\Http\Requests\Administration\LeaveDecisionRequest;
 use App\Http\Requests\Administration\PreviewLeaveRequest;
 use App\Http\Requests\Administration\StoreLeaveRequest;
+use App\Models\DocumentTemplate;
 use App\Models\Employee;
+use App\Models\GeneratedDocument;
 use App\Models\HrReferenceValue;
 use App\Models\LeaveRequest;
 use App\Services\Administration\HrPresenter;
@@ -119,8 +122,32 @@ class LeaveController extends Controller
         Gate::forUser($request->user())->authorize('view', $leave);
         $leave->load(['employee.department', 'employee.jobTitle', 'interimEmployee.department', 'interimEmployee.jobTitle', 'leaveType', 'decidedBy']);
 
+        $user = $request->user();
+
         return Inertia::render('Administration/Leave/Print', [
             'leave' => $this->presenter->leave($leave),
+            // ADR-198 — comme pour un contrat (ADR-070) : le document officiel du congé
+            // est un canevas du Super Admin, rempli pour ce congé. La fiche de demande
+            // reste imprimable telle quelle.
+            'templates' => $user->can('generated_documents.create') && $leave->status !== LeaveRequestStatus::Cancelled
+                ? DocumentTemplate::query()->where('active', true)
+                    ->where('data_context', DocumentDataContext::EmployeeAndLeave->value)
+                    ->orderBy('name')->get()
+                    ->map(fn (DocumentTemplate $template) => [
+                        'uuid' => $template->uuid,
+                        'name' => $template->name,
+                        'document_type' => $template->document_type,
+                    ])->all()
+                : [],
+            'documents' => $user->can('generated_documents.view')
+                ? GeneratedDocument::query()->where('leave_request_id', $leave->getKey())
+                    ->latest('created_at')->get()
+                    ->map(fn (GeneratedDocument $document) => [
+                        'uuid' => $document->uuid,
+                        'template_name' => $document->template_name_snapshot,
+                        'created_at' => $document->created_at?->toIso8601String(),
+                    ])->all()
+                : [],
         ]);
     }
 

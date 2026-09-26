@@ -108,7 +108,7 @@ class EmploymentContractController extends Controller
     {
         $contract = $action->execute($request->validated(), $request->user());
 
-        // ADR-184 — un stage ramène à la liste des stages, où il apparaît.
+        // ADR-194 — un stage ramène à la liste des stages, où il apparaît.
         if ($contract->isInternship()) {
             return to_route('administration.internships.index', ['status' => 'all'])
                 ->with('status', "Stage de {$contract->employee->last_name} enregistré ({$contract->internshipField?->label}).");

@@ -9,6 +9,7 @@ use App\Models\EmploymentContract;
 use App\Models\LeaveRequest;
 use App\Models\PlanningShift;
 use App\Services\Catalog\CatalogActor;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * ADR-066 — the HR figures, computed in one place for the three screens that
@@ -17,6 +18,11 @@ use App\Services\Catalog\CatalogActor;
  */
 final class HrOverviewService
 {
+    public function __construct(
+        private readonly InternshipDirectory $internships,
+        private readonly LeaveToday $leaveToday,
+    ) {}
+
     /** Figures that belong to a screen permission; hidden from accounts without it. */
     private const GUARDED = [
         'current_contracts' => 'contracts.view',
@@ -25,6 +31,7 @@ final class HrOverviewService
         'open_attendance' => 'attendance.view',
         'pending_leave' => 'leave.view',
         'upcoming_shifts' => 'planning.view',
+        'on_leave_today' => 'leave.view',
     ];
 
     /** @return array<string, int> */
@@ -33,9 +40,10 @@ final class HrOverviewService
         $today = now()->toDateString();
 
         return [
-            'active_employees' => Employee::query()->where('active', true)->count(),
-            'inactive_employees' => Employee::query()->where('active', false)->count(),
-            'archived_employees' => Employee::onlyTrashed()->count(),
+            // ADR-198 — les stagiaires ont leurs propres écrans : ils ne comptent pas parmi les employés.
+            'active_employees' => $this->staff()->where('active', true)->count(),
+            'inactive_employees' => $this->staff()->where('active', false)->count(),
+            'archived_employees' => $this->internships->withoutInterns(Employee::onlyTrashed())->count(),
             'current_contracts' => EmploymentContract::query()
                 ->whereDate('starts_on', '<=', $today)
                 ->where(fn ($query) => $query->whereNull('ends_on')->orWhereDate('ends_on', '>=', $today))
@@ -47,6 +55,7 @@ final class HrOverviewService
             'open_attendance' => AttendanceRecord::query()->whereNull('ended_at')->count(),
             'pending_leave' => LeaveRequest::query()->where('status', LeaveRequestStatus::Pending->value)->count(),
             'upcoming_shifts' => PlanningShift::query()->whereBetween('starts_at', [now(), now()->addDays(7)])->count(),
+            'on_leave_today' => $this->leaveToday->count(),
         ];
     }
 
@@ -68,18 +77,7 @@ final class HrOverviewService
 
         return [
             'summary' => $summary,
-            'departments' => Employee::query()
-                ->where('active', true)
-                ->selectRaw('department_id, count(*) as employees_count')
-                ->with(['department' => fn ($query) => $query->withTrashed()])
-                ->groupBy('department_id')
-                ->orderByDesc('employees_count')
-                ->get()
-                ->map(fn (Employee $employee) => [
-                    'uuid' => $employee->department?->uuid,
-                    'label' => $employee->department?->label ?? 'Non affecté',
-                    'employees_count' => (int) $employee->employees_count,
-                ])->values(),
+            'departments' => $this->departments(),
             'permissions' => [
                 'contracts' => $actor->can('contracts.view'),
                 'attendance' => $actor->can('attendance.view'),
@@ -87,5 +85,34 @@ final class HrOverviewService
                 'planning' => $actor->can('planning.view'),
             ],
         ];
+    }
+
+    /**
+     * L'effectif actif par département, du plus grand au plus petit : lu par
+     * l'accueil RH du site et, par son API, par le portail. « Non affecté »
+     * regroupe les dossiers sans département.
+     *
+     * @return list<array{uuid: ?string, label: string, employees_count: int}>
+     */
+    public function departments(): array
+    {
+        return $this->staff()
+            ->where('active', true)
+            ->selectRaw('department_id, count(*) as employees_count')
+            ->with(['department' => fn ($query) => $query->withTrashed()])
+            ->groupBy('department_id')
+            ->orderByDesc('employees_count')
+            ->get()
+            ->map(fn (Employee $employee) => [
+                'uuid' => $employee->department?->uuid,
+                'label' => $employee->department?->label ?? 'Non affecté',
+                'employees_count' => (int) $employee->employees_count,
+            ])->values()->all();
+    }
+
+    /** Les dossiers du personnel, stagiaires exclus (ADR-198). */
+    private function staff(): Builder
+    {
+        return $this->internships->withoutInterns(Employee::query());
     }
 }

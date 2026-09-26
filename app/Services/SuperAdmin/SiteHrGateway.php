@@ -32,7 +32,7 @@ class SiteHrGateway extends SiteScreenGateway
             'Administration/Employees/', 'Administration/Contracts/', 'Administration/Attendance/',
             'Administration/Leave/', 'Administration/Planning/', 'Administration/Reports/',
             'Administration/Settings/', 'Administration/Documents/', 'Administration/StaffBlockCredits/',
-            'Administration/HrStructure/', 'Administration/ProfessionalEmails/',
+            'Administration/HrStructure/', 'Administration/ProfessionalEmails/', 'Administration/Internships/',
         ];
     }
 

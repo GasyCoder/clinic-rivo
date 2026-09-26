@@ -13,9 +13,23 @@ export const hrSections = (base, can) => (CLINIC_WORKSPACES.find((workspace) => 
         code: section.code,
         label: section.label,
         icon: section.icon,
-        href: mapHrPath(section.link, base),
+        href: portalOwnPage(section.code, base) ?? mapHrPath(section.link, base),
         prefixes: (section.activeLinks ?? []).map((link) => mapHrPath(link, base)),
     }));
+
+/**
+ * Une rubrique que le portail gère sur sa propre page. Les adresses
+ * professionnelles se créent chez l'hébergeur, dont seul le portail détient
+ * l'accès (ADR-190) : au portail, la rubrique ouvre sa page, filtrée sur le
+ * site — jamais la page relayée du site, qui renverrait vers le portail.
+ */
+const PORTAL_OWN_PAGES = { 'hr-professional-emails': (code) => `/super-admin/professional-emails?site=${code}` };
+
+const portalOwnPage = (code, base) => {
+    const site = String(base ?? '').match(/^\/super-admin\/sites\/([^/]+)\/rh$/)?.[1];
+
+    return site && PORTAL_OWN_PAGES[code] ? PORTAL_OWN_PAGES[code](site) : null;
+};
 
 /**
  * Les rubriques RH rangées par thème : l'accueil RH en fait ses colonnes, la barre

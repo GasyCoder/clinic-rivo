@@ -5,16 +5,23 @@ import {
     ArrowLeft,
     ArrowRight,
     BadgeCheck,
+    Banknote,
     Briefcase,
     Building2,
+    CalendarClock,
     Check,
     CircleCheck,
+    CircleOff,
+    Coins,
     Contact,
+    CreditCard,
     GraduationCap,
+    HandCoins,
     Hash,
     HeartHandshake,
     IdCard,
     Info,
+    Landmark,
     ListPlus,
     Lock,
     Mail,
@@ -22,9 +29,12 @@ import {
     Pencil,
     Phone,
     ScanFace,
+    ShieldCheck,
     Shirt,
     Sparkles,
     User,
+    UserRound,
+    Wallet,
 } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -43,6 +53,8 @@ import EmployeePhotoField from '@/Components/Administration/EmployeePhotoField.v
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
 import { hrUrl } from '@/utilities/hrUrl';
+import { currencyLabel, formatMoney } from '@/utilities/money';
+import { seniority } from '@/utilities/seniority';
 
 /**
  * ADR-066 / ADR-187 — le dossier Employé, en cinq étapes, identique au site et
@@ -55,6 +67,11 @@ import { hrUrl } from '@/utilities/hrUrl';
  * fonction suit le département : choisir « Laboratoire » ne propose que les
  * fonctions de ce département (module Fonctions) ; le serveur refuse de toute
  * façon un couple incohérent (JobTitleDepartmentGuard).
+ *
+ * ADR-197 — une étape « Rémunération » (salaire, indemnité ou rien, et le compte
+ * bancaire) n'existe que pour qui détient `employees.payroll.update` ; les étapes
+ * sont donc repérées par leur clé, jamais par leur rang. L'ancienneté se calcule
+ * depuis la date d'entrée.
  */
 const props = defineProps({
     form: Object,
@@ -79,21 +96,20 @@ const props = defineProps({
 const emit = defineEmits(['submit']);
 const { can } = usePermissions();
 
-const steps = [
-    { number: 1, label: 'Identité', hint: 'Qui est la personne ?', icon: User },
-    { number: 2, label: 'Poste', hint: 'Où travaille-t-elle ?', icon: Briefcase },
-    { number: 3, label: 'Contact', hint: 'Comment la joindre ?', icon: Phone },
-    { number: 4, label: 'Compléments', hint: 'Données facultatives', icon: ListPlus },
-    { number: 5, label: 'Confirmer', hint: 'Contrôle du dossier', icon: CircleCheck },
+// ADR-197 — les étapes par clé : « Rémunération » n'apparaît qu'avec son droit.
+const payrollEnabled = computed(() => can('employees.payroll.update'));
+const ALL_STEPS = [
+    { key: 'identity', label: 'Identité', hint: 'Qui est la personne ?', icon: User, fields: ['sex', 'last_name', 'first_name', 'birth_date', 'birth_place', 'photo', 'remove_photo'], required: ['sex', 'last_name'] },
+    { key: 'post', label: 'Poste', hint: 'Où travaille-t-elle ?', icon: Briefcase, fields: ['employee_number', 'department_uuid', 'job_title_uuid', 'hire_date'], required: ['employee_number'] },
+    { key: 'pay', label: 'Rémunération', hint: 'Salaire et banque', icon: Wallet, fields: ['remuneration_type', 'remuneration_amount', 'bank_account_number', 'bank_account_holder'], required: [] },
+    { key: 'contact', label: 'Contact', hint: 'Comment la joindre ?', icon: Phone, fields: ['phone', 'address_entry_uuid', 'new_address_label', 'identity_document_type', 'identity_document_number', 'identity_document_issued_on', 'identity_document_issued_at'], required: [] },
+    { key: 'more', label: 'Compléments', hint: 'Données facultatives', icon: ListPlus, fields: ['marital_status', 'children_count', 'children_details', 'diploma', 'education_level', 'badge', 'blouse', 'observation', 'active'], required: [] },
+    { key: 'confirm', label: 'Confirmer', hint: 'Contrôle du dossier', icon: CircleCheck, fields: [], required: [] },
 ];
-const stepFields = {
-    1: ['sex', 'last_name', 'first_name', 'birth_date', 'birth_place', 'photo', 'remove_photo'],
-    2: ['employee_number', 'department_uuid', 'job_title_uuid', 'hire_date'],
-    3: ['phone', 'address_entry_uuid', 'new_address_label', 'identity_document_type', 'identity_document_number', 'identity_document_issued_on', 'identity_document_issued_at'],
-    4: ['marital_status', 'children_count', 'children_details', 'diploma', 'education_level', 'badge', 'blouse', 'observation', 'active'],
-    5: [],
-};
-const requiredByStep = { 1: ['sex', 'last_name'], 2: ['employee_number'] };
+const steps = computed(() => ALL_STEPS
+    .filter((step) => step.key !== 'pay' || payrollEnabled.value)
+    .map((step, index) => ({ ...step, number: index + 1 })));
+const stepOf = (key) => steps.value.find((step) => step.key === key)?.number ?? 1;
 const requiredLabels = { employee_number: 'Le matricule', last_name: 'Le nom', sex: 'Le genre' };
 
 const currentStep = ref(1);
@@ -101,8 +117,9 @@ const maxStepReached = ref(1);
 const addressMode = ref(props.form.new_address_label ? 'new' : 'existing');
 const photoField = ref(null);
 const dropping = ref(false);
-const currentMeta = computed(() => steps[currentStep.value - 1]);
-const progress = computed(() => Math.round((currentStep.value / steps.length) * 100));
+const currentMeta = computed(() => steps.value[currentStep.value - 1] ?? steps.value[0]);
+const currentKey = computed(() => currentMeta.value.key);
+const progress = computed(() => Math.round((currentStep.value / steps.value.length) * 100));
 const derivedCivility = computed(() => ({ M: 'Monsieur (M.)', F: 'Madame (Mme)' }[props.form.sex] || 'Attribuée après le choix du genre'));
 const typedName = computed(() => [props.form.last_name, props.form.first_name].filter(Boolean).join(' '));
 const employeeName = computed(() => typedName.value || 'Identité à compléter');
@@ -212,7 +229,7 @@ const goToStep = (step) => {
 };
 const validateCurrentStep = () => {
     let valid = true;
-    (requiredByStep[currentStep.value] ?? []).forEach((field) => {
+    (currentMeta.value.required ?? []).forEach((field) => {
         if (String(props.form[field] ?? '').trim() === '') {
             props.form.setError(field, `${requiredLabels[field]} est obligatoire avant de continuer.`);
             valid = false;
@@ -224,7 +241,7 @@ const validateCurrentStep = () => {
 };
 const nextStep = () => {
     if (!validateCurrentStep()) return;
-    currentStep.value = Math.min(steps.length, currentStep.value + 1);
+    currentStep.value = Math.min(steps.value.length, currentStep.value + 1);
     maxStepReached.value = Math.max(maxStepReached.value, currentStep.value);
     scrollToWizard();
 };
@@ -237,12 +254,12 @@ const editStep = (step) => {
     currentStep.value = step;
     scrollToWizard();
 };
-const submit = () => currentStep.value < steps.length ? nextStep() : emit('submit');
+const submit = () => currentStep.value < steps.value.length ? nextStep() : emit('submit');
 
 /** Un clic dans le résumé des erreurs mène au champ, à son étape. */
 const focusField = (field) => {
-    const step = Object.entries(stepFields).find(([, fields]) => fields.includes(field));
-    if (step) editStep(Number(step[0]));
+    const step = steps.value.find((item) => item.fields.includes(field));
+    if (step) editStep(step.number);
     nextTick(() => document.getElementById(field)?.focus({ preventScroll: false }));
 };
 
@@ -252,19 +269,52 @@ watch(() => props.form.identity_document_number, (number) => {
 watch(
     () => props.form.errors,
     (errors) => {
-        const firstErrorStep = Object.entries(stepFields).find(([, fields]) => fields.some((field) => errors?.[field]));
+        const firstErrorStep = steps.value.find((step) => step.fields.some((field) => errors?.[field]));
         if (!firstErrorStep) return;
-        currentStep.value = Number(firstErrorStep[0]);
+        currentStep.value = firstErrorStep.number;
         maxStepReached.value = Math.max(maxStepReached.value, currentStep.value);
     },
     { deep: true },
 );
 
+// ADR-197 — l'ancienneté, lue sur la date d'entrée : un aperçu, le serveur la recalcule.
+const hireSeniority = computed(() => seniority(props.form.hire_date));
+
+/* ADR-197 — rémunération déclarée et compte bancaire. */
+const REMUNERATION_TYPES = [
+    { value: 'SALARY', label: 'Salaire', hint: 'Salaire mensuel convenu au contrat', icon: Banknote },
+    { value: 'ALLOWANCE', label: 'Indemnité', hint: 'Par exemple un stagiaire indemnisé', icon: HandCoins },
+    { value: 'UNPAID', label: 'Non rémunéré', hint: 'Stagiaire non indemnisé, bénévole…', icon: CircleOff },
+];
+const remunerationType = computed(() => REMUNERATION_TYPES.find((item) => item.value === props.form.remuneration_type) ?? null);
+const hasAmount = computed(() => ['SALARY', 'ALLOWANCE'].includes(props.form.remuneration_type));
+const amountNumber = computed(() => {
+    const value = String(props.form.remuneration_amount ?? '').replace(/[\s\u00A0\u202F]/g, '').replace(',', '.');
+
+    return value !== '' && Number.isFinite(Number(value)) ? Number(value) : null;
+});
+const chooseRemuneration = (value) => {
+    props.form.remuneration_type = props.form.remuneration_type === value ? '' : value;
+    if (! hasAmount.value) props.form.remuneration_amount = '';
+    props.form.clearErrors('remuneration_type', 'remuneration_amount');
+};
+const useNameAsHolder = () => {
+    props.form.bank_account_holder = typedName.value.toUpperCase();
+    props.form.clearErrors('bank_account_holder');
+};
+const payrollSummary = computed(() => {
+    if (! remunerationType.value) return 'Rémunération non renseignée';
+    if (! hasAmount.value) return remunerationType.value.label;
+
+    return `${remunerationType.value.label} · ${amountNumber.value !== null ? `${formatMoney(amountNumber.value)} / mois` : 'montant à saisir'}`;
+});
+
 const recap = computed(() => [
-    { step: 1, label: 'Identité', icon: User, tone: 'text-primary', photo: true, title: `${derivedCivility.value} · ${employeeName.value}`, lines: [frenchDate(props.form.birth_date) ? `Né(e) le ${frenchDate(props.form.birth_date)}${props.form.birth_place ? ` à ${props.form.birth_place}` : ''}` : 'Naissance non renseignée', photoPreview.value ? 'Photo d’identité ajoutée' : 'Sans photo'] },
-    { step: 2, label: 'Poste', icon: Briefcase, tone: 'text-sky-600 dark:text-sky-400', title: props.form.employee_number || 'Matricule à saisir', mono: true, lines: [`${selectedJobTitle.value} · ${selectedDepartment.value}`] },
-    { step: 3, label: 'Contact', icon: Phone, tone: 'text-cyan-600 dark:text-cyan-400', title: props.form.phone || props.currentEmail || 'Aucun contact renseigné', lines: [selectedAddress.value] },
-    { step: 4, label: 'Compléments', icon: ListPlus, tone: 'text-violet-600 dark:text-violet-400', title: `${optionalDetailsCount.value} information(s) complémentaire(s)`, lines: [props.form.active ? 'Dossier actif' : 'Dossier inactif'] },
+    { step: stepOf('identity'), label: 'Identité', icon: User, tone: 'text-primary', photo: true, title: `${derivedCivility.value} · ${employeeName.value}`, lines: [frenchDate(props.form.birth_date) ? `Né(e) le ${frenchDate(props.form.birth_date)}${props.form.birth_place ? ` à ${props.form.birth_place}` : ''}` : 'Naissance non renseignée', photoPreview.value ? 'Photo d’identité ajoutée' : 'Sans photo'] },
+    { step: stepOf('post'), label: 'Poste', icon: Briefcase, tone: 'text-sky-600 dark:text-sky-400', title: props.form.employee_number || 'Matricule à saisir', mono: true, lines: [`${selectedJobTitle.value} · ${selectedDepartment.value}`, hireSeniority.value ? `Ancienneté : ${hireSeniority.value.label}` : 'Date d’entrée non renseignée'] },
+    ...(payrollEnabled.value ? [{ step: stepOf('pay'), label: 'Rémunération', icon: Wallet, tone: 'text-emerald-600 dark:text-emerald-400', title: payrollSummary.value, lines: [props.form.bank_account_number ? `Compte ${props.form.bank_account_number}${props.form.bank_account_holder ? ` · ${props.form.bank_account_holder}` : ''}` : 'Compte bancaire non renseigné'] }] : []),
+    { step: stepOf('contact'), label: 'Contact', icon: Phone, tone: 'text-cyan-600 dark:text-cyan-400', title: props.form.phone || props.currentEmail || 'Aucun contact renseigné', lines: [selectedAddress.value] },
+    { step: stepOf('more'), label: 'Compléments', icon: ListPlus, tone: 'text-violet-600 dark:text-violet-400', title: `${optionalDetailsCount.value} information(s) complémentaire(s)`, lines: [props.form.active ? 'Dossier actif' : 'Dossier inactif'] },
 ]);
 </script>
 
@@ -279,7 +329,7 @@ const recap = computed(() => [
                 <div class="h-full bg-primary transition-[width] duration-300" :style="{ width: `${progress}%` }" />
             </div>
             <nav aria-label="Étapes du dossier employé">
-                <ol class="grid grid-cols-5 divide-x divide-border">
+                <ol :class="cn('grid divide-x divide-border', steps.length === 6 ? 'grid-cols-6' : 'grid-cols-5')">
                     <li v-for="step in steps" :key="step.number">
                         <button
                             type="button"
@@ -352,7 +402,7 @@ const recap = computed(() => [
         </Card>
 
         <!-- 1 · Identité -->
-        <Card v-if="currentStep === 1" class="grid overflow-hidden lg:grid-cols-[300px_minmax(0,1fr)]">
+        <Card v-if="currentKey === 'identity'" class="grid overflow-hidden lg:grid-cols-[300px_minmax(0,1fr)]">
             <aside class="border-b border-border bg-muted/40 p-5 lg:border-b-0 lg:border-e">
                 <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Photo d’identité 4 × 4</p>
                 <button
@@ -428,7 +478,7 @@ const recap = computed(() => [
         </Card>
 
         <!-- 2 · Poste -->
-        <Card v-else-if="currentStep === 2" class="grid overflow-hidden lg:grid-cols-[300px_minmax(0,1fr)]">
+        <Card v-else-if="currentKey === 'post'" class="grid overflow-hidden lg:grid-cols-[300px_minmax(0,1fr)]">
             <aside class="border-b border-border bg-sky-50/60 p-5 dark:bg-sky-950/15 lg:border-b-0 lg:border-e">
                 <span class="grid h-11 w-11 place-items-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"><Briefcase class="h-5 w-5" /></span>
                 <h2 class="mt-4 font-heading text-lg font-bold text-foreground">Affectation professionnelle</h2>
@@ -451,6 +501,12 @@ const recap = computed(() => [
                 </FormField>
                 <FormField as="div" label="Date d’entrée" :error="form.errors.hire_date">
                     <DatePicker id="hire_date" v-model="form.hire_date" aria-label="Date d’entrée" :invalid="invalid('hire_date')" />
+                    <!-- ADR-197 — l'ancienneté se lit sur la date d'entrée, jamais saisie. -->
+                    <span class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <CalendarClock class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <template v-if="hireSeniority">Ancienneté : <strong class="font-semibold text-foreground">{{ hireSeniority.label }}</strong> (calculée)</template>
+                        <template v-else>L’ancienneté se calcule depuis cette date.</template>
+                    </span>
                 </FormField>
                 <FormField as="div" label="Département" :error="form.errors.department_uuid">
                     <ShadSelect id="department_uuid" v-model="form.department_uuid" :options="departmentOptions" :icon="Building2" placeholder="Non affecté" class="w-full" aria-label="Département" />
@@ -474,8 +530,84 @@ const recap = computed(() => [
             </div>
         </Card>
 
+        <!-- Rémunération (ADR-197) — seulement avec employees.payroll.update. -->
+        <Card v-else-if="currentKey === 'pay'" class="grid overflow-hidden lg:grid-cols-[300px_minmax(0,1fr)]">
+            <aside class="border-b border-border bg-emerald-50/60 p-5 dark:bg-emerald-950/15 lg:border-b-0 lg:border-e">
+                <span class="grid h-11 w-11 place-items-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><Wallet class="h-5 w-5" /></span>
+                <h2 class="mt-4 font-heading text-lg font-bold text-foreground">Rémunération et banque</h2>
+                <p class="mt-2 text-sm leading-6 text-muted-foreground">Ce que la personne reçoit, et le compte où elle le reçoit. C’est une déclaration du RH : aucune paie, retenue ni net n’en est calculé.</p>
+                <p class="mt-4 flex items-start gap-2 rounded-lg border border-border bg-card/80 p-3 text-xs leading-5 text-muted-foreground">
+                    <ShieldCheck class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                    <span>Données confidentielles : seuls les comptes qui ont le droit de voir la rémunération les lisent, sur la fiche comme à l’impression.</span>
+                </p>
+            </aside>
+            <div class="space-y-6 p-5 sm:p-6">
+                <FormField as="div" label="Rémunération" :error="form.errors.remuneration_type">
+                    <div id="remuneration_type" role="radiogroup" aria-label="Rémunération" tabindex="-1" class="grid gap-3 focus:outline-none sm:grid-cols-3">
+                        <button
+                            v-for="item in REMUNERATION_TYPES"
+                            :key="item.value"
+                            type="button"
+                            role="radio"
+                            :aria-checked="form.remuneration_type === item.value"
+                            :class="cn(
+                                'flex items-start gap-3 rounded-xl border p-3.5 text-start shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                form.remuneration_type === item.value ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-primary/40 hover:bg-accent/50',
+                            )"
+                            @click="chooseRemuneration(item.value)"
+                        >
+                            <span :class="cn('grid h-9 w-9 shrink-0 place-items-center rounded-full', form.remuneration_type === item.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')">
+                                <Check v-if="form.remuneration_type === item.value" class="h-4 w-4" :stroke-width="3" />
+                                <component :is="item.icon" v-else class="h-4 w-4" />
+                            </span>
+                            <span class="min-w-0">
+                                <span class="block text-sm font-semibold text-foreground">{{ item.label }}</span>
+                                <span class="mt-0.5 block text-xs leading-5 text-muted-foreground">{{ item.hint }}</span>
+                            </span>
+                        </button>
+                    </div>
+                    <span class="mt-1.5 block text-xs text-muted-foreground">Facultatif ; un second clic retire le choix.</span>
+                </FormField>
+
+                <FormField v-if="hasAmount" class="block" :label="form.remuneration_type === 'SALARY' ? 'Salaire mensuel' : 'Indemnité mensuelle'" required :error="form.errors.remuneration_amount">
+                    <div class="relative">
+                        <IconInput id="remuneration_amount" v-model="form.remuneration_amount" :icon="Coins" inputmode="decimal" autocomplete="off" placeholder="Ex. 450 000" :aria-invalid="invalid('remuneration_amount')" :class="cn('pe-14 tabular-nums', fieldClass('remuneration_amount'))" />
+                        <span class="pointer-events-none absolute inset-y-0 end-0 grid place-items-center pe-3 text-sm font-medium text-muted-foreground">{{ currencyLabel() }}</span>
+                    </div>
+                    <span class="mt-1.5 block text-xs text-muted-foreground">
+                        <template v-if="amountNumber !== null">Soit <strong class="font-semibold text-foreground">{{ formatMoney(amountNumber) }}</strong> par mois.</template>
+                        <template v-else>Montant brut par mois, en chiffres.</template>
+                    </span>
+                </FormField>
+
+                <section class="rounded-xl border border-border bg-card p-4 shadow-sm" aria-labelledby="employee-bank-title">
+                    <div class="mb-4 flex items-start gap-2.5">
+                        <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-950/50 dark:text-sky-300"><Landmark class="h-4 w-4" /></span>
+                        <div>
+                            <h3 id="employee-bank-title" class="text-sm font-bold text-foreground">Compte bancaire</h3>
+                            <p class="mt-0.5 text-xs text-muted-foreground">Le compte où la personne est payée ; le titulaire tel qu’il figure à la banque.</p>
+                        </div>
+                    </div>
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <FormField label="Numéro de compte" :error="form.errors.bank_account_number">
+                            <IconInput id="bank_account_number" v-model="form.bank_account_number" :icon="CreditCard" autocomplete="off" placeholder="Ex. 00005 00001 12345678901 23" :aria-invalid="invalid('bank_account_number')" :class="cn('font-mono uppercase', fieldClass('bank_account_number'))" />
+                        </FormField>
+                        <FormField label="Nom du titulaire" :required="Boolean(form.bank_account_number)" :error="form.errors.bank_account_holder">
+                            <IconInput id="bank_account_holder" v-model="form.bank_account_holder" :icon="UserRound" autocomplete="off" placeholder="Nom sur le compte" :aria-invalid="invalid('bank_account_holder')" :class="fieldClass('bank_account_holder')" />
+                            <button
+                                v-if="typedName && form.bank_account_holder !== typedName.toUpperCase()"
+                                type="button"
+                                class="mt-1.5 text-xs font-semibold text-primary hover:underline"
+                                @click="useNameAsHolder"
+                            >Reprendre « {{ typedName.toUpperCase() }} »</button>
+                        </FormField>
+                    </div>
+                </section>
+            </div>
+        </Card>
+
         <!-- 3 · Contact -->
-        <Card v-else-if="currentStep === 3" class="overflow-hidden">
+        <Card v-else-if="currentKey === 'contact'" class="overflow-hidden">
             <header class="flex flex-col gap-2 border-b border-border bg-muted/40 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 class="text-sm font-bold text-foreground">Coordonnées et pièce d’identité</h2>
@@ -561,7 +693,7 @@ const recap = computed(() => [
         </Card>
 
         <!-- 4 · Compléments -->
-        <Card v-else-if="currentStep === 4" class="overflow-hidden">
+        <Card v-else-if="currentKey === 'more'" class="overflow-hidden">
             <header class="flex flex-col gap-2 border-b border-border bg-muted/40 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 class="text-sm font-bold text-foreground">Compléments du dossier</h2>
@@ -678,6 +810,7 @@ const recap = computed(() => [
                         <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Civilité calculée depuis le genre.</span></li>
                         <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Fonction vérifiée pour le département choisi.</span></li>
                         <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Photo recadrée en 4 × 4 et gardée en privé.</span></li>
+                        <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Ancienneté calculée depuis la date d’entrée.</span></li>
                         <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Nouvelle adresse ajoutée une seule fois au référentiel.</span></li>
                     </ul>
                     <p v-if="internshipIntent" class="mt-4 flex gap-2 rounded-lg bg-card p-3 text-xs leading-5 text-foreground ring-1 ring-border">

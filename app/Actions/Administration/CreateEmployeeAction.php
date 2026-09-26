@@ -9,6 +9,7 @@ use App\Services\Administration\EmployeeIdentityNormalizer;
 use App\Services\Administration\EmployeeNumberAllocator;
 use App\Services\Administration\EmployeePhotoStore;
 use App\Services\Administration\HrReferenceResolver;
+use App\Support\Hr\EmployeePayroll;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -32,6 +33,8 @@ class CreateEmployeeAction
         unset($data['email']);
 
         Gate::forUser($actor)->authorize('create', Employee::class);
+        // ADR-197 — rémunération et compte bancaire : un droit à part, revérifié ici.
+        $data = EmployeePayroll::prepare($data, $actor);
 
         $photo = $data['photo'] ?? null;
         unset($data['photo'], $data['remove_photo']);

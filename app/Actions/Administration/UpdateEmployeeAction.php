@@ -12,6 +12,7 @@ use App\Services\Administration\EmployeeIdentityNormalizer;
 use App\Services\Administration\EmployeePatientIdentityMapper;
 use App\Services\Administration\EmployeePhotoStore;
 use App\Services\Administration\HrReferenceResolver;
+use App\Support\Hr\EmployeePayroll;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -37,6 +38,8 @@ class UpdateEmployeeAction
         unset($data['email']);
 
         Gate::forUser($actor)->authorize('update', $employee);
+        // ADR-197 — rémunération et compte bancaire : un droit à part, revérifié ici.
+        $data = EmployeePayroll::prepare($data, $actor);
 
         // ADR-194 — une nouvelle photo remplace l'ancienne ; « retirer » la
         // supprime. L'ancien fichier n'est effacé qu'une fois le dossier écrit.

@@ -63,17 +63,29 @@ test('the HR figures open the lists of the chosen site on the portal', () => {
     const portal = fs.readFileSync('resources/js/Pages/SuperAdmin/HumanResources/Index.vue', 'utf8');
 
     assert.match(figures, /mapHrPath\(href, props\.base\)/);
-    assert.match(portal, /<HrFigures :summary="summaryOf\(selectedSite\)" linkable :base="hrBase\(selectedSite\.site\.code\)" \/>/);
     assert.match(portal, /:href="figureUrl\(column, site\.site\.code\)"/, 'le comparatif ouvre la liste sur le bon site');
     assert.doesNotMatch(portal, /en lecture seule/);
 });
 
-test('the portal HR page keeps the chosen site in the address, without calling the sites again', () => {
+/**
+ * Demande du propriétaire (2026-09-26) : plus de données en double. L'accueil RH
+ * d'un site n'existe qu'une fois — l'écran du site, relayé — et la page RH du
+ * portail ne le recopie plus : ses onglets y mènent.
+ */
+test('the portal HR page compares the sites and never copies a site HR home', () => {
     const portal = fs.readFileSync('resources/js/Pages/SuperAdmin/HumanResources/Index.vue', 'utf8');
 
-    assert.match(portal, /router\.replace\(\{/);
-    assert.match(portal, /`\$\{PAGE_URL\}\?site=\$\{code\}`/);
-    assert.match(portal, /new URLSearchParams\(page\.url\.split\('\?'\)\[1\] \?\? ''\)\.get\('site'\)/, 'lu depuis l’adresse, donc aussi au rendu serveur');
+    assert.doesNotMatch(portal, /HrAreaBoard|selectedSite|router\.replace/, 'aucune copie de l’accueil d’un site');
+    assert.match(portal, /:href="site\.status === 'UNCONFIGURED' \? undefined : hrBase\(site\.site\.code\)"/, 'chaque onglet ouvre l’accueil RH du site');
+    assert.match(portal, /aria-current="page"><LayoutGrid class="h-4 w-4" \/>Tous les sites/);
+});
+
+test('the department headcount lives on the site HR home, seen by HR and by the portal', () => {
+    const home = fs.readFileSync('resources/js/Pages/Administration/Index.vue', 'utf8');
+    const card = fs.readFileSync('resources/js/Components/Administration/HrDepartmentHeadcount.vue', 'utf8');
+
+    assert.match(home, /<HrDepartmentHeadcount :departments="departments"/);
+    assert.match(card, /hrUrl\(`\/administration\/employees\?q=\$\{encodeURIComponent\(department\.label\)\}`\)/, 'un département ouvre ses employés, sur le site ou au portail');
 });
 
 test('the HR figures and sections are written once', () => {
@@ -90,7 +102,7 @@ test('the HR figures are one compact block in two groups, each label whole', asy
 
     assert.match(figures, /label: 'À traiter'/);
     assert.match(figures, /label: 'Effectif du jour'/);
-    assert.match(figures, /lg:grid-cols-\[3fr_4fr\]/, 'les deux groupes côte à côte, pas deux rangées inégales');
+    assert.match(figures, /lg:grid-cols-\[3fr_5fr\]/, 'les deux groupes côte à côte, pas deux rangées inégales');
     assert.match(figures, /:title="item\.label"/, 'la phrase complète reste au survol');
     assert.doesNotMatch(figures, /truncate text-xs/, 'un libellé de tuile ne se tronque pas');
 
@@ -101,10 +113,13 @@ test('the HR figures are one compact block in two groups, each label whole', asy
 
 /** Demande du propriétaire : « Que voulez-vous faire ? » en shadcn, cartes avec bordure et ombre. */
 test('the HR home lists its sections as shadcn cards, from the one list of HR sections', () => {
-    const home = fs.readFileSync('resources/js/Pages/Administration/Index.vue', 'utf8');
+    // ADR-194 — la grille est partagée par l'accueil RH du site et la page RH du portail.
+    const page = fs.readFileSync('resources/js/Pages/Administration/Index.vue', 'utf8');
+    const home = fs.readFileSync('resources/js/Components/Administration/HrAreaBoard.vue', 'utf8');
 
-    assert.doesNotMatch(home, /Components\/UI\/(Icon|Button)\.vue|class="[^"]*\bni ni-|slate-800|gray-200/, 'plus de DashWind ni de couleurs codées en dur');
-    assert.match(home, /hrSections\(hrContext\(\)\?\.base \?\? HR_SITE_BASE, can\)/, 'mêmes rubriques, adresses et droits que le menu RH');
+    assert.doesNotMatch(page + home, /Components\/UI\/(Icon|Button)\.vue|class="[^"]*\bni ni-|slate-800|gray-200/, 'plus de DashWind ni de couleurs codées en dur');
+    assert.match(page, /<HrAreaBoard :summary="visibleSummary" :base="hrContext\(\)\?\.base \?\? HR_SITE_BASE" \/>/, 'mêmes rubriques, adresses et droits que le menu RH');
+    assert.match(home, /hrSections\(props\.base, can\)/);
     // Les thèmes sont partagés avec la barre RH du portail (hrSections.js).
     const sections = fs.readFileSync('resources/js/utilities/hrSections.js', 'utf8');
     assert.match(home, /const GROUPS = HR_SECTION_GROUPS;/);

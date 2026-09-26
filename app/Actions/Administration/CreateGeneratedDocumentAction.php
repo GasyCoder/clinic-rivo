@@ -31,8 +31,21 @@ class CreateGeneratedDocumentAction
         array $formData,
         User $actor,
         bool $withDirectorSignature = false,
+        ?GeneratedDocument $replaces = null,
     ): GeneratedDocument {
         Gate::forUser($actor)->authorize('create', GeneratedDocument::class);
+
+        // ADR-199 — « modifier » un document : une nouvelle version pour la même
+        // personne ; l'ancienne est archivée, gardée et consultable.
+        if ($replaces) {
+            Gate::forUser($actor)->authorize('delete', $replaces);
+            if ($replaces->trashed()) {
+                throw ValidationException::withMessages(['replaces_uuid' => 'Ce document est archivé : restaurez-le avant d’en faire une nouvelle version.']);
+            }
+            if ($replaces->employee_id !== $employee->getKey()) {
+                throw ValidationException::withMessages(['employee_uuid' => 'Une nouvelle version concerne la même personne que le document qu’elle remplace.']);
+            }
+        }
 
         if ($contract && $contract->employee_id !== $employee->getKey()) {
             throw ValidationException::withMessages(['employment_contract_uuid' => 'Ce contrat n’appartient pas à cet employé.']);
@@ -42,7 +55,7 @@ class CreateGeneratedDocumentAction
             throw ValidationException::withMessages(['leave_request_uuid' => 'Cette demande de congé n’appartient pas à cet employé.']);
         }
 
-        return DB::transaction(function () use ($template, $employee, $contract, $leave, $formData, $actor, $withDirectorSignature): GeneratedDocument {
+        return DB::transaction(function () use ($template, $employee, $contract, $leave, $formData, $actor, $withDirectorSignature, $replaces): GeneratedDocument {
             $this->resolver->assertContext($template->data_context, $contract, $leave);
             $resolution = $this->resolver->resolve($template->data_context, $employee, $contract, $leave, $formData);
 
@@ -59,7 +72,7 @@ class CreateGeneratedDocumentAction
 
             $pageOneHtml = $this->resolver->renderPageOne($template->data_context, $resolution['values']);
 
-            return GeneratedDocument::query()->create([
+            $document = GeneratedDocument::query()->create([
                 'document_template_id' => $template->getKey(),
                 'template_name_snapshot' => $template->name,
                 'document_type_snapshot' => $template->document_type,
@@ -70,8 +83,17 @@ class CreateGeneratedDocumentAction
                 'rendered_html_snapshot' => $pageOneHtml.DocumentFormDataResolver::PAGE_BREAK_HTML.$template->content_html
                     .($withDirectorSignature ? $this->resolver->renderDirectorSignature($this->settings) : ''),
                 'generated_by' => $actor->getKey(),
+                'replaces_document_id' => $replaces?->getKey(),
                 ...RemoteActorAttribution::fields('generated', $actor),
             ]);
+
+            if ($replaces) {
+                $replaces->forceFill(RemoteActorAttribution::fields('deleted', $actor))->saveQuietly();
+                $replaces->delete_reason = 'Remplacé par une nouvelle version.';
+                $replaces->delete();
+            }
+
+            return $document;
         });
     }
 }

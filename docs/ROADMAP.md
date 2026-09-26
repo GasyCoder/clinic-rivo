@@ -672,6 +672,17 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Rubriques de l'accueil RH arrangeables : « Personnaliser », glisser-déposer d'une colonne à l'autre, flèches pour le tactile et le clavier, disposition gardée sur le poste, « Réinitialiser »
 - [x] Liste des employés en shadcn-vue, au site comme au portail : bouton « Modèle Excel » à côté d'Importer et Exporter (même droit que l'import), cartes-compteurs qui filtrent (Tous, Actifs, Inactifs, Archivés, avec leur part), recherche lancée d'elle-même, pastilles d'état, contacts cliquables, dates en jj/mm/aaaa, actions en icônes, état vide qui propose de créer, d'importer ou de télécharger le modèle ; pagination RH en shadcn
 - [x] Création et modification d’un employé en shadcn-vue, au site comme au portail : parcours guidé en cinq étapes avec icônes, champs shadcn (listes, dates, cases), référentiels archivés visibles mais non choisissables, résumé des erreurs qui mène au champ fautif, en-tête « Créer un employé » avec sa vraie icône (ADR-099, ADR-187)
+- [x] « Stages » ouvrait un 404 au portail : écran ajouté aux écrans RH relayés, et test qui refuse qu'un écran RH soit oublié (ADR-187, amendement bis du 2026-09-26)
+- [x] Un seul accueil RH par site au portail (l'écran du site, relayé) ; la page RH du portail garde le comparatif « Tous les sites » ; « Effectif par département » rejoint l'accueil RH du site (ADR-187)
+- [x] Au portail, « Emails professionnels » d'un site ouvre la page du portail filtrée sur ce site (celle qui a l'accès à l'hébergeur) ; chiffres fixes retirés de la barre RH (ADR-187, ADR-190)
+- [x] Fiche employé → « Créer son compte » / « Voir le compte » : l'écran Utilisateurs s'ouvre sur « Personnel clinique » et cette fiche, au portail comme sur le site (ADR-188, ADR-187)
+- [x] Un stagiaire n'est pas un employé : exclu de « Employés », de ses compteurs et des chiffres RH, lu dans « Stages » ; embauché ensuite, il redevient employé (ADR-198)
+- [x] « Actif » et « En congé » se lisent ensemble : état, compteur-filtre « En congé aujourd'hui », chiffre RH (ADR-198)
+- [x] Photo à la place de l'icône dans la vue « Grandes icônes » (ADR-198)
+- [x] Impression d'un congé → document officiel depuis les canevas « congé » du Super Admin, prérempli ; l'éditeur de canevas montre la page 1 du RH et signale un contexte mal réglé (ADR-198)
+- [x] « Générer un document » refait en shadcn et expliqué ; Présences avec un onglet « Aujourd'hui » (présents, partis, attendus, en congé) et entrée/sortie en un clic (ADR-198)
+- [x] Bouton « Imprimer » des Présences et des Rapports RH réparé (window.print dans le gabarit) (ADR-198)
+- [ ] Export Excel des employés sans les stagiaires — à décider (ADR-198)
 - [ ] Autres écrans RH à passer en shadcn-vue (contrats, présences, congés, planning, rapports, paramètres, documents, crédit Bloc) — seules leurs adresses ont été touchées (ADR-187)
 - [x] Espace RH : menu latéral en groupe, panneau « à traiter » sur la Vue d'ensemble, accueil et liste des employés refondus
 - [x] Présences et congés : chevauchements refusés pour un même employé
@@ -685,6 +696,10 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Stagiaires : employé + contrat de stage (filière, école, niveau, encadrant), page « Stages » filtrable, parcours « Nouveau stagiaire », repère dans l'annuaire (ADR-194)
 - [x] Planning du personnel et planning de garde : deux onglets, calendrier semaine / mois / liste, impression et export par type (ADR-194)
 - [ ] Filière d'un stage importé par Excel, gardes distinguées pour la disponibilité au bloc — à décider (ADR-194)
+- [x] Page « Ressources humaines » du portail identique à l'accueil RH du site : même en-tête, mêmes chiffres, même grille de rubriques (composant partagé `HrAreaBoard`), sélecteur de site, « Tous les sites » pour le comparatif (ADR-187, amendement du 2026-09-26)
+- [x] Rémunération déclarée du dossier employé (Salaire / Indemnité / Non rémunéré + montant mensuel) et compte bancaire (numéro, titulaire), droits dédiés `employees.payroll.*` accordés au RH, étape « Rémunération » avec icônes, carte sur la fiche et section à l'impression — aucune paie calculée (ADR-197)
+- [x] Ancienneté de service calculée depuis la date d'entrée, affichée pendant la saisie, sur la fiche et à l'impression (ADR-197)
+- [ ] Historique des salaires à l'écran, indemnité forfaitaire, champs de paie dans l'export / import Excel — à décider (ADR-197)
 - [x] Adresses email professionnelles : demande par le RH depuis la fiche employé, création par le Super Admin chez l'hébergeur (API cPanel o2switch), mot de passe montré une fois, adresse reportée sur la fiche (ADR-190)
 - [x] Suspension au départ de l'employé (vue « À suspendre »), réactivation, nouveau mot de passe ; jamais de suppression ; reprise sans double création si le site ne confirme pas (ADR-190)
 - [x] Accès à l'hébergeur vérifié sur abyssin.o2switch.net avec le mot de passe du compte : o2switch refuse l'authentification Basic sur l'API, le client ouvre une session cPanel puis la ferme (ADR-190, correction du 2026-09-25)

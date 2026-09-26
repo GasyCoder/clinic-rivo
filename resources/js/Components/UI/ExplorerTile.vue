@@ -17,6 +17,8 @@ const props = defineProps({
     highlight: { type: String, default: null },
     badge: { type: String, default: null },
     icon: { type: String, default: 'file-text' },
+    /** Une image (la photo d'un employé) : elle remplace l'icône, en plus grand. */
+    image: { type: String, default: null },
     tone: { type: String, default: 'primary' },
     muted: { type: Boolean, default: false },
     selectable: { type: Boolean, default: false },
@@ -57,8 +59,9 @@ const BADGE_TONES = {
             @update:model-value="emit('toggle')"
         />
         <component :is="href ? Link : 'button'" :href="href ?? undefined" :type="href ? undefined : 'button'" class="flex w-full flex-col items-center focus-visible:outline-none" @click="!href && emit('open')">
-            <span :class="cn('relative grid h-16 w-16 place-items-center rounded-2xl transition-transform group-hover:scale-105', ICON_TONES[tone] ?? ICON_TONES.primary)">
-                <component :is="glyph" class="h-7 w-7" />
+            <span :class="cn('relative grid place-items-center rounded-2xl transition-transform group-hover:scale-105', image ? 'h-20 w-20 bg-muted ring-1 ring-border' : ['h-16 w-16', ICON_TONES[tone] ?? ICON_TONES.primary])">
+                <img v-if="image" :src="image" :alt="`Photo de ${title}`" class="h-full w-full rounded-2xl object-cover" loading="lazy">
+                <component :is="glyph" v-else class="h-7 w-7" />
                 <span v-if="badge" :class="cn('absolute -bottom-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-2 text-[10px] font-bold leading-5 text-white ring-2 ring-card', BADGE_TONES[tone] ?? BADGE_TONES.primary)">{{ badge }}</span>
             </span>
             <span class="mt-4 line-clamp-2 text-sm font-semibold text-foreground">{{ title }}</span>

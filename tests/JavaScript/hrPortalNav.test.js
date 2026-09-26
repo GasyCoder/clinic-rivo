@@ -41,7 +41,7 @@ test('une rubrique sans thème rejoint le dernier au lieu de disparaître', () =
 
 test('la barre RH du portail ne défile plus : thèmes puis rubriques, qui passent à la ligne', () => {
     const bar = fs.readFileSync('resources/js/Components/Administration/HrPortalBar.vue', 'utf8');
-    const home = fs.readFileSync('resources/js/Pages/Administration/Index.vue', 'utf8');
+    const home = fs.readFileSync('resources/js/Components/Administration/HrAreaBoard.vue', 'utf8');
 
     assert.doesNotMatch(bar, /overflow-x-auto/);
     assert.match(bar, /groupHrSections\(sections\.value\)/);

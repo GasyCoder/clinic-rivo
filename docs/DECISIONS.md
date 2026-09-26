@@ -16658,6 +16658,57 @@ Les thèmes sont ceux de l'accueil RH, désormais écrits une seule fois (`HR_SE
 thème sans rubrique permise disparaît, et une rubrique ajoutée au menu RH sans thème rejoint le dernier
 plutôt que de disparaître. Présentation seulement : ni route, ni droit, ni adresse ne change.
 
+## Amendement du 2026-09-26 — la page RH du portail est l'accueil RH du site
+
+Constat du propriétaire : l'espace RH « du site » et « du Super Admin » n'avaient pas le même dessin. Les
+écrans relayés étaient déjà les mêmes ; c'est la page d'entrée `/super-admin/workspaces/hr` qui différait
+(une vue multi-sites avec tableau comparatif). Arbitrage : elle ressemble à l'accueil RH du site.
+
+```text
+un site          l'accueil RH du site lui-même : même en-tête « Accueil RH · site », mêmes boutons
+                 (Demande de congé, Nouvel employé), mêmes chiffres, même grille « Que voulez-vous
+                 faire ? » dont chaque carte ouvre la rubrique dans l'espace RH de ce site ; l'effectif
+                 par département reste en dessous
+sélecteur        un onglet par site (point d'état, pastille de ce qui attend), puis « Tous les sites »
+ouverture        sur le premier site connecté (`?site=A`) ; `?site=all` pour le comparatif
+Tous les sites   chiffres additionnés, « À traiter » site par site, tableau comparatif (inchangés)
+```
+
+La grille est un seul composant (`Components/Administration/HrAreaBoard.vue`), lu par l'accueil RH du site
+et par cette page : mêmes rubriques, mêmes droits, même disposition personnalisable ; seule change la base
+des adresses. Aucune route, aucun droit, aucune donnée nouvelle.
+
+## Amendement du 2026-09-26 (bis) — un seul accueil RH par site, et le compte relié depuis la fiche
+
+Signalement du propriétaire : « Stages » ouvrait un 404 au portail, et les RH montraient des données en
+double et pas dynamiques entre le portail et le site. Analyse et corrections :
+
+```text
+404 Stages       l'écran Administration/Internships (ADR-194) manquait à la liste des écrans RH que le
+                 portail relaie ; un test lit désormais chaque écran rendu par routes/hr.php et échoue
+                 si le portail en refuserait un (la Pharmacie a été vérifiée : rien d'oublié)
+accueil en       l'accueil RH d'un site existait deux fois au portail (Organisation › RH, recopie ; et
+double           Établissement › RH, l'écran du site). Il n'existe plus qu'une fois : l'écran du site,
+                 relayé. `/super-admin/workspaces/hr` ne garde que « Tous les sites » (comparatif, à
+                 traiter) ; ses onglets mènent à l'accueil de chaque site ; `?site=A` y redirige.
+                 Cela remplace l'amendement précédent (accueil recopié via HrAreaBoard au portail)
+effectif par     la carte n'existait que dans la recopie du portail : elle rejoint l'accueil RH du site
+département      (HrOverviewService::departments, une lecture), vue par le RH comme par le Super Admin ;
+                 chaque département ouvre la liste des employés filtrée
+emails pros      au portail, la rubrique RH « Emails professionnels » ouvrait la page du site, qui
+                 renvoyait… au portail. Elle ouvre la page du portail filtrée sur le site
+                 (`/super-admin/professional-emails?site=A`), celle qui détient l'accès à l'hébergeur
+                 (ADR-190) ; l'ancienne adresse relayée y redirige
+barre RH         le chiffre à côté de chaque thème comptait des liens, pas des données : retiré
+compte relié     (ADR-188) la fiche employé propose « Créer son compte » (fiche active, droit users.create)
+                 ou « Voir le compte » (users.view) ; l'écran Utilisateurs — du portail pour le Super
+                 Admin, du site sinon — s'ouvre sur « Personnel clinique » et cette fiche (`?employe=`),
+                 nom et email repris. Rien n'est créé sans l'assistant, qui revérifie tout
+```
+
+Aucune permission, route métier ni migration nouvelle. Les données restent sur le site ; le portail
+ne fait que choisir l'écran qui les montre.
+
 ## Signalé, non tranché
 
 - Les écrans RH sont encore en DashWind : seules leurs adresses ont été touchées (ADR-099).
@@ -18009,3 +18060,145 @@ le pointeur, le tactile et le stylet, les flèches du clavier (Maj pour un pas p
 et un double-clic ou double-appui pour revenir à la largeur initiale. La largeur est conservée dans le stockage
 local du poste, appliquée après l’hydratation et jamais envoyée au serveur. Le téléphone garde le tiroir fixe et
 le mode compact garde son rail de 74 px. Aucune permission, route, API, donnée métier ni migration n’est modifiée.
+
+---
+
+# ADR-197 — Rémunération déclarée, compte bancaire et ancienneté du dossier employé
+
+**Status:** ACCEPTED (2026-09-26 — demande explicite du propriétaire : « quand on ajoute un employé, on a
+aussi : leur salaire, indemnisé ou pas, l'ancienneté de service, le numéro de compte bancaire et le nom sur le
+compte » ; trois arbitrages : rémunération = Salaire / Indemnité / Non rémunéré avec son montant ; droit
+dédié, RH par défaut ; ancienneté calculée depuis la date d'entrée)
+
+**Amende l'ADR-066 et l'ADR-069**, qui écrivaient qu'« aucun salaire n'est stocké » et que les colonnes
+bancaires transmises ne sont pas activées. Le conflit a été signalé au propriétaire avant de coder. Ce qui
+change est étroit : le dossier **porte** une rémunération déclarée et un compte bancaire ; **rien n'est
+calculé** — ni paie, ni CNAPS, ni IRSA, ni retenue, ni net. Le CDC ne définit toujours aucune règle de paie.
+L'ADR-087 n'est pas touché : aucun `{{salaire}}` ne revient dans les canevas.
+
+## Les données
+
+```text
+remuneration_type     SALARY (Salaire) · ALLOWANCE (Indemnité, ex. stagiaire indemnisé) · UNPAID (Non
+                      rémunéré) — facultatif (EmployeeRemunerationType)
+remuneration_amount   montant brut mensuel en Ariary, exigé pour un salaire ou une indemnité, jamais gardé
+                      pour « non rémunéré » ; « 450 000,50 » se lit 450000.50
+bank_account_number   chiffres, lettres, espaces, tirets (50) ; écrit en majuscules, espaces simplifiés
+bank_account_holder   le nom tel qu'il figure à la banque, exigé dès qu'un numéro est saisi ; l'écran
+                      propose de reprendre le nom de l'employé
+```
+
+Colonnes nullables (migration `2026_11_04_090000`) : aucun dossier existant n'est réécrit.
+
+## Données sensibles : deux droits
+
+```text
+employees.payroll.view     voir la rémunération et le compte (fiche, impression, formulaire)
+employees.payroll.update   les saisir et les corriger
+```
+
+Accordés au rôle ADMINISTRATION (RH) par la migration, et au Super Admin du portail (ADR-186) ; aucun autre
+rôle. Sans `view`, rien n'est servi : les valeurs ne passent ni dans `employee()` du présentateur (lu par la
+liste et d'autres écrans) ni dans la page — un bloc `payroll` à part, `null` sans le droit. Sans `update`, les
+champs sont refusés en clair par la requête (`prohibited`, le message nomme le droit) **et** par les actions
+(`EmployeePayroll::prepare`) : l'écran n'est jamais la seule garde. Omettre ces champs les laisse tels quels.
+L'export et l'import Excel ne les portent pas. Chaque modification est auditée comme le reste du dossier
+(ancienne et nouvelle valeur) ; le journal d'audit n'est lu que par le Super Admin.
+
+## Ancienneté
+
+Calculée depuis la date d'entrée, jamais saisie : années et mois révolus (« 3 ans 4 mois », « Moins d'un
+mois », « Entrée à venir »). Le serveur la sert (`Seniority`, fiche et impression) ; l'écran la recalcule
+pendant la saisie (`utilities/seniority.js`, même règle, testée des deux côtés). Une ancienneté antérieure
+reprise n'est pas prévue.
+
+## Écran
+
+Le formulaire employé repère ses étapes par clé : une étape **Rémunération** (entre Poste et Contact)
+n'apparaît qu'avec `employees.payroll.update` — trois cartes à icône (Salaire, Indemnité, Non rémunéré), le
+montant avec son aperçu formaté, le compte bancaire. L'ancienneté paraît sous la date d'entrée et dans le
+récapitulatif. La fiche porte une carte « Rémunération et banque » (`EmployeePayrollCard`) et l'ancienneté à
+côté de la date d'entrée ; la fiche imprimée, une section « Rémunération et banque ». Au site comme au portail.
+
+## Signalé, non tranché
+
+```text
+montant mensuel     le montant est lu comme mensuel ; une indemnité forfaitaire (stage payé en une
+                    fois) n'a pas de forme propre
+historique          l'évolution du salaire se lit dans l'audit, sans écran d'historique dédié
+nom de la banque    non demandé, non ajouté ; le numéro de compte malgache (RIB) le contient
+export / import     les champs de paie n'y sont pas ; les ajouter exige de décider qui peut exporter
+```
+
+---
+
+# ADR-198 — Des RH cohérentes : stagiaires, congé en cours, document d'un congé, présences du jour
+
+**Status:** ACCEPTED (2026-09-26 — demande explicite du propriétaire : « est-ce que stagiaire est employé ?
+non », « pourquoi un employé pris en congé est toujours actif ? », « est-ce que le canevas correspond à la
+demande du RH, et s'affiche quand il imprime un congé ? », refonte de « Générer un document » et des Présences)
+
+**Amende l'ADR-194** (le stagiaire était listé parmi les employés avec un repère) et **complète les ADR-066,
+070, 087 et 187**. Le CDC ne définit ni stagiaire, ni présence du jour : les règles ci-dessous sont celles du
+propriétaire. Aucune permission, route métier ni migration nouvelle.
+
+## Un stagiaire n'est pas un employé
+
+Le modèle ne change pas : un stagiaire reste un dossier (identité, photo, contrat de stage — ADR-194). Ce qui
+change, c'est où il se lit. `InternshipDirectory::interns()` porte la règle une seule fois :
+
+```text
+un contrat en cours ou à venir existe   stagiaire si ce sont tous des stages
+aucun                                   stagiaire si le dernier contrat terminé est un stage
+aucun contrat                           employé (rien ne permet de dire le contraire)
+```
+
+Embauché ensuite (CDD, CDI), il redevient employé. La liste « Employés », ses compteurs, les chiffres RH
+(« Employés actifs », effectif par département) excluent les stagiaires ; la liste dit combien ne figurent pas
+et mène à « Stages ». Planning, présences et documents les gardent : ils y travaillent.
+
+## « Actif » et « En congé » se lisent ensemble
+
+« Actif » dit que le dossier est en service ; un congé ne l'interrompt pas. `LeaveToday` dit, une fois, qui est
+en congé aujourd'hui (demande **acceptée** couvrant la date). La liste des employés montre les deux (« Actif »,
+« En congé · type · jusqu'au … »), a un compteur-filtre « En congé aujourd'hui » (`?status=on_leave`), et les
+chiffres RH un « En congé aujourd'hui » (droit `leave.view`, sinon « — »). Le champ `active` n'est jamais modifié
+par un congé.
+
+## Le document officiel d'un congé est un canevas
+
+Comme pour un contrat (ADR-070) : l'impression d'un congé propose les canevas « Personnel + demande de congé »
+actifs, et ouvre « Générer un document » avec la personne et la demande déjà choisies (`?employee=&leave=`) ; un
+seul canevas de congé est choisi d'office. La fiche de demande reste imprimable. Sans canevas de congé, l'écran le
+dit. Ce que le canevas imprime : la page 1 (nom, matricule, fonction, service, type de congé, dates, jours, motif —
+repris du dossier, modifiables) puis le texte du canevas **tel quel** (ADR-087, aucun code de variable).
+
+L'éditeur de canevas du portail montre, pour le contexte choisi, les champs de la page 1 et où le RH le trouve, et
+signale un canevas « CONGE » ou « CONTRAT » réglé sur un autre contexte (il ne reprendrait pas les dates).
+
+## « Générer un document » expliqué, et refait en shadcn
+
+La page dit ce qu'elle produit ; le choix se fait en trois gestes (quel document — cartes par type ; pour qui —
+recherche ; le contrat ou le congé si le canevas en parle), la page 1 en champs shadcn, l'aperçu réel à droite.
+Changer de canevas garde la demande de congé si le nouveau canevas en parle aussi.
+
+## Présences : « Aujourd'hui » d'abord
+
+Onglet par défaut (`AttendanceTodayBoard`) : présents (session sans sortie), partis, attendus au planning sans
+pointage, en congé, sans créneau — ce qui est enregistré, sans retard ni absence calculés (ADR-066). Entrée et
+sortie en un clic (l'entrée d'une personne en congé demande confirmation ; le congé n'est pas modifié). L'historique
+garde période, employé et sessions ouvertes, et s'ouvre dès que ces filtres sont demandés.
+
+## Défauts corrigés au passage
+
+`@click="window.print()"` dans les gabarits d'impression des Présences et des Rapports RH : Vue n'expose pas
+`window` au gabarit, le bouton ne faisait rien. Un test JS refuse désormais `window.`, `new URLSearchParams`,
+`localStorage.` et `navigator.` dans un gabarit.
+
+## Signalé, non tranché
+
+```text
+dossier « Nouveau stagiaire » sans contrat   reste listé en employé tant que le stage n'est pas saisi
+export Excel des employés                     inchangé : il contient encore les stagiaires
+demande de congé en attente                   ne compte pas « en congé » : seule une demande acceptée le fait
+```

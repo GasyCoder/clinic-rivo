@@ -17,6 +17,8 @@ export const HR_FIGURES = [
     { key: 'contracts_ending_soon', group: 'todo', icon: 'file-docs', label: 'Contrats qui finissent sous 30 jours', short: 'Contrats < 30 j', tile: 'Fins de contrat ≤ 30 j', href: '/administration/contracts?status=ending', tone: 'rose' },
     { key: 'active_employees', group: 'headcount', icon: 'users', label: 'Employés actifs', short: 'Employés actifs', tile: 'Employés actifs', href: '/administration/employees', tone: 'primary' },
     { key: 'current_contracts', group: 'headcount', icon: 'file-docs', label: 'Contrats en cours', short: 'Contrats en cours', tile: 'Contrats en cours', href: '/administration/contracts?status=current', tone: 'sky' },
+    // ADR-198 — actifs, mais absents ce jour : un congé accepté couvre la date.
+    { key: 'on_leave_today', group: 'headcount', icon: 'sun', label: 'En congé aujourd’hui', short: 'En congé', tile: 'En congé', href: '/administration/employees?status=on_leave', tone: 'sky' },
     { key: 'today_attendance', group: 'headcount', icon: 'check-circle', label: 'Pointés aujourd’hui', short: 'Pointés', tile: 'Pointés aujourd’hui', href: '/administration/attendance?from=today&to=today', tone: 'emerald' },
     { key: 'upcoming_shifts', group: 'headcount', icon: 'calender-date', label: 'Créneaux dans 7 jours', short: 'Créneaux 7 j', tile: 'Créneaux à 7 jours', href: '/administration/planning', tone: 'violet' },
 ];

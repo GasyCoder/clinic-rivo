@@ -2,11 +2,13 @@
 
 namespace App\Http\Requests\Administration;
 
+use App\Enums\EmployeeRemunerationType;
 use App\Enums\HrReferenceType;
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
 use App\Enums\PatientSex;
 use App\Models\Employee;
+use App\Support\Hr\EmployeePayroll;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
@@ -39,9 +41,50 @@ abstract class EmployeeDataRequest extends FormRequest
             $normalized[$field] = $value === '' ? null : $value;
         }
 
+        // ADR-197 — le compte bancaire s'écrit en majuscules, sans espaces doublés ;
+        // un montant saisi « 150 000,50 » se lit 150000.50.
+        if (is_string($this->input('bank_account_holder'))) {
+            $holder = str($this->input('bank_account_holder'))->squish()->toString();
+            $normalized['bank_account_holder'] = $holder === '' ? null : $holder;
+        }
+
+        if (is_string($this->input('bank_account_number'))) {
+            $number = str($this->input('bank_account_number'))->squish()->upper()->toString();
+            $normalized['bank_account_number'] = $number === '' ? null : $number;
+        }
+
+        if (is_string($this->input('remuneration_amount'))) {
+            $amount = preg_replace('/[\s\x{00A0}\x{202F}]+/u', '', $this->input('remuneration_amount'));
+            $normalized['remuneration_amount'] = $amount === '' ? null : str_replace(',', '.', $amount);
+        }
+
         if ($normalized !== []) {
             $this->merge($normalized);
         }
+    }
+
+    /**
+     * ADR-197 — rémunération déclarée et compte bancaire. Sans le droit, ces
+     * champs sont refusés en clair plutôt qu'ignorés.
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    protected function payrollRules(): array
+    {
+        if (! $this->user()?->can('employees.payroll.update')) {
+            return array_fill_keys(EmployeePayroll::FIELDS, ['prohibited']);
+        }
+
+        return [
+            'remuneration_type' => ['nullable', new Enum(EmployeeRemunerationType::class)],
+            'remuneration_amount' => [
+                'nullable',
+                Rule::requiredIf(fn () => EmployeeRemunerationType::tryFrom((string) $this->input('remuneration_type'))?->hasAmount() ?? false),
+                'numeric', 'min:0', 'max:999999999.99', 'decimal:0,2',
+            ],
+            'bank_account_number' => ['nullable', 'string', 'max:50', 'regex:/^[A-Z0-9][A-Z0-9 -]*$/'],
+            'bank_account_holder' => ['nullable', 'required_with:bank_account_number', 'string', 'max:150'],
+        ];
     }
 
     /** @return array<string, array<int, mixed>> */
@@ -149,6 +192,7 @@ abstract class EmployeeDataRequest extends FormRequest
             // ADR-194 — photo d'identité 4 × 4, recadrée et réencodée par le serveur.
             'photo' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:5120', 'dimensions:min_width=120,min_height=120'],
             'remove_photo' => ['sometimes', 'boolean'],
+            ...$this->payrollRules(),
         ];
     }
 
@@ -216,6 +260,10 @@ abstract class EmployeeDataRequest extends FormRequest
             'user_uuid' => 'compte de connexion',
             'photo' => 'photo d’identité',
             'remove_photo' => 'retrait de la photo',
+            'remuneration_type' => 'type de rémunération',
+            'remuneration_amount' => 'montant',
+            'bank_account_number' => 'numéro de compte bancaire',
+            'bank_account_holder' => 'titulaire du compte',
         ];
     }
 
@@ -229,6 +277,14 @@ abstract class EmployeeDataRequest extends FormRequest
             'photo.mimes' => 'La photo doit être une image JPEG, PNG ou WebP.',
             'photo.max' => 'La photo ne doit pas dépasser 5 Mo.',
             'photo.dimensions' => 'La photo est trop petite : 120 × 120 pixels au minimum.',
+            'remuneration_amount.required' => 'Indiquez le montant du salaire ou de l’indemnité.',
+            'remuneration_amount.decimal' => 'Le montant a au plus deux décimales.',
+            'bank_account_number.regex' => 'Le numéro de compte ne contient que des chiffres, des lettres, des espaces et des tirets.',
+            'bank_account_holder.required_with' => 'Indiquez le nom du titulaire du compte, tel qu’il figure à la banque.',
+            ...array_fill_keys(
+                array_map(fn (string $field) => "{$field}.prohibited", EmployeePayroll::FIELDS),
+                'Modifier la rémunération ou le compte bancaire demande le droit « employees.payroll.update ».',
+            ),
         ];
     }
 }

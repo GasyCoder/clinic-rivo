@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { router, useForm } from '@inertiajs/vue3';
+import { router, useForm, usePage } from '@inertiajs/vue3';
 import {
     ArrowLeftRight, AtSign, PlugZap, Ban, CircleAlert, Clock, Copy, KeyRound, MailCheck, MailPlus, MailX, PauseCircle, PlayCircle, Plus, RotateCw, Search, Server, ShieldAlert, UserX,
 } from 'lucide-vue-next';
@@ -39,6 +39,7 @@ const props = defineProps({
 });
 
 const { can } = usePermissions();
+const page = usePage();
 
 const VIEWS = [
     { key: 'requested', label: 'Demandes', hint: 'à créer ou refuser', icon: Clock, match: (row) => row.status === 'REQUESTED' },
@@ -81,7 +82,10 @@ const rows = computed(() => onlineSites.value.flatMap((site) => (site.data ?? []
 }))));
 
 const view = ref('requested');
-const siteFilter = ref('ALL');
+// Le site demandé dans l'adresse (`?site=A`, depuis l'espace RH d'un site au
+// portail) ; sinon tous les sites.
+const requestedSite = () => new URLSearchParams(String(page.url ?? '').split('?')[1] ?? '').get('site')?.toUpperCase() ?? null;
+const siteFilter = ref(props.sites.some((site) => site.ok && site.site.code === requestedSite()) ? requestedSite() : 'ALL');
 const query = ref('');
 
 const inSite = (row) => siteFilter.value === 'ALL' || row.site_code === siteFilter.value;

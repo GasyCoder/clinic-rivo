@@ -1,5 +1,6 @@
 <script setup>
-import { hrUrl } from '@/utilities/hrUrl';
+import { hrContext, hrUrl } from '@/utilities/hrUrl';
+import { employeeAccountLink } from '@/utilities/employeeAccount';
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { ref } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
@@ -11,10 +12,13 @@ import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import ProfessionalMailboxCard from '@/Components/Administration/ProfessionalMailboxCard.vue';
+import EmployeePayrollCard from '@/Components/Administration/EmployeePayrollCard.vue';
 
 defineOptions({ layout: AppLayout });
-const props = defineProps({ employee: Object, contracts: [Array, Object], documents: [Array, Object], documentOptions: Array, attestationTypes: Array, professionalEmail: { type: Object, default: null } });
+const props = defineProps({ employee: Object, contracts: [Array, Object], documents: [Array, Object], documentOptions: Array, attestationTypes: Array, professionalEmail: { type: Object, default: null }, payroll: { type: Object, default: null } });
 const { can } = usePermissions();
+// ADR-188 — le compte de connexion : le créer, ou l'ouvrir, depuis la fiche.
+const accountLink = employeeAccountLink(props.employee, can, hrContext());
 const archiveForm = useForm({ reason: '' });
 const documentArchiveTarget = ref(null);
 const documentArchiveForm = useForm({ reason: '' });
@@ -46,8 +50,8 @@ const restoreDocument = (document) => router.post(hrUrl(`/administration/documen
                 </div>
             </div>
             <div class="grid divide-y divide-gray-200 dark:divide-gray-900 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
-                <div class="px-5 py-4"><p class="text-xs font-bold uppercase tracking-wide text-slate-400">Date d’entrée</p><p class="mt-1.5 text-sm font-semibold text-slate-700 dark:text-white">{{ formatDate(employee.hire_date) }}</p></div>
-                <div class="px-5 py-4"><p class="text-xs font-bold uppercase tracking-wide text-slate-400">Contact</p><p class="mt-1.5 text-sm font-semibold text-slate-700 dark:text-white">{{ employee.phone || 'Non renseigné' }}</p><p class="mt-1 truncate text-xs text-muted-foreground" :title="employee.user_account ? 'Le planning RH de cette fiche vaut pour ce compte (ADR-168).' : 'Aucun compte de connexion relié : il se relie depuis « Utilisateurs », à la création du compte.'">Compte : {{ employee.user_account?.name ?? 'aucun relié' }}<template v-if="employee.user_account && !employee.user_account.active"> (désactivé)</template></p></div>
+                <div class="px-5 py-4"><p class="text-xs font-bold uppercase tracking-wide text-slate-400">Date d’entrée</p><p class="mt-1.5 text-sm font-semibold text-slate-700 dark:text-white">{{ formatDate(employee.hire_date) }}</p><!-- ADR-197 — l'ancienneté, calculée par le serveur depuis la date d'entrée. --><p v-if="employee.seniority" class="mt-1 text-xs text-muted-foreground">Ancienneté : <strong class="font-semibold text-foreground">{{ employee.seniority.label }}</strong></p></div>
+                <div class="px-5 py-4"><p class="text-xs font-bold uppercase tracking-wide text-slate-400">Contact</p><p class="mt-1.5 text-sm font-semibold text-slate-700 dark:text-white">{{ employee.phone || 'Non renseigné' }}</p><p class="mt-1 truncate text-xs text-muted-foreground" :title="employee.user_account ? 'Le planning RH de cette fiche vaut pour ce compte (ADR-168).' : 'Aucun compte de connexion relié : il se relie depuis « Utilisateurs », à la création du compte.'">Compte : {{ employee.user_account?.name ?? 'aucun relié' }}<template v-if="employee.user_account && !employee.user_account.active"> (désactivé)</template></p><Link v-if="accountLink" :href="accountLink.href" class="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline" :data-account-link="accountLink.kind">{{ accountLink.label }} →</Link></div>
                 <div class="px-5 py-4"><p class="text-xs font-bold uppercase tracking-wide text-slate-400">Contrats</p><p class="mt-1.5 text-sm font-semibold text-slate-700 dark:text-white">{{ contracts.length }} enregistré{{ contracts.length > 1 ? 's' : '' }}</p></div>
                 <div class="px-5 py-4"><p class="text-xs font-bold uppercase tracking-wide text-slate-400">Documents</p><p class="mt-1.5 text-sm font-semibold text-slate-700 dark:text-white">{{ documents.length }} pièce{{ documents.length > 1 ? 's' : '' }}</p></div>
             </div>
@@ -63,6 +67,12 @@ const restoreDocument = (document) => router.post(hrUrl(`/administration/documen
             <aside class="space-y-5">
                 <!-- ADR-190 — l'adresse email professionnelle : demandée par le RH, créée par le Super Admin. -->
                 <ProfessionalMailboxCard v-if="professionalEmail" :data="professionalEmail" :employee-uuid="employee.uuid" />
+                <!-- ADR-197 — servie seulement avec employees.payroll.view. -->
+                <EmployeePayrollCard
+                    v-if="payroll"
+                    :payroll="payroll"
+                    :edit-href="!employee.archived && can('employees.update') && can('employees.payroll.update') ? hrUrl(`/administration/employees/${employee.uuid}/edit`) : null"
+                />
                 <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-900 dark:bg-gray-950"><div class="flex items-center justify-between"><div><h2 class="font-heading text-lg font-bold text-slate-800 dark:text-white">Actions rapides</h2><p class="mt-1 text-xs text-slate-500">Créer une opération pour ce salarié.</p></div><Icon class="text-xl text-slate-300" name="light" /></div><div class="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1"><Link v-if="can('contracts.create')" :href="hrUrl(`/administration/contracts/create?employee=${employee.uuid}`)" class="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 text-sm font-bold text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-gray-800 dark:text-slate-300"><Icon name="file-docs" />Nouveau contrat</Link><Link v-if="can('attendance.create')" :href="hrUrl(`/administration/attendance/create?employee=${employee.uuid}`)" class="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 text-sm font-bold text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-gray-800 dark:text-slate-300"><Icon name="clock" />Saisir une présence</Link><Link v-if="can('leave.create')" :href="hrUrl(`/administration/leave/create?employee=${employee.uuid}`)" class="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 text-sm font-bold text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-gray-800 dark:text-slate-300"><Icon name="calendar" />Demande de congé</Link><Link v-if="can('planning.create')" :href="hrUrl(`/administration/planning/create?employee=${employee.uuid}`)" class="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 text-sm font-bold text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-gray-800 dark:text-slate-300"><Icon name="calender-date" />Ajouter au planning</Link></div></section>
 
                 <details v-if="!employee.archived && can('employees.delete')" class="group rounded-xl border border-red-200 bg-red-50/40 dark:border-red-950 dark:bg-red-950/10"><summary class="flex cursor-pointer list-none items-center justify-between px-4 py-3"><span class="text-sm font-bold text-red-700 dark:text-red-300">Archiver ce dossier</span><Icon class="text-red-400 transition group-open:rotate-180" name="chevron-down" /></summary><form class="border-t border-red-200 p-4 dark:border-red-950" @submit.prevent="archiveEmployee"><p class="mb-3 text-xs leading-5 text-red-700/80 dark:text-red-300/80">Le dossier ne sera pas supprimé. Il restera restaurable et toutes ses références historiques seront conservées.</p><Input v-model="archiveForm.reason" placeholder="Motif obligatoire" required /><FormError v-if="archiveForm.errors.reason">{{ archiveForm.errors.reason }}</FormError><Button class="mt-3" size="sm" variant="danger" :disabled="archiveForm.processing">Confirmer l’archivage</Button></form></details>

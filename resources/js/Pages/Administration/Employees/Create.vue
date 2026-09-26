@@ -6,6 +6,7 @@ import { ArrowLeft, GraduationCap } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import EmployeeForm from './EmployeeForm.vue';
+import { usePermissions } from '@/composables/usePermissions';
 
 defineOptions({ layout: AppLayout });
 const props = defineProps({
@@ -18,6 +19,8 @@ const props = defineProps({
     internshipIntent: { type: Boolean, default: false },
 });
 
+const { can } = usePermissions();
+
 const form = useForm({
     employee_number: props.suggestedEmployeeNumber ?? '', department_uuid: '', job_title_uuid: '', first_name: '', last_name: '', sex: '',
     birth_date: '', hire_date: '', birth_place: '', identity_document_type: '', identity_document_number: '',
@@ -27,6 +30,8 @@ const form = useForm({
     // ADR-194 — la photo 4 × 4 part avec le dossier (multipart).
     photo: null, remove_photo: false,
     after: props.internshipIntent ? 'internship' : '',
+    // ADR-197 — rémunération et compte bancaire : envoyés seulement avec leur droit.
+    ...(can('employees.payroll.update') ? { remuneration_type: '', remuneration_amount: '', bank_account_number: '', bank_account_holder: '' } : {}),
 });
 
 const back = props.internshipIntent ? hrUrl('/administration/internships') : hrUrl('/administration/employees');

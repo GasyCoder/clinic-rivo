@@ -30,6 +30,22 @@ const props = defineProps({
 });
 
 const isEditing = computed(() => props.template !== null);
+
+// ADR-198 — ce que le RH verra : les champs de la page 1 et où le canevas lui est proposé.
+const selectedContext = computed(() => props.dataContexts.find((context) => context.value === form.data_context) ?? null);
+const normalizeType = (value) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+/** Un canevas de congé ou de contrat mal réglé : il ne reprendrait pas les dates, et ne serait pas proposé au bon endroit. */
+const contextMismatch = computed(() => {
+    const type = normalizeType(form.document_type);
+    if (type.includes('CONGE') && form.data_context !== 'EMPLOYEE_AND_LEAVE') {
+        return 'Un canevas de congé devrait utiliser « Personnel + demande de congé » : sinon le type, les dates et le motif du congé ne sont pas repris, et il n’est pas proposé à l’impression d’un congé.';
+    }
+    if (type.includes('CONTRAT') && form.data_context !== 'EMPLOYEE_AND_CONTRACT') {
+        return 'Un canevas de contrat devrait utiliser « Personnel + contrat de travail » : sinon les dates et la référence du contrat ne sont pas reprises, et il n’est pas proposé à l’impression d’un contrat.';
+    }
+
+    return null;
+});
 const isArchivedTemplate = computed(() => props.template?.archived ?? false);
 
 const form = useForm({
@@ -407,6 +423,24 @@ const submit = () => {
                     <input v-model="form.active" type="checkbox" :disabled="isArchivedTemplate" class="h-4 w-4 rounded border-input">
                     Actif (proposé au RH)
                 </label>
+            </div>
+
+            <!-- ADR-198 — ce que le RH verra, pour le contexte choisi. -->
+            <div v-if="selectedContext" class="mt-4 grid gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm lg:grid-cols-[2fr_1fr]">
+                <div>
+                    <p class="text-xs font-bold uppercase tracking-wide text-muted-foreground">Page 1 pour le RH · remplie depuis le dossier, modifiable</p>
+                    <div class="mt-2 flex flex-wrap gap-1.5">
+                        <span v-for="field in selectedContext.fields" :key="field" class="rounded-md border border-border bg-card px-2 py-0.5 text-xs text-foreground">{{ field }}</span>
+                    </div>
+                </div>
+                <div>
+                    <p class="text-xs font-bold uppercase tracking-wide text-muted-foreground">Proposé au RH depuis</p>
+                    <ul class="mt-2 space-y-0.5 text-xs text-foreground">
+                        <li v-for="place in selectedContext.offered_from" :key="place">{{ place }}</li>
+                    </ul>
+                </div>
+                <p v-if="contextMismatch" class="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 lg:col-span-2 dark:bg-amber-950/30 dark:text-amber-200" role="status">{{ contextMismatch }}</p>
+                <p class="text-xs text-muted-foreground lg:col-span-2">Le texte des pages ci-dessous est imprimé tel quel après la page 1 : écrivez-le comme un document final, sans code de variable.</p>
             </div>
         </section>
 

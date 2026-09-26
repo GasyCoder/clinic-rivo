@@ -12,6 +12,7 @@ use App\Models\HrReferenceValue;
 use App\Models\LeaveRequest;
 use App\Models\PlanningShift;
 use App\Support\Authorization\RemoteActorAttribution;
+use App\Support\Hr\Seniority;
 
 class HrPresenter
 {
@@ -69,6 +70,8 @@ class HrPresenter
                 ? $employee->addressEntry->active && ! $employee->addressEntry->trashed()
                 : true,
             'observation' => $employee->observation,
+            // ADR-197 — l'ancienneté, calculée depuis la date d'entrée, jamais saisie.
+            'seniority' => Seniority::of($employee->hire_date),
             // ADR-194 — servi seulement quand la liste l'a calculé (withExists).
             'is_intern' => (bool) ($employee->getAttributes()['has_current_internship'] ?? false),
             // ADR-168 — servi seulement quand la relation est chargée : la liste
@@ -84,6 +87,24 @@ class HrPresenter
             'delete_reason' => $employee->delete_reason,
             'created_at' => $employee->created_at?->toIso8601String(),
             'updated_at' => $employee->updated_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * ADR-197 — la rémunération déclarée et le compte bancaire. Servis à part, et
+     * seulement à qui détient `employees.payroll.view` : jamais dans `employee()`,
+     * que lisent la liste, l'export et d'autres écrans.
+     *
+     * @return array<string, mixed>
+     */
+    public function payroll(Employee $employee): array
+    {
+        return [
+            'remuneration_type' => $employee->remuneration_type?->value,
+            'remuneration_label' => $employee->remuneration_type?->label(),
+            'remuneration_amount' => $employee->remuneration_amount,
+            'bank_account_number' => $employee->bank_account_number,
+            'bank_account_holder' => $employee->bank_account_holder,
         ];
     }
 

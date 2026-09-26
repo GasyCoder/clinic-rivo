@@ -335,7 +335,7 @@ class HrDepartmentsPhotosInternshipsPlanningTest extends TestCase
                 ->where('internshipFields', fn ($fields) => collect($fields)->pluck('label')->contains('Infirmier')));
     }
 
-    public function test_the_internships_page_lists_internships_by_status_and_field_and_the_directory_flags_interns(): void
+    public function test_the_internships_page_lists_internships_by_status_and_field_and_interns_leave_the_employee_directory(): void
     {
         $intern = $this->employee('STG-001', 'Ravelo');
         $former = $this->employee('STG-000', 'Rabe');
@@ -362,10 +362,24 @@ class HrDepartmentsPhotosInternshipsPlanningTest extends TestCase
             ->get('/administration/internships?status=all&field='.$this->ref(HrReferenceType::InternshipField, 'Infirmier')->uuid)
             ->assertInertia(fn (Assert $page) => $page->has('internships.data', 1)->where('internships.data.0.employee.uuid', $former->uuid));
 
+        // ADR-198 — un stagiaire n'est pas un employé : ni le stagiaire en cours, ni
+        // l'ancien stagiaire (dernier contrat = stage) ne figurent dans « Employés ».
         $this->actingAs($this->administration)->get('/administration/employees')
-            ->assertInertia(fn (Assert $page) => $page->where('employees.data', fn ($rows) => collect($rows)->firstWhere('uuid', $intern->uuid)['is_intern'] === true
-                && collect($rows)->firstWhere('uuid', $former->uuid)['is_intern'] === false
-                && collect($rows)->firstWhere('uuid', $staff->uuid)['is_intern'] === false));
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('employees.data', fn ($rows) => collect($rows)->pluck('uuid')->all() === [$staff->uuid])
+                ->where('summary.active', 1)
+                ->where('summary.interns', 2));
+
+        // Embauché ensuite en CDI, l'ancien stagiaire redevient un employé.
+        EmploymentContract::query()->create([
+            'employee_id' => $former->id,
+            'contract_type_id' => $this->ref(HrReferenceType::ContractType, 'CDI')->id,
+            'starts_on' => now()->subMonths(3),
+        ]);
+        $this->actingAs($this->administration)->get('/administration/employees')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('employees.data', fn ($rows) => collect($rows)->pluck('uuid')->sort()->values()->all() === collect([$staff->uuid, $former->uuid])->sort()->values()->all())
+                ->where('summary.interns', 1));
 
         $reception = User::factory()->create(['role_id' => Role::query()->where('code', 'RECEPTION')->value('id')]);
         $this->actingAs($reception)->get('/administration/internships')->assertForbidden();

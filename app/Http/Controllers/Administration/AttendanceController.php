@@ -9,6 +9,7 @@ use App\Http\Requests\Administration\StoreAttendanceRequest;
 use App\Http\Requests\Administration\UpdateAttendanceRequest;
 use App\Models\AttendanceRecord;
 use App\Models\Employee;
+use App\Services\Administration\AttendanceTodayBoard;
 use App\Services\Administration\HrPresenter;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use Illuminate\Database\Eloquent\Builder;
@@ -45,7 +46,15 @@ class AttendanceController extends Controller
             ->latest('started_at')->paginate(30)->withQueryString()
             ->through(fn ($record) => $this->presenter->attendance($record));
 
+        // ADR-198 — « Aujourd'hui » par défaut ; l'historique dès qu'une période,
+        // un employé ou les sessions ouvertes sont demandés (liens des chiffres RH).
+        $view = $request->query('vue') === 'historique'
+            || $request->hasAny(['from', 'to', 'employee', 'open'])
+            ? 'history' : 'today';
+
         return Inertia::render('Administration/Attendance/Index', [
+            'view' => $view,
+            'board' => $view === 'today' ? app(AttendanceTodayBoard::class)->build() : null,
             'records' => $records,
             'employees' => $this->employees(),
             'filters' => ['from' => $from, 'to' => $to, 'employee' => $employeeUuid, 'open' => $openOnly],

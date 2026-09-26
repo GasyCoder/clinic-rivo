@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
+import { requestedEmployeeUuid } from '@/utilities/employeeAccount';
 import {
     ArrowLeft,
     ArrowRight,
@@ -58,7 +59,12 @@ const props = defineProps({
 });
 
 const { can } = usePermissions();
-const selectedSiteCode = ref(props.sites.find((site) => site.ok)?.site.code ?? props.sites[0]?.site.code);
+const page = usePage();
+// ADR-188 — `?site=A` (depuis l'espace RH d'un site) ouvre ce site ; sinon le premier connecté.
+const requestedSite = new URLSearchParams(String(page.url ?? '').split('?')[1] ?? '').get('site');
+const selectedSiteCode = ref(props.sites.find((site) => site.ok && site.site.code === requestedSite)?.site.code
+    ?? props.sites.find((site) => site.ok)?.site.code
+    ?? props.sites[0]?.site.code);
 const query = ref(props.filters.search ?? '');
 const statusFilter = ref(props.filters.status ?? 'active');
 const roleFilter = ref(props.filters.role ?? '');
@@ -358,6 +364,19 @@ const warnBeforeUnload = (event) => {
     event.returnValue = '';
 };
 onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload));
+
+// ADR-188 — « Créer son compte » depuis une fiche employé (`?employe=`) : l'assistant
+// s'ouvre sur « Personnel clinique » et cette fiche, nom et email repris. Une fiche
+// déjà reliée, ou inconnue de ce site, n'ouvre rien : le choix reste à faire.
+onMounted(() => {
+    const uuid = requestedEmployeeUuid(page.url);
+    const employee = uuid ? employees.value.find((candidate) => candidate.uuid === uuid && ! candidate.account) : null;
+    if (! employee || ! can('users.create')) return;
+    openCreate();
+    form.account_kind = 'STAFF';
+    form.employee_uuid = employee.uuid;
+    onEmployeePick(employee);
+});
 onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnload));
 
 const discardForm = () => {

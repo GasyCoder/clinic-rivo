@@ -5,6 +5,7 @@ namespace Tests\Feature\SuperAdmin;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\SuperAdmin\SiteHrGateway;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -84,6 +85,50 @@ class SiteHumanResourcesPortalTest extends TestCase
         Http::fake(['https://a.test/*' => Http::response(['component' => 'SuperAdmin/Settings/Index', 'props' => []], 200)]);
 
         $this->actingAs($this->superAdmin)->get('/super-admin/sites/A/rh/employees')->assertNotFound();
+    }
+
+    /**
+     * Chaque écran rendu par une route RH doit s'afficher au portail : la page
+     * Stages (ADR-194) avait été oubliée, et l'onglet « Stages » ouvrait un 404.
+     */
+    public function test_every_screen_served_by_the_hr_routes_is_allowed_on_the_portal(): void
+    {
+        preg_match_all('/^use (App\\\\Http\\\\Controllers\\\\[\w\\\\]+);/m', file_get_contents(base_path('routes/hr.php')), $uses);
+        $components = collect($uses[1])
+            ->map(fn (string $class) => (new \ReflectionClass($class))->getFileName())
+            ->flatMap(function (string $file) {
+                preg_match_all("/Inertia::render\\('([^']+)'/", file_get_contents($file), $found);
+
+                return $found[1];
+            })
+            ->unique()
+            ->values();
+
+        $this->assertContains('Administration/Internships/Index', $components->all());
+        $gateway = app(SiteHrGateway::class);
+        $refused = $components->reject(fn (string $component) => $gateway->isHrScreen($component))->values()->all();
+        $this->assertSame([], $refused, 'Écrans RH que le portail refuserait : '.implode(', ', $refused));
+    }
+
+    /** Un seul accueil RH par site : l'ancienne adresse `?site=A` mène à celui du site. */
+    public function test_the_portal_hr_page_leads_a_chosen_site_to_its_own_hr_home(): void
+    {
+        Http::fake();
+
+        $this->actingAs($this->superAdmin)->get('/super-admin/workspaces/hr?site=A')
+            ->assertRedirect('/super-admin/sites/A/rh');
+        $this->actingAs($this->superAdmin)->get('/super-admin/workspaces/hr?site=Z')->assertOk();
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/super-admin/hr'));
+    }
+
+    /** ADR-190 — les adresses professionnelles se gèrent sur la page du portail, qui a l'accès à l'hébergeur. */
+    public function test_the_relayed_professional_email_page_leads_to_the_portal_page(): void
+    {
+        Http::fake();
+
+        $this->actingAs($this->superAdmin)->get('/super-admin/sites/a/rh/professional-emails')
+            ->assertRedirect('/super-admin/professional-emails?site=A');
+        Http::assertNothingSent();
     }
 
     public function test_a_write_follows_the_site_redirection_back_into_the_portal(): void

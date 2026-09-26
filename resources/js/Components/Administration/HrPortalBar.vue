@@ -86,7 +86,6 @@ const otherSites = computed(() => (context.value?.sites ?? []).filter((site) => 
                         :class="themeClass(activeGroup?.key === group.key)"
                     >
                         <component :is="group.icon" class="h-4 w-4" />{{ group.label }}
-                        <span class="rounded-full bg-muted-foreground/10 px-1.5 text-[11px] font-bold tabular-nums text-muted-foreground">{{ group.sections.length }}</span>
                     </Link>
                 </div>
 
@@ -104,7 +103,6 @@ const otherSites = computed(() => (context.value?.sites ?? []).filter((site) => 
                         ><component :is="section.icon" class="h-4 w-4" />{{ section.label }}</Link>
                     </div>
                 </template>
-                <p v-else class="px-2 text-sm text-muted-foreground">Choisissez un thème pour voir ses rubriques.</p>
             </div>
         </div>
     </nav>

@@ -45,7 +45,8 @@ test('columns have neighbours, not beyond the edges', () => {
 
 /** Demande du propriétaire : les rubriques de l'accueil RH se rangent comme on veut. */
 test('the HR home cards can be arranged, safely', () => {
-    const home = fs.readFileSync('resources/js/Pages/Administration/Index.vue', 'utf8');
+    // ADR-194 — la grille est un composant partagé par le site et le portail.
+    const home = fs.readFileSync('resources/js/Components/Administration/HrAreaBoard.vue', 'utf8');
 
     assert.match(home, /const STORAGE_KEY = 'rivo:hr:home-areas'/);
     assert.match(home, /onMounted\(\(\) => \{\s*try \{\s*layout\.value = normalizeLayout\(JSON\.parse\(window\.localStorage\.getItem\(STORAGE_KEY\)\)/, 'lue après l’affichage, jamais pendant le rendu serveur');

@@ -297,6 +297,8 @@ export const PERMISSION_CATEGORIES = {
  */
 export const PERMISSION_RESOURCES = {
     'patients.medical_history': 'Antécédents et allergies',
+    // ADR-197 — données sensibles du dossier employé.
+    'employees.payroll': 'Rémunération et compte bancaire',
     'episodes.settlement': 'Passages à régler (sorties)',
 
     'surgery.intervention': 'Intervention',
@@ -346,6 +348,7 @@ export const PERMISSION_RESOURCES = {
  */
 export const PERMISSION_RESOURCE_ICONS = {
     'patients.medical_history': FileClock,
+    'employees.payroll': Wallet,
     'episodes.settlement': CircleDollarSign,
     'surgery.intervention': Slice,
     'surgery.preoperative': ListTodo,

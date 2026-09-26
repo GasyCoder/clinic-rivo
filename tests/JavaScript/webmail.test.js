@@ -5,7 +5,6 @@ import {
     applyActionLocally,
     filterBoxes,
     folderActions,
-    groupBoxesBySite,
     reloadAfterSending,
     folderUrl,
     formatListDate,
@@ -17,6 +16,7 @@ import {
     parseRecipients,
     quotaPercent,
     quotedReply,
+    recipientSuggestions,
     replyRecipients,
     replySubject,
     WEBMAIL_NAVIGATION,
@@ -54,6 +54,7 @@ test('tailles, espace utilisé et initiales', () => {
     assert.equal(quotaPercent(null), null, 'un espace inconnu n’est pas 0 %');
     assert.equal(initialsOf({ name: 'Soa Rakoto', email: 's@x.mg' }), 'SR');
     assert.equal(initialsOf({ name: '', email: 'labo.central@x.mg' }), 'LC');
+    assert.equal(initialsOf({ name: 'Direction — Clinique Saint Georges', email: 'direction@x.mg' }), 'DC');
 });
 
 test('« Re: » et « Tr: » ne se répètent pas', () => {
@@ -135,11 +136,27 @@ test('the boxes one may open are found by name, address, job or site, accents an
     assert.deepEqual(filterBoxes(boxes, 'medecin').map((box) => box.owner), ['Hery Andria']);
     assert.deepEqual(filterBoxes(boxes, 'AMBONDROMAMY sage').map((box) => box.owner), ['Vola Rabe']);
     assert.deepEqual(filterBoxes(boxes, 'vola hery'), [], 'every word must match');
+});
 
-    // Sur le portail, un groupe par site ; sur un site, un seul groupe sans titre.
-    assert.deepEqual(groupBoxesBySite(boxes).map((group) => group.site), ['Ambondromamy', 'Mampikony']);
-    assert.deepEqual(groupBoxesBySite(boxes, false).map((group) => group.site), [null]);
-    assert.deepEqual(groupBoxesBySite([], false), []);
+test('any address can be typed: « Écrire à … » comes first, colleagues follow', () => {
+    const contacts = [
+        { name: 'Vola Rabe', email: 'vola.rabe@cbdc.mg', job: 'Sage-femme' },
+        { name: 'Hery Andria', email: 'hery@cbdc.mg', job: 'Médecin' },
+    ];
+
+    // Un nom : les collègues seulement, rien à « écrire à ».
+    assert.deepEqual(recipientSuggestions(contacts, [], 'vola').map((option) => option.email), ['vola.rabe@cbdc.mg']);
+    // Une adresse d'ailleurs : proposée telle quelle, en tête.
+    const outside = recipientSuggestions(contacts, [], 'fournisseur@gmail.com');
+    assert.equal(outside.length, 1);
+    assert.equal(outside[0].typed, true);
+    assert.equal(outside[0].email, 'fournisseur@gmail.com');
+    // Une adresse incomplète n'est pas proposée ; celle d'un collègue ne se double pas.
+    assert.deepEqual(recipientSuggestions(contacts, [], 'fournisseur@gm'), []);
+    assert.deepEqual(recipientSuggestions(contacts, [], 'hery@cbdc.mg').map((option) => option.typed ?? false), [false]);
+    // Déjà ajoutée : plus rien à proposer.
+    assert.deepEqual(recipientSuggestions(contacts, [{ email: 'fournisseur@gmail.com' }], 'fournisseur@gmail.com'), []);
+    assert.deepEqual(recipientSuggestions(contacts, [], '   '), []);
 });
 
 test('an action changes the screen at once, and only what it changes', () => {

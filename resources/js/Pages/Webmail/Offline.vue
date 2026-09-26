@@ -8,13 +8,15 @@ import RefreshIcon from '@/Components/Shadcn/RefreshIcon.vue';
 
 /**
  * ADR-195 — le serveur de messagerie ne répond pas. Rien n'est perdu : les
- * messages restent chez l'hébergeur. On réessaie, ou on ferme la boîte.
+ * messages restent chez l'hébergeur. On réessaie, ou on ferme la boîte — sauf
+ * celle du portail, dont le mot de passe vit dans son .env.
  */
 defineOptions({ layout: AppLayout });
 
 defineProps({
     message: { type: String, required: true },
     address: { type: String, default: '' },
+    closable: { type: Boolean, default: true },
 });
 
 const retrying = ref(false);
@@ -34,7 +36,7 @@ const retry = () => {
         <p v-if="address" class="text-xs text-muted-foreground">Boîte : {{ address }} — vos messages restent chez l’hébergeur.</p>
         <div class="flex flex-wrap justify-center gap-2">
             <Button type="button" :aria-busy="retrying" :disabled="retrying" @click="retry"><RefreshIcon :spinning="retrying" class="h-4 w-4" /> Réessayer</Button>
-            <Button type="button" variant="outline" @click="router.post('/messagerie/deconnexion')"><LogOut class="h-4 w-4" aria-hidden="true" /> Fermer ma boîte</Button>
+            <Button v-if="closable" type="button" variant="outline" @click="router.post('/messagerie/deconnexion')"><LogOut class="h-4 w-4" aria-hidden="true" /> Fermer ma boîte</Button>
         </div>
     </div>
 </template>

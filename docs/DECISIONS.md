@@ -17603,7 +17603,8 @@ gardes et disponibilité    la disponibilité d'un chirurgien au bloc (ADR-168) 
 DashWind, complète, avec UI et UX », quatre arbitrages explicites)
 ; **amendé le même jour** : la messagerie dépend des permissions (`webmail.view`, `webmail.open_any`) et
 le Super Admin ouvre toute boîte depuis le portail, puis une boîte qui répond en une ou deux secondes au lieu
-d'une minute — voir les amendements en fin d'ADR
+d'une minute — voir les amendements en fin d'ADR ; **amendé le 2026-09-26 (ter)** : le portail a sa propre
+boîte, réglée dans son .env, ouverte directement — il n'ouvre plus la boîte d'un employé
 
 **Complète l'ADR-190** (adresses email professionnelles) : les adresses existaient, on ne pouvait pas s'en
 servir depuis RIVO. Le CDC ne décrit aucune messagerie : les règles ci-dessous sont celles du propriétaire.
@@ -17928,3 +17929,83 @@ professionnels. Un test interdit qu'une icône d'actualisation tourne encore hor
 
 Mesuré dans un navigateur : l'icône passe de 0° à 351° puis s'arrête pile à 0° vers 750 ms, sur la barre comme sur
 l'état vide. Aucune permission, aucune migration.
+
+## Amendement du 2026-09-26 (ter) — le Super Admin arrive directement dans sa boîte, et écrit à n'importe qui
+
+Constat du propriétaire, sur `/messagerie/connexion?changer=1` : le Super Admin tombait sur une liste de boîtes
+d'employés à choisir, puis sur leur mot de passe. Ce n'est pas son travail : il veut lire et envoyer ses propres
+emails, depuis sa boîte, et écrire à n'importe quelle adresse. Deux arbitrages explicites :
+
+```text
+boîte du Super Admin   une adresse propre au portail, réglée dans le .env du portail
+                       (RIVO_WEBMAIL_PORTAL_ADDRESS, RIVO_WEBMAIL_PORTAL_PASSWORD, RIVO_WEBMAIL_PORTAL_NAME)
+                       — ouverte directement, sans rien saisir ni choisir
+boîtes des employés    retirées du portail : le Super Admin n'en ouvre plus aucune
+```
+
+**Divergence signalée avec l'amendement du 2026-09-25**, qui donnait au Super Admin l'ouverture de toute boîte
+d'employé depuis le portail (`webmail.open_any`, liste lue par l'API de chaque site). Cette partie est retirée ;
+sur un site, `webmail.open_any` est inchangé.
+
+**Le mot de passe de la boîte du portail vit dans son .env**, comme l'accès cPanel (ADR-190) : jamais en base,
+jamais dans la session, jamais dans un journal ni dans l'audit. C'est une adresse non nominative (ex.
+`direction@…`) : elle se crée chez l'hébergeur (cPanel › Comptes de messagerie), pas dans « Emails
+professionnels », qui ne crée que des adresses reliées à une fiche employé (ADR-190).
+
+```text
+arrivée              /messagerie et /messagerie/connexion (« changer » compris) mènent à la boîte de réception
+non réglée           page « La boîte du portail n'est pas réglée », qui nomme les variables à renseigner
+mot de passe refusé  page « Messagerie indisponible » qui nomme RIVO_WEBMAIL_PORTAL_PASSWORD — jamais une
+                     redirection vers l'ouverture, qui reviendrait aussitôt ici
+fermer               rien à fermer : aucun mot de passe n'a été saisi (bouton retiré, route sans effet)
+audit                webmail.connect une fois par session (portal_mailbox = true, au nom du Super Admin) — la
+                     boîte est partagée par les Super Admins ; chaque envoi reste audité à son nom
+menu                 « Messagerie » du portail gardé par webmail.view (il l'était par webmail.open_any)
+```
+
+`WebmailAccess::portalBox()` construit la boîte depuis la configuration (identifiant stable tiré de l'adresse,
+drapeau `portal`) ; `WebmailAccess::password()` rend le mot de passe du .env pour elle, celui de la session
+pour toute autre. `canOpenAny()` est faux sur le portail, et l'écran « Ouvrir une boîte » n'y est plus jamais
+affiché : son filtre par site, son actualisation et ses « sites non listés » sont retirés.
+
+**Les adresses des sites restent des destinataires.** Sur le portail, les adresses actives de chaque site (lues
+par leur API, gardées 5 minutes) sont proposées à la frappe dans « À », comme les collègues sur un site.
+
+**N'importe quelle adresse s'écrit — et ce qui est tapé compte.** La saisie libre existait, mais une adresse
+tapée sans Entrée n'entrait dans le message qu'à la sortie du champ : « Envoyer » restait grisé sans dire
+pourquoi. Désormais, dès qu'elle contient « @ », l'adresse en cours de frappe compte : complète, on peut
+envoyer ; incomplète, l'envoi est retenu et le pied de la fenêtre le dit, au lieu de la perdre. Une adresse
+valable qui n'est pas celle d'un collègue est proposée en tête (« Écrire à … », Entrée pour l'ajouter) —
+`recipientSuggestions()` dans `utilities/webmail.js`, testée. Le champ dit « Nom d'un collègue ou n'importe
+quelle adresse email ».
+
+Aucune permission nouvelle, aucune migration. Signalé, non tranché : la boîte du portail est partagée par tous
+les Super Admins (une seule adresse) ; des boîtes nominatives par Super Admin demanderaient un mot de passe par
+compte, donc une saisie — à décider si le besoin apparaît.
+
+# ADR-196 — Navigation compacte et sidebar redimensionnable du portail
+
+**Status:** ACCEPTED (2026-09-26 — demande explicite du propriétaire)
+
+La navigation du portail Super Administration comptait plus de vingt entrées visibles en continu. Les routes,
+les permissions et les règles des modules ne changent pas ; seule leur présentation est réorganisée :
+
+```text
+Vue d’ensemble       accès permanent, hors accordéon
+Établissements       Mampikony, Ambondromamy, Boriziny, puis leurs modules
+Finances             caisses, modes de paiement, rapports financiers
+Référentiels         tarifs, canevas, analyses, adresses, lits, patients VIP
+Pharmacie & stocks   stock médicaments, fournisseurs
+Organisation         RH, emails, messagerie, logistique, gardiennage
+Accès & système      utilisateurs, rôles et droits, corbeille, paramètres, audit/API
+```
+
+Un seul bloc principal est déplié à la fois. Le bloc et, pour les établissements, le site qui portent la page
+courante s’ouvrent automatiquement. Chaque entrée reste filtrée par sa permission dynamique avant de rejoindre
+un bloc ; le regroupement n’accorde donc aucun accès.
+
+Sur grand écran, la sidebar est un panneau redimensionnable de 260 à 420 px (288 px par défaut). La barre accepte
+le pointeur, le tactile et le stylet, les flèches du clavier (Maj pour un pas plus grand), Début/Fin pour les bornes
+et un double-clic ou double-appui pour revenir à la largeur initiale. La largeur est conservée dans le stockage
+local du poste, appliquée après l’hydratation et jamais envoyée au serveur. Le téléphone garde le tiroir fixe et
+le mode compact garde son rail de 74 px. Aucune permission, route, API, donnée métier ni migration n’est modifiée.

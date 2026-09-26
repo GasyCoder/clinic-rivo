@@ -2,9 +2,11 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Audit\Auditor;
 use App\Services\Webmail\MailServerFactory;
 use App\Services\Webmail\WebmailAccess;
 use App\Services\Webmail\WebmailAuthenticationFailed;
+use App\Services\Webmail\WebmailBox;
 use App\Services\Webmail\WebmailMailbox;
 use App\Services\Webmail\WebmailSession;
 use App\Services\Webmail\WebmailUnavailable;
@@ -15,7 +17,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * ADR-195 — remet aux contrôleurs la boîte choisie, avec le mot de passe gardé
- * dans la session. Sans mot de passe : la page d'ouverture.
+ * dans la session — ou, pour la boîte du portail, celui de son .env : le Super
+ * Admin n'a rien à saisir. Sans mot de passe : la page d'ouverture.
  *
  * La connexion au serveur n'a lieu qu'au premier usage (LazyMailServer) : une
  * requête qui ne lit rien — un rechargement partiel — ne la paie pas. Un mot de
@@ -28,12 +31,13 @@ class OpenWebmailMailbox
         private readonly WebmailAccess $access,
         private readonly WebmailSession $session,
         private readonly MailServerFactory $factory,
+        private readonly Auditor $auditor,
     ) {}
 
     public function handle(Request $request, Closure $next): Response
     {
         $mailbox = $this->access->current($request->user());
-        $password = $this->session->passwordFor($mailbox);
+        $password = $this->access->password($mailbox);
 
         if ($mailbox === null || $password === null) {
             // Un envoi d'arrière-plan : l'écran garde le message et dit de rouvrir la boîte.
@@ -48,15 +52,16 @@ class OpenWebmailMailbox
         try {
             $server = $this->factory->open($mailbox->address, $password);
         } catch (WebmailUnavailable $exception) {
-            return self::failure($request, $exception, $this->session);
+            return self::failure($request, $exception, $this->session, $mailbox);
         }
 
+        $this->auditPortalOpening($request, $mailbox);
         app()->instance(WebmailMailbox::class, new WebmailMailbox($server, $mailbox));
 
         try {
             return $next($request);
         } catch (WebmailUnavailable $exception) {
-            return self::failure($request, $exception, $this->session);
+            return self::failure($request, $exception, $this->session, $mailbox);
         } finally {
             $server->disconnect();
         }
@@ -65,9 +70,17 @@ class OpenWebmailMailbox
     /**
      * Le serveur refuse le mot de passe : il est oublié, et redemandé. Il ne répond
      * pas : une page le dit (lecture), ou le formulaire garde sa saisie (écriture).
+     *
+     * Le mot de passe de la boîte du portail vit dans son .env : rien à redemander,
+     * la page dit quel réglage corriger — une redirection vers l'ouverture
+     * reviendrait ici aussitôt.
      */
-    public static function failure(Request $request, WebmailUnavailable $exception, WebmailSession $session): Response
+    public static function failure(Request $request, WebmailUnavailable $exception, WebmailSession $session, ?WebmailBox $mailbox = null): Response
     {
+        if ($exception instanceof WebmailAuthenticationFailed && $mailbox?->portal) {
+            $exception = WebmailUnavailable::because('Le serveur de messagerie refuse le mot de passe de la boîte du portail : corrigez RIVO_WEBMAIL_PORTAL_PASSWORD dans le .env du portail.');
+        }
+
         if ($exception instanceof WebmailAuthenticationFailed) {
             $box = $session->box();
             $session->forget();
@@ -87,7 +100,12 @@ class OpenWebmailMailbox
         }
 
         if ($request->isMethod('GET') && ! ($request->expectsJson() && ! $request->header('X-Inertia'))) {
-            return Inertia::render('Webmail/Offline', ['message' => $exception->getMessage(), 'address' => $session->box()?->address])
+            return Inertia::render('Webmail/Offline', [
+                'message' => $exception->getMessage(),
+                'address' => $mailbox?->address ?? $session->box()?->address,
+                // La boîte du portail ne se ferme pas : aucun mot de passe n'a été saisi.
+                'closable' => ! ($mailbox?->portal ?? false),
+            ])
                 ->toResponse($request)
                 ->setStatusCode(503);
         }
@@ -97,6 +115,27 @@ class OpenWebmailMailbox
         }
 
         return back()->withErrors(['webmail' => $exception->getMessage()]);
+    }
+
+    /**
+     * La boîte du portail est partagée par les Super Admins et s'ouvre sans saisie :
+     * l'audit dit qui l'a ouverte, une fois par session (ADR-195). Chaque envoi
+     * l'est déjà, à son nom.
+     */
+    private function auditPortalOpening(Request $request, WebmailBox $mailbox): void
+    {
+        if (! $mailbox->portal || ! $request->hasSession() || $request->session()->get('webmail.portal_opened') === $mailbox->address) {
+            return;
+        }
+
+        $request->session()->put('webmail.portal_opened', $mailbox->address);
+        $this->auditor->record('webmail.connect', newValues: [
+            'address' => $mailbox->address,
+            'site' => null,
+            'titular' => $mailbox->owner,
+            'own_mailbox' => true,
+            'portal_mailbox' => true,
+        ], module: 'webmail');
     }
 
     /** Une requête d'arrière-plan (fetch) attend du JSON, pas une page ni une redirection. */

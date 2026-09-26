@@ -12,6 +12,7 @@ use App\Http\Middleware\EnsureWebmailAccess;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\KeepPhysicalActsAtSite;
 use App\Http\Middleware\OpenWebmailMailbox;
+use App\Services\Webmail\WebmailAccess;
 use App\Services\Webmail\WebmailSession;
 use App\Services\Webmail\WebmailUnavailable;
 use App\Http\Middleware\ServeHrScreensAsJson;
@@ -75,7 +76,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // injoignable » — jamais une erreur 500. Ce sont des situations prévues : le
         // client IMAP les journalise déjà, sans le mot de passe.
         $exceptions->dontReport([WebmailUnavailable::class]);
-        $exceptions->render(fn (WebmailUnavailable $exception, Request $request) => OpenWebmailMailbox::failure($request, $exception, app(WebmailSession::class)));
+        $exceptions->render(fn (WebmailUnavailable $exception, Request $request) => OpenWebmailMailbox::failure(
+            $request,
+            $exception,
+            app(WebmailSession::class),
+            // La boîte du portail : son mot de passe vit dans le .env, rien à redemander.
+            app(WebmailAccess::class)->current($request->user()),
+        ));
 
         // ADR-154 — un refus doit dire ce qui manque.
         //

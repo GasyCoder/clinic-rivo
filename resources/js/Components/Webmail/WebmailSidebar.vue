@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import {
     ArrowLeftRight,
+    Building2,
     Eye,
     FileText,
     Folder,
@@ -78,11 +79,34 @@ const counter = (folder) => (folder.role === 'drafts' ? folder.total : folder.un
                     <Button v-if="mailbox.can_switch" :as="Link" :href="`${WEBMAIL_BASE}/connexion?changer=1`" variant="ghost" size="xs" icon title="Ouvrir une autre boîte" aria-label="Ouvrir une autre boîte">
                         <ArrowLeftRight class="h-4 w-4" aria-hidden="true" />
                     </Button>
-                    <Button type="button" variant="ghost" size="xs" icon :title="mailbox.own === false ? 'Fermer cette boîte (le mot de passe sera redemandé)' : 'Fermer ma boîte (le mot de passe sera redemandé)'" :aria-label="mailbox.own === false ? 'Fermer cette boîte' : 'Fermer ma boîte'" @click="emit('logout')">
+                    <!-- La boîte du portail ne se ferme pas : son mot de passe vit dans le .env, rien n'a été saisi. -->
+                    <Button v-if="!mailbox.portal" type="button" variant="ghost" size="xs" icon :title="mailbox.own === false ? 'Fermer cette boîte (le mot de passe sera redemandé)' : 'Fermer ma boîte (le mot de passe sera redemandé)'" :aria-label="mailbox.own === false ? 'Fermer cette boîte' : 'Fermer ma boîte'" @click="emit('logout')">
                         <LogOut class="h-4 w-4" aria-hidden="true" />
                     </Button>
                 </div>
             </div>
+
+            <!-- La boîte du portail, partagée par les Super Admins : une pastille neutre, le détail au clic. -->
+            <Popover v-if="mailbox.portal" align="start" width-class="w-[min(18rem,calc(100vw-2rem))]">
+                <template #trigger>
+                    <button
+                        type="button"
+                        class="mt-2.5 inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label="Boîte du portail : ce que cela implique"
+                    >
+                        <Building2 class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span class="truncate">Boîte du portail</span>
+                        <Info class="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden="true" />
+                    </button>
+                </template>
+                <div class="flex items-start gap-2.5 p-4 text-xs leading-5 text-muted-foreground">
+                    <ShieldCheck class="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                    <p>
+                        <strong class="block text-sm font-semibold text-foreground">Boîte du portail</strong>
+                        L’adresse du Super Admin, réglée dans le .env du portail : elle s’ouvre sans mot de passe à saisir. Chaque envoi est enregistré dans l’audit à votre nom.
+                    </p>
+                </div>
+            </Popover>
 
             <!-- ADR-195 — la boîte d'un autre employé se dit en permanence : une pastille, le détail au clic. -->
             <Popover v-if="mailbox.own === false" align="start" width-class="w-[min(18rem,calc(100vw-2rem))]">

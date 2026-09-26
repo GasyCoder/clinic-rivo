@@ -1,9 +1,8 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { Head, Link, useForm } from '@inertiajs/vue3';
 import {
     ArrowLeft,
-    Building2,
     Check,
     Eye,
     Inbox,
@@ -13,7 +12,6 @@ import {
     Mail,
     Search,
     ShieldCheck,
-    TriangleAlert,
     UserRound,
     Users,
 } from 'lucide-vue-next';
@@ -24,20 +22,20 @@ import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import NoticesButton from '@/Components/Shadcn/NoticesButton.vue';
 import PasswordInput from '@/Components/Shadcn/PasswordInput.vue';
-import RefreshIcon from '@/Components/Shadcn/RefreshIcon.vue';
 import { cn } from '@/lib/cn';
-import { avatarTone, filterBoxes, groupBoxesBySite, initialsOf, WEBMAIL_BASE } from '@/utilities/webmail';
+import { avatarTone, filterBoxes, initialsOf, WEBMAIL_BASE } from '@/utilities/webmail';
 
 /**
- * ADR-195 — ouvrir une boîte. Sa propre boîte (`webmail.view`), ou, avec
- * `webmail.open_any`, celle d'un autre employé — sur ce site, ou depuis le
- * portail sur n'importe quel site. Dans tous les cas, le mot de passe de la
- * boîte : c'est le serveur de messagerie qui l'exige, et RIVO ne le connaît pas
- * (ADR-190). Il est gardé chiffré le temps de la session, puis oublié.
+ * ADR-195 — ouvrir une boîte, sur un site. Sa propre boîte (`webmail.view`), ou,
+ * avec `webmail.open_any`, celle d'un autre employé du site. Dans tous les cas, le
+ * mot de passe de la boîte : c'est le serveur de messagerie qui l'exige, et RIVO
+ * ne le connaît pas (ADR-190). Il est gardé chiffré le temps de la session, puis
+ * oublié. Le portail n'affiche jamais cette page : sa boîte, réglée dans son .env,
+ * s'ouvre directement.
  *
- * Pleine largeur : à gauche les boîtes, en grille, par site ; à droite, fixe,
- * la boîte choisie et son mot de passe. Choisir une boîte place le curseur dans
- * le mot de passe ; les flèches passent d'une boîte à l'autre.
+ * Pleine largeur : à gauche les boîtes, en grille ; à droite, fixe, la boîte
+ * choisie et son mot de passe. Choisir une boîte place le curseur dans le mot de
+ * passe ; les flèches passent d'une boîte à l'autre.
  */
 defineOptions({ layout: AppLayout });
 
@@ -45,36 +43,22 @@ const props = defineProps({
     own: { type: Object, default: null },
     others: { type: Array, default: () => [] },
     canOpenAny: { type: Boolean, default: false },
-    portal: { type: Boolean, default: false },
-    unreachable: { type: Array, default: () => [] },
     selected: { type: String, default: null },
     openBox: { type: Object, default: null },
 });
 
 const boxes = computed(() => [...(props.own ? [props.own] : []), ...props.others]);
 const query = ref('');
-const siteFilter = ref(null);
 
-const sites = computed(() => {
-    const names = new Map();
-    for (const box of props.others) {
-        if (box.site_code) names.set(box.site_code, box.site_name ?? box.site_code);
-    }
-
-    return [...names].map(([code, name]) => ({ code, name, count: props.others.filter((box) => box.site_code === code).length }));
-});
-const shown = computed(() => filterBoxes(props.others, query.value)
-    .filter((box) => !siteFilter.value || box.site_code === siteFilter.value));
-const groups = computed(() => groupBoxesBySite(shown.value, props.portal));
-const showOwn = computed(() => Boolean(props.own) && !query.value && !siteFilter.value);
+const shown = computed(() => filterBoxes(props.others, query.value));
+const showOwn = computed(() => Boolean(props.own) && !query.value);
 /** L'ordre dans lequel les flèches parcourent les boîtes affichées. */
-const navigable = computed(() => [...(showOwn.value ? [props.own] : []), ...groups.value.flatMap((group) => group.boxes)]);
+const navigable = computed(() => [...(showOwn.value ? [props.own] : []), ...shown.value]);
 
-const form = useForm({ mailbox: props.selected ?? boxes.value[0]?.uuid ?? null, site: null, password: '' });
+const form = useForm({ mailbox: props.selected ?? boxes.value[0]?.uuid ?? null, password: '' });
 const chosen = computed(() => boxes.value.find((box) => box.uuid === form.mailbox) ?? null);
 
-watch(chosen, (box) => {
-    form.site = box?.site_code ?? null;
+watch(chosen, () => {
     form.password = '';
     form.clearErrors('password');
 }, { immediate: true });
@@ -99,14 +83,6 @@ const tabIndexOf = (box) => (box.uuid === form.mailbox || (!navigable.value.some
 
 const submit = () => form.post(`${WEBMAIL_BASE}/connexion`, { onFinish: () => form.reset('password') });
 
-const refreshing = ref(false);
-const refresh = () => router.reload({
-    data: { actualiser: 1 },
-    only: ['others', 'unreachable'],
-    onStart: () => { refreshing.value = true; },
-    onFinish: () => { refreshing.value = false; },
-});
-
 // À l'arrivée, le curseur va au mot de passe sur grand écran seulement : sur un
 // téléphone, il ouvrirait le clavier et ferait défiler la page sous la liste.
 onMounted(() => {
@@ -114,8 +90,8 @@ onMounted(() => {
 });
 
 // Tout ce qui est bon à savoir tient dans le bouton « ! » de l'en-tête : l'audit d'une
-// boîte d'employé et les sites non listés d'abord (en ambre), puis les informations.
-// Le badge « Boîte d'un employé » reste, lui, visible sur la boîte choisie.
+// boîte d'employé d'abord (en ambre), puis les informations. Le badge « Boîte d'un
+// employé » reste, lui, visible sur la boîte choisie.
 const notices = computed(() => [
     ...(chosen.value && !chosen.value.own ? [{
         key: 'audit',
@@ -124,30 +100,15 @@ const notices = computed(() => [
         title: 'Boîte d’un employé',
         text: `Vous ouvrez la boîte de ${chosen.value.owner}. Chaque ouverture et chaque message envoyé depuis cette adresse sont enregistrés dans l’audit à votre nom.`,
     }] : []),
-    ...(props.unreachable.length ? [{
-        key: 'unreachable',
-        icon: TriangleAlert,
-        tone: 'warning',
-        title: 'Boîtes non listées',
-        text: `Pour : ${props.unreachable.join(', ')}.`,
-    }] : []),
     { key: 'password', icon: LockKeyhole, tone: 'info', title: 'Mot de passe', text: 'Le mot de passe de l’adresse, pas celui de RIVO : gardé chiffré le temps de la session, jamais enregistré.' },
     { key: 'copy', icon: Mail, tone: 'info', title: 'Aucune copie', text: 'Les messages restent chez l’hébergeur : RIVO les lit en direct, sans copie.' },
-    {
-        key: 'forgotten',
-        icon: UserRound,
-        tone: 'info',
-        title: 'Mot de passe oublié',
-        text: props.portal ? '« Emails professionnels » en donne un nouveau — le titulaire devra alors l’utiliser.' : 'Demandez-en un nouveau aux Ressources humaines.',
-    },
+    { key: 'forgotten', icon: UserRound, tone: 'info', title: 'Mot de passe oublié', text: 'Demandez-en un nouveau aux Ressources humaines.' },
 ]);
 
 const title = computed(() => (props.canOpenAny ? 'Ouvrir une boîte' : 'Ouvrir ma boîte'));
 const intro = computed(() => {
     if (!props.canOpenAny) return 'Votre boîte professionnelle, lue en direct chez l’hébergeur.';
-    return props.portal
-        ? 'Les adresses actives de chaque site, lues par leur API. Choisissez une boîte, puis saisissez son mot de passe.'
-        : 'Votre boîte, ou celle d’un employé du site. Choisissez-la, puis saisissez son mot de passe.';
+    return 'Votre boîte, ou celle d’un employé du site. Choisissez-la, puis saisissez son mot de passe.';
 });
 </script>
 
@@ -166,9 +127,6 @@ const intro = computed(() => {
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-2 sm:justify-end">
-                <Button v-if="canOpenAny && portal" type="button" variant="white-outline" size="sm" :aria-busy="refreshing" :disabled="refreshing" title="Relire les adresses actives des sites" @click="refresh">
-                    <RefreshIcon :spinning="refreshing" class="h-4 w-4" /> Actualiser
-                </Button>
                 <NoticesButton :notices="notices" />
                 <Button v-if="openBox" :as="Link" :href="WEBMAIL_BASE" variant="outline" size="sm">
                     <ArrowLeft class="h-4 w-4" aria-hidden="true" /> Revenir à {{ openBox.owner }}
@@ -185,30 +143,12 @@ const intro = computed(() => {
                             <Users class="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Quelle boîte ?
                         </h2>
                         <p class="mt-0.5 text-xs text-muted-foreground">
-                            {{ others.length }} adresse{{ others.length > 1 ? 's' : '' }} active{{ others.length > 1 ? 's' : '' }}<template v-if="portal && sites.length"> · {{ sites.length }} site{{ sites.length > 1 ? 's' : '' }}</template><template v-if="own"> · et la vôtre</template>
+                            {{ others.length }} adresse{{ others.length > 1 ? 's' : '' }} active{{ others.length > 1 ? 's' : '' }}<template v-if="own"> · et la vôtre</template>
                         </p>
                     </div>
                     <div class="w-full sm:w-80">
-                        <IconInput v-model="query" :icon="Search" type="search" placeholder="Nom, adresse, fonction, site…" aria-label="Chercher une boîte" />
+                        <IconInput v-model="query" :icon="Search" type="search" placeholder="Nom, adresse, fonction…" aria-label="Chercher une boîte" />
                     </div>
-                </div>
-
-                <!-- Un site à la fois, sur le portail -->
-                <div v-if="portal && sites.length > 1" class="flex flex-wrap gap-1.5 border-b border-border px-4 py-2.5" role="group" aria-label="Filtrer par site">
-                    <button
-                        type="button"
-                        :aria-pressed="!siteFilter"
-                        :class="cn('rounded-full px-3 py-1 text-xs font-semibold transition-colors', !siteFilter ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-accent hover:text-foreground')"
-                        @click="siteFilter = null"
-                    >Tous les sites</button>
-                    <button
-                        v-for="site in sites"
-                        :key="site.code"
-                        type="button"
-                        :aria-pressed="siteFilter === site.code"
-                        :class="cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors', siteFilter === site.code ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-accent hover:text-foreground')"
-                        @click="siteFilter = siteFilter === site.code ? null : site.code"
-                    >{{ site.name }} <span class="tabular-nums opacity-70">{{ site.count }}</span></button>
                 </div>
 
                 <div class="space-y-5 p-4" role="radiogroup" :aria-labelledby="canOpenAny ? 'webmail-boxes-title' : undefined" :aria-label="canOpenAny ? undefined : 'Ma boîte'" @keydown="onGridKeydown">
@@ -235,17 +175,13 @@ const intro = computed(() => {
                         </div>
                     </div>
 
-                    <!-- Les autres, par site -->
-                    <div v-for="group in groups" :key="group.site ?? 'site'">
-                        <p v-if="group.site" class="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-                            <Building2 class="h-3.5 w-3.5" aria-hidden="true" /> {{ group.site }}
-                            <span class="font-semibold normal-case tracking-normal tabular-nums">· {{ group.boxes.length }}</span>
-                        </p>
+                    <!-- Les autres employés du site -->
+                    <div v-if="shown.length">
                         <div class="grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">
                             <button
-                                v-for="box in group.boxes"
+                                v-for="box in shown"
                                 :id="`webmail-box-${box.uuid}`"
-                                :key="`${box.site_code}-${box.uuid}`"
+                                :key="box.uuid"
                                 type="button"
                                 role="radio"
                                 :aria-checked="form.mailbox === box.uuid"
@@ -266,11 +202,8 @@ const intro = computed(() => {
 
                     <div v-if="canOpenAny && !shown.length && !showOwn" class="flex flex-col items-center gap-2 px-3 py-12 text-center">
                         <span class="grid h-12 w-12 place-items-center rounded-full bg-muted text-muted-foreground"><Inbox class="h-5 w-5" aria-hidden="true" /></span>
-                        <p class="text-sm text-muted-foreground">
-                            {{ query || siteFilter ? 'Aucune boîte ne correspond.' : 'Aucune adresse professionnelle active.' }}
-                            <template v-if="!query && !siteFilter && portal"> Elles se créent dans « Emails professionnels ».</template>
-                        </p>
-                        <button v-if="query || siteFilter" type="button" class="text-sm font-medium text-primary hover:underline" @click="query = ''; siteFilter = null">Tout afficher</button>
+                        <p class="text-sm text-muted-foreground">{{ query ? 'Aucune boîte ne correspond.' : 'Aucune adresse professionnelle active.' }}</p>
+                        <button v-if="query" type="button" class="text-sm font-medium text-primary hover:underline" @click="query = ''">Tout afficher</button>
                     </div>
                 </div>
 
@@ -290,7 +223,6 @@ const intro = computed(() => {
                             <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
                                 <Badge v-if="chosen.own" tone="primary">Ma boîte</Badge>
                                 <Badge v-else tone="warning"><Eye class="me-1 h-3 w-3" aria-hidden="true" /> Boîte d’un employé</Badge>
-                                <span v-if="chosen.site_name && portal" class="inline-flex items-center gap-1 text-xs text-muted-foreground"><Building2 class="h-3.5 w-3.5" aria-hidden="true" /> {{ chosen.site_name }}</span>
                             </div>
                         </div>
                     </div>

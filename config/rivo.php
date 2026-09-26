@@ -268,6 +268,13 @@ return [
             'port' => (int) env('RIVO_WEBMAIL_SMTP_PORT', 465),
             'encryption' => env('RIVO_WEBMAIL_SMTP_ENCRYPTION', 'ssl'),
         ],
+        // Portail seulement : la boîte du Super Admin, ouverte sans saisie. Son mot de passe
+        // vit dans le .env du portail, comme l'accès cPanel (ADR-190) — jamais en base.
+        'portal' => [
+            'address' => env('RIVO_WEBMAIL_PORTAL_ADDRESS'),
+            'password' => env('RIVO_WEBMAIL_PORTAL_PASSWORD'),
+            'name' => env('RIVO_WEBMAIL_PORTAL_NAME'),
+        ],
         'timeout' => (int) env('RIVO_WEBMAIL_TIMEOUT', 20),
         'per_page' => 25,
         // Pièces jointes d'un message envoyé : par fichier et au total, en Mo.

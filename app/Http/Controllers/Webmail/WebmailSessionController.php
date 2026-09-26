@@ -19,8 +19,12 @@ use Inertia\Response;
 
 /**
  * ADR-195 — ouvrir et fermer une boîte. Sa propre boîte avec `webmail.view`, celle
- * d'un autre employé avec `webmail.open_any` — choisie parmi les adresses actives,
- * relues côté serveur, jamais décrites par le navigateur.
+ * d'un autre employé du site avec `webmail.open_any` — choisie parmi les adresses
+ * actives, relues côté serveur, jamais décrites par le navigateur.
+ *
+ * Le portail n'a rien à ouvrir ni à fermer : sa boîte est réglée dans son .env et
+ * le Super Admin arrive directement dans la boîte de réception (amendement du
+ * 2026-09-26).
  *
  * Le mot de passe est vérifié par le serveur de messagerie lui-même, puis gardé
  * chiffré dans la session et nulle part ailleurs (ADR-190). Chaque ouverture,
@@ -33,27 +37,20 @@ class WebmailSessionController extends Controller
     {
         $user = $request->user();
         $current = $access->current($user);
-        $switching = $request->boolean('changer');
+        $own = $access->ownBox($user);
 
-        if (! $switching && $session->passwordFor($current) !== null) {
+        // Le portail : sa boîte s'ouvre sans rien saisir ni choisir, « changer » compris.
+        if ($own?->portal || (! $request->boolean('changer') && $access->password($current) !== null)) {
             return redirect()->route('webmail.index');
         }
 
-        $own = $access->ownBox($user);
-        // Sur le portail, la liste des boîtes des sites (lue par leur API) est gardée
-        // quelques minutes : la page s'affiche sans attendre les sites. « Actualiser » la
-        // relit ; l'ouverture, elle, revérifie toujours la boîte choisie à l'instant.
-        $others = $access->others($user, fresh: $request->boolean('actualiser'));
-
         return Inertia::render('Webmail/Connect', [
             'own' => $own?->toArray(),
-            'others' => array_map(fn (WebmailBox $box) => $box->toArray(), $others),
+            'others' => array_map(fn (WebmailBox $box) => $box->toArray(), $access->others($user)),
             'canOpenAny' => $access->canOpenAny($user),
-            'portal' => WebmailAccess::onPortal(),
-            'unreachable' => $access->unreachableSites($user),
             // La boîte proposée d'abord : celle déjà choisie, sinon la sienne, sinon aucune.
             'selected' => $current?->uuid ?? $own?->uuid,
-            'openBox' => $session->passwordFor($current) !== null ? $current?->toArray() : null,
+            'openBox' => $access->password($current) !== null ? $current?->toArray() : null,
         ]);
     }
 
@@ -63,11 +60,15 @@ class WebmailSessionController extends Controller
             [
                 'password' => ['required', 'string', 'max:200'],
                 'mailbox' => ['nullable', 'uuid'],
-                'site' => ['nullable', 'string', 'max:20'],
             ],
             ['password.required' => 'Saisissez le mot de passe de la boîte.'],
         );
         $box = $this->chosenBox($request, $access, $validated);
+
+        // La boîte du portail n'attend aucun mot de passe : celui du .env fait foi.
+        if ($box->portal) {
+            return redirect()->route('webmail.index');
+        }
 
         try {
             $factory->connect($box->address, $validated['password'])->disconnect();
@@ -89,6 +90,12 @@ class WebmailSessionController extends Controller
     public function destroy(Request $request, WebmailAccess $access, WebmailSession $session, Auditor $auditor): RedirectResponse
     {
         $box = $access->current($request->user());
+
+        // La boîte du portail ne se ferme pas : aucun mot de passe n'a été saisi.
+        if ($box?->portal) {
+            return redirect()->route('webmail.index');
+        }
+
         $session->forget();
         $auditor->record('webmail.disconnect', entity: $box ? $this->record($box) : null, newValues: $box ? $this->auditValues($box) : [], module: 'webmail');
 
@@ -117,7 +124,7 @@ class WebmailSessionController extends Controller
 
         abort_unless($access->canOpenAny($user), 403, 'Ouvrir la boîte d’un autre employé demande le droit « '.WebmailAccess::OPEN_ANY.' ».');
 
-        return $access->findOther($user, $uuid, $validated['site'] ?? null)
+        return $access->findOther($user, $uuid)
             ?? throw ValidationException::withMessages(['mailbox' => 'Cette boîte n’est pas (ou plus) active.']);
     }
 

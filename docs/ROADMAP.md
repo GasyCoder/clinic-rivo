@@ -704,8 +704,12 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Boîte de réception : compteurs en pastilles rouges sur « Tous / Non lus / Favoris » (lus par le serveur dans le même lot, mis à jour tout de suite), non-lus rouges dans les dossiers, pastille « Boîte d'un employé » à la place du bandeau, filtres sur une ligne à 390 px (ADR-195, amendement du 2026-09-26 bis)
 - [x] « Actualiser » et « Réessayer » tournent à chaque clic, dans toute l'application : au moins un tour, arrêt en fin de tour, animations réduites respectées (`Shadcn/RefreshIcon`, ADR-195)
 - [ ] Connexions IMAP gardées ouvertes entre les requêtes (service dédié) ou RIVO hébergé près du serveur de mail — le plancher restant (~1,1 s par clic depuis Madagascar), décision d'architecture (ADR-195)
-- [x] Messagerie pilotée par les permissions : `webmail.view` (sa boîte, menu visible) et `webmail.open_any` (la boîte d'un autre employé) ; le Super Admin ouvre toute boîte depuis le portail, mot de passe toujours exigé, audité (ADR-195, amendement du 2026-09-25)
+- [x] Messagerie pilotée par les permissions : `webmail.view` (sa boîte, menu visible) et `webmail.open_any` (la boîte d'un autre employé du site), mot de passe toujours exigé, audité (ADR-195, amendement du 2026-09-25 ; ouverture depuis le portail retirée le 2026-09-26)
 - [x] Page « Aucune boîte à ouvrir » qui dit pourquoi : droit manquant, compte non relié, fiche sans adresse, adresse inactive (ADR-195)
+- [x] Le Super Admin arrive directement dans la boîte du portail (réglée dans son .env), sans choisir de boîte d'employé ni saisir de mot de passe ; ouverture des boîtes d'employés retirée du portail ; adresses des sites proposées comme destinataires (ADR-195, amendement du 2026-09-26 ter)
+- [x] « Nouveau message » : une adresse tapée compte sans Entrée (« Envoyer » n'est plus grisé en silence), « Écrire à … » proposé pour toute adresse hors collègues (ADR-195, amendement du 2026-09-26 ter)
+- [ ] Créer l'adresse du portail chez l'hébergeur (ex. direction@…) et renseigner `RIVO_WEBMAIL_PORTAL_ADDRESS` / `_PASSWORD` / `_NAME` dans le .env du portail (ADR-195)
+- [ ] Boîtes nominatives par Super Admin (au lieu d'une boîte partagée) — demanderait une saisie de mot de passe, à décider (ADR-195)
 - [ ] Renseigner `RIVO_WEBMAIL_IMAP_HOST` / `RIVO_WEBMAIL_SMTP_HOST` sur chaque site, puis un premier essai sur une vraie boîte o2switch (ADR-195)
 - [ ] Relier chaque compte d'un site à sa fiche employé (Utilisateurs › Personnel clinique) pour que chacun ouvre sa boîte (ADR-188, ADR-195)
 - [ ] Prévenir le titulaire quand un autre ouvre sa boîte ; recopier cet audit sur le site — à décider (ADR-195)
@@ -837,6 +841,7 @@ admin.rivo.mg
 - [x] Services, chambres et lits de chaque site : écran portail `/super-admin/hospital-beds`, par l'API du site, sans jamais afficher le nom d'un patient (ADR-164)
 - [x] Espace Fournisseurs pharmacie entièrement en shadcn (ADR-099) : index en dossiers avec vue liste, création et import en fenêtres, et les quatorze pages de détail migrées avec leurs composants partagés
 - [x] Portail Super Administration entièrement en shadcn (ADR-099) : les 36 écrans et les composants partagés (`PageHeader`, `IconInput`, `Card`, `Breadcrumb`, `EmptyState`, `Explorer*`, `FolderCard`, `FormSection`, `ValidationErrorSummary`) quittent la police d'icônes et la palette DashWind, sans changer aucun contrat de props
+- [x] Navigation du portail regroupée en six blocs repliables (un seul ouvert), destinations et permissions inchangées ; sidebar redimensionnable à la souris, au tactile et au clavier, largeur conservée sur le poste (ADR-196)
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste
 - [ ] Action « appliquer aux deux sites »
 - [ ] Résultat et reprise séparés en cas d’échec partiel

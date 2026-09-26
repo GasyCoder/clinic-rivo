@@ -6,7 +6,6 @@ use App\Services\Settings\AppSettings;
 use App\Services\Settings\SiteMaintenanceState;
 use App\Services\SuperAdmin\PortalDirectory;
 use App\Services\Webmail\WebmailAccess;
-use App\Services\Webmail\WebmailSession;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -91,10 +90,11 @@ class HandleInertiaRequests extends Middleware
                 'maintenance' => app(SiteMaintenanceState::class)->sharedProp($user),
             ],
             // ADR-195 — la messagerie : proposée selon les permissions (`webmail.view`,
-            // `webmail.open_any`) ; `connected` dit si une boîte est ouverte.
+            // `webmail.open_any`) ; `connected` dit si une boîte est ouverte — celle du
+            // portail l'est toujours, son mot de passe vivant dans son .env.
             'webmail' => fn () => [
                 'available' => app(WebmailAccess::class)->canUse($user),
-                'connected' => app(WebmailSession::class)->passwordFor(app(WebmailAccess::class)->current($user)) !== null,
+                'connected' => app(WebmailAccess::class)->password(app(WebmailAccess::class)->current($user)) !== null,
             ],
             // ADR-191 — taille du texte, densité, arrondis, animations, contraste :
             // ceux du site, ajustés par l'utilisateur. Appliqués sur <html> dès le rendu

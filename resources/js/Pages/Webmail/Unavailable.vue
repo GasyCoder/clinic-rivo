@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
-import { KeyRound, Link2, MailX, UserRoundX } from 'lucide-vue-next';
+import { KeyRound, Link2, MailX, Settings2, UserRoundX } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 
@@ -9,7 +9,8 @@ import Button from '@/Components/Shadcn/Button.vue';
  * ADR-195 — pourquoi ce compte n'a aucune boîte à ouvrir, et quoi faire. La
  * messagerie dépend des permissions : `webmail.view` ouvre sa propre boîte —
  * l'adresse active de la fiche employé reliée au compte —, `webmail.open_any`
- * celle d'un autre employé. Jamais un refus muet.
+ * celle d'un autre employé. Sur le portail, la boîte est celle réglée dans son
+ * .env. Jamais un refus muet.
  */
 defineOptions({ layout: AppLayout });
 
@@ -24,9 +25,19 @@ const content = computed(() => ({
     permission: {
         icon: KeyRound,
         title: 'Messagerie non accordée à ce compte',
+        lines: props.portal
+            ? [`La messagerie du portail demande le droit « ${props.permission} ».`]
+            : [
+                `La messagerie demande le droit « ${props.permission} » (sa propre boîte), ou « webmail.open_any » (la boîte d’un autre employé).`,
+                'Il s’accorde dans « Rôles & permissions » : au socle du rôle, ou en exception pour ce compte.',
+            ],
+    },
+    portal_unconfigured: {
+        icon: Settings2,
+        title: 'La boîte du portail n’est pas réglée',
         lines: [
-            `La messagerie demande le droit « ${props.permission} » (sa propre boîte), ou « webmail.open_any » (la boîte d’un autre employé).`,
-            'Il s’accorde dans « Rôles & permissions » : au socle du rôle, ou en exception pour ce compte.',
+            'Le Super Admin lit et envoie ses emails depuis une adresse propre au portail, ouverte sans rien saisir.',
+            'Renseignez RIVO_WEBMAIL_PORTAL_ADDRESS et RIVO_WEBMAIL_PORTAL_PASSWORD dans le .env du portail (une adresse non nominative, ex. direction@…, se crée chez l’hébergeur : cPanel › Comptes de messagerie).',
         ],
     },
     unlinked: {

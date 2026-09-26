@@ -43,6 +43,35 @@ export function parseRecipients(value) {
     return { valid, invalid };
 }
 
+/**
+ * ADR-195 — ce que le champ « À » propose pendant la frappe : les collègues qui
+ * correspondent (six au plus) et, quand ce qui est tapé est une adresse valable
+ * qui n'est ni déjà ajoutée ni celle d'un collègue, « Écrire à … » en tête —
+ * n'importe quelle adresse s'écrit, pas seulement celles de la clinique.
+ *
+ * @param {Array<{name: string, email: string, job?: string|null}>} contacts
+ * @param {Array<{email: string}>} chosen  les adresses déjà ajoutées
+ * @param {string} typed                   ce qui est en cours de frappe
+ * @returns {Array<{name: string, email: string, job?: string|null, typed?: boolean}>}
+ */
+export function recipientSuggestions(contacts, chosen, typed) {
+    const text = String(typed ?? '').trim();
+    const query = text.toLowerCase();
+    if (!query) return [];
+
+    const taken = new Set((chosen ?? []).map((chip) => String(chip.email).toLowerCase()));
+    const matches = (contacts ?? [])
+        .filter((contact) => !taken.has(contact.email.toLowerCase()))
+        .filter((contact) => `${contact.name} ${contact.email} ${contact.job ?? ''}`.toLowerCase().includes(query))
+        .slice(0, 6);
+
+    const other = isEmail(text)
+        && !taken.has(query)
+        && !matches.some((contact) => contact.email.toLowerCase() === query);
+
+    return other ? [{ name: '', email: text, typed: true }, ...matches] : matches;
+}
+
 /** « Dr Vola » ou, à défaut de nom, l'adresse. */
 export function senderLabel(party) {
     if (!party) return 'Expéditeur inconnu';
@@ -50,13 +79,19 @@ export function senderLabel(party) {
     return String(party.name ?? '').trim() || String(party.email ?? '').trim() || 'Expéditeur inconnu';
 }
 
-/** Deux lettres pour la pastille : initiales du nom, sinon de l'adresse. */
+/**
+ * Deux lettres pour la pastille : initiales du nom, sinon de l'adresse. Un tiret
+ * ou un signe seul (« Direction — Clinique ») n'est pas un mot.
+ */
 export function initialsOf(party) {
     const name = String(party?.name ?? '').trim();
     const source = name || String(party?.email ?? '').split('@')[0] || '?';
-    const words = source.split(/[\s._-]+/).filter(Boolean);
+    const words = source.split(/[\s._-]+/).filter((word) => /[\p{L}\p{N}]/u.test(word));
+    const first = (word) => word.match(/[\p{L}\p{N}]/u)[0];
 
-    return (words.length > 1 ? words[0][0] + words[1][0] : source.slice(0, 2)).toUpperCase();
+    if (words.length > 1) return (first(words[0]) + first(words[1])).toUpperCase();
+
+    return (words[0] ?? source).slice(0, 2).toUpperCase();
 }
 
 const TONES = ['bg-sky-100 text-sky-700', 'bg-emerald-100 text-emerald-700', 'bg-amber-100 text-amber-700', 'bg-violet-100 text-violet-700', 'bg-rose-100 text-rose-700', 'bg-teal-100 text-teal-700', 'bg-indigo-100 text-indigo-700'];
@@ -283,25 +318,6 @@ export function filterBoxes(boxes, query) {
 
         return words.every((word) => haystack.includes(word));
     });
-}
-
-/**
- * Les boîtes rangées par site, dans l'ordre où elles arrivent : sur le portail,
- * chaque site est un groupe ; sur un site, un seul groupe sans titre.
- *
- * @returns {Array<{site: string|null, boxes: Array<object>}>}
- */
-export function groupBoxesBySite(boxes, bySite = true) {
-    if (!bySite) return (boxes ?? []).length ? [{ site: null, boxes: [...boxes] }] : [];
-
-    const groups = new Map();
-    for (const box of boxes ?? []) {
-        const site = box.site_name || box.site_code || 'Site';
-        if (!groups.has(site)) groups.set(site, []);
-        groups.get(site).push(box);
-    }
-
-    return [...groups].map(([site, list]) => ({ site, boxes: list }));
 }
 
 /** Les actions qui changent un message sans le déplacer : appliquées à l'écran tout de suite. */

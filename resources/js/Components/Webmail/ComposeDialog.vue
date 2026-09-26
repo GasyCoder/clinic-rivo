@@ -338,7 +338,7 @@ const storeTemplate = () => {
             <div class="space-y-2 border-b border-border px-6 py-4">
                 <div class="grid grid-cols-[3.5rem_1fr_auto] items-start gap-2">
                     <label for="webmail-to" class="pt-2 text-sm font-medium text-muted-foreground">À</label>
-                    <RecipientInput id="webmail-to" v-model="form.to" label="Destinataires" :contacts="contacts" :invalid="Boolean(form.errors.to)" placeholder="Nom ou adresse" />
+                    <RecipientInput id="webmail-to" v-model="form.to" label="Destinataires" :contacts="contacts" :invalid="Boolean(form.errors.to)" placeholder="Nom d’un collègue ou n’importe quelle adresse email" />
                     <div class="flex gap-1 pt-1">
                         <Button v-if="!showCc" type="button" variant="ghost" size="xs" @click="showCc = true">Cc</Button>
                         <Button v-if="!showBcc" type="button" variant="ghost" size="xs" @click="showBcc = true">Cci</Button>

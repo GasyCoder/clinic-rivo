@@ -32,6 +32,7 @@ import { usePermissions } from '@/composables/usePermissions';
 import { useSidebarOrder } from '@/composables/useSidebarOrder';
 import { buildClinicMenu, visibleMenu } from '@/utilities/clinicMenu';
 import { menuMatchDepth } from '@/utilities/menuActivation';
+import AdminMenu from './AdminMenu.vue';
 
 const visibility = defineModel('visibility');
 // Reordering needs the labels the collapsed rail hides, and a rail that
@@ -44,9 +45,7 @@ const isAdminPortal = computed(() => page.props.site?.type === 'admin');
 const currentUser = computed(() => page.props.auth?.user ?? null);
 const roleLabel = computed(() => currentUser.value?.role?.name ?? 'Accès clinique');
 const profileLabel = computed(() => currentUser.value?.professional_profile?.name ?? null);
-const overviewLabel = computed(() => (
-    page.props.auth?.user?.role?.code === 'SUPER_ADMIN' ? 'Dashboard' : 'Vue d’ensemble'
-));
+const overviewLabel = computed(() => 'Vue d’ensemble');
 const {
     customizing,
     draggingKey,
@@ -114,27 +113,28 @@ const adminMenu = computed(() => [
         children: site.modules,
         integrationStatus: site.integration_status,
     })),
-    { heading: 'Finance & caisse' },
+    { heading: 'Finances' },
     { icon: Wallet, text: 'Caisses des sites', link: '/super-admin/cash-registers', permission: 'cash_registers.view' },
     { icon: ClipboardList, text: 'Modes de paiement', link: '/super-admin/payment-methods', permission: 'payment_methods.view' },
     { icon: Wallet, text: 'Rapports financiers', link: '/super-admin/workspaces/finance', permission: 'reports.financial.view' },
-    { heading: 'Référentiels & stocks' },
+    { heading: 'Référentiels' },
     { icon: FileText, text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
     { icon: FileText, text: 'Canevas de documents', link: '/super-admin/workspaces/document-templates', permission: 'document_templates.view' },
     { icon: Activity, text: 'Catalogue des analyses', link: '/super-admin/analyses', permission: 'analysis_catalog.view' },
-    { icon: Pill, text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
-    { icon: Building2, text: 'Fournisseurs pharmacie', link: '/super-admin/pharmacy-suppliers', permission: 'medicine_suppliers.view' },
     { icon: MapPin, text: 'Adresses & localités', link: '/super-admin/addresses', permission: 'address_entries.view' },
     { icon: BedDouble, text: 'Services, chambres & lits', link: '/super-admin/hospital-beds', permission: 'hospital_beds.view' },
     { icon: Crown, text: 'Patients VIP', link: '/super-admin/patient-vip', permission: 'patient_vip.view' },
+    { heading: 'Pharmacie & stocks' },
+    { icon: Pill, text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
+    { icon: Building2, text: 'Fournisseurs pharmacie', link: '/super-admin/pharmacy-suppliers', permission: 'medicine_suppliers.view' },
     { heading: 'Organisation' },
     { icon: Briefcase, text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },
     { icon: AtSign, text: 'Emails professionnels', link: '/super-admin/professional-emails', permission: 'professional_emails.view' },
-    // ADR-195 — ouvrir la boîte professionnelle d'un employé, sur n'importe quel site.
-    { key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', permission: 'webmail.open_any' },
+    // ADR-195 — la boîte du portail, réglée dans son .env : le Super Admin y arrive directement.
+    { key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', permission: 'webmail.view' },
     { icon: Package, text: 'Logistique & équipements', link: '/super-admin/workspaces/logistics', permission: 'logistics.view' },
     { icon: ShieldCheck, text: 'Gardiennage', link: '/super-admin/workspaces/guarding', permission: 'guarding.view' },
-    { heading: 'Sécurité & système' },
+    { heading: 'Accès & système' },
     { icon: Users, text: 'Utilisateurs', link: '/super-admin/workspaces/users', permission: 'users.view' },
     { icon: ShieldCheck, text: 'Rôles & permissions', link: '/super-admin/workspaces/roles', permission: 'roles.view' },
     { icon: Trash2, text: 'Corbeille', link: '/super-admin/trash', permission: 'trash.view' },
@@ -148,6 +148,28 @@ const rawMenu = computed(() => page.props.site?.type === 'admin' ? adminMenu.val
 // Every operational item is gated by a dynamic permission; the only item
 // intentionally shared by all active accounts is the overview.
 const menuData = computed(() => visibleMenu(rawMenu.value, can));
+
+/**
+ * Le portail garde exactement les mêmes destinations et permissions, mais
+ * les longues suites de liens deviennent des blocs repliables. Le tableau de
+ * bord reste hors accordéon : c'est le point de retour permanent du portail.
+ */
+const adminSections = computed(() => {
+    const sections = [];
+    let current = null;
+
+    for (const item of menuData.value) {
+        if (item.heading) {
+            current = { key: item.heading, label: item.heading, items: [] };
+            sections.push(current);
+            continue;
+        }
+
+        if (current) current.items.push(item);
+    }
+
+    return sections;
+});
 
 /**
  * A stable identity per row. Workspaces carry their own key; the overview
@@ -207,7 +229,14 @@ const closeMobile = () => {
 </script>
 
 <template>
-    <ul class="nk-menu px-3 pb-5">
+    <AdminMenu
+        v-if="isAdminPortal"
+        :sections="adminSections"
+        :compact="props.compact"
+        @navigate="closeMobile"
+    />
+
+    <ul v-else class="nk-menu px-3 pb-5">
         <li v-if="!isAdminPortal" class="group-[&.is-compact:not(.has-hover)]/sidebar:hidden px-1 pb-1 pt-3">
             <div class="relative overflow-hidden rounded-lg border border-border bg-muted/40 px-3 py-3 shadow-sm dark:border-white/5 dark:bg-white/[0.035]">
                 <span class="absolute inset-y-0 start-0 w-0.5 bg-primary" />

@@ -1,13 +1,18 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue';
-import { X } from 'lucide-vue-next';
+import { Mail, X } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
-import { avatarTone, initialsOf, isEmail } from '@/utilities/webmail';
+import { avatarTone, initialsOf, isEmail, recipientSuggestions } from '@/utilities/webmail';
 
 /**
  * ADR-195 — un champ de destinataires : une pastille par adresse, les collègues
- * proposés au fil de la frappe. La valeur remontée est le texte que le serveur
- * relit (« a@x, Nom <b@y> ») : c'est lui qui décide ce qui est valable.
+ * proposés au fil de la frappe, et n'importe quelle autre adresse tapée à la main.
+ * La valeur remontée est le texte que le serveur relit (« a@x, Nom <b@y> ») :
+ * c'est lui qui décide ce qui est valable.
+ *
+ * Une adresse en cours de frappe compte déjà (dès qu'elle contient « @ ») : on
+ * peut envoyer sans l'avoir validée, et une adresse incomplète retient l'envoi au
+ * lieu d'être perdue. Une adresse valable tapée est proposée (« Écrire à … »).
  *
  * Une pastille dont l'adresse n'est pas valable est rouge avant l'envoi.
  * Clavier : Entrée, virgule, point-virgule ou Tab valident l'adresse tapée ;
@@ -41,39 +46,41 @@ const input = ref(null);
 
 const serialize = (list) => list.map((chip) => (chip.name ? `${chip.name} <${chip.email}>` : chip.email)).join(', ');
 
+/** Ce qui est en cours de frappe et ressemble à une adresse : il compte déjà. */
+const typed = computed(() => draft.value.trim().replace(/[,;]+$/, ''));
+const pending = computed(() => (typed.value.includes('@') ? parse(typed.value) : []));
+const current = () => serialize([...chips.value, ...pending.value]);
+
 watch(() => props.modelValue, (value) => {
-    if (value !== serialize(chips.value)) chips.value = parse(value);
+    if (value !== current()) {
+        chips.value = parse(value);
+        draft.value = '';
+    }
 });
 
-const emitChips = () => emit('update:modelValue', serialize(chips.value));
+const emitChips = () => emit('update:modelValue', current());
 
-const suggestions = computed(() => {
-    const query = draft.value.trim().toLowerCase();
-    if (!query) return [];
-    const taken = new Set(chips.value.map((chip) => chip.email.toLowerCase()));
+watch(pending, emitChips);
 
-    return props.contacts
-        .filter((contact) => !taken.has(contact.email.toLowerCase()))
-        .filter((contact) => `${contact.name} ${contact.email} ${contact.job ?? ''}`.toLowerCase().includes(query))
-        .slice(0, 6);
-});
+const suggestions = computed(() => recipientSuggestions(props.contacts, chips.value, typed.value));
 
 watch(suggestions, () => { active.value = 0; });
 
 const add = (chip) => {
     const email = String(chip.email ?? '').trim();
+    // La frappe est vidée d'abord : l'adresse ne doit pas remonter deux fois (pastille + frappe).
+    draft.value = '';
     if (!email) return;
     if (!chips.value.some((existing) => existing.email.toLowerCase() === email.toLowerCase())) {
         chips.value = [...chips.value, { name: chip.name ?? '', email }];
         emitChips();
     }
-    draft.value = '';
 };
 
 const commitDraft = () => {
-    const typed = draft.value.trim().replace(/[,;]+$/, '');
-    if (!typed) return false;
-    parse(typed).forEach(add);
+    const text = typed.value;
+    if (!text) return false;
+    parse(text).forEach(add);
     draft.value = '';
     return true;
 };
@@ -189,11 +196,20 @@ const listId = computed(() => `${props.id}-suggestions`);
                 @mousedown.prevent="add(contact)"
                 @mouseenter="active = index"
             >
-                <span :class="cn('inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold', avatarTone(contact.email))" aria-hidden="true">{{ initialsOf(contact) }}</span>
-                <span class="min-w-0">
-                    <span class="block truncate font-medium">{{ contact.name }}</span>
-                    <span class="block truncate text-xs text-muted-foreground">{{ contact.email }}<template v-if="contact.job"> · {{ contact.job }}</template></span>
-                </span>
+                <template v-if="contact.typed">
+                    <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary" aria-hidden="true"><Mail class="h-3.5 w-3.5" /></span>
+                    <span class="min-w-0">
+                        <span class="block truncate font-medium">Écrire à {{ contact.email }}</span>
+                        <span class="block truncate text-xs text-muted-foreground">Entrée pour l’ajouter</span>
+                    </span>
+                </template>
+                <template v-else>
+                    <span :class="cn('inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold', avatarTone(contact.email))" aria-hidden="true">{{ initialsOf(contact) }}</span>
+                    <span class="min-w-0">
+                        <span class="block truncate font-medium">{{ contact.name }}</span>
+                        <span class="block truncate text-xs text-muted-foreground">{{ contact.email }}<template v-if="contact.job"> · {{ contact.job }}</template></span>
+                    </span>
+                </template>
             </li>
         </ul>
     </div>

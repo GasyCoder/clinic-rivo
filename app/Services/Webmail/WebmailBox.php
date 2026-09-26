@@ -11,7 +11,9 @@ use App\Models\ProfessionalMailbox;
  * vient de la base locale. La messagerie ne lit rien d'autre sur elle.
  *
  * `own` dit si c'est la boîte du compte connecté (sa fiche employé) ou celle
- * d'un autre employé, ouverte avec le droit `webmail.open_any`.
+ * d'un autre employé, ouverte avec le droit `webmail.open_any`. `portal` dit que
+ * c'est la boîte du portail, réglée dans son .env : son mot de passe n'est jamais
+ * demandé ni gardé dans la session.
  */
 final class WebmailBox
 {
@@ -23,6 +25,7 @@ final class WebmailBox
         public readonly ?string $siteCode,
         public readonly ?string $siteName,
         public readonly bool $own,
+        public readonly bool $portal = false,
     ) {}
 
     public static function fromMailbox(ProfessionalMailbox $mailbox, bool $own): self
@@ -71,7 +74,7 @@ final class WebmailBox
         return $this->uuid === $other->uuid && $this->address === $other->address;
     }
 
-    /** @return array{uuid: string, address: string, owner: string, job: ?string, site_code: ?string, site_name: ?string, own: bool} */
+    /** @return array{uuid: string, address: string, owner: string, job: ?string, site_code: ?string, site_name: ?string, own: bool, portal: bool} */
     public function toArray(): array
     {
         return [
@@ -82,6 +85,7 @@ final class WebmailBox
             'site_code' => $this->siteCode,
             'site_name' => $this->siteName,
             'own' => $this->own,
+            'portal' => $this->portal,
         ];
     }
 
@@ -100,6 +104,7 @@ final class WebmailBox
             siteCode: is_string($data['site_code'] ?? null) ? $data['site_code'] : null,
             siteName: is_string($data['site_name'] ?? null) ? $data['site_name'] : null,
             own: (bool) ($data['own'] ?? false),
+            portal: (bool) ($data['portal'] ?? false),
         );
     }
 }

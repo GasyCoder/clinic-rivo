@@ -579,7 +579,85 @@ class WebmailTest extends TestCase
             ->assertSessionHasErrors(['mailbox' => 'Cette boîte n’est pas (ou plus) active.']);
     }
 
-    public function test_the_super_admin_opens_any_sites_box_from_the_portal_through_its_api(): void
+    public function test_the_super_admin_lands_straight_in_the_portal_box_set_in_the_env(): void
+    {
+        $admin = $this->portalAdmin();
+        config(['rivo.webmail.portal' => ['address' => 'Direction@cbdc.mg', 'password' => 'secret-portail', 'name' => 'Direction']]);
+        $uuid = '9d2f6a3e-8c1b-4f7a-9e2d-5b6c7d8e9f01';
+        Http::fake(['https://a.test/api/v1/super-admin/professional-mailboxes' => Http::response([
+            'data' => [
+                ['uuid' => $uuid, 'address' => 'vola.rabe@cbdc.mg', 'status' => 'ACTIVE', 'employee' => ['name' => 'Vola Rabe', 'job_title' => 'Sage-femme']],
+                ['uuid' => '1d2f6a3e-8c1b-4f7a-9e2d-5b6c7d8e9f02', 'address' => 'parti@cbdc.mg', 'status' => 'SUSPENDED', 'employee' => ['name' => 'Parti']],
+            ],
+            'meta' => [],
+        ])]);
+        $box = $this->factory->box('direction@cbdc.mg', 'secret-portail');
+        $this->factory->box('vola.rabe@cbdc.mg', self::PASSWORD);
+
+        // Aucun choix de boîte, aucune saisie : ni à l'arrivée, ni en demandant à « changer ».
+        $this->actingAs($admin)->get('/messagerie')->assertRedirect(route('webmail.folder', ['folder' => 'reception']));
+        $this->actingAs($admin)->get('/messagerie/connexion')->assertRedirect(route('webmail.index'));
+        $this->actingAs($admin)->get('/messagerie/connexion?changer=1')->assertRedirect(route('webmail.index'));
+        $this->actingAs($admin)->get('/messagerie/dossier/reception')->assertOk()->assertInertia(fn ($page) => $page
+            ->component('Webmail/Index')
+            ->where('mailbox.address', 'direction@cbdc.mg')
+            ->where('mailbox.owner', 'Direction')
+            ->where('mailbox.own', true)
+            ->where('mailbox.portal', true)
+            ->where('mailbox.can_switch', false)
+            ->where('webmail.connected', true)
+            // Les adresses actives des sites restent proposées comme destinataires.
+            ->has('contacts', 1)
+            ->where('contacts.0.email', 'vola.rabe@cbdc.mg'));
+        $this->actingAs($admin)->get('/messagerie/dossier/envoyes')->assertOk();
+
+        // Le mot de passe vit dans le .env, jamais dans la session ; l'ouverture est auditée une fois.
+        $this->assertNull(session('webmail.credentials'));
+        $connect = AuditLog::query()->where('action', 'webmail.connect')->sole();
+        $this->assertTrue($connect->new_values['portal_mailbox']);
+        $this->assertSame($admin->id, $connect->user_id);
+        $this->assertStringNotContainsString('secret-portail', AuditLog::query()->get()->toJson());
+
+        // Le portail n'ouvre plus la boîte d'un employé, quoi qu'envoie le navigateur.
+        $this->actingAs($admin)->post('/messagerie/connexion', ['mailbox' => $uuid, 'password' => self::PASSWORD])->assertForbidden();
+        // Rien à fermer : aucun mot de passe n'a été saisi.
+        $this->actingAs($admin)->post('/messagerie/deconnexion')->assertRedirect(route('webmail.index'));
+        $this->assertFalse(AuditLog::query()->where('action', 'webmail.disconnect')->exists());
+
+        // N'importe quelle adresse s'écrit, pas seulement celles de la clinique.
+        $this->actingAs($admin)->post('/messagerie/envoyer', ['to' => 'fournisseur@gmail.com', 'subject' => 'Commande', 'body_html' => '<p>Bonjour</p>'])
+            ->assertSessionHasNoErrors()
+            ->assertSessionHas('status', 'Message envoyé.');
+        $this->assertSame('direction@cbdc.mg', $box->sent[0]->getFrom()[0]->getAddress());
+        $this->assertSame('Direction', $box->sent[0]->getFrom()[0]->getName());
+        $this->assertSame(['fournisseur@gmail.com'], AuditLog::query()->where('action', 'webmail.send')->sole()->new_values['to']);
+    }
+
+    public function test_an_unset_or_refused_portal_box_says_which_setting_to_fix(): void
+    {
+        $admin = $this->portalAdmin();
+
+        config(['rivo.webmail.portal' => ['address' => null, 'password' => null, 'name' => null]]);
+        $this->actingAs($admin)->get('/messagerie')->assertForbidden()->assertInertia(fn ($page) => $page
+            ->component('Webmail/Unavailable')
+            ->where('reason', 'portal_unconfigured')
+            ->where('portal', true));
+
+        // Un mot de passe du .env que le serveur refuse : la page le dit, sans boucle vers l'ouverture.
+        config(['rivo.webmail.portal' => ['address' => 'direction@cbdc.mg', 'password' => 'faux', 'name' => null]]);
+        $this->factory->box('direction@cbdc.mg', 'secret-portail');
+        $this->app->forgetScopedInstances();
+        $this->actingAs($admin)->get('/messagerie/dossier/reception')
+            ->assertStatus(503)
+            ->assertInertia(fn ($page) => $page
+                ->component('Webmail/Offline')
+                ->where('closable', false)
+                ->where('message', 'Le serveur de messagerie refuse le mot de passe de la boîte du portail : corrigez RIVO_WEBMAIL_PORTAL_PASSWORD dans le .env du portail.'));
+    }
+
+    /* ------------------------------------------------------------------ */
+
+    private function portalAdmin(): User
     {
         config([
             'rivo.site.type' => 'admin',
@@ -591,45 +669,9 @@ class WebmailTest extends TestCase
             ],
         ]);
         $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
-        $admin = User::factory()->create(['role_id' => Role::query()->where('code', 'SUPER_ADMIN')->value('id')]);
-        $uuid = '9d2f6a3e-8c1b-4f7a-9e2d-5b6c7d8e9f01';
-        Http::fake(['https://a.test/api/v1/super-admin/professional-mailboxes' => Http::response([
-            'data' => [
-                ['uuid' => $uuid, 'address' => 'vola.rabe@cbdc.mg', 'status' => 'ACTIVE', 'employee' => ['name' => 'Vola Rabe', 'job_title' => 'Sage-femme']],
-                ['uuid' => '1d2f6a3e-8c1b-4f7a-9e2d-5b6c7d8e9f02', 'address' => 'parti@cbdc.mg', 'status' => 'SUSPENDED', 'employee' => ['name' => 'Parti']],
-            ],
-            'meta' => [],
-        ])]);
-        $this->factory->box('vola.rabe@cbdc.mg', self::PASSWORD);
 
-        $this->actingAs($admin)->get('/messagerie')->assertRedirect('/messagerie/connexion');
-        $this->actingAs($admin)->get('/messagerie/connexion')->assertOk()->assertInertia(fn ($page) => $page
-            ->component('Webmail/Connect')
-            ->where('portal', true)
-            ->where('own', null)
-            ->has('others', 1)
-            ->where('others.0.address', 'vola.rabe@cbdc.mg')
-            ->where('others.0.site_name', 'Ambondromamy')
-            ->where('webmail.available', true));
-
-        // Une boîte que le site ne liste pas ne s'ouvre pas, quoi qu'envoie le navigateur.
-        $this->actingAs($admin)->post('/messagerie/connexion', ['mailbox' => '1d2f6a3e-8c1b-4f7a-9e2d-5b6c7d8e9f02', 'site' => 'A', 'password' => self::PASSWORD])
-            ->assertSessionHasErrors('mailbox');
-
-        $this->actingAs($admin)->post('/messagerie/connexion', ['mailbox' => $uuid, 'site' => 'A', 'password' => self::PASSWORD])
-            ->assertRedirect(route('webmail.index'));
-        $connect = AuditLog::query()->where('action', 'webmail.connect')->latest('id')->first();
-        $this->assertSame('A', $connect->new_values['site']);
-        $this->assertFalse($connect->new_values['own_mailbox']);
-
-        $this->app->forgetScopedInstances();
-        $this->actingAs($admin)->get('/messagerie/dossier/reception')->assertOk()->assertInertia(fn ($page) => $page
-            ->where('mailbox.address', 'vola.rabe@cbdc.mg')
-            ->where('mailbox.site_name', 'Ambondromamy')
-            ->where('mailbox.own', false));
+        return User::factory()->create(['role_id' => Role::query()->where('code', 'SUPER_ADMIN')->value('id')]);
     }
-
-    /* ------------------------------------------------------------------ */
 
     /** @return array{0: User, 1: ProfessionalMailbox} */
     private function titular(string $address = self::ADDRESS, string $first = 'Soa', string $last = 'Rakoto'): array

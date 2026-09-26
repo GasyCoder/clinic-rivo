@@ -34,6 +34,8 @@ final class WebmailPresenter
                 'site_name' => $opened->siteName,
                 // La boîte d'un autre employé se dit à l'écran, en permanence.
                 'own' => $opened->own,
+                // La boîte du portail s'ouvre sans mot de passe saisi : rien à fermer.
+                'portal' => $opened->portal,
                 'can_switch' => $this->access->canOpenAny($user),
             ],
             'folders' => fn () => array_map(fn (array $folder) => collect($folder)->except('path')->all(), $box->folders()),
@@ -65,14 +67,14 @@ final class WebmailPresenter
     /**
      * Les collègues joignables d'un clic : les autres adresses professionnelles
      * actives du site — ou, sur le portail, de chaque site. Rien d'autre sur eux
-     * que leur nom, leur fonction et l'adresse.
+     * que leur nom, leur fonction et l'adresse. Toute autre adresse se tape.
      *
      * @return list<array{name: string, job: ?string, email: string}>
      */
     private function contacts(User $user, WebmailBox $opened): array
     {
         $boxes = WebmailAccess::onPortal()
-            ? $this->access->others($user)
+            ? $this->access->siteAddresses($user)
             : ProfessionalMailbox::query()
                 ->with(['employee.jobTitle'])
                 ->where('status', ProfessionalMailboxStatus::Active->value)

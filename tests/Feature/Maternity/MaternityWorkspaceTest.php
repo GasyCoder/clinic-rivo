@@ -144,6 +144,7 @@ class MaternityWorkspaceTest extends TestCase
 
         $this->actingAs($midwife)->post("/maternity/orientations/{$orientation->uuid}/accept")->assertRedirect();
         $this->actingAs($midwife)->put("/maternity/orientations/{$orientation->uuid}/record", [
+            'pregnancy_choice' => 'CREATE',
             'obstetric_context' => 'Grossesse suivie, contractions régulières.',
             'pregnancy_data' => ['gravidity' => 2, 'parity' => 1, 'estimated_due_date' => '2026-09-10'],
             'prenatal_data' => ['gestational_age_weeks' => 39, 'fetal_heart_rate' => 142, 'notes' => 'Présentation céphalique.'],
@@ -160,7 +161,9 @@ class MaternityWorkspaceTest extends TestCase
         $record = MaternityRecord::query()->sole();
         $performed = MaternityProcedure::query()->sole();
         $this->assertSame($episode->id, $record->episode_id);
-        $this->assertSame(39, $record->prenatal_data['gestational_age_weeks']);
+        $expectedAge = app(\App\Services\Maternity\PregnancyDatingService::class)
+            ->gestationalAge($record->pregnancy, $episode->started_at);
+        $this->assertSame($expectedAge['weeks'], $record->prenatal_data['gestational_age_weeks']);
         $this->assertSame($midwife->id, $performed->performed_by);
         $this->assertSame('MIDWIFE', $midwife->fresh()->professionalProfile->code);
     }
@@ -186,6 +189,7 @@ class MaternityWorkspaceTest extends TestCase
         $this->actingAs($midwife)->post("/maternity/orientations/{$orientation->uuid}/accept");
 
         $this->actingAs($midwife)->put("/maternity/orientations/{$orientation->uuid}/record", [
+            'pregnancy_choice' => 'CREATE',
             'obstetric_context' => 'Grossesse suivie.',
             'pregnancy_data' => ['gravidity' => 2, 'parity' => 1],
             'observations' => 'À réévaluer.',

@@ -1008,6 +1008,7 @@ class NewbornPatientTest extends TestCase
         $this->actingAs($midwife)->post("/maternity/orientations/{$orientation->uuid}/accept");
 
         $this->actingAs($midwife)->put("/maternity/orientations/{$orientation->uuid}/record", [
+            'pregnancy_choice' => 'CREATE',
             'pregnancy_data' => ['gravidity' => 2, 'parity' => 1],
             'delivery_data' => $delivery ?? ['occurred_at' => '2026-09-20T06:40', 'mode' => 'VAGINAL', 'complications' => 'Aucune'],
             'newborn_data' => ['newborns' => $newborns ?? [

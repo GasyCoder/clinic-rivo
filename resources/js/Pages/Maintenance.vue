@@ -1,11 +1,12 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { KeyRound, LogOut, RefreshCw } from 'lucide-vue-next';
+import { KeyRound, LogOut } from 'lucide-vue-next';
 import GuestLayout from '@/Layouts/GuestLayout.vue';
 import BrandMark from '@/Components/Auth/BrandMark.vue';
 import MaintenanceNotice from '@/Components/Maintenance/MaintenanceNotice.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import RefreshIcon from '@/Components/Shadcn/RefreshIcon.vue';
 import Copyright from '@/Components/UI/Copyright.vue';
 import { msUntil } from '@/utilities/maintenance';
 
@@ -57,8 +58,8 @@ const logout = () => router.post('/logout');
             <MaintenanceNotice :title="notice.title" :message="notice.message" :ends-at="notice.ends_at" />
 
             <div class="mt-8 flex flex-col items-center gap-3">
-                <Button type="button" variant="outline" :disabled="reloading" @click="retry">
-                    <RefreshCw :class="['h-4 w-4', reloading && 'animate-spin']" aria-hidden="true" />Réessayer
+                <Button type="button" variant="outline" :aria-busy="reloading" :disabled="reloading" @click="retry">
+                    <RefreshIcon :spinning="reloading" class="h-4 w-4" />Réessayer
                 </Button>
 
                 <div v-if="user" class="w-full rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">

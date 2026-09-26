@@ -182,6 +182,7 @@ class MaternityActWorkflowTest extends TestCase
             'payload' => ['record' => ['obstetric_context' => 'Brouillon']],
         ])->assertOk();
         $this->actingAs($midwife)->put("/maternity/orientations/{$orientation->uuid}/record", [
+            'pregnancy_choice' => 'CREATE',
             'obstetric_context' => 'Dossier enregistré',
         ])->assertSessionHasNoErrors();
         $this->assertSame(0, MaternityRecordDraft::query()->count());
@@ -354,6 +355,7 @@ class MaternityActWorkflowTest extends TestCase
         [$episode, $orientation] = $this->inProgress($midwife);
 
         $this->actingAs($midwife)->put("/maternity/orientations/{$orientation->uuid}/record", [
+            'pregnancy_choice' => 'CREATE',
             'maternal_care_notes' => 'Surveillance des saignements',
             'newborn_data' => ['newborns' => [
                 ['sex' => 'F', 'birth_weight_g' => 2400, 'care_notes' => 'Photothérapie'],
@@ -383,6 +385,7 @@ class MaternityActWorkflowTest extends TestCase
         ]);
 
         $this->actingAs($midwife)->put("/maternity/orientations/{$orientation->uuid}/record", [
+            'pregnancy_choice' => 'CREATE',
             'newborn_data' => ['newborns' => [['care_notes' => 'Soins du premier bébé']]],
         ])->assertSessionHasNoErrors();
 
@@ -504,7 +507,7 @@ class MaternityActWorkflowTest extends TestCase
         }
 
         // Un poids de naissance atypique mais possible n'est jamais refusé : le message est une aide.
-        $this->actingAs($midwife)->put($url, ['newborn_data' => ['newborns' => [['birth_weight_g' => 900, 'apgar' => 2]]]])
+        $this->actingAs($midwife)->put($url, ['pregnancy_choice' => 'CREATE', 'newborn_data' => ['newborns' => [['birth_weight_g' => 900, 'apgar' => 2]]]])
             ->assertSessionHasNoErrors();
     }
 

@@ -11,6 +11,7 @@ use App\Actions\Maternity\RecordMaternityProcedureAction;
 use App\Actions\Maternity\RecordMaternityProceduresAction;
 use App\Actions\Maternity\RequestCesareanFromMaternityAction;
 use App\Actions\Maternity\SaveMaternityRecordAction;
+use App\Actions\Maternity\UpdatePregnancyDatingAction;
 use App\Enums\BillableItemStatus;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
@@ -18,6 +19,7 @@ use App\Enums\EpisodeOrientationStatus;
 use App\Http\Requests\Care\CancelCareConsumableRequestRequest;
 use App\Http\Requests\SaveMaternityRecordDraftRequest;
 use App\Http\Requests\UpdateMaternityRecordRequest;
+use App\Http\Requests\UpdatePregnancyDatingRequest;
 use App\Models\CareConsumableRequest;
 use App\Models\CatalogItem;
 use App\Models\Episode;
@@ -26,11 +28,14 @@ use App\Models\MaternityProcedure;
 use App\Models\MaternityRecord;
 use App\Models\MaternityRecordDraft;
 use App\Models\PatientNewbornLink;
+use App\Models\Pregnancy;
 use App\Models\User;
 use App\Services\Care\CareConsumableDirectory;
 use App\Services\Care\CareRecordReadModel;
 use App\Services\Episode\ActiveEpisodeBoard;
 use App\Services\Maternity\MaternityQueue;
+use App\Services\Maternity\PregnancyPresenter;
+use App\Services\Maternity\PrenatalComparisonPresenter;
 use App\Support\Documents\MaternitySheetSection;
 use App\Support\EpisodeQueuePresenter;
 use App\Support\MaternityActProfile;
@@ -55,7 +60,12 @@ class MaternityController extends Controller
      * Ce qui suit la Maternité — le médecin, la césarienne — reste lu par
      * `MaternityQueue::followUps()`, deux requêtes pour toute la page.
      */
-    public function index(Request $request, ActiveEpisodeBoard $board, MaternityQueue $queue): Response
+    public function index(
+        Request $request,
+        ActiveEpisodeBoard $board,
+        MaternityQueue $queue,
+        PregnancyPresenter $pregnancies,
+    ): Response
     {
         $view = $board->normalizeView($request->query('view'));
         $search = trim((string) $request->query('q', ''));
@@ -66,6 +76,7 @@ class MaternityController extends Controller
             ->whereIn('uuid', collect($passages->items())->pluck('uuid'))
             ->pluck('id', 'uuid');
         $followUps = $queue->followUps($ids->values());
+        $pregnancyContexts = $pregnancies->forEpisodes($ids->values());
 
         return Inertia::render('Maternity/Index', [
             'passages' => $passages,
@@ -74,6 +85,9 @@ class MaternityController extends Controller
             'search' => $search,
             'followUps' => $ids
                 ->mapWithKeys(fn (int $id, string $uuid) => [$uuid => $followUps[$id] ?? ['medicine' => null, 'cesarean' => null]])
+                ->all(),
+            'pregnancyContexts' => $ids
+                ->mapWithKeys(fn (int $id, string $uuid) => [$uuid => $pregnancyContexts[$id] ?? null])
                 ->all(),
         ]);
     }
@@ -98,6 +112,8 @@ class MaternityController extends Controller
         CareRecordReadModel $careRecordReadModel,
         CareConsumableDirectory $consumables,
         MaternitySheetSection $maternitySheet,
+        PregnancyPresenter $pregnancies,
+        PrenatalComparisonPresenter $comparison,
     ): Response {
         abort_unless($episodeOrientation->destination_module === CatalogModule::Maternity, 404);
         abort_unless($episodeOrientation->episode->patient, 404, 'Le dossier patient de ce passage est introuvable.');
@@ -108,12 +124,23 @@ class MaternityController extends Controller
             'episode.maternityRecord.procedures.editor:id,name',
             'episode.maternityRecord.procedures.billableItem:id,status',
             'episode.maternityRecord.procedures.catalogItem:id,billable',
+            'episode.maternityRecord.pregnancy',
             'episode.maternityRecord.creator:id,name', 'episode.maternityRecord.updater:id,name',
             'acceptedBy:id,name',
         ]);
         $episode = $episodeOrientation->episode;
         $record = $episode->maternityRecord;
         $user = $request->user();
+        $activePregnancies = Pregnancy::query()
+            ->where('patient_id', $episode->patient_id)
+            ->ongoing()
+            ->with(['maternityRecords.episode.careRecord', 'maternityRecords.orientation'])
+            ->latest('started_at')->latest('id')->get();
+        // Une seule candidate peut alimenter le contexte avant le choix. En
+        // présence d'une incohérence historique (plusieurs actives), aucune
+        // n'est choisie silencieusement.
+        $contextPregnancy = $record?->pregnancy
+            ?? ($activePregnancies->count() === 1 ? $activePregnancies->first() : null);
 
         // Ce que ce compte peut faire de chaque acte enregistré : l'écran ne montre
         // que les gestes permis, le serveur les revérifie (ADR-140).
@@ -186,6 +213,24 @@ class MaternityController extends Controller
                 : [],
             'orientation' => $presenter->present($episodeOrientation),
             'record' => $record,
+            'pregnancySelectionRequired' => $record?->pregnancy_id === null,
+            'activePregnancies' => $activePregnancies
+                ->map(fn (Pregnancy $pregnancy) => $pregnancies->summary($pregnancy, $episode->started_at ?? now()))
+                ->values(),
+            'pregnancy' => $contextPregnancy
+                ? $pregnancies->summary($contextPregnancy, $episode->started_at ?? now())
+                : null,
+            'pregnancyHistory' => $contextPregnancy
+                ? $pregnancies->history($contextPregnancy, $user, $record)
+                : [],
+            'previousPregnancies' => $pregnancies->previousForPatient(
+                $episode->patient_id,
+                $user,
+                $contextPregnancy?->getKey(),
+            ),
+            'prenatalComparison' => $contextPregnancy
+                ? $comparison->present($contextPregnancy, $episode, $record)
+                : null,
             'procedureCatalog' => $procedureCatalog->map(fn (CatalogItem $item) => [
                 'uuid' => $item->uuid,
                 'code' => $item->code,
@@ -242,6 +287,10 @@ class MaternityController extends Controller
                 'can_request_consumables' => $canRequestConsumables,
                 'can_cancel_consumables' => $canViewConsumables && $user->can('care_consumables.cancel'),
                 'can_complete' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress && $user->can('maternity.complete'),
+                'can_correct_dating' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
+                    && $record?->pregnancy_id !== null
+                    && $user->can('maternity.update')
+                    && $user->can('maternity.prenatal.manage'),
             ],
         ]);
     }
@@ -285,6 +334,16 @@ class MaternityController extends Controller
         $action->execute($episodeOrientation, $request->validated(), $request->user());
 
         return back()->with('status', 'Dossier Maternité enregistré.');
+    }
+
+    public function updatePregnancyDating(
+        UpdatePregnancyDatingRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        UpdatePregnancyDatingAction $action,
+    ): RedirectResponse {
+        $action->execute($episodeOrientation, $request->validated(), $request->user());
+
+        return back()->with('status', 'Datation de la grossesse corrigée et auditée. Les snapshots des consultations précédentes restent inchangés.');
     }
 
     public function procedure(Request $request, EpisodeOrientation $episodeOrientation, RecordMaternityProcedureAction $action): RedirectResponse

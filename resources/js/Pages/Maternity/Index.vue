@@ -1,11 +1,12 @@
 <script setup>
 import { Head } from '@inertiajs/vue3';
-import { HeartPulse, Scissors, Stethoscope } from 'lucide-vue-next';
+import { CalendarDays, HeartPulse, Scissors, Stethoscope } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import ActivePassageBoard from '@/Components/Clinical/ActivePassageBoard.vue';
 import SoinsTabs from '@/Components/Care/SoinsTabs.vue';
 import SoinsWorkspaceHeader from '@/Components/Care/SoinsWorkspaceHeader.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
+import { formatDate, formatDateTime } from '@/utilities/date';
 
 defineOptions({ layout: AppLayout });
 
@@ -22,6 +23,8 @@ defineProps({
     search: { type: String, default: '' },
     /** Par UUID de passage : `{ medicine, cesarean }`. */
     followUps: { type: Object, default: () => ({}) },
+    /** Grossesse liée au passage, ou grossesse active proposée pour la patiente. */
+    pregnancyContexts: { type: Object, default: () => ({}) },
 });
 
 /** Le ton du statut, pas ses classes : le `Badge` porte déjà le vocabulaire. */
@@ -44,7 +47,11 @@ const medicineTone = (medicine) => ({ PENDING: 'warning', IN_PROGRESS: 'info' }[
 
         <ActivePassageBoard module="MATERNITY" base-url="/maternity" :passages="passages" :counts="counts" :view="view" :search="search">
             <template #row-details="{ row }">
-                <div v-if="followUps[row.uuid]?.medicine || followUps[row.uuid]?.cesarean" class="mt-1.5 flex max-w-[260px] flex-wrap gap-1">
+                <div v-if="pregnancyContexts[row.uuid] || followUps[row.uuid]?.medicine || followUps[row.uuid]?.cesarean" class="mt-1.5 flex max-w-[280px] flex-wrap gap-1">
+                    <div v-if="pregnancyContexts[row.uuid]" class="mb-1 w-full rounded-md border border-rose-200 bg-rose-50/60 px-2.5 py-2 text-[11px] dark:border-rose-900 dark:bg-rose-950/20">
+                        <p class="flex items-center gap-1 font-bold text-rose-800 dark:text-rose-200"><CalendarDays class="h-3.5 w-3.5" />{{ pregnancyContexts[row.uuid].reference }} · {{ pregnancyContexts[row.uuid].gestational_age_label ?? 'terme non calculable' }}</p>
+                        <p class="mt-0.5 text-rose-700/80 dark:text-rose-300/80">DPA {{ formatDate(pregnancyContexts[row.uuid].estimated_due_date) ?? 'N/R' }} · dernière consultation {{ formatDateTime(pregnancyContexts[row.uuid].last_consultation_at) ?? 'aucune' }}</p>
+                    </div>
                     <Badge v-if="followUps[row.uuid].medicine" :tone="medicineTone(followUps[row.uuid].medicine)" class="px-2 py-0.5 text-[11px]">
                         <Stethoscope class="h-3 w-3" aria-hidden="true" />{{ followUps[row.uuid].medicine.label }}
                     </Badge>

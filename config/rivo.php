@@ -247,6 +247,34 @@ return [
         ],
     ],
 
+    /*
+     * ADR-194 — la messagerie : la boîte pro de l'employé chez l'hébergeur, lue en
+     * IMAP et envoyée en SMTP. Aucun secret ici : le mot de passe de la boîte est
+     * saisi par son titulaire et ne vit que dans sa session. Sans hôte réglé, celui
+     * de l'hébergement (RIVO_MAIL_HOSTING_URL) sert pour les deux.
+     */
+    'webmail' => [
+        'imap' => [
+            'host' => env('RIVO_WEBMAIL_IMAP_HOST') ?: parse_url((string) env('RIVO_MAIL_HOSTING_URL'), PHP_URL_HOST),
+            'port' => (int) env('RIVO_WEBMAIL_IMAP_PORT', 993),
+            // ssl (993), tls (STARTTLS, 143) ou none (serveur de test local seulement).
+            'encryption' => env('RIVO_WEBMAIL_IMAP_ENCRYPTION', 'ssl'),
+            'validate_cert' => (bool) env('RIVO_WEBMAIL_VALIDATE_CERT', true),
+        ],
+        'smtp' => [
+            'host' => env('RIVO_WEBMAIL_SMTP_HOST') ?: parse_url((string) env('RIVO_MAIL_HOSTING_URL'), PHP_URL_HOST),
+            // 465 : TLS dès la connexion — deux allers-retours de moins que 587 (STARTTLS),
+            // et o2switch accepte les deux. `tls` = STARTTLS, `ssl` = TLS implicite.
+            'port' => (int) env('RIVO_WEBMAIL_SMTP_PORT', 465),
+            'encryption' => env('RIVO_WEBMAIL_SMTP_ENCRYPTION', 'ssl'),
+        ],
+        'timeout' => (int) env('RIVO_WEBMAIL_TIMEOUT', 20),
+        'per_page' => 25,
+        // Pièces jointes d'un message envoyé : par fichier et au total, en Mo.
+        'attachment_max_mb' => (int) env('RIVO_WEBMAIL_ATTACHMENT_MAX_MB', 10),
+        'attachments_total_mb' => (int) env('RIVO_WEBMAIL_ATTACHMENTS_TOTAL_MB', 20),
+    ],
+
     'site_api' => [
         'token' => env('RIVO_SITE_API_TOKEN'),
         'timeout' => (int) env('RIVO_SITE_API_TIMEOUT', 5),

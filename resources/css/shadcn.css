@@ -79,6 +79,17 @@
     to { opacity: 1; }
 }
 
+/* ADR-194 — la barre fine qui court au-dessus d'une liste en cours de relecture. */
+@keyframes webmail-progress {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(300%); }
+}
+
+/* L'icône d'un bouton « Actualiser » : un tour, que RefreshIcon arrête en fin de tour. */
+@keyframes rivo-refresh-turn {
+    to { transform: rotate(360deg); }
+}
+
 /*
  * ADR-191 — densité, arrondis et animations, posés en attributs sur <html>
  * (site, puis ce que chacun choisit dans « Mon profil »). Les sélecteurs ne

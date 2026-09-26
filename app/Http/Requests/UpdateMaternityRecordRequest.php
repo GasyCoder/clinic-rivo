@@ -31,8 +31,12 @@ class UpdateMaternityRecordRequest extends FormRequest
         $canLabor = (bool) $this->user()?->can('maternity.labor.manage');
         $canDelivery = (bool) $this->user()?->can('maternity.delivery.manage');
         $canNewborn = (bool) $this->user()?->can('maternity.newborn.manage');
+        $record = $this->route('episodeOrientation')?->episode?->maternityRecord;
+        $needsPregnancyChoice = $record?->pregnancy_id === null;
 
         return [
+            'pregnancy_choice' => [Rule::requiredIf($needsPregnancyChoice), 'nullable', Rule::in(['CONTINUE', 'CREATE'])],
+            'pregnancy_uuid' => [Rule::requiredIf($needsPregnancyChoice && $this->input('pregnancy_choice') === 'CONTINUE'), 'nullable', 'uuid'],
             'obstetric_context' => ['nullable', 'string', 'max:5000'],
             'pregnancy_data' => ['nullable', 'array'],
             'pregnancy_data.gravidity' => ['nullable', 'integer', 'min:0', 'max:30'],
@@ -42,6 +46,7 @@ class UpdateMaternityRecordRequest extends FormRequest
             'pregnancy_data.risk_factors' => ['nullable', 'string', 'max:3000'],
             'prenatal_data' => [Rule::prohibitedIf(! $canPrenatal), 'nullable', 'array'],
             'prenatal_data.gestational_age_weeks' => ['nullable', 'integer', 'min:0', 'max:'.Ref::GESTATIONAL_AGE_MAX_WEEKS],
+            'prenatal_data.gestational_age_days' => ['nullable', 'integer', 'min:0', 'max:6'],
             'prenatal_data.fundal_height_cm' => ['nullable', 'numeric', 'min:0', 'max:'.Ref::FUNDAL_HEIGHT_MAX_CM],
             'prenatal_data.fetal_heart_rate' => ['nullable', 'integer', 'min:'.Ref::FETAL_HEART_RATE_MIN, 'max:'.Ref::FETAL_HEART_RATE_MAX],
             'prenatal_data.notes' => ['nullable', 'string', 'max:5000'],

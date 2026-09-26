@@ -8,8 +8,12 @@ use App\Http\Middleware\EnsureActiveAccount;
 use App\Http\Middleware\EnsureApiIdempotency;
 use App\Http\Middleware\EnsureDeploymentAccount;
 use App\Http\Middleware\EnsureSiteType;
+use App\Http\Middleware\EnsureWebmailAccess;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\KeepPhysicalActsAtSite;
+use App\Http\Middleware\OpenWebmailMailbox;
+use App\Services\Webmail\WebmailSession;
+use App\Services\Webmail\WebmailUnavailable;
 use App\Http\Middleware\ServeHrScreensAsJson;
 use App\Support\RequiredAbilities;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -57,11 +61,22 @@ return Application::configure(basePath: dirname(__DIR__))
             'rivo.remote-actor' => ActAsRemoteSuperAdmin::class,
             'rivo.hr-screens' => ServeHrScreensAsJson::class,
             'rivo.site-only' => KeepPhysicalActsAtSite::class,
+            // ADR-194 — la messagerie : une boîte à ouvrir (permissions), puis la boîte ouverte.
+            'webmail.access' => EnsureWebmailAccess::class,
+            'webmail.open' => OpenWebmailMailbox::class,
         ]);
 
         $middleware->redirectGuestsTo('/login');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // ADR-194 — la boîte s'ouvre au premier usage (LazyMailServer) : un mot de
+        // passe refusé ou un serveur injoignable se découvre dans le contrôleur. Il se
+        // dit comme à l'ouverture : mot de passe redemandé, ou page « serveur
+        // injoignable » — jamais une erreur 500. Ce sont des situations prévues : le
+        // client IMAP les journalise déjà, sans le mot de passe.
+        $exceptions->dontReport([WebmailUnavailable::class]);
+        $exceptions->render(fn (WebmailUnavailable $exception, Request $request) => OpenWebmailMailbox::failure($request, $exception, app(WebmailSession::class)));
+
         // ADR-154 — un refus doit dire ce qui manque.
         //
         // « Cette action n'est pas autorisée. » ne permettait pas de savoir

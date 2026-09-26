@@ -693,6 +693,23 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Page RH « Emails professionnels » sur chaque site ; un RH à qui le Super Admin accorde le droit crée, suspend, réactive ou renouvelle le mot de passe depuis son site (accès à l'hébergeur posés aussi sur le site) (ADR-190, amendement)
 - [x] Plus de champ email à la création ni à l'import d'un employé : son email est l'adresse pro, posée à son activation ; une modification de fiche ne l'efface plus (ADR-190, amendement du 2026-09-25)
 - [ ] Domaine officiel de la clinique à la place de cbdc.mg (ADR-190)
+- [x] Messagerie des adresses pro dans RIVO : la boîte de son titulaire seul, mot de passe gardé chiffré dans la session, messages lus en direct sans copie (ADR-194)
+- [x] Dossiers, favoris, recherche, filtres, sélection multiple, libellés et modèles propres au compte, rédaction riche (répondre, transférer, brouillons, pièces jointes) (ADR-194)
+- [x] HTML reçu nettoyé et affiché dans un cadre sans script, images distantes bloquées jusqu'à demande, envoi audité sans le corps (ADR-194)
+- [x] Client IMAP vérifié contre un vrai serveur : mot de passe refusé reconnu, objets accentués décodés, recherche accentuée en littéral IMAP (ADR-194)
+- [x] Messagerie rapide depuis Madagascar : sans NOOP de contrôle, connexion au premier usage, commandes groupées (pipelining), dossiers et quota en cache court, envoi en 465 — dossier 1,5 s au lieu de 56 s, message 1,7 s au lieu de 21 s, envoi 2,7 s au lieu de 10 s (ADR-194, amendement du 2026-09-25)
+- [x] Lectures annoncées parties avec les compteurs des dossiers : ouvrir un message = connexion + un seul aller-retour (au lieu de quatre), une liste en économise un (ADR-194, amendement du 2026-09-26)
+- [x] Messagerie sans attente à l'écran : la page reste en place, en-tête du message et dossier affichés aussitôt, retour à la liste instantané par l'historique, dossiers préchargés au survol, envoi en arrière-plan rendu intact à la fenêtre s'il échoue (ADR-194, amendement du 2026-09-26)
+- [x] « Ouvrir une boîte » en pleine largeur (shadcn) : boîtes en grille par site, filtre par site, flèches du clavier, curseur au mot de passe ; liste des boîtes du portail servie par le cache, « Actualiser » (ADR-194, amendement du 2026-09-26)
+- [x] Boîte de réception : compteurs en pastilles rouges sur « Tous / Non lus / Favoris » (lus par le serveur dans le même lot, mis à jour tout de suite), non-lus rouges dans les dossiers, pastille « Boîte d'un employé » à la place du bandeau, filtres sur une ligne à 390 px (ADR-194, amendement du 2026-09-26 bis)
+- [x] « Actualiser » et « Réessayer » tournent à chaque clic, dans toute l'application : au moins un tour, arrêt en fin de tour, animations réduites respectées (`Shadcn/RefreshIcon`, ADR-194)
+- [ ] Connexions IMAP gardées ouvertes entre les requêtes (service dédié) ou RIVO hébergé près du serveur de mail — le plancher restant (~1,1 s par clic depuis Madagascar), décision d'architecture (ADR-194)
+- [x] Messagerie pilotée par les permissions : `webmail.view` (sa boîte, menu visible) et `webmail.open_any` (la boîte d'un autre employé) ; le Super Admin ouvre toute boîte depuis le portail, mot de passe toujours exigé, audité (ADR-194, amendement du 2026-09-25)
+- [x] Page « Aucune boîte à ouvrir » qui dit pourquoi : droit manquant, compte non relié, fiche sans adresse, adresse inactive (ADR-194)
+- [ ] Renseigner `RIVO_WEBMAIL_IMAP_HOST` / `RIVO_WEBMAIL_SMTP_HOST` sur chaque site, puis un premier essai sur une vraie boîte o2switch (ADR-194)
+- [ ] Relier chaque compte d'un site à sa fiche employé (Utilisateurs › Personnel clinique) pour que chacun ouvre sa boîte (ADR-188, ADR-194)
+- [ ] Prévenir le titulaire quand un autre ouvre sa boîte ; recopier cet audit sur le site — à décider (ADR-194)
+- [ ] Boîtes partagées (secretariat@…) ou délégation, compteur de non-lus hors de la messagerie — à décider (ADR-194)
 
 ---
 

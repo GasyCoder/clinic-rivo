@@ -7,6 +7,7 @@ use App\Models\Permission;
 use App\Models\User;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\SiteMaintenanceState;
+use App\Services\Webmail\WebmailAccess;
 use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Database\Events\NoPendingMigrations;
 use Illuminate\Database\Schema\Blueprint;
@@ -27,6 +28,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(AppSettings::class);
         // ADR-193 — la maintenance du site, lue une fois par requête.
         $this->app->scoped(SiteMaintenanceState::class);
+        // ADR-194 — la boîte du titulaire, résolue une fois par requête.
+        $this->app->scoped(WebmailAccess::class);
     }
 
     /**

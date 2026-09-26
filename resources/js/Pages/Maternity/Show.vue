@@ -37,6 +37,10 @@ import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import NewbornDossiers from '@/Components/Clinical/NewbornDossiers.vue';
+import PregnancyHistory from '@/Components/Maternity/PregnancyHistory.vue';
+import PregnancySelectionCard from '@/Components/Maternity/PregnancySelectionCard.vue';
+import PregnancySummaryCard from '@/Components/Maternity/PregnancySummaryCard.vue';
+import PrenatalComparisonCard from '@/Components/Maternity/PrenatalComparisonCard.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Input from '@/Components/Shadcn/Input.vue';
@@ -87,6 +91,12 @@ const props = defineProps({
     newbornPatients: { type: Object, default: () => ({}) },
     /** ADR-145 — les dossiers des bébés (état, liens, création), la même projection que le détail du passage. */
     babies: { type: Object, default: null },
+    pregnancySelectionRequired: { type: Boolean, default: false },
+    activePregnancies: { type: Array, default: () => [] },
+    pregnancy: { type: Object, default: null },
+    pregnancyHistory: { type: Array, default: () => [] },
+    previousPregnancies: { type: Array, default: () => [] },
+    prenatalComparison: { type: Object, default: null },
 });
 
 const patient = computed(() => props.orientation.episode.patient);
@@ -103,16 +113,19 @@ const MAX_NEWBORNS = 5;
 const blankNewborn = () => ({ first_name: '', last_name: '', sex: '', birth_weight_g: '', condition: '', apgar: '', care_notes: '' });
 
 const form = useForm({
+    pregnancy_choice: '',
+    pregnancy_uuid: '',
     obstetric_context: props.record?.obstetric_context ?? '',
     pregnancy_data: {
-        gravidity: props.record?.pregnancy_data?.gravidity ?? '',
-        parity: props.record?.pregnancy_data?.parity ?? '',
-        last_menstrual_period: props.record?.pregnancy_data?.last_menstrual_period ?? '',
-        estimated_due_date: props.record?.pregnancy_data?.estimated_due_date ?? '',
-        risk_factors: props.record?.pregnancy_data?.risk_factors ?? '',
+        gravidity: props.record?.pregnancy_data?.gravidity ?? props.pregnancy?.gravidity ?? '',
+        parity: props.record?.pregnancy_data?.parity ?? props.pregnancy?.parity ?? '',
+        last_menstrual_period: props.record?.pregnancy_data?.last_menstrual_period ?? props.pregnancy?.last_menstrual_period ?? '',
+        estimated_due_date: props.record?.pregnancy_data?.estimated_due_date ?? props.pregnancy?.estimated_due_date ?? '',
+        risk_factors: props.record?.pregnancy_data?.risk_factors ?? props.pregnancy?.risk_factors ?? '',
     },
     prenatal_data: {
-        gestational_age_weeks: props.record?.prenatal_data?.gestational_age_weeks ?? '',
+        gestational_age_weeks: props.record?.gestational_age_weeks ?? props.record?.prenatal_data?.gestational_age_weeks ?? props.pregnancy?.gestational_age_weeks ?? '',
+        gestational_age_days: props.record?.gestational_age_days ?? props.record?.prenatal_data?.gestational_age_days ?? props.pregnancy?.gestational_age_days ?? '',
         fundal_height_cm: props.record?.prenatal_data?.fundal_height_cm ?? '',
         fetal_heart_rate: props.record?.prenatal_data?.fetal_heart_rate ?? '',
         notes: props.record?.prenatal_data?.notes ?? '',
@@ -154,6 +167,43 @@ const legacyBabyCare = Boolean(String(props.record?.baby_care_notes ?? '').trim(
 const basketForm = useForm({ lines: [], consumables: [], consumable_notes: '' });
 const cesareanForm = useForm({ type: 'SIMPLE', indication: '' });
 const completeForm = useForm({ medicine_note: '' });
+const datingForm = useForm({
+    dating_method: props.pregnancy?.dating_method ?? 'LMP',
+    last_menstrual_period: props.pregnancy?.last_menstrual_period ?? '',
+    estimated_due_date: props.pregnancy?.estimated_due_date ?? '',
+    reason: '',
+});
+const correctingDating = ref(false);
+const pregnancyLocked = computed(() => Boolean(props.record?.pregnancy_id));
+
+const choosePregnancy = (uuid) => {
+    form.pregnancy_choice = 'CONTINUE';
+    form.pregnancy_uuid = uuid;
+    const selected = props.activePregnancies.find((pregnancy) => pregnancy.uuid === uuid);
+    if (! selected) return;
+    form.pregnancy_data.gravidity = selected.gravidity ?? '';
+    form.pregnancy_data.parity = selected.parity ?? '';
+    form.pregnancy_data.last_menstrual_period = selected.last_menstrual_period ?? '';
+    form.pregnancy_data.estimated_due_date = selected.estimated_due_date ?? '';
+    form.pregnancy_data.risk_factors = selected.risk_factors ?? '';
+};
+const chooseNewPregnancy = () => {
+    form.pregnancy_choice = 'CREATE';
+    form.pregnancy_uuid = '';
+    form.pregnancy_data = { gravidity: '', parity: '', last_menstrual_period: '', estimated_due_date: '', risk_factors: '' };
+};
+const openDatingCorrection = () => {
+    datingForm.clearErrors();
+    datingForm.dating_method = props.pregnancy?.dating_method ?? 'LMP';
+    datingForm.last_menstrual_period = props.pregnancy?.last_menstrual_period ?? '';
+    datingForm.estimated_due_date = props.pregnancy?.estimated_due_date ?? '';
+    datingForm.reason = '';
+    correctingDating.value = true;
+};
+const saveDating = () => datingForm.put(
+    `/maternity/orientations/${props.orientation.uuid}/pregnancy/dating`,
+    { preserveScroll: true, onSuccess: () => { correctingDating.value = false; } },
+);
 
 /**
  * L'issue de la prise en charge (ADR-135) — choisie par la sage-femme, jamais
@@ -439,6 +489,12 @@ const newbornCountHint = computed(() => newbornCountHints(form.newborn_data.newb
 const applyDueDate = (hint) => { form.pregnancy_data.estimated_due_date = hint.action.value; };
 const applyGestationalAge = (hint) => { form.prenatal_data.gestational_age_weeks = hint.action.value; };
 
+const datingMethodOptions = [
+    { value: 'LMP', label: 'Dernières règles' },
+    { value: 'ULTRASOUND', label: 'Échographie' },
+    { value: 'MANUAL_CORRECTION', label: 'Correction manuelle' },
+];
+
 const save = () => form.transform((data) => {
     const payload = { ...data };
 
@@ -623,6 +679,29 @@ const careBloodPressure = computed(() => {
             back-label="File Maternité"
         />
 
+        <PregnancySelectionCard
+            v-if="pregnancySelectionRequired"
+            :active-pregnancies="activePregnancies"
+            :choice="form.pregnancy_choice"
+            :selected-uuid="form.pregnancy_uuid"
+            :disabled="readOnly"
+            @continue="choosePregnancy"
+            @create="chooseNewPregnancy"
+        />
+        <FormError v-if="form.errors.pregnancy_choice || form.errors.pregnancy_uuid">
+            {{ form.errors.pregnancy_choice || form.errors.pregnancy_uuid }}
+        </FormError>
+
+        <PregnancySummaryCard
+            v-if="pregnancy"
+            :pregnancy="pregnancy"
+            :can-correct-dating="capabilities.can_correct_dating"
+            @correct-dating="openDatingCorrection"
+        />
+
+        <PregnancyHistory :history="pregnancyHistory" :previous-pregnancies="previousPregnancies" />
+        <PrenatalComparisonCard v-if="prenatalComparison" :comparison="prenatalComparison" />
+
         <!-- D'abord les valeurs relevées à l'arrivée, puis ce qu'elles
              impliquent : même bandeau qu'en consultation Médecine. -->
         <VitalSignsStrip
@@ -776,7 +855,10 @@ const careBloodPressure = computed(() => {
                         <FormField as="div" label="Motif et contexte obstétrical" :error="form.errors.obstetric_context">
                             <Textarea v-model="form.obstetric_context" :rows="6" placeholder="Motif, antécédents obstétricaux et contexte clinique utile…" />
                         </FormField>
-                        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <div v-if="pregnancySelectionRequired && form.pregnancy_choice === ''" class="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+                            Choisissez d’abord la grossesse ci-dessus. Les données longitudinales ne sont jamais rattachées silencieusement.
+                        </div>
+                        <fieldset class="grid gap-4 md:grid-cols-2 xl:grid-cols-4" :disabled="pregnancyLocked || (pregnancySelectionRequired && form.pregnancy_choice !== 'CREATE')">
                             <FormField label="Gestité" :error="form.errors['pregnancy_data.gravidity']">
                                 <Input v-model="form.pregnancy_data.gravidity" type="number" min="0" max="30" />
                             </FormField>
@@ -789,18 +871,22 @@ const careBloodPressure = computed(() => {
                             <FormField label="Terme estimé" :error="form.errors['pregnancy_data.estimated_due_date']">
                                 <DatePicker v-model="form.pregnancy_data.estimated_due_date" />
                             </FormField>
-                        </div>
-                        <ClinicalFieldHints :hints="contextHints" label="Repères sur la grossesse" @apply="applyDueDate" />
+                        </fieldset>
+                        <ClinicalFieldHints v-if="! pregnancyLocked && form.pregnancy_choice === 'CREATE'" :hints="contextHints" label="Repères sur la grossesse" @apply="applyDueDate" />
                         <FormField as="div" label="Facteurs de risque" :error="form.errors['pregnancy_data.risk_factors']">
-                            <Textarea v-model="form.pregnancy_data.risk_factors" :rows="3" />
+                            <Textarea v-model="form.pregnancy_data.risk_factors" :rows="3" :disabled="pregnancyLocked || (pregnancySelectionRequired && form.pregnancy_choice !== 'CREATE')" />
                         </FormField>
+                        <p v-if="pregnancyLocked" class="text-xs text-muted-foreground">DDR, DPA, gestité, parité et facteurs de risque viennent de la grossesse longitudinale. La datation se corrige par l’action auditée du résumé.</p>
                     </template>
 
                     <template v-else-if="activeSection === 'prenatal'">
-                        <div class="grid gap-4 md:grid-cols-3">
-                            <FormField label="Terme (semaines)" :error="form.errors['prenatal_data.gestational_age_weeks']">
-                                <Input v-model="form.prenatal_data.gestational_age_weeks" type="number" min="0" :max="reference.gestational_age.max" />
+                        <div class="grid gap-4 md:grid-cols-4">
+                            <FormField label="Terme (SA)" :error="form.errors['prenatal_data.gestational_age_weeks']">
+                                <Input v-model="form.prenatal_data.gestational_age_weeks" type="number" min="0" :max="reference.gestational_age.max" :disabled="Boolean(pregnancy?.last_menstrual_period || pregnancy?.estimated_due_date)" />
                                 <ClinicalFieldHints :hints="gestationalHints" label="Repères sur le terme" @apply="applyGestationalAge" />
+                            </FormField>
+                            <FormField label="Jours" :error="form.errors['prenatal_data.gestational_age_days']">
+                                <Input v-model="form.prenatal_data.gestational_age_days" type="number" min="0" max="6" :disabled="Boolean(pregnancy?.last_menstrual_period || pregnancy?.estimated_due_date)" />
                             </FormField>
                             <FormField label="Hauteur utérine (cm)" :error="form.errors['prenatal_data.fundal_height_cm']">
                                 <Input v-model="form.prenatal_data.fundal_height_cm" type="number" min="0" :max="reference.fundal_height.max" step="0.1" />
@@ -1200,7 +1286,7 @@ const careBloodPressure = computed(() => {
                 <footer class="flex flex-col gap-3 border-t border-border bg-muted/40 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <span class="text-xs text-muted-foreground">{{ record?.updated_at ? 'Dernière mise à jour enregistrée' : 'Dossier à renseigner' }}</span>
                     <div class="flex flex-wrap gap-2">
-                        <Button v-if="capabilities.can_edit" type="submit" variant="primary" :disabled="form.processing">
+                        <Button v-if="capabilities.can_edit" type="submit" variant="primary" :disabled="form.processing || (pregnancySelectionRequired && ! form.pregnancy_choice)">
                             <Save class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : 'Enregistrer le dossier' }}
                         </Button>
                         <Button v-if="capabilities.can_complete && record" type="button" variant="success" @click="confirmingComplete = true">
@@ -1212,6 +1298,42 @@ const careBloodPressure = computed(() => {
 
             <FormError v-if="firstError(form.errors)" class="mt-2">{{ firstError(form.errors) }}</FormError>
         </form>
+
+        <Dialog
+            :open="correctingDating"
+            title="Corriger la datation de la grossesse"
+            description="Cette correction est auditée. Les snapshots de terme déjà enregistrés sur les consultations précédentes ne sont pas réécrits."
+            :dismissible="false"
+            @update:open="correctingDating = $event"
+        >
+            <div class="space-y-4">
+                <FormField label="Méthode de datation" required :error="datingForm.errors.dating_method">
+                    <Select v-model="datingForm.dating_method" class="h-10 w-full" :options="datingMethodOptions" />
+                </FormField>
+                <FormField v-if="datingForm.dating_method === 'LMP'" label="Dernières règles" required :error="datingForm.errors.last_menstrual_period">
+                    <DatePicker v-model="datingForm.last_menstrual_period" />
+                    <p class="mt-1 text-xs text-muted-foreground">La DPA sera recalculée côté Laravel depuis cette DDR.</p>
+                </FormField>
+                <template v-else>
+                    <FormField label="Dernières règles" hint="Facultatif" :error="datingForm.errors.last_menstrual_period">
+                        <DatePicker v-model="datingForm.last_menstrual_period" />
+                    </FormField>
+                    <FormField label="DPA retenue" required :error="datingForm.errors.estimated_due_date">
+                        <DatePicker v-model="datingForm.estimated_due_date" />
+                    </FormField>
+                </template>
+                <FormField label="Motif de la correction" hint="Facultatif" :error="datingForm.errors.reason">
+                    <Textarea v-model="datingForm.reason" :rows="3" maxlength="1000" />
+                </FormField>
+                <FormError v-if="datingForm.errors.pregnancy">{{ datingForm.errors.pregnancy }}</FormError>
+            </div>
+            <template #footer>
+                <Button type="button" variant="outline" :disabled="datingForm.processing" @click="correctingDating = false">Annuler</Button>
+                <Button type="button" variant="primary" :disabled="datingForm.processing" @click="saveDating">
+                    <Save class="h-4 w-4" />{{ datingForm.processing ? 'Enregistrement…' : 'Enregistrer la correction' }}
+                </Button>
+            </template>
+        </Dialog>
 
         <Dialog
             :open="cancellingRequest !== null"

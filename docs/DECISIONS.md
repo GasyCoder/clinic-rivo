@@ -17594,3 +17594,337 @@ filière à l'import         l'import crée un contrat de stage sans filière (�
 gardes et disponibilité    la disponibilité d'un chirurgien au bloc (ADR-168) lit tous les créneaux,
                            service et garde confondus
 ```
+
+---
+
+# ADR-195 — Messagerie : la boîte professionnelle de son titulaire, lue en direct
+
+**Status:** ACCEPTED (2026-09-25 — demande du propriétaire : « la fonctionnalité Email/Inbox du modèle
+DashWind, complète, avec UI et UX », quatre arbitrages explicites)
+; **amendé le même jour** : la messagerie dépend des permissions (`webmail.view`, `webmail.open_any`) et
+le Super Admin ouvre toute boîte depuis le portail, puis une boîte qui répond en une ou deux secondes au lieu
+d'une minute — voir les amendements en fin d'ADR
+
+**Complète l'ADR-190** (adresses email professionnelles) : les adresses existaient, on ne pouvait pas s'en
+servir depuis RIVO. Le CDC ne décrit aucune messagerie : les règles ci-dessous sont celles du propriétaire.
+
+## Les arbitrages
+
+```text
+quoi            un vrai webmail des adresses pro (ADR-190), en IMAP/SMTP chez l'hébergeur (o2switch)
+mot de passe    demandé à l'ouverture de la boîte, gardé chiffré dans la session seulement, jamais en base
+qui             le titulaire, sur son site : compte ↔ fiche employé (ADR-188) ↔ adresse ACTIVE ;
+                personne d'autre, Super Admin compris
+copie locale    aucune : les messages sont lus en direct, rien n'est recopié dans RIVO
+```
+
+## Qui ouvre une boîte
+
+`WebmailAccess` : le compte relié à une fiche employé qui a une adresse professionnelle **active**. Aucune
+permission ne l'ouvre, et c'est voulu : un droit s'accorde, un lien compte ↔ fiche se prouve. Une adresse
+suspendue (ADR-190) ferme la messagerie. Seulement sur un site clinique : les comptes du portail ne sont pas
+des employés. Sans boîte, la page « Aucune boîte à ouvrir » dit pourquoi et à qui s'adresser (RH) — jamais un
+simple 403 muet. Le menu « Messagerie » n'apparaît qu'au titulaire (prop partagée `webmail.available`).
+
+## Le mot de passe
+
+C'est celui de l'adresse, remis une fois à sa création (ADR-190) — pas celui de RIVO. `WebmailSessionController`
+le fait vérifier par le serveur de messagerie lui-même, puis `WebmailSession` le garde **chiffré** dans la session
+(`Crypt`, lié à l'UUID et à l'adresse de la boîte). Il n'est jamais en base, jamais dans un journal ni dans
+l'audit (`#[\SensitiveParameter]`, exceptions relancées sans la précédente, journaux sans pile d'appels).
+Il disparaît à « Fermer ma boîte » et à la déconnexion de RIVO. Un mot de passe changé chez l'hébergeur est
+oublié et redemandé. Audit : `webmail.connect`, `webmail.connect_failed`, `webmail.disconnect`.
+
+## Rien n'est copié
+
+`WebmailMailbox` lit et écrit en direct sur le serveur (`ImapMailServer`, webklex/php-imap — PHP 8.4 n'a pas
+l'extension imap ; `EsmtpTransport` de Symfony pour l'envoi). Les messages peuvent porter des données de santé :
+les garder en double dans RIVO en ferait une seconde source à protéger, à purger et à auditer. Seuls deux
+réglages **du compte** sont en base : ses libellés (`webmail_labels`) et ses modèles de message
+(`webmail_templates`).
+
+## Ce que fait l'écran
+
+```text
+dossiers       Réception, Brouillons, Favoris, Envoyés, Archives, Indésirables, Corbeille, puis les dossiers
+               créés ailleurs ; noms français, compteurs de non-lus. Rôle lu sur SPECIAL-USE, sinon sur le nom ;
+               un dossier manquant (Archives…) est créé à côté des autres (« INBOX. » chez cPanel)
+Favoris        les messages étoilés de Réception, Archives et Envoyés (200 au plus par dossier) — pas un
+               dossier du serveur. « Tous les messages » n'est pas proposé : IMAP ne le fournit pas
+liste          recherche sur le serveur, filtres Non lus / Favoris / libellé, pagination, sélection multiple ;
+               pas d'extrait du corps : le lire marquerait lu et coûterait une lecture par ligne
+actions        lu / non lu, favori, archiver, indésirable, remettre en réception, déplacer, libeller,
+               corbeille ; « supprimer définitivement » seulement depuis la corbeille et les indésirables,
+               après confirmation — audité (`webmail.delete`)
+lecture        destinataires détaillés, pièces jointes téléchargées (jamais affichées), message suivant /
+               précédent, impression du seul message, « Afficher les images »
+rédaction      nouveau, répondre, répondre à tous, transférer (avec les pièces d'origine), brouillon repris ;
+               éditeur riche, destinataires en pastilles avec les collègues proposés, Cc / Cci, pièces
+               jointes (10 Mo par fichier, 20 Mo au total), modèles ; fermer un message commencé demande
+               confirmation, Ctrl+Entrée envoie
+libellés       mots-clés IMAP du serveur (`rivo…`), propres au compte, 6 couleurs, 30 au plus
+modèles        propres au compte, 50 au plus, corps nettoyé comme un message
+collègues      les autres adresses actives du site : nom, fonction, adresse — rien d'autre
+```
+
+Une action qui fait sortir le message lu de son dossier ramène à la liste : `return_to`, limité aux chemins
+`/messagerie/…` (`WebmailReturn`), jamais une adresse extérieure.
+
+## Un message reçu est rendu sûr, deux fois
+
+`EmailHtmlSanitizer::forDisplay` retire scripts, cadres, formulaires, attributs `on…`, adresses `javascript:`,
+styles dangereux ; remplace les images `cid:` par l'image jointe ; **bloque les images distantes** (pistage)
+jusqu'à « Afficher les images ». Le corps est ensuite affiché dans un `iframe` isolé (`sandbox` sans
+`allow-scripts`, politique de contenu qui n'autorise que les images, aucun référent). Une pièce jointe est
+toujours téléchargée (`application/octet-stream`, `nosniff`, `sandbox`), jamais rendue. Ce qu'on écrit ne garde
+qu'un jeu fermé de balises (`forSending`), exactement celles que l'éditeur propose.
+
+## L'envoi
+
+Il part de l'adresse du titulaire, authentifié avec son mot de passe, par le serveur d'envoi de l'hébergeur
+(465, TLS dès la connexion, chez o2switch — voir l'amendement sur la rapidité). Le serveur relit les destinataires (50 au plus, noms gardés), le corps et les
+pièces jointes ; le navigateur n'est jamais cru. La copie va dans Envoyés **avec** la copie cachée, que le
+message parti ne porte pas. Une réponse porte `In-Reply-To` / `References` et marque l'original « répondu ».
+Un brouillon envoyé est retiré des Brouillons. Un envoi refusé ne met rien dans Envoyés et garde le formulaire.
+Audit `webmail.send` : expéditeur, destinataires, objet, nombre de pièces jointes — **jamais le corps**.
+
+## Trois défauts de la bibliothèque, trouvés contre un vrai serveur
+
+Vérifiés contre GreenMail (test d'intégration `ImapMailServerIntegrationTest`, lancé seulement si
+`RIVO_WEBMAIL_TEST_SERVER` est défini, jamais contre une boîte réelle) :
+
+```text
+mot de passe refusé    un « NO » du serveur au LOGIN arrivait comme une panne : « le serveur ne répond
+                       pas » pour qui s'était trompé → `isRefusal()` le reconnaît
+objet accentué         sans l'extension imap, le décodeur laissait « =?utf-8?Q?R=C3=A9sultats?= » →
+                       décodage des en-têtes par iconv
+recherche accentuée    la bibliothèque refuse CHARSET → la recherche est écrite à la main, le texte
+                       accentué envoyé en littéral IMAP avec `CHARSET UTF-8`
+```
+
+## Configuration
+
+`RIVO_WEBMAIL_IMAP_HOST/PORT/ENCRYPTION`, `RIVO_WEBMAIL_SMTP_HOST/PORT/ENCRYPTION` dans le `.env` de chaque
+site (aucun secret : l'hôte seulement) ; vides, l'hôte de `RIVO_MAIL_HOSTING_URL`. Non configurée, la messagerie
+le dit au lieu d'une erreur. Migration `2026_11_04_090000_create_webmail_labels_and_templates` (sites et
+portail). Aucune permission nouvelle.
+
+## Hors périmètre, signalé
+
+```text
+Super Admin            (remplacé par l'amendement ci-dessous) ; boîte partagée (secretariat@) : à décider
+recherche sans accent  « Resultats » ne trouve pas « Résultats » : c'est le serveur qui cherche
+espace utilisé         affiché si l'hébergeur le donne (QUOTA IMAP), sinon dit
+notifications          aucun compteur de non-lus hors de la messagerie : il faudrait se connecter au
+                       serveur à chaque page
+```
+
+## Amendement du 2026-09-25 — la messagerie dépend des permissions, le Super Admin ouvre toute boîte
+
+Constat du propriétaire : « je ne vois rien de ce qui a été fait ». Rien n'était cassé : sur son site, le
+seul compte (`user@rivo.test`) n'était relié à aucune fiche employé, donc l'entrée « Messagerie » restait
+masquée pour tout le monde ; et le portail n'en avait aucune. Arbitrage du propriétaire : **le Super Admin
+a tous les droits**, et **la messagerie dépend des permissions**. Divergence signalée avec la première
+version de cet ADR (« personne d'autre, Super Admin compris ; aucun droit ne l'ouvre »), qui est remplacée.
+
+```text
+webmail.view      la messagerie apparaît au menu ; le compte ouvre SA boîte (l'adresse active de la
+                  fiche employé reliée, ADR-188/190). Socle : ADMINISTRATION, LOGISTICS, RECEPTION,
+                  MEDICINE, NURSE, SURGERY, PHARMACY, LABORATORY — pas SUPPORT ni MAINTENANCE (ADR-033)
+webmail.open_any  ouvrir la boîte d'un autre employé : sur un site, celles du site ; depuis le portail,
+                  celles de chaque site, listées par son API (jamais sa base, ADR-004). Accordée à aucun
+                  rôle d'un site ; le Super Admin la reçoit comme toutes les permissions (ADR-186)
+```
+
+**Le mot de passe de la boîte reste exigé**, pour tous : c'est le serveur de messagerie qui le demande, et
+RIVO ne le connaît pas (ADR-190). Le Super Admin l'a reçu à la création ou le renouvelle depuis « Emails
+professionnels » — le titulaire devra alors utiliser le nouveau.
+
+```text
+choix          /messagerie/connexion liste « Ma boîte » et, avec open_any, les adresses ACTIVES (par
+               site sur le portail), cherchables ; le serveur relit la boîte choisie à l'instant,
+               jamais celle que le navigateur décrit
+session        la boîte choisie (identité, site, titulaire) et son mot de passe, chiffrés ensemble ;
+               chaque requête revérifie le droit — et, sur un site, que l'adresse est encore active.
+               Sur le portail, c'est le serveur de messagerie qui refuse une adresse suspendue
+à l'écran      « Boîte d'un employé · site » en permanence dans la colonne de gauche, et
+               « Ouvrir une autre boîte » pour qui a open_any
+audit          webmail.connect / connect_failed / disconnect / send portent titular, site et
+               own_mailbox : ouvrir ou écrire depuis la boîte d'un autre se lit dans l'audit, au nom
+               de qui l'a fait. Sur le portail, l'entrée est dans l'audit du portail
+sans boîte     la page dit pourquoi : droit manquant (nommé, ADR-154), compte non relié à une fiche,
+               fiche sans adresse, adresse demandée ou suspendue — jamais un refus muet
+```
+
+Le menu du portail porte « Messagerie » (Organisation, gardé par `webmail.open_any`) ; celui d'un site
+l'affiche dès que le compte a `webmail.view` ou `webmail.open_any`. `WebmailBox` remplace le modèle
+`ProfessionalMailbox` dans la messagerie : sur le portail, l'adresse vit sur un site. Migration
+`2026_11_06_090000_create_webmail_permissions` (sites et portail).
+
+**Signalé.** Envoyer depuis la boîte d'un employé, c'est écrire à sa place : c'est permis avec
+`open_any`, et tracé. Lire la boîte d'un employé à son insu n'est dit qu'à celui qui l'ouvre, pas au
+titulaire : une notification au titulaire reste à décider. L'audit d'une ouverture faite depuis le portail
+n'est pas recopié dans l'audit du site.
+
+## Amendement du 2026-09-25 — une boîte qui répond en une ou deux secondes
+
+Constat du propriétaire : ouvrir un dossier prenait près d'une minute, un message 21 s, un envoi 10 s. Rien
+n'était cassé : le serveur est à ~260 ms de Madagascar (o2switch), et la bibliothèque multipliait les
+allers-retours — un NOOP de contrôle avant chaque commande, un aller-retour par dossier pour ses compteurs, et
+une connexion (~1,1 s : chiffrement et identification) même pour une requête qui ne lisait rien.
+
+```text
+aucun NOOP           LeanImapClient : la connexion vit le temps d'une requête HTTP ; une coupure se lit à la
+                     commande suivante, comme une panne
+connexion au besoin  LazyMailServer : la boîte s'ouvre au premier usage ; un rechargement partiel, un libellé
+                     renommé ne la paient plus. Le mot de passe reste vérifié à l'ouverture de la boîte
+ensemble             les commandes indépendantes partent d'un seul envoi (pipelining IMAP) : les compteurs de
+                     tous les dossiers, marquer puis déplacer ou effacer ; un message ajouté part avec sa
+                     commande (LITERAL+) ; un seul FETCH par page de liste ou par message
+gardé un moment      arborescence des dossiers (2 min, effacée dès qu'un dossier est créé), espace utilisé
+                     (10 min), capacités du serveur (1 jour) ; sur le portail, la liste des boîtes des sites
+                     (5 min, pour les contacts — relue à l'instant pour ouvrir une boîte)
+fin de requête       LOGOUT sans attendre la réponse ; le QUIT du SMTP après que l'écran a reçu la sienne
+envoi                465, TLS dès la connexion, au lieu de 587 STARTTLS (deux allers-retours de moins) ;
+                     authentification PLAIN avant LOGIN (un aller-retour contre trois)
+écran                après une action, un envoi ou un libellé, seules les parties touchées sont rechargées
+```
+
+**Rien n'est copié pour autant** : le cache ne garde que des noms de dossiers et des nombres, sous une clé
+formée de l'hôte et de l'adresse — jamais un en-tête, un corps, ni le mot de passe. La règle « Rien n'est
+copié » est inchangée.
+
+Mesuré depuis Madagascar sur o2switch : dossier 1,5 s (au lieu de 56 s), message 1,7 s (21 s), envoi 2,7 s
+(10 s). Le test d'intégration contre GreenMail (`ImapMailServerIntegrationTest`) exerce le client allégé.
+`RIVO_WEBMAIL_SMTP_PORT` / `_ENCRYPTION` gardent 587 STARTTLS possible pour un hébergeur qui n'ouvrirait
+pas 465. Aucune permission, aucune migration.
+
+## Amendement du 2026-09-26 — rien n'attend plus : un clic répond tout de suite, l'écran d'ouverture en pleine largeur
+
+Demande du propriétaire : « l'application messagerie doit être rapide, rien de lenteur », et l'écran « Ouvrir
+une boîte » en pleine largeur (shadcn). Sa remarque « on utilise Vue.js + TypeScript » : le projet est en Vue 3
+et JavaScript, et TypeScript ne change rien à la vitesse — ce qui fait attendre, ce sont les allers-retours
+vers le serveur de mail, et un écran qui disparaissait derrière un squelette pleine page à chaque clic.
+
+**Côté serveur : les lectures annoncées partent avec les compteurs.** Chaque page demandait les compteurs des
+dossiers, puis sélection + recherche, puis la lecture, chacun attendant le précédent. La page annonce
+désormais ce qu'elle lira (`MailServer::plan()`, posé par `WebmailMailbox::expectListing()` /
+`expectMessage()` depuis le contrôleur, seulement si la page demande la liste ou le message) :
+
+```text
+liste     [compteurs + SELECT + SEARCH] puis FETCH        un aller-retour de moins
+message   [compteurs + SELECT + SEARCH + FETCH + STORE \Seen]   un seul, au lieu de quatre
+```
+
+Le marquage « lu » part après la lecture : les drapeaux reçus sont ceux d'avant, et le compteur de non-lus se
+corrige comme avant. Un brouillon n'est pas marqué lu. Une réponse refusée n'est pas gardée : la méthode qui en
+a besoin la redemande et dit l'erreur comme avant. Ce qui est reçu d'avance vaut pour la seule requête en cours
+et est oublié à toute modification (marquer, déplacer, supprimer, déposer). Rien n'est copié hors de la requête.
+
+**Côté écran : la page reste en place.** Les liens de la messagerie gardent la page (`preserveState`) et ne
+redemandent pas ce qui ne change pas d'un clic à l'autre (boîte, libellés, modèles, collègues, limites, espace —
+`WEBMAIL_STATIC_PROPS`). Plus de squelette pleine page (ADR-185) : la colonne des dossiers ne disparaît jamais.
+
+```text
+ouvrir un message   son en-tête s'affiche aussitôt, repris de la ligne cliquée ; le corps en squelette
+autre dossier       il s'allume aussitôt, sa liste en squelette
+même dossier        page, filtre, recherche : la liste reste, atténuée, sous une barre de chargement
+retour à la liste   par l'historique du navigateur quand le message a été ouvert depuis elle : la liste
+                    réapparaît instantanément, le message s'y montre lu, puis elle est relue en arrière-plan ;
+                    les flèches « précédent / suivant » remplacent le message dans l'historique
+survol              un dossier ou une page voisine se prépare au survol (préchargement Inertia, 30 s,
+                    étiqueté `webmail`), oublié à chaque action, envoi, actualisation ou ouverture de message.
+                    Jamais un message : l'ouvrir le marque lu
+envoyer             la fenêtre se ferme aussitôt, le message part en arrière-plan (requête JSON), un avis dit
+                    « Message envoyé. ». Refusé — adresse, serveur, boîte refermée —, il revient dans la
+                    fenêtre, intact, avec la raison ; pendant l'envoi, on n'en commence pas un autre
+```
+
+L'envoi d'arrière-plan reçoit du JSON (`WebmailComposeController`, `OpenWebmailMailbox`) : 200 `status`,
+422 erreurs, 409 `reconnect` quand la boîte s'est refermée ou que son mot de passe a changé — jamais une page de
+connexion prise pour un succès. L'audit `webmail.send` est inchangé.
+
+Mesuré sur un banc local (GreenMail derrière un relais à ~260 ms d'aller-retour, sans chiffrement — les vrais
+chiffres chez o2switch sont un peu plus hauts) :
+
+| Geste | Avant | Après |
+|---|---|---|
+| Ouvrir la boîte → Réception | 3,3 s | 2,8 s |
+| Ouvrir un message | 2,3 s sans rien à l'écran | en-tête 0,08 s, contenu 1,35 s |
+| Retour à la liste | 2,4 s | 0,06 s |
+| Page suivante | 2,0 s | retour 0,08 s, liste 1,4 s |
+| Changer de dossier (survolé) | 1,8 s | 1,0 s |
+| Envoyer | 3,6 s bloqué | fenêtre fermée 0,3 s, envoi confirmé en arrière-plan |
+
+**L'écran d'ouverture en pleine largeur** (`Webmail/Connect.vue`) : à gauche les boîtes en grille, par site,
+cherchables, filtrables par site sur le portail, la sienne en tête ; à droite, fixe, la boîte choisie, son mot
+de passe et ce qu'il faut savoir. Choisir une boîte place le curseur dans le mot de passe ; les flèches passent
+d'une boîte à l'autre. Sur le portail, la liste des boîtes des sites est lue dans le cache de 5 minutes
+(« Actualiser » la relit) ; l'ouverture revérifie toujours la boîte à l'instant (`findOther`).
+
+**Les avis tiennent dans un bouton « ! »** (demande du propriétaire, même jour). Sur cet écran comme dans
+« Emails professionnels », plus aucun bandeau : l'avertissement d'audit d'une boîte d'employé, les sites non
+listés et les informations (mot de passe, aucune copie, mot de passe oublié) s'ouvrent au clic sur une icône
+de l'en-tête (`Shadcn/NoticesButton`). Sa pastille compte les avis et passe à l'ambre dès qu'un avertissement
+s'y trouve. Le badge « Boîte d'un employé » reste visible sur la boîte choisie, et l'est toujours en permanence
+dans la messagerie ouverte.
+
+**Signalé, non tranché.** Le plancher restant est la connexion elle-même (chiffrement + identification,
+~1,1 s depuis Madagascar), payée à chaque clic parce que PHP ne garde rien d'une requête à l'autre. La
+supprimer demanderait un service qui garde les connexions ouvertes entre les requêtes (une décision
+d'architecture), ou d'héberger RIVO près du serveur de mail. En local, `php artisan serve` n'a qu'un processus :
+les préchargements s'y font la queue ; `PHP_CLI_SERVER_WORKERS=4` l'évite (PHP-FPM en production n'est pas
+concerné). Aucune permission, aucune migration.
+
+
+## Amendement du 2026-09-26 (bis) — la boîte de réception se lit d'un coup d'œil, et « Actualiser » se voit
+
+Deux demandes du propriétaire sur `/messagerie/dossier/reception` : le bandeau ambre « Boîte d'un employé ·
+Ambondromamy. Ouvertures et envois sont audités à votre nom. » prenait une ligne entière, et les filtres « Tous /
+Non lus / Favoris » ne disaient pas combien de messages ils ouvrent. Puis, sur la même page : cliquer « Actualiser »
+ne faisait rien bouger.
+
+**Les filtres portent leur compteur**, en pastille rouge, cachée à zéro. Les chiffres viennent du serveur :
+
+```text
+Tous      messages du dossier                        STATUS, déjà dans le lot des compteurs
+Non lus   non lus du dossier                         STATUS
+Favoris   messages étoilés du dossier                UID SEARCH FLAGGED, ajouté au même envoi que la liste
+```
+
+`WebmailMailbox::listing()` renvoie `counts {all, unseen, flagged}` ; la recherche des favoris part avec le lot de la
+liste (pipelining), sans aller-retour de plus. Pour le dossier « Favoris » réuni et pour une liste en erreur, `counts`
+vaut `null` : rien n'est inventé. Marquer lu, étoiler, archiver font bouger les compteurs tout de suite
+(`applyActionLocally`, `countsDelta`) ; la réponse du serveur les confirme. Dans la colonne des dossiers, les non-lus
+sont eux aussi en rouge ; les brouillons restent neutres (un brouillon n'attend pas d'être lu).
+
+**Le bandeau devient une pastille.** « Boîte d'un employé · site », ambre, avec son œil, reste visible en permanence
+dans la carte de la boîte — ouvrir la boîte d'un autre est audité à votre nom, cela doit se voir sans cliquer — et
+s'ouvre sur l'explication complète (« Vous lisez et écrivez à la place de … Chaque ouverture et chaque envoi sont
+enregistrés dans l'audit à votre nom »). « Ouvrir une autre boîte » et « Fermer ma boîte » deviennent deux icônes de
+cette carte. L'en-tête de la liste porte l'icône du dossier ; l'état vide dit ce qui est vide (dossier, filtre,
+recherche, libellé) et propose « Afficher tout le dossier » quand un filtre est posé. Sur téléphone, les filtres
+perdent leur icône et ne se coupent plus : la case, les trois filtres et « Actualiser » tiennent sur une ligne à
+390 px, sans défilement horizontal.
+
+**« Actualiser » tourne, et on le voit.** L'icône de la barre tournait sur `processing` — l'état des actions
+groupées, qu'un rechargement ne pose jamais — et celle de l'état vide ne tournait pas du tout. Même quand
+l'animation existait ailleurs, une réponse en 80 ms ne laissait voir qu'un tressaillement. Une icône partagée,
+`Shadcn/RefreshIcon`, porte désormais la règle une seule fois :
+
+```text
+au moins un tour     une réponse rapide montre quand même la rotation : le clic a un effet visible
+fin de tour          l'icône s'arrête à 0°, lue sur l'animation (animationiteration), jamais par une horloge
+                     qui la couperait quelques degrés trop tôt
+filet                une minuterie la libère si aucun tour ne se termine (préférence « animations
+                     réduites », ADR-191, qui coupe la rotation)
+```
+
+Un tour dure 700 ms, écrit une seule fois (`@keyframes rivo-refresh-turn`). Le bouton reste désactivé pendant la
+relecture et porte `aria-busy`. La même icône sert à tous les boutons d'actualisation de l'application : liste et
+état vide de la messagerie, « Ouvrir une boîte » du portail, messagerie hors ligne, points d'attention de l'en-tête,
+RH du portail (« Actualiser », « Réessayer »), page de maintenance et « Réessayer l'enregistrement » des emails
+professionnels. Un test interdit qu'une icône d'actualisation tourne encore hors de ce composant.
+
+Mesuré dans un navigateur : l'icône passe de 0° à 351° puis s'arrête pile à 0° vers 750 ms, sur la barre comme sur
+l'état vide. Aucune permission, aucune migration.

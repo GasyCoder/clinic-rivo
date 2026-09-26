@@ -10,7 +10,10 @@ use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\MaternityRecord;
 use App\Models\MaternityRecordDraft;
+use App\Models\Pregnancy;
 use App\Models\User;
+use App\Enums\PregnancyStatus;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -76,6 +79,8 @@ class CompleteMaternityOrientationAction
                 'updated_by' => $actor->id,
             ])->save();
 
+            $this->completePregnancyIfDelivered($record, $actor);
+
             if ($orientToMedicine) {
                 $this->orientToMedicine($locked->episode, $actor, $note);
             } else {
@@ -84,6 +89,34 @@ class CompleteMaternityOrientationAction
 
             return $record->fresh();
         });
+    }
+
+    /**
+     * La grossesse se clôt sur le fait clinique enregistré, jamais sur now().
+     * Sauvegarder un brouillon d'accouchement ne suffit pas : la transition a
+     * lieu quand la prise en charge qui porte cet accouchement est terminée.
+     */
+    private function completePregnancyIfDelivered(MaternityRecord $record, User $actor): void
+    {
+        $occurredAt = $record->delivery_data['occurred_at'] ?? null;
+
+        if ($record->pregnancy_id === null || blank($occurredAt)) {
+            return;
+        }
+
+        $pregnancy = Pregnancy::query()->lockForUpdate()->findOrFail($record->pregnancy_id);
+
+        if ($pregnancy->status !== PregnancyStatus::Ongoing) {
+            return;
+        }
+
+        $deliveredAt = CarbonImmutable::parse($occurredAt);
+        $pregnancy->fill([
+            'status' => PregnancyStatus::Delivered,
+            'delivered_at' => $deliveredAt,
+            'ended_at' => $deliveredAt,
+            'updated_by' => $actor->getKey(),
+        ])->save();
     }
 
     /**

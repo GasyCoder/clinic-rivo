@@ -10,7 +10,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
-    'episode_id', 'episode_orientation_id', 'obstetric_context',
+    'episode_id', 'episode_orientation_id', 'pregnancy_id',
+    'gestational_age_weeks', 'gestational_age_days', 'obstetric_context',
     'pregnancy_data', 'prenatal_data', 'labor_data', 'delivery_data', 'newborn_data',
     'maternal_care_notes', 'baby_care_notes', 'observations', 'transmission_notes',
     'created_by', 'updated_by', 'completed_by', 'completed_at',
@@ -27,6 +28,8 @@ class MaternityRecord extends Model
             'labor_data' => 'array',
             'delivery_data' => 'array',
             'newborn_data' => 'array',
+            'gestational_age_weeks' => 'integer',
+            'gestational_age_days' => 'integer',
             'completed_at' => 'datetime',
         ];
     }
@@ -39,6 +42,11 @@ class MaternityRecord extends Model
     public function orientation(): BelongsTo
     {
         return $this->belongsTo(EpisodeOrientation::class, 'episode_orientation_id');
+    }
+
+    public function pregnancy(): BelongsTo
+    {
+        return $this->belongsTo(Pregnancy::class);
     }
 
     public function procedures(): HasMany

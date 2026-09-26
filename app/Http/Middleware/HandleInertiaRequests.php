@@ -5,6 +5,8 @@ namespace App\Http\Middleware;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\SiteMaintenanceState;
 use App\Services\SuperAdmin\PortalDirectory;
+use App\Services\Webmail\WebmailAccess;
+use App\Services\Webmail\WebmailSession;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -87,6 +89,12 @@ class HandleInertiaRequests extends Middleware
                 // ADR-193 — la maintenance du site : bandeau d'avertissement avant son
                 // début, bandeau pour le compte qui la traverse, avis sur la connexion.
                 'maintenance' => app(SiteMaintenanceState::class)->sharedProp($user),
+            ],
+            // ADR-194 — la messagerie : proposée selon les permissions (`webmail.view`,
+            // `webmail.open_any`) ; `connected` dit si une boîte est ouverte.
+            'webmail' => fn () => [
+                'available' => app(WebmailAccess::class)->canUse($user),
+                'connected' => app(WebmailSession::class)->passwordFor(app(WebmailAccess::class)->current($user)) !== null,
             ],
             // ADR-191 — taille du texte, densité, arrondis, animations, contraste :
             // ceux du site, ajustés par l'utilisateur. Appliqués sur <html> dès le rendu

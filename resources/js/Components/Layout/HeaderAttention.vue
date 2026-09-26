@@ -7,10 +7,10 @@ import {
     ChevronRight,
     Loader2,
     Package,
-    RefreshCw,
     Wallet,
 } from 'lucide-vue-next';
 import Popover from '@/Components/Shadcn/Popover.vue';
+import RefreshIcon from '@/Components/Shadcn/RefreshIcon.vue';
 import { cn } from '@/lib/cn';
 
 /**
@@ -108,7 +108,7 @@ const toggle = (value) => {
                 :disabled="loading"
                 @click="load"
             >
-                <RefreshCw :class="cn('h-3.5 w-3.5', loading && 'animate-spin')" aria-hidden="true" />
+                <RefreshIcon :spinning="loading" class="h-3.5 w-3.5" />
             </button>
         </div>
 

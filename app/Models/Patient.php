@@ -65,6 +65,12 @@ class Patient extends Model
         return $this->hasMany(Episode::class);
     }
 
+    /** Dossiers longitudinaux, distincts des passages administratifs. */
+    public function pregnancies(): HasMany
+    {
+        return $this->hasMany(Pregnancy::class)->latest('started_at')->latest('id');
+    }
+
     /** ADR-144 — ce patient est un nouveau-né créé depuis le dossier Maternité de sa mère. */
     public function newbornLink(): HasOne
     {
@@ -139,6 +145,7 @@ class Patient extends Model
     public function isForceDeleteProtected(): bool
     {
         return $this->episodes()->exists()
+            || $this->pregnancies()->exists()
             || $this->invoices()->exists()
             || $this->antecedents()->exists()
             || $this->allergies()->exists()

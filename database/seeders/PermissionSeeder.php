@@ -74,6 +74,8 @@ class PermissionSeeder extends Seeder
         'professional_emails.deactivate' => 'Suspendre une adresse email professionnelle',
         'professional_emails.activate' => 'Réactiver une adresse email professionnelle suspendue',
         'professional_emails.update' => 'Réinitialiser le mot de passe d’une adresse email professionnelle',
+        'webmail.view' => 'Utiliser la messagerie professionnelle (ouvrir sa propre boîte)',
+        'webmail.open_any' => 'Ouvrir la boîte professionnelle d’un autre employé (avec son mot de passe)',
         'employees.view' => 'Voir les employés',
         'employees.create' => 'Créer un employé',
         'employees.update' => 'Modifier un employé',

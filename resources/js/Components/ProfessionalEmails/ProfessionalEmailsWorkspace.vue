@@ -11,6 +11,8 @@ import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
+import NoticesButton from '@/Components/Shadcn/NoticesButton.vue';
+import RefreshIcon from '@/Components/Shadcn/RefreshIcon.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
@@ -50,6 +52,27 @@ const STATUS_TONE = { REQUESTED: 'warning', ACTIVE: 'success', SUSPENDED: 'secon
 
 const onlineSites = computed(() => props.sites.filter((site) => site.ok));
 const offlineSites = computed(() => props.sites.filter((site) => ! site.ok));
+
+// Ce qui est bon à savoir sans bloquer le travail — accès par mot de passe cPanel,
+// site injoignable — tient dans le bouton « ! » de l'en-tête, pas en bandeaux.
+const notices = computed(() => [
+    ...(props.hosting.configured && props.hosting.auth_mode === 'password'
+        ? [{
+            key: 'cpanel-password',
+            icon: ShieldAlert,
+            tone: 'info',
+            title: 'Mot de passe cPanel',
+            text: 'La connexion à l’hébergeur passe par le mot de passe du compte cPanel : il ouvre aussi l’interface cPanel et ne se révoque pas séparément. Passez à un jeton API dès que votre offre le permet.',
+        }]
+        : []),
+    ...offlineSites.value.map((site) => ({
+        key: `site-${site.site.code}`,
+        icon: CircleAlert,
+        tone: 'warning',
+        title: site.site.name,
+        text: site.message,
+    })),
+]);
 
 const rows = computed(() => onlineSites.value.flatMap((site) => (site.data ?? []).map((mailbox) => ({
     ...mailbox,
@@ -310,9 +333,12 @@ const submitReactivate = () => {
                 <span v-if="hosting.configured">{{ hosting.server }} · <span class="font-mono text-foreground">@{{ hosting.domain }}</span> · {{ hosting.quota_mb }} Mo par boîte · {{ hosting.auth_mode === 'token' ? 'jeton API' : 'mot de passe cPanel' }}</span>
                 <span v-else class="font-semibold text-amber-700 dark:text-amber-300">Hébergeur non configuré</span>
             </div>
-            <Button v-if="hosting.configured && can('professional_emails.create')" type="button" size="sm" variant="white-outline" :disabled="checking" @click="checkConnection">
-                <PlugZap class="h-3.5 w-3.5" />{{ checking ? 'Test en cours…' : 'Tester la connexion' }}
-            </Button>
+            <div v-if="(hosting.configured && can('professional_emails.create')) || notices.length" class="flex items-center gap-2 sm:justify-end">
+                <Button v-if="hosting.configured && can('professional_emails.create')" type="button" size="sm" variant="white-outline" :disabled="checking" @click="checkConnection">
+                    <PlugZap class="h-3.5 w-3.5" />{{ checking ? 'Test en cours…' : 'Tester la connexion' }}
+                </Button>
+                <NoticesButton :notices="notices" subtitle="Rien ici n’empêche de travailler." />
+            </div>
             <p v-if="checkResult" role="status" :class="cn('max-w-md text-xs leading-5 sm:text-end', checkResult.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive')">{{ checkResult.message }}</p>
             </div>
         </header>
@@ -323,14 +349,6 @@ const submitReactivate = () => {
                 <p class="font-semibold">{{ scope === 'portal' ? 'La création est impossible tant que l’hébergeur n’est pas configuré sur le portail.' : 'La création se fait depuis le portail : l’accès à l’hébergeur n’est pas posé sur ce site.' }}</p>
                 <p class="mt-1 text-xs leading-5">Dans le fichier <code>.env</code> {{ scope === 'portal' ? 'du portail' : 'de ce site' }} : <code>RIVO_PROFESSIONAL_EMAIL_DOMAIN</code>, <code>RIVO_MAIL_HOSTING_URL</code>, <code>RIVO_MAIL_HOSTING_USER</code>, puis <code>RIVO_MAIL_HOSTING_TOKEN</code> (cPanel › Sécurité › Gérer les jetons API) ou, si votre offre n’ouvre pas les jetons, <code>RIVO_MAIL_HOSTING_PASSWORD</code>. {{ scope === 'portal' ? 'Les demandes des sites restent visibles.' : 'Les demandes restent possibles : le Super Admin les traite.' }}</p>
             </div>
-        </div>
-
-        <div v-if="hosting.configured && hosting.auth_mode === 'password'" class="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
-            <ShieldAlert class="mt-0.5 h-3.5 w-3.5 shrink-0" />Connexion à l’hébergeur par le mot de passe du compte cPanel : il ouvre aussi l’interface cPanel et ne se révoque pas séparément. Passez à un jeton API dès que votre offre le permet.
-        </div>
-
-        <div v-for="site in offlineSites" :key="site.site.code" class="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            <CircleAlert class="h-3.5 w-3.5 shrink-0" /><strong class="text-foreground">{{ site.site.name }}</strong> — {{ site.message }}
         </div>
 
         <!-- Les vues : chaque carte est un filtre, son compte vient des sites. -->
@@ -505,7 +523,7 @@ const submitReactivate = () => {
             </p>
         </div>
         <template #footer>
-            <Button v-if="result && ! result.confirmed" type="button" variant="white-outline" :disabled="creating" @click="retryConfirmation"><RotateCw class="h-4 w-4" />{{ creating ? 'Nouvel essai…' : 'Réessayer l’enregistrement' }}</Button>
+            <Button v-if="result && ! result.confirmed" type="button" variant="white-outline" :aria-busy="creating" :disabled="creating" @click="retryConfirmation"><RefreshIcon :spinning="creating" :icon="RotateCw" class="h-4 w-4" />{{ creating ? 'Nouvel essai…' : 'Réessayer l’enregistrement' }}</Button>
             <Button type="button" @click="result = null">{{ result?.password ? 'J’ai noté le mot de passe' : 'Fermer' }}</Button>
         </template>
     </Dialog>

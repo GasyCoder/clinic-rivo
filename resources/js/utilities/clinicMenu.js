@@ -1,4 +1,4 @@
-import { TrendingUp } from 'lucide-vue-next';
+import { Mail, TrendingUp } from 'lucide-vue-next';
 import { CLINIC_WORKSPACES, ROLE_FOCUS, SIDEBAR_GROUPS, WORKSPACE_GROUPS } from './clinicWorkspaces.js';
 import { normalizeOrder } from '../composables/useSidebarOrder.js';
 
@@ -137,13 +137,17 @@ export function orderGroup(items, storedOrder) {
  * @param {(permission: string) => boolean} options.can
  * @param {Record<string, string[]>} options.stored  the account's stored order per group
  * @param {string} options.overviewLabel
+ * @param {boolean} options.webmail  ADR-194 — the account holds an active professional
+ *   address: its mailbox is listed next to the overview. Not a permission — only
+ *   the titular of an address ever reads it, so no right could open it.
  */
-export function buildClinicMenu({ roleCode, can, stored = {}, overviewLabel = 'Vue d’ensemble' }) {
+export function buildClinicMenu({ roleCode, can, stored = {}, overviewLabel = 'Vue d’ensemble', webmail = false }) {
     const items = groupRelatedItems(recommendedItems(ROLE_FOCUS[roleCode] ?? null, can));
 
     return [
         { heading: 'Principal' },
         { icon: TrendingUp, text: overviewLabel, link: '/' },
+        ...(webmail ? [{ key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie' }] : []),
         ...Object.entries(WORKSPACE_GROUPS).flatMap(([group, heading]) => [
             { heading, group },
             ...orderGroup(items.filter((item) => item.group === group), stored[group]),

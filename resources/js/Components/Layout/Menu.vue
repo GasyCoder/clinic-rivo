@@ -25,6 +25,7 @@ import {
     Trash2,
     TrendingUp,
     Users,
+    Mail,
     Wallet,
 } from 'lucide-vue-next';
 import { usePermissions } from '@/composables/usePermissions';
@@ -98,6 +99,7 @@ const clinicMenu = computed(() => buildClinicMenu({
     can,
     stored: storedOrder.value,
     overviewLabel: overviewLabel.value,
+    webmail: page.props.webmail?.available === true,
 }));
 
 const adminMenu = computed(() => [
@@ -128,6 +130,8 @@ const adminMenu = computed(() => [
     { heading: 'Organisation' },
     { icon: Briefcase, text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },
     { icon: AtSign, text: 'Emails professionnels', link: '/super-admin/professional-emails', permission: 'professional_emails.view' },
+    // ADR-194 — ouvrir la boîte professionnelle d'un employé, sur n'importe quel site.
+    { key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', permission: 'webmail.open_any' },
     { icon: Package, text: 'Logistique & équipements', link: '/super-admin/workspaces/logistics', permission: 'logistics.view' },
     { icon: ShieldCheck, text: 'Gardiennage', link: '/super-admin/workspaces/guarding', permission: 'guarding.view' },
     { heading: 'Sécurité & système' },
@@ -154,7 +158,7 @@ const rowKey = (item) => (item.heading
     ? `heading:${item.heading}`
     : `row:${item.key ?? item.link ?? item.text}`);
 
-const visibleWorkspaceCount = computed(() => menuData.value.filter((item) => !item.heading && item.link !== '/').length);
+const visibleWorkspaceCount = computed(() => menuData.value.filter((item) => !item.heading && item.link !== '/' && item.key !== 'webmail').length);
 
 const currentPath = computed(() => page.url.split('?')[0]);
 

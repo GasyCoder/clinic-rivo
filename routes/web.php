@@ -95,6 +95,13 @@ use App\Http\Controllers\TransferController;
 use App\Http\Controllers\TrashController;
 use App\Http\Controllers\TreatmentJournalController;
 use App\Http\Controllers\VisitorReceptionController;
+use App\Http\Controllers\Webmail\WebmailActionController;
+use App\Http\Controllers\Webmail\WebmailAttachmentController;
+use App\Http\Controllers\Webmail\WebmailComposeController;
+use App\Http\Controllers\Webmail\WebmailController;
+use App\Http\Controllers\Webmail\WebmailLabelController;
+use App\Http\Controllers\Webmail\WebmailSessionController;
+use App\Http\Controllers\Webmail\WebmailTemplateController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', HomeController::class)->name('dashboard')->middleware('account.deployment');
@@ -129,6 +136,37 @@ Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.
     // ADR-191 — taille du texte, animations et contraste propres à ce compte.
     Route::put('/profil/apparence', [ProfileController::class, 'updateAppearance'])->name('profile.appearance.update');
 });
+
+// ADR-194 — la messagerie : les boîtes pro, chez l'hébergeur (IMAP/SMTP). Sa propre boîte
+// avec `webmail.view`, celle d'un autre employé avec `webmail.open_any` — sur un site, ou
+// depuis le portail pour tous les sites (API). Le mot de passe vit dans la session, jamais en base.
+Route::middleware(['auth', 'account.active', 'account.deployment', 'webmail.access'])
+    ->prefix('messagerie')
+    ->name('webmail.')
+    ->group(function () {
+        Route::get('/connexion', [WebmailSessionController::class, 'create'])->name('connect');
+        Route::post('/connexion', [WebmailSessionController::class, 'store'])->name('login')->middleware('throttle:6,1');
+        Route::post('/deconnexion', [WebmailSessionController::class, 'destroy'])->name('logout');
+
+        Route::post('/libelles', [WebmailLabelController::class, 'store'])->name('labels.store');
+        Route::put('/libelles/{label}', [WebmailLabelController::class, 'update'])->name('labels.update');
+        Route::delete('/libelles/{label}', [WebmailLabelController::class, 'destroy'])->name('labels.destroy');
+        Route::post('/modeles', [WebmailTemplateController::class, 'store'])->name('templates.store');
+        Route::put('/modeles/{template}', [WebmailTemplateController::class, 'update'])->name('templates.update');
+        Route::delete('/modeles/{template}', [WebmailTemplateController::class, 'destroy'])->name('templates.destroy');
+
+        Route::middleware('webmail.open')->group(function () {
+            Route::get('/', [WebmailController::class, 'index'])->name('index');
+            Route::get('/dossier/{folder}', [WebmailController::class, 'folder'])->where('folder', '[A-Za-z0-9_-]+')->name('folder');
+            Route::get('/dossier/{folder}/{uid}', [WebmailController::class, 'show'])->where(['folder' => '[A-Za-z0-9_-]+', 'uid' => '[0-9]+'])->name('message');
+            Route::get('/dossier/{folder}/{uid}/pieces/{part}', WebmailAttachmentController::class)
+                ->where(['folder' => '[A-Za-z0-9_-]+', 'uid' => '[0-9]+', 'part' => '[0-9.]+'])
+                ->name('attachment');
+            Route::post('/actions', WebmailActionController::class)->name('actions');
+            Route::post('/envoyer', [WebmailComposeController::class, 'send'])->name('send')->middleware('throttle:30,1');
+            Route::post('/brouillons', [WebmailComposeController::class, 'draft'])->name('draft');
+        });
+    });
 
 // Portail central : navigation et vues de supervision uniquement. Les données
 // métier seront lues/écrites via les API des sites, jamais via leurs bases.
@@ -703,6 +741,9 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/maternity/orientations/{episodeOrientation}', [MaternityController::class, 'show'])->name('maternity.orientations.show')->middleware('can:maternity.view');
     Route::post('/maternity/orientations/{episodeOrientation}/accept', [MaternityController::class, 'accept'])->name('maternity.orientations.accept')->middleware('can:maternity.update');
     Route::put('/maternity/orientations/{episodeOrientation}/record', [MaternityController::class, 'save'])->name('maternity.orientations.record.update')->middleware('can:maternity.view');
+    Route::put('/maternity/orientations/{episodeOrientation}/pregnancy/dating', [MaternityController::class, 'updatePregnancyDating'])
+        ->name('maternity.orientations.pregnancy.dating.update')
+        ->middleware(['can:maternity.update', 'can:maternity.prenatal.manage']);
     Route::put('/maternity/orientations/{episodeOrientation}/draft', [MaternityController::class, 'saveDraft'])->name('maternity.orientations.draft.update')->middleware('can:maternity.view');
     Route::delete('/maternity/orientations/{episodeOrientation}/draft', [MaternityController::class, 'discardDraft'])->name('maternity.orientations.draft.destroy')->middleware('can:maternity.view');
     Route::post('/maternity/orientations/{episodeOrientation}/procedures', [MaternityController::class, 'procedure'])->name('maternity.orientations.procedures.store')->middleware('can:maternity.procedures.manage');

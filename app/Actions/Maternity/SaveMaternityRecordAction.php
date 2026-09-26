@@ -10,6 +10,8 @@ use App\Models\MaternityRecord;
 use App\Models\MaternityRecordDraft;
 use App\Models\PatientNewbornLink;
 use App\Models\User;
+use App\Services\Maternity\ActivePregnancyResolver;
+use App\Services\Maternity\PregnancyDatingService;
 use App\Support\NewbornFiche;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -18,6 +20,11 @@ use InvalidArgumentException;
 
 class SaveMaternityRecordAction
 {
+    public function __construct(
+        private readonly ActivePregnancyResolver $pregnancies,
+        private readonly PregnancyDatingService $dating,
+    ) {}
+
     /** @param array<string, mixed> $data */
     public function execute(EpisodeOrientation $orientation, array $data, User $actor): MaternityRecord
     {
@@ -31,6 +38,31 @@ class SaveMaternityRecordAction
             }
 
             $record = $locked->episode->maternityRecord;
+
+            $pregnancy = $this->pregnancies->resolve($locked, $record, $data, $actor);
+            $pregnancy = $this->pregnancies->syncClinicalDetails(
+                $pregnancy,
+                is_array($data['pregnancy_data'] ?? null) ? $data['pregnancy_data'] : [],
+                $actor,
+            );
+
+            unset($data['pregnancy_choice'], $data['pregnancy_uuid']);
+            $data['pregnancy_id'] = $pregnancy->getKey();
+            // Compatibilité progressive : le JSON historique reste lisible,
+            // mais sa valeur vient désormais de la Pregnancy longitudinale.
+            $data['pregnancy_data'] = $this->pregnancies->consultationSnapshot($pregnancy);
+
+            $age = $this->dating->gestationalAge($pregnancy, $locked->episode->started_at ?? now());
+            if ($age !== null) {
+                $data['gestational_age_weeks'] = $age['weeks'];
+                $data['gestational_age_days'] = $age['days'];
+                $data['prenatal_data'] = is_array($data['prenatal_data'] ?? null) ? $data['prenatal_data'] : [];
+                $data['prenatal_data']['gestational_age_weeks'] = $age['weeks'];
+                $data['prenatal_data']['gestational_age_days'] = $age['days'];
+            } elseif (is_array($data['prenatal_data'] ?? null)) {
+                $data['gestational_age_weeks'] = $data['prenatal_data']['gestational_age_weeks'] ?? null;
+                $data['gestational_age_days'] = $data['prenatal_data']['gestational_age_days'] ?? 0;
+            }
 
             if (isset($data['newborn_data'])) {
                 $data['newborn_data'] = $this->guardNewbornIdentities($record, $data['newborn_data']);

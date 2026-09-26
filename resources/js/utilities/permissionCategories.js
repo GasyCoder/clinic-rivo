@@ -267,6 +267,7 @@ export const PERMISSION_CATEGORIES = {
     hr_reports: { label: 'Rapports RH', module: 'hr', icon: ChartPie },
     hr_settings: { label: 'Paramètres RH (services, fonctions…)', module: 'hr', icon: SlidersHorizontal },
     professional_emails: { label: 'Adresses email professionnelles', module: 'hr', icon: AtSign },
+    webmail: { label: 'Messagerie professionnelle', module: 'hr', icon: Inbox },
 
     // Logistique & sécurité
     logistics: { label: 'Logistique', module: 'logistics', icon: Truck },

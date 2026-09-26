@@ -8,7 +8,6 @@ import {
     CheckCircle2,
     CircleSlash,
     LayoutGrid,
-    RefreshCw,
     ServerOff,
     Users,
     WifiOff,
@@ -17,6 +16,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
+import RefreshIcon from '@/Components/Shadcn/RefreshIcon.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import HrFigures from '@/Components/Administration/HrFigures.vue';
 import { lucideIcon } from '@/lib/icons';
@@ -121,8 +121,8 @@ const plural = (count, word) => `${count} ${word}${count > 1 ? 's' : ''}`;
                     <span :class="['h-2 w-2 rounded-full', summary.online_sites === sites.length ? 'bg-emerald-500' : 'bg-amber-500']" />
                     {{ summary.online_sites }} / {{ sites.length }} sites connectés
                 </span>
-                <Button variant="outline" size="sm" :disabled="refreshing" @click="refresh">
-                    <RefreshCw :class="cn('h-4 w-4', refreshing && 'animate-spin')" />Actualiser
+                <Button variant="outline" size="sm" :aria-busy="refreshing" :disabled="refreshing" @click="refresh">
+                    <RefreshIcon :spinning="refreshing" class="h-4 w-4" />Actualiser
                 </Button>
             </template>
         </PageHeader>
@@ -323,7 +323,7 @@ const plural = (count, word) => `${count} ${word}${count > 1 ? 's' : ''}`;
                             <Briefcase class="h-4 w-4" />Gérer les RH<ArrowRight class="h-4 w-4" />
                         </Button>
                         <Button v-else-if="selectedSite.status !== 'UNCONFIGURED'" variant="outline" :disabled="refreshing" @click="refresh">
-                            <RefreshCw :class="cn('h-4 w-4', refreshing && 'animate-spin')" />Réessayer
+                            <RefreshIcon :spinning="refreshing" class="h-4 w-4" />Réessayer
                         </Button>
                     </div>
                 </div>

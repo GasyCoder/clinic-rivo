@@ -32,6 +32,9 @@ namespace App\Support;
  */
 final class MaternityReference
 {
+    /** Règle de datation serveur partagée avec les aperçus frontend. */
+    public const PREGNANCY_TERM_DAYS = 280;
+
     // Bornes de validité : au-delà, `UpdateMaternityRecordRequest` refuse la saisie.
     public const BIRTH_WEIGHT_MIN_G = 100;
 
@@ -85,7 +88,7 @@ final class MaternityReference
             ],
             'dilation' => ['max' => self::DILATION_MAX_CM],
             'pregnancy' => [
-                'term_days' => 280,
+                'term_days' => self::PREGNANCY_TERM_DAYS,
                 'implausible_days' => 300,
             ],
         ];

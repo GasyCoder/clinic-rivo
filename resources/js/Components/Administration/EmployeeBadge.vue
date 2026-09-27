@@ -2,14 +2,17 @@
 import { computed, useId } from 'vue';
 import '@fontsource/dancing-script/700.css';
 import {
-    BADGE_DEFAULT_DESIGN, BADGE_FONTS, BADGE_GEOMETRY, BADGE_TAGLINE_FONTS, badgeFooter, badgeIcon, badgeNameLines,
-    badgeNameRows, badgePalette, badgeRole, crossPath, fitFontSize, fitLine, sealArc, splitTagline,
+    BADGE_DEFAULT_DESIGN, BADGE_FONTS, BADGE_QR, BADGE_TAGLINE_FONTS, badgeCardOf, badgeFooter, badgeGeometry, badgeIcon,
+    badgeNameLines, badgeNameRows, badgeNumber, badgePalette, badgeQr, badgeRole, crossPath, fitFontSize, fitLine, sealArc,
+    splitTagline,
 } from '@/utilities/employeeBadge';
 
 /**
- * ADR-209 — le badge du personnel, dessiné en SVG au format carte (54 × 85,6 mm,
- * en portrait ou en paysage) : net à l'écran comme à l'impression, sans image de
- * fond à charger.
+ * ADR-209 — le badge du personnel, dessiné en SVG au format choisi pour le site :
+ * la carte bancaire (54 × 85,6 mm) ou l'insert d'un porte-badge (A6 105 × 149,
+ * 86 × 101…, ou sur mesure), en portrait ou en paysage. Net à l'écran comme à
+ * l'impression, sans image de fond à charger. La hauteur suit la proportion du
+ * format ; les zones se replacent (`badgeGeometry`).
  *
  * Un seul modèle pour tout le personnel — médecin, infirmier, gardien, RH… —
  * et pour un stagiaire, qui porte « Stagiaire » et la fin de son stage. Tout ce
@@ -33,7 +36,17 @@ const d = computed(() => ({
     ...BADGE_DEFAULT_DESIGN,
     ...Object.fromEntries(Object.entries(props.design ?? {}).filter(([, value]) => value !== null && value !== undefined)),
 }));
-const g = computed(() => BADGE_GEOMETRY[d.value.orientation] ?? BADGE_GEOMETRY.PORTRAIT);
+/** Le QR code du numéro imprimé — rien d'autre du dossier. Sans numéro, pas de QR. */
+const qrCode = computed(() => (d.value.show_qr !== false ? badgeQr(badgeNumber(props.person)) : null));
+const g = computed(() => badgeGeometry(d.value.orientation, badgeCardOf(d.value), { qr: Boolean(qrCode.value) }));
+const t = computed(() => g.value.transforms);
+const qrTransform = computed(() => {
+    if (! qrCode.value || ! g.value.qr) return null;
+    const { x, y, size } = g.value.qr;
+    const module = (size - 2 * BADGE_QR.padding) / qrCode.value.size;
+
+    return `translate(${x + BADGE_QR.padding} ${y + BADGE_QR.padding}) scale(${module})`;
+});
 const colors = computed(() => badgePalette(d.value));
 const radius = computed(() => (d.value.corners === 'SQUARE' ? 0 : g.value.radius));
 const upperText = computed(() => d.value.text_case !== 'AS_IS');
@@ -158,7 +171,7 @@ const medallion = computed(() => {
 
 const ariaLabel = computed(() => [
     `Badge de ${props.person?.name || `${names.value.band} ${names.value.main}`.trim()}`,
-    role.value.pill, role.value.line, footer.value,
+    role.value.pill, role.value.line, footer.value, qrCode.value ? 'QR code du numéro' : '',
 ].filter(Boolean).join(', '));
 </script>
 
@@ -194,22 +207,26 @@ const ariaLabel = computed(() => [
         <g :clip-path="`url(#${sid('card')})`">
             <rect :width="g.width" :height="g.height" :fill="`url(#${sid('paper')})`" />
 
-            <!-- Filigrane : l'emblème, pâle, derrière la photo. -->
-            <image v-if="d.show_watermark" :href="d.emblem_url" :x="g.watermark.x" :y="g.watermark.y" :width="g.watermark.size" :height="g.watermark.size" opacity="0.07" preserveAspectRatio="xMidYMid meet" />
-            <template v-if="d.show_decorations">
-                <circle :cx="g.watermark.cx" :cy="g.watermark.cy" r="150" fill="none" :stroke="colors.primary" stroke-width="22" opacity="0.05" />
-                <circle :cx="g.watermark.cx" :cy="g.watermark.cy" r="100" fill="none" :stroke="colors.primary" stroke-width="16" opacity="0.05" />
-            </template>
+            <!-- Filigrane : l'emblème, pâle, derrière la photo (il suit le milieu). -->
+            <g :transform="t.middle">
+                <image v-if="d.show_watermark" :href="d.emblem_url" :x="g.watermark.x" :y="g.watermark.y" :width="g.watermark.size" :height="g.watermark.size" opacity="0.07" preserveAspectRatio="xMidYMid meet" />
+                <template v-if="d.show_decorations">
+                    <circle :cx="g.watermark.cx" :cy="g.watermark.cy" r="150" fill="none" :stroke="colors.primary" stroke-width="22" opacity="0.05" />
+                    <circle :cx="g.watermark.cx" :cy="g.watermark.cy" r="100" fill="none" :stroke="colors.primary" stroke-width="16" opacity="0.05" />
+                </template>
+            </g>
 
             <!-- Les bandes du coin supérieur gauche. -->
-            <path :d="g.bands.primary" :fill="colors.primary" />
-            <path :d="g.bands.accent" :fill="colors.accent" />
+            <g :transform="t.headerLeft">
+                <path :d="g.bands.primary" :fill="colors.primary" />
+                <path :d="g.bands.accent" :fill="colors.accent" />
+                <path v-if="d.show_decorations" :d="g.bands.line" fill="none" :stroke="colors.primary" stroke-width="5" opacity="0.55" />
+            </g>
             <template v-if="d.show_decorations">
-                <path :d="g.bands.line" fill="none" :stroke="colors.primary" stroke-width="5" opacity="0.55" />
-                <path :d="g.bands.pale" :fill="colors.primary" opacity="0.1" />
+                <path :d="g.bands.pale" :fill="colors.primary" opacity="0.1" :transform="t.headerRight" />
 
                 <!-- Points décoratifs. -->
-                <g :fill="colors.primary" opacity="0.18">
+                <g :fill="colors.primary" opacity="0.18" :transform="t.middle">
                     <template v-for="row in 4" :key="`r${row}`">
                         <circle v-for="col in 4" :key="`c${row}-${col}`" :cx="g.dots.x + col * 16" :cy="g.dots.y + row * 16" r="3.5" />
                     </template>
@@ -217,180 +234,196 @@ const ariaLabel = computed(() => [
             </template>
 
             <!-- La devise. -->
-            <g v-if="taglineLines.length" :transform="taglineRotate">
+            <g v-if="taglineLines.length" :transform="t.headerLeft">
+                <g :transform="taglineRotate">
+                    <text
+                        v-for="(line, index) in taglineLines"
+                        :key="index"
+                        :x="g.tagline.cx"
+                        :y="g.tagline.y + index * taglineSize * 1.05"
+                        text-anchor="middle"
+                        :font-family="taglineStyle.family"
+                        :font-style="taglineStyle.italic ? 'italic' : undefined"
+                        font-weight="700"
+                        :font-size="taglineSize"
+                        :fill="colors.primary"
+                    >{{ line }}</text>
+                    <path :d="underline" fill="none" :stroke="colors.accent" stroke-width="6" stroke-linecap="round" />
+                </g>
+            </g>
+
+            <!-- L'établissement : le sceau, le logo tel quel, ou rien — collé au coin droit. -->
+            <g :transform="t.headerRight">
+                <g v-if="sealKind === 'SEAL'">
+                    <circle :cx="S.cx" :cy="S.cy" :r="99 * S.k" fill="#FFFFFF" />
+                    <circle :cx="S.cx" :cy="S.cy" :r="94 * S.k" :fill="colors.primary" :stroke="colors.accent" :stroke-width="5 * S.k" />
+                    <circle :cx="S.cx" :cy="S.cy" :r="58 * S.k" fill="#FFFFFF" :stroke="colors.accent" :stroke-width="4 * S.k" />
+                    <image :href="d.emblem_url" :x="S.cx - 55 * S.k" :y="S.cy - 55 * S.k" :width="110 * S.k" :height="110 * S.k" preserveAspectRatio="xMidYMid meet" :clip-path="`url(#${sid('emblem')})`" />
+                    <text :font-size="S.topSize" font-weight="900" :fill="colors.accent" letter-spacing="1.5">
+                        <textPath :href="`#${sid('seal-top')}`" startOffset="50%" text-anchor="middle">{{ seal.top }}</textPath>
+                    </text>
+                    <text :font-size="S.bottomSize" font-weight="900" :fill="colors.accent" letter-spacing="1">
+                        <textPath :href="`#${sid('seal-bottom')}`" startOffset="50%" text-anchor="middle">{{ seal.bottom }}</textPath>
+                    </text>
+                    <template v-if="seal.bottom">
+                        <g v-for="side in [-1, 1]" :key="side">
+                            <circle :cx="S.cx + side * 76 * S.k" :cy="S.cy" :r="10 * S.k" fill="#FFFFFF" :stroke="colors.accent" :stroke-width="2 * S.k" />
+                            <path
+                                :d="`M${S.cx + side * 76 * S.k - 5 * S.k} ${S.cy} H${S.cx + side * 76 * S.k + 5 * S.k} M${S.cx + side * 76 * S.k} ${S.cy - 5 * S.k} V${S.cy + 5 * S.k}`"
+                                :stroke="colors.primary"
+                                :stroke-width="3 * S.k"
+                                stroke-linecap="round"
+                            />
+                        </g>
+                    </template>
+                </g>
+                <g v-else-if="sealKind === 'LOGO'">
+                    <rect :x="g.logo.x" :y="g.logo.y" :width="g.logo.width" :height="g.logo.height" rx="18" fill="#FFFFFF" :stroke="colors.light" stroke-width="2" />
+                    <image :href="d.emblem_url" :x="g.logo.x + 14" :y="g.logo.y + 12" :width="g.logo.width - 28" :height="g.logo.height - 24" preserveAspectRatio="xMidYMid meet" />
+                </g>
                 <text
-                    v-for="(line, index) in taglineLines"
-                    :key="index"
-                    :x="g.tagline.cx"
-                    :y="g.tagline.y + index * taglineSize * 1.05"
+                    v-if="siteText"
+                    :x="g.site.x"
+                    :y="g.site.y"
                     text-anchor="middle"
-                    :font-family="taglineStyle.family"
-                    :font-style="taglineStyle.italic ? 'italic' : undefined"
-                    font-weight="700"
-                    :font-size="taglineSize"
+                    :font-size="siteFit.size"
+                    font-weight="800"
                     :fill="colors.primary"
-                >{{ line }}</text>
-                <path :d="underline" fill="none" :stroke="colors.accent" stroke-width="6" stroke-linecap="round" />
+                    letter-spacing="1.5"
+                    :textLength="siteFit.length ?? undefined"
+                    :lengthAdjust="siteFit.length ? 'spacingAndGlyphs' : undefined"
+                >{{ siteText }}</text>
             </g>
 
-            <!-- L'établissement : le sceau, le logo tel quel, ou rien. -->
-            <g v-if="sealKind === 'SEAL'">
-                <circle :cx="S.cx" :cy="S.cy" :r="99 * S.k" fill="#FFFFFF" />
-                <circle :cx="S.cx" :cy="S.cy" :r="94 * S.k" :fill="colors.primary" :stroke="colors.accent" :stroke-width="5 * S.k" />
-                <circle :cx="S.cx" :cy="S.cy" :r="58 * S.k" fill="#FFFFFF" :stroke="colors.accent" :stroke-width="4 * S.k" />
-                <image :href="d.emblem_url" :x="S.cx - 55 * S.k" :y="S.cy - 55 * S.k" :width="110 * S.k" :height="110 * S.k" preserveAspectRatio="xMidYMid meet" :clip-path="`url(#${sid('emblem')})`" />
-                <text :font-size="S.topSize" font-weight="900" :fill="colors.accent" letter-spacing="1.5">
-                    <textPath :href="`#${sid('seal-top')}`" startOffset="50%" text-anchor="middle">{{ seal.top }}</textPath>
-                </text>
-                <text :font-size="S.bottomSize" font-weight="900" :fill="colors.accent" letter-spacing="1">
-                    <textPath :href="`#${sid('seal-bottom')}`" startOffset="50%" text-anchor="middle">{{ seal.bottom }}</textPath>
-                </text>
-                <template v-if="seal.bottom">
-                    <g v-for="side in [-1, 1]" :key="side">
-                        <circle :cx="S.cx + side * 76 * S.k" :cy="S.cy" :r="10 * S.k" fill="#FFFFFF" :stroke="colors.accent" :stroke-width="2 * S.k" />
-                        <path
-                            :d="`M${S.cx + side * 76 * S.k - 5 * S.k} ${S.cy} H${S.cx + side * 76 * S.k + 5 * S.k} M${S.cx + side * 76 * S.k} ${S.cy - 5 * S.k} V${S.cy + 5 * S.k}`"
-                            :stroke="colors.primary"
-                            :stroke-width="3 * S.k"
-                            stroke-linecap="round"
-                        />
-                    </g>
+            <!-- Le milieu : la photo, le médaillon, le nom, le service et la fonction. -->
+            <g :transform="t.middle">
+                <!-- La photo, dans ses anneaux (ou son cadre arrondi). -->
+                <template v-if="P.rounded">
+                    <rect :x="frames.outer.x" :y="frames.outer.y" :width="frames.outer.size" :height="frames.outer.size" :rx="frames.outer.rx" fill="none" :stroke="colors.primary" :stroke-width="12 * P.f" pathLength="100" stroke-dasharray="62 38" stroke-dashoffset="20" stroke-linecap="round" />
+                    <rect :x="frames.inner.x" :y="frames.inner.y" :width="frames.inner.size" :height="frames.inner.size" :rx="frames.inner.rx" fill="none" :stroke="colors.accent" :stroke-width="7 * P.f" pathLength="100" stroke-dasharray="56 44" stroke-dashoffset="-30" stroke-linecap="round" />
+                    <rect :x="frames.white.x" :y="frames.white.y" :width="frames.white.size" :height="frames.white.size" :rx="frames.white.rx" fill="#FFFFFF" />
+                    <rect :x="P.cx - P.r" :y="P.cy - P.r" :width="P.r * 2" :height="P.r * 2" :rx="P.r * 0.3" :fill="colors.light" />
                 </template>
-            </g>
-            <g v-else-if="sealKind === 'LOGO'">
-                <rect :x="g.logo.x" :y="g.logo.y" :width="g.logo.width" :height="g.logo.height" rx="18" fill="#FFFFFF" :stroke="colors.light" stroke-width="2" />
-                <image :href="d.emblem_url" :x="g.logo.x + 14" :y="g.logo.y + 12" :width="g.logo.width - 28" :height="g.logo.height - 24" preserveAspectRatio="xMidYMid meet" />
-            </g>
-            <text
-                v-if="siteText"
-                :x="g.site.x"
-                :y="g.site.y"
-                text-anchor="middle"
-                :font-size="siteFit.size"
-                font-weight="800"
-                :fill="colors.primary"
-                letter-spacing="1.5"
-                :textLength="siteFit.length ?? undefined"
-                :lengthAdjust="siteFit.length ? 'spacingAndGlyphs' : undefined"
-            >{{ siteText }}</text>
+                <template v-else>
+                    <circle :cx="P.cx" :cy="P.cy" :r="P.r * 1.2143" fill="none" :stroke="colors.primary" :stroke-width="12 * P.f" pathLength="100" stroke-dasharray="62 38" :transform="`rotate(118 ${P.cx} ${P.cy})`" stroke-linecap="round" />
+                    <circle :cx="P.cx" :cy="P.cy" :r="P.r * 1.1214" fill="none" :stroke="colors.accent" :stroke-width="7 * P.f" pathLength="100" stroke-dasharray="56 44" :transform="`rotate(170 ${P.cx} ${P.cy})`" stroke-linecap="round" />
+                    <circle :cx="P.cx" :cy="P.cy" :r="P.r * 1.0571" fill="#FFFFFF" />
+                    <circle :cx="P.cx" :cy="P.cy" :r="P.r" :fill="colors.light" />
+                </template>
+                <image
+                    v-if="photoUrl"
+                    :href="photoUrl"
+                    :x="P.cx - P.r"
+                    :y="P.cy - P.r"
+                    :width="P.r * 2"
+                    :height="P.r * 2"
+                    preserveAspectRatio="xMidYMid slice"
+                    :clip-path="`url(#${sid('photo')})`"
+                />
+                <text v-else :x="P.cx" :y="P.cy" text-anchor="middle" dominant-baseline="central" :font-size="P.r * 0.786" font-weight="900" :fill="colors.primary" opacity="0.55">{{ initials }}</text>
 
-            <!-- La photo, dans ses anneaux (ou son cadre arrondi). -->
-            <template v-if="P.rounded">
-                <rect :x="frames.outer.x" :y="frames.outer.y" :width="frames.outer.size" :height="frames.outer.size" :rx="frames.outer.rx" fill="none" :stroke="colors.primary" :stroke-width="12 * P.f" pathLength="100" stroke-dasharray="62 38" stroke-dashoffset="20" stroke-linecap="round" />
-                <rect :x="frames.inner.x" :y="frames.inner.y" :width="frames.inner.size" :height="frames.inner.size" :rx="frames.inner.rx" fill="none" :stroke="colors.accent" :stroke-width="7 * P.f" pathLength="100" stroke-dasharray="56 44" stroke-dashoffset="-30" stroke-linecap="round" />
-                <rect :x="frames.white.x" :y="frames.white.y" :width="frames.white.size" :height="frames.white.size" :rx="frames.white.rx" fill="#FFFFFF" />
-                <rect :x="P.cx - P.r" :y="P.cy - P.r" :width="P.r * 2" :height="P.r * 2" :rx="P.r * 0.3" :fill="colors.light" />
-            </template>
-            <template v-else>
-                <circle :cx="P.cx" :cy="P.cy" :r="P.r * 1.2143" fill="none" :stroke="colors.primary" :stroke-width="12 * P.f" pathLength="100" stroke-dasharray="62 38" :transform="`rotate(118 ${P.cx} ${P.cy})`" stroke-linecap="round" />
-                <circle :cx="P.cx" :cy="P.cy" :r="P.r * 1.1214" fill="none" :stroke="colors.accent" :stroke-width="7 * P.f" pathLength="100" stroke-dasharray="56 44" :transform="`rotate(170 ${P.cx} ${P.cy})`" stroke-linecap="round" />
-                <circle :cx="P.cx" :cy="P.cy" :r="P.r * 1.0571" fill="#FFFFFF" />
-                <circle :cx="P.cx" :cy="P.cy" :r="P.r" :fill="colors.light" />
-            </template>
-            <image
-                v-if="photoUrl"
-                :href="photoUrl"
-                :x="P.cx - P.r"
-                :y="P.cy - P.r"
-                :width="P.r * 2"
-                :height="P.r * 2"
-                preserveAspectRatio="xMidYMid slice"
-                :clip-path="`url(#${sid('photo')})`"
-            />
-            <text v-else :x="P.cx" :y="P.cy" text-anchor="middle" dominant-baseline="central" :font-size="P.r * 0.786" font-weight="900" :fill="colors.primary" opacity="0.55">{{ initials }}</text>
+                <!-- Le métier, en médaillon. -->
+                <g v-if="d.show_icon">
+                    <circle :cx="medallion.cx" :cy="medallion.cy" :r="medallion.r" fill="#FFFFFF" />
+                    <circle :cx="medallion.cx" :cy="medallion.cy" :r="medallion.inner" :fill="colors.primary" :stroke="colors.accent" :stroke-width="medallion.stroke" />
+                    <component :is="icon" :x="medallion.x" :y="medallion.y" :size="medallion.size" color="#FFFFFF" :stroke-width="1.8" aria-hidden="true" />
+                </g>
 
-            <!-- Le métier, en médaillon. -->
-            <g v-if="d.show_icon">
-                <circle :cx="medallion.cx" :cy="medallion.cy" :r="medallion.r" fill="#FFFFFF" />
-                <circle :cx="medallion.cx" :cy="medallion.cy" :r="medallion.inner" :fill="colors.primary" :stroke="colors.accent" :stroke-width="medallion.stroke" />
-                <component :is="icon" :x="medallion.x" :y="medallion.y" :size="medallion.size" color="#FFFFFF" :stroke-width="1.8" aria-hidden="true" />
-            </g>
-
-            <!-- Le nom : le bandeau coloré, puis la grande ligne blanche. -->
-            <path :d="g.name.tabs[0]" :fill="colors.accent" />
-            <path :d="g.name.tabs[1]" :fill="colors.accent" />
-            <template v-if="names.band">
-                <rect :x="g.name.band.x" :y="g.name.band.y" :width="g.name.band.width" :height="g.name.band.height" rx="18" :fill="colors.primary" />
+                <!-- Le nom : le bandeau coloré, puis la grande ligne blanche. -->
+                <path :d="g.name.tabs[0]" :fill="colors.accent" />
+                <path :d="g.name.tabs[1]" :fill="colors.accent" />
+                <template v-if="names.band">
+                    <rect :x="g.name.band.x" :y="g.name.band.y" :width="g.name.band.width" :height="g.name.band.height" rx="18" :fill="colors.primary" />
+                    <text
+                        :x="g.name.cx"
+                        :y="g.name.band.textY"
+                        text-anchor="middle"
+                        dominant-baseline="central"
+                        :font-size="bandFit.size"
+                        font-weight="800"
+                        fill="#FFFFFF"
+                        :textLength="bandFit.length ?? undefined"
+                        :lengthAdjust="bandFit.length ? 'spacingAndGlyphs' : undefined"
+                    >{{ names.band }}</text>
+                </template>
+                <rect :x="g.name.main.x" :y="g.name.main.y" :width="g.name.main.width" :height="g.name.main.height" rx="16" fill="#FFFFFF" :filter="`url(#${sid('shadow')})`" />
                 <text
                     :x="g.name.cx"
-                    :y="g.name.band.textY"
+                    :y="g.name.main.textY"
                     text-anchor="middle"
                     dominant-baseline="central"
-                    :font-size="bandFit.size"
-                    font-weight="800"
-                    fill="#FFFFFF"
-                    :textLength="bandFit.length ?? undefined"
-                    :lengthAdjust="bandFit.length ? 'spacingAndGlyphs' : undefined"
-                >{{ names.band }}</text>
-            </template>
-            <rect :x="g.name.main.x" :y="g.name.main.y" :width="g.name.main.width" :height="g.name.main.height" rx="16" fill="#FFFFFF" :filter="`url(#${sid('shadow')})`" />
-            <text
-                :x="g.name.cx"
-                :y="g.name.main.textY"
-                text-anchor="middle"
-                dominant-baseline="central"
-                :font-size="mainFit.size"
-                font-weight="900"
-                :fill="colors.ink"
-                letter-spacing="0.5"
-                :textLength="mainFit.length ?? undefined"
-                :lengthAdjust="mainFit.length ? 'spacingAndGlyphs' : undefined"
-            >{{ names.main }}</text>
-
-            <!-- Le service (ou « Stagiaire »), en pastille. -->
-            <g v-if="pillText">
-                <line :x1="g.pill.lineFrom" :y1="g.pill.cy" :x2="g.pill.cx - pillWidth / 2 - 14" :y2="g.pill.cy" :stroke="colors.primary" stroke-width="3" stroke-linecap="round" />
-                <line :x1="g.pill.cx + pillWidth / 2 + 14" :y1="g.pill.cy" :x2="g.pill.lineTo" :y2="g.pill.cy" :stroke="colors.primary" stroke-width="3" stroke-linecap="round" />
-                <rect :x="g.pill.cx - pillWidth / 2" :y="g.pill.cy - g.pill.height / 2" :width="pillWidth" :height="g.pill.height" :rx="g.pill.height / 2" :fill="colors.accent" />
-                <text
-                    :x="g.pill.cx"
-                    :y="g.pill.cy + 1"
-                    text-anchor="middle"
-                    dominant-baseline="central"
-                    :font-size="pillFit.size"
+                    :font-size="mainFit.size"
                     font-weight="900"
                     :fill="colors.ink"
-                    letter-spacing="1"
-                    :textLength="pillFit.length ?? undefined"
-                    :lengthAdjust="pillFit.length ? 'spacingAndGlyphs' : undefined"
-                >{{ pillText }}</text>
+                    letter-spacing="0.5"
+                    :textLength="mainFit.length ?? undefined"
+                    :lengthAdjust="mainFit.length ? 'spacingAndGlyphs' : undefined"
+                >{{ names.main }}</text>
+
+                <!-- Le service (ou « Stagiaire »), en pastille. -->
+                <g v-if="pillText">
+                    <line :x1="g.pill.lineFrom" :y1="g.pill.cy" :x2="g.pill.cx - pillWidth / 2 - 14" :y2="g.pill.cy" :stroke="colors.primary" stroke-width="3" stroke-linecap="round" />
+                    <line :x1="g.pill.cx + pillWidth / 2 + 14" :y1="g.pill.cy" :x2="g.pill.lineTo" :y2="g.pill.cy" :stroke="colors.primary" stroke-width="3" stroke-linecap="round" />
+                    <rect :x="g.pill.cx - pillWidth / 2" :y="g.pill.cy - g.pill.height / 2" :width="pillWidth" :height="g.pill.height" :rx="g.pill.height / 2" :fill="colors.accent" />
+                    <text
+                        :x="g.pill.cx"
+                        :y="g.pill.cy + 1"
+                        text-anchor="middle"
+                        dominant-baseline="central"
+                        :font-size="pillFit.size"
+                        font-weight="900"
+                        :fill="colors.ink"
+                        letter-spacing="1"
+                        :textLength="pillFit.length ?? undefined"
+                        :lengthAdjust="pillFit.length ? 'spacingAndGlyphs' : undefined"
+                    >{{ pillText }}</text>
+                </g>
+
+                <!-- La fonction (ou la filière d'un stagiaire). -->
+                <g v-if="lineText">
+                    <line :x1="g.job.lines[0][0]" :y1="g.job.ornamentY" :x2="g.job.lines[0][1]" :y2="g.job.ornamentY" :stroke="colors.primary" stroke-width="2.5" stroke-linecap="round" />
+                    <line :x1="g.job.lines[1][0]" :y1="g.job.ornamentY" :x2="g.job.lines[1][1]" :y2="g.job.ornamentY" :stroke="colors.primary" stroke-width="2.5" stroke-linecap="round" />
+                    <path :d="crossPath(g.job.cx, g.job.ornamentY)" :fill="colors.primary" />
+                    <text
+                        :x="g.job.cx"
+                        :y="g.job.y"
+                        text-anchor="middle"
+                        dominant-baseline="central"
+                        :font-size="lineFit.size"
+                        font-weight="700"
+                        :fill="colors.ink"
+                        :letter-spacing="upperText ? 4 : 1"
+                        :textLength="lineFit.length ?? undefined"
+                        :lengthAdjust="lineFit.length ? 'spacingAndGlyphs' : undefined"
+                    >{{ lineText }}</text>
+                </g>
+
             </g>
 
-            <!-- La fonction (ou la filière d'un stagiaire). -->
-            <g v-if="lineText">
-                <line :x1="g.job.lines[0][0]" :y1="g.job.ornamentY" :x2="g.job.lines[0][1]" :y2="g.job.ornamentY" :stroke="colors.primary" stroke-width="2.5" stroke-linecap="round" />
-                <line :x1="g.job.lines[1][0]" :y1="g.job.ornamentY" :x2="g.job.lines[1][1]" :y2="g.job.ornamentY" :stroke="colors.primary" stroke-width="2.5" stroke-linecap="round" />
-                <path :d="crossPath(g.job.cx, g.job.ornamentY)" :fill="colors.primary" />
+            <!-- Les vagues du bas, et le pied du badge — collés au bas de la carte. -->
+            <g :transform="t.footer">
+                <path :d="g.wave.fill" :fill="colors.primary" />
+                <path :d="g.wave.line" fill="none" :stroke="colors.accent" stroke-width="7" />
                 <text
-                    :x="g.job.cx"
-                    :y="g.job.y"
+                    v-if="footer"
+                    :x="g.wave.cx"
+                    :y="g.wave.y"
                     text-anchor="middle"
                     dominant-baseline="central"
-                    :font-size="lineFit.size"
+                    :font-size="footerFit.size"
                     font-weight="700"
-                    :fill="colors.ink"
-                    :letter-spacing="upperText ? 4 : 1"
-                    :textLength="lineFit.length ?? undefined"
-                    :lengthAdjust="lineFit.length ? 'spacingAndGlyphs' : undefined"
-                >{{ lineText }}</text>
+                    fill="#FFFFFF"
+                    letter-spacing="1.5"
+                    :textLength="footerFit.length ?? undefined"
+                    :lengthAdjust="footerFit.length ? 'spacingAndGlyphs' : undefined"
+                >{{ footer }}</text>
             </g>
 
-            <!-- Les vagues du bas, et le pied du badge. -->
-            <path :d="g.wave.fill" :fill="colors.primary" />
-            <path :d="g.wave.line" fill="none" :stroke="colors.accent" stroke-width="7" />
-            <text
-                v-if="footer"
-                :x="g.wave.cx"
-                :y="g.wave.y"
-                text-anchor="middle"
-                dominant-baseline="central"
-                :font-size="footerFit.size"
-                font-weight="700"
-                fill="#FFFFFF"
-                letter-spacing="1.5"
-                :textLength="footerFit.length ?? undefined"
-                :lengthAdjust="footerFit.length ? 'spacingAndGlyphs' : undefined"
-            >{{ footer }}</text>
+            <!-- Le QR code du numéro, dans le coin bas droit, sur les vagues : toujours noir sur blanc, pour se lire. -->
+            <g v-if="qrCode && g.qr">
+                <rect :x="g.qr.x" :y="g.qr.y" :width="g.qr.size" :height="g.qr.size" rx="14" fill="#FFFFFF" :stroke="colors.accent" stroke-width="4" />
+                <path :d="qrCode.path" :transform="qrTransform" fill="#111827" shape-rendering="crispEdges" />
+            </g>
         </g>
     </svg>
 </template>

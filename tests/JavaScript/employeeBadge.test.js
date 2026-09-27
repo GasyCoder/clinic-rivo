@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { Baby, GraduationCap, Hospital, IdCard, ShieldCheck, Stethoscope, Syringe } from 'lucide-vue-next';
 import {
-    BADGE_CHOICES, BADGE_DEFAULT_DESIGN, BADGE_FIELDS, BADGE_GEOMETRY, BADGE_NUMBERS, BADGE_SAMPLES, BADGE_SIZE_MM,
-    BADGE_SWITCHES, BADGE_TEXT_LIMITS, badgeCardMm, badgeDesignFromSettings, badgeFooter, badgeFormValue, badgeIcon,
+    BADGE_CHOICES, BADGE_DEFAULT_DESIGN, BADGE_FIELDS, BADGE_FORMATS, BADGE_FORMATS_MM, BADGE_GEOMETRY, BADGE_NUMBERS,
+    BADGE_PROPORTION, BADGE_SAMPLES, BADGE_SIZE_MM, BADGE_SWITCHES, BADGE_TEXT_LIMITS, badgeCardMm, badgeCardOf,
+    badgeDesignFromSettings, badgeFooter, badgeFormValue, badgeGeometry, badgeIcon, badgeMiddlePoint, badgeQr,
     badgeNameLines, badgeNameRows, badgeNumber, badgePalette, badgeRole, badgeSeal, badgeSheetLayout, badgeSheetPath,
     chunk, fitFontSize, fitLine, internValidity, mixHex, sealText,
 } from '../../resources/js/utilities/employeeBadge.js';
@@ -142,7 +143,8 @@ test('the badge settings are the same list on both sides, with the same defaults
     }
     for (const field of [...BADGE_FIELDS]) {
         assert.ok(read('database/migrations/2026_11_07_090000_add_badge_design_to_app_settings.php').includes(`'${field}'`)
-            || read('database/migrations/2026_11_08_090000_add_badge_layout_to_app_settings.php').includes(`'${field}'`), `${field} a sa colonne`);
+            || read('database/migrations/2026_11_08_090000_add_badge_layout_to_app_settings.php').includes(`'${field}'`)
+            || read('database/migrations/2026_11_13_090000_add_badge_holder_format_to_app_settings.php').includes(`'${field}'`), `${field} a sa colonne`);
     }
 });
 
@@ -184,7 +186,7 @@ test('the sheet counts the cards that fit on the page, like the server', () => {
     assert.deepEqual(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
 
     const server = read('app/Support/Hr/BadgeDesign.php');
-    assert.match(server, /'STANDARD' => 1\.0, 'LARGE' => 1\.15, 'XLARGE' => 1\.3/, 'les mêmes tailles de carte');
+    assert.match(server, /'STANDARD' => \[54, 85\.6\],\n\s+'LARGE' => \[62\.1, 98\.4\],\n\s+'XLARGE' => \[70\.2, 111\.3\]/, 'les mêmes tailles de carte');
     assert.match(server, /'A4' => \[210, 297\]/);
 });
 
@@ -270,4 +272,112 @@ test('the lists, the file and the settings lead to the badge', () => {
     const page = read('resources/js/Pages/SuperAdmin/Settings/Index.vue');
     assert.match(page, /\.\.\.BADGE_FIELDS/, 'la page des paramètres envoie tous les réglages du badge');
     assert.match(page, /badgeFormValue\(field, value\)/);
+});
+
+/**
+ * ADR-209, amendement (bis) — le badge se met en page au format du porte-badge :
+ * les inserts courants (A6 105 × 149, 86 × 101…) ou un format sur mesure.
+ */
+test('the badge holder formats are one list on both sides, and the badge takes the insert size', () => {
+    const server = read('app/Support/Hr/BadgeDesign.php');
+    const formats = server.match(/public const FORMATS_MM = \[([\s\S]*?)\n    \];/)[1];
+
+    assert.deepEqual(Object.keys(BADGE_FORMATS_MM), [...formats.matchAll(/'([A-Z0-9_]+)' =>/g)].map((match) => match[1]));
+    for (const [key, [width, height]] of Object.entries(BADGE_FORMATS_MM)) {
+        assert.ok(formats.includes(`'${key}' => [${width}, ${height}]`), `${key} : mêmes dimensions`);
+    }
+    assert.ok(server.includes(`public const PROPORTION = [${BADGE_PROPORTION.join(', ')}];`), 'mêmes proportions permises');
+    for (const value of BADGE_CHOICES.badge_card_size) assert.ok(BADGE_FORMATS[value]?.label, `${value} : un nom dans la liste`);
+
+    assert.deepEqual(badgeCardMm('HOLDER_A6', 'PORTRAIT'), { width: 105, height: 149 });
+    assert.deepEqual(badgeCardMm('HOLDER_74X110', 'LANDSCAPE'), { width: 110, height: 74 });
+    assert.deepEqual(badgeCardMm('CUSTOM', 'PORTRAIT', { width: 120, height: 90 }), { width: 90, height: 120 }, 'côté court × côté long');
+    assert.deepEqual(badgeCardMm('CUSTOM', 'PORTRAIT', { width: null, height: '' }), { width: 105, height: 149 }, 'vide : 105 × 149');
+    assert.deepEqual(badgeCardOf({ card_size: 'CUSTOM', orientation: 'LANDSCAPE', card_width: 95, card_height: 140 }), { width: 140, height: 95 });
+
+    assert.equal(badgeSheetLayout({ paper: 'A4', cardSize: 'HOLDER_A6' }).perPage, 1, 'un A6 par A4 portrait');
+    assert.equal(badgeSheetLayout({ paper: 'A4', paperOrientation: 'LANDSCAPE', cardSize: 'HOLDER_A6' }).perPage, 2, 'deux en paysage');
+});
+
+test('every format keeps each element inside the card, and the QR code clear of the middle', () => {
+    for (const size of BADGE_CHOICES.badge_card_size) {
+        for (const orientation of ['PORTRAIT', 'LANDSCAPE']) {
+            for (const qr of [false, true]) {
+                const card = badgeCardMm(size, orientation, { width: 95, height: 140 });
+                const g = badgeGeometry(orientation, card, { qr });
+                const label = `${size} ${orientation}${qr ? ' + QR' : ''}`;
+                const inside = ({ x, y }, what) => assert.ok(x >= -0.5 && y >= -0.5 && x <= g.width + 0.5 && y <= g.height + 0.5, `${label} : ${what} sort de la carte (${x}, ${y})`);
+                const mid = (x, y) => badgeMiddlePoint(g, x, y);
+
+                assert.equal(g.height, Math.round(g.width * card.height / card.width), `${label} : la hauteur suit le format`);
+                for (const [zone, transform] of Object.entries(g.transforms)) {
+                    assert.ok(transform === null || /^(translate\(-?[\d.]+ -?[\d.]+\) ?)?(scale\([\d.]+\))?$/.test(transform), `${label} : ${zone} « ${transform} »`);
+                }
+                // Le milieu, tel que le SVG le transforme, tombe là où le test le calcule.
+                if (g.transforms.middle) {
+                    const [, tx, ty, k] = g.transforms.middle.match(/translate\((-?[\d.]+) (-?[\d.]+)\) scale\(([\d.]+)\)/).map(Number);
+                    const probe = mid(g.name.main.x, g.name.main.y);
+                    assert.ok(Math.abs(tx + k * g.name.main.x - probe.x) < 0.5 && Math.abs(ty + k * g.name.main.y - probe.y) < 0.5, `${label} : la transformation du milieu`);
+                }
+
+                const ring = g.photo.r * 1.25;
+                inside(mid(g.photo.cx - ring, g.photo.cy - ring), 'la photo et ses anneaux');
+                inside(mid(g.photo.cx + ring, g.photo.cy + ring), 'la photo et ses anneaux');
+                inside(mid(g.name.main.x, g.name.main.y), 'la ligne du nom');
+                inside(mid(g.name.main.x + g.name.main.width, g.name.main.y + g.name.main.height), 'la ligne du nom');
+                inside(mid(g.medallion.cx + g.medallion.r, g.medallion.cy + g.medallion.r), 'le médaillon');
+                inside(mid(g.pill.cx + g.pill.maxWidth / 2, g.pill.cy + g.pill.height / 2), 'la pastille');
+
+                // Le milieu finit au-dessus des vagues, ou du QR code.
+                const bottom = mid(g.job.cx, g.job.y + 12).y;
+                const limit = g.qr ? g.qr.y : g.height - (orientation === 'LANDSCAPE' ? 95 : 64);
+                assert.ok(bottom <= limit + 0.5, `${label} : la fonction (${bottom}) passe sous ${limit}`);
+                // Et commence sous l'en-tête.
+                assert.ok(g.layout.top >= 236 * g.layout.header - 1 || orientation === 'LANDSCAPE', `${label} : le milieu monte dans l'en-tête`);
+
+                if (qr) {
+                    inside({ x: g.qr.x, y: g.qr.y }, 'le QR code');
+                    inside({ x: g.qr.x + g.qr.size, y: g.qr.y + g.qr.size }, 'le QR code');
+                    assert.ok(g.wave.cx + g.wave.fit / 2 <= g.qr.x, `${label} : le numéro passe sous le QR code`);
+                }
+            }
+        }
+    }
+
+    // La carte bancaire sans QR : le dessin d'avant, sans rien déplacer.
+    for (const orientation of ['PORTRAIT', 'LANDSCAPE']) {
+        const g = badgeGeometry(orientation, badgeCardMm('STANDARD', orientation));
+        assert.deepEqual(g.transforms, { headerLeft: null, headerRight: null, middle: null, footer: null }, `${orientation} : rien ne bouge`);
+        assert.equal(g.height, BADGE_GEOMETRY[orientation].height);
+    }
+});
+
+test('the QR code holds the printed number and nothing else, always dark on white', () => {
+    const qr = badgeQr('EMP-0002');
+    assert.equal(qr.text, 'EMP-0002');
+    assert.ok(qr.size >= 21, 'un vrai QR code : 21 modules au moins');
+    assert.match(qr.path, /^(M\d+ \d+h\d+v1h-\d+z)+$/, 'des rectangles, ligne par ligne');
+    assert.equal(badgeQr(''), null, 'sans numéro, pas de QR');
+    assert.equal(badgeQr(null), null);
+
+    const badge = read('resources/js/Components/Administration/EmployeeBadge.vue');
+    assert.match(badge, /badgeQr\(badgeNumber\(props\.person\)\)/, 'le QR ne porte que le numéro imprimé');
+    assert.match(badge, /fill="#111827" shape-rendering="crispEdges"/, 'toujours noir sur blanc, pour se lire');
+    assert.equal(BADGE_SWITCHES.badge_show_qr, true, 'affiché tant que personne ne l’a retiré');
+});
+
+test('the print page is full width, leads to the badge settings, and shows the badge on its lanyard', () => {
+    const page = read('resources/js/Pages/Administration/Employees/Badges.vue');
+    assert.doesNotMatch(page, /badge-page mx-auto w-full max-w-/, 'la page prend toute la largeur, comme la barre RH');
+    assert.match(page, /settingsUrl\('badges'/, 'un lien vers Paramètres › Badge du personnel');
+    assert.match(page, /const view = ref\(single\.value \? 'holder' : 'pages'\)/, 'un badge seul se voit porté');
+    assert.match(page, /<BadgeHolderMockup/);
+
+    const settings = read('resources/js/Components/Settings/BadgeSettings.vue');
+    assert.match(settings, /<BadgeHolderMockup/, 'l’aperçu des paramètres montre le porte-badge');
+    assert.match(settings, /badge_show_qr/);
+
+    const mockup = read('resources/js/Components/Administration/BadgeHolderMockup.vue');
+    assert.match(mockup, /<EmployeeBadge :person="person" :design="design" \/>/, 'le vrai badge, glissé dans le porte-badge');
+    assert.doesNotMatch(mockup, /Components\/UI\/Icon\.vue|nk-|ni ni-/, 'shadcn et lucide seulement (ADR-099)');
 });

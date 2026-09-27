@@ -4,13 +4,14 @@ import {
     ALargeSmall, ArrowDownUp, Building2, CaseSensitive, CaseUpper, Circle, Droplets, Eye, EyeOff, GraduationCap, Hash,
     Image, LayoutGrid, ListChecks, MapPin, Maximize2, Palette, Printer, Quote, RectangleHorizontal, RectangleVertical,
     Scissors, Shapes, Sparkles, Square, SquareRoundCorner, Stethoscope, Tag, TriangleAlert, Type, UserRound,
-    CalendarClock, Briefcase, Layers, TextQuote, Wand2,
+    CalendarClock, Briefcase, IdCardLanyard, Layers, QrCode, Ruler, TextQuote, Wand2,
 } from 'lucide-vue-next';
 import ColorField from '@/Components/Settings/ColorField.vue';
 import SegmentedField from '@/Components/Settings/SegmentedField.vue';
 import SettingsAssetField from '@/Components/Settings/SettingsAssetField.vue';
 import SettingsField from '@/Components/Settings/SettingsField.vue';
 import SettingsSection from '@/Components/Settings/SettingsSection.vue';
+import BadgeHolderMockup from '@/Components/Administration/BadgeHolderMockup.vue';
 import EmployeeBadge from '@/Components/Administration/EmployeeBadge.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
@@ -25,9 +26,9 @@ import TabsList from '@/Components/Shadcn/TabsList.vue';
 import TabsTrigger from '@/Components/Shadcn/TabsTrigger.vue';
 import { cn } from '@/lib/cn';
 import {
-    BADGE_CARD_SCALES, BADGE_CHOICES, BADGE_DEFAULT_DESIGN, BADGE_FONTS, BADGE_ICONS, BADGE_NUMBERS, BADGE_PAPER_LABELS,
-    BADGE_SAMPLES, BADGE_TAGLINE_FONTS, BADGE_TEXT_LIMITS, badgeCardMm, badgeDesignFromSettings, badgePalette,
-    badgeSheetLayout, formatMm,
+    BADGE_CHOICES, BADGE_DEFAULT_DESIGN, BADGE_FONTS, BADGE_FORMATS, BADGE_ICONS, BADGE_NUMBERS, BADGE_PAPER_LABELS,
+    BADGE_PROPORTION, BADGE_SAMPLES, BADGE_TAGLINE_FONTS, BADGE_TEXT_LIMITS, badgeCardMm, badgeDesignFromSettings,
+    badgeFormatName, badgePalette, badgeProportion, badgeSheetLayout, formatMm,
 } from '@/utilities/employeeBadge';
 
 /**
@@ -82,6 +83,8 @@ const TABS = [
 ];
 
 const sample = ref('employee');
+/** L'aperçu : le badge porté (porte-badge, tour de cou), ou la carte seule. */
+const previewMode = ref('holder');
 const person = computed(() => BADGE_SAMPLES[sample.value]);
 const landscape = computed(() => props.form.badge_orientation === 'LANDSCAPE');
 
@@ -131,6 +134,7 @@ const DISPLAY = [
     { field: 'badge_show_site', label: 'Le nom du site', hint: 'Sous l’emblème : utile quand le personnel change de site.', icon: MapPin },
     { field: 'badge_show_watermark', label: 'Le filigrane', hint: 'L’emblème, pâle, derrière la photo.', icon: Layers },
     { field: 'badge_show_decorations', label: 'Les décors', hint: 'Points, cercles pâles et fin trait des bandes.', icon: Sparkles },
+    { field: 'badge_show_qr', label: 'Le QR code', hint: 'Dans le coin bas droit : le numéro du badge (référence « Badge », sinon matricule), rien d’autre.', icon: QrCode },
 ];
 
 const iconOptions = computed(() => BADGE_CHOICES.badge_icon.map((value) => ({
@@ -172,11 +176,49 @@ const ORIENTATIONS = [
     { value: 'PORTRAIT', label: 'Portrait', hint: 'Vertical, porté au cou ou à la pince.', icon: RectangleVertical },
     { value: 'LANDSCAPE', label: 'Paysage', hint: 'Horizontal : photo à gauche, nom à droite.', icon: RectangleHorizontal },
 ];
-const cardSizeOptions = computed(() => Object.keys(BADGE_CARD_SCALES).map((value) => {
-    const names = { STANDARD: 'Standard (carte bancaire)', LARGE: 'Grand', XLARGE: 'Très grand' };
+/** Les côtés du format sur mesure, tels que saisis. */
+const custom = computed(() => ({ width: props.form.badge_card_width, height: props.form.badge_card_height }));
+const isCustom = computed(() => props.form.badge_card_size === 'CUSTOM');
+/** Les formats, rangés comme on les achète : la carte, les porte-badges souples, puis sur mesure. */
+const cardSizeOptions = computed(() => [
+    { key: 'CARD', label: 'Carte (porte-badge rigide ou souple 86 × 54)' },
+    { key: 'HOLDER', label: 'Porte-badge souple (insert)' },
+    { key: 'CUSTOM', label: 'Autre porte-badge' },
+].map((group) => ({
+    label: group.label,
+    items: BADGE_CHOICES.badge_card_size
+        .filter((value) => BADGE_FORMATS[value]?.group === group.key)
+        .map((value) => ({
+            value,
+            label: value === 'CUSTOM'
+                ? 'Sur mesure — saisir la largeur et la hauteur'
+                : `${BADGE_FORMATS[value].label} — ${BADGE_FORMATS[value].sold} · ${BADGE_FORMATS[value].hint}`,
+        })),
+})));
+const formatHint = computed(() => {
+    const card = badgeCardMm(props.form.badge_card_size, props.form.badge_orientation, custom.value);
 
-    return { value, label: `${names[value]} — ${formatMm(badgeCardMm(value, props.form.badge_orientation))}` };
-}));
+    return `Le badge mesure ${formatMm(card)} et s’y met en page. Mesurez la fenêtre du porte-badge : c’est l’insert.`;
+});
+/** Un porte-badge se porte dans un sens : le choisir propose l'orientation qui va avec. */
+const chooseFormat = (value) => {
+    set('badge_card_size', value || 'STANDARD');
+    const natural = BADGE_FORMATS[value]?.natural;
+    if (natural) set('badge_orientation', natural);
+};
+/** La proportion d'un format sur mesure : l'écran le dit avant d'enregistrer, le serveur la refuse. */
+const customProportion = computed(() => {
+    if (! isCustom.value) return null;
+    const width = Number(props.form.badge_card_width);
+    const height = Number(props.form.badge_card_height);
+    if (! width || ! height) return { ok: false, text: 'Indiquez les deux côtés, en millimètres.' };
+    const ratio = badgeProportion({ width, height });
+    const [min, max] = BADGE_PROPORTION;
+
+    return ratio >= min && ratio <= max
+        ? { ok: true, text: `Proportion ${ratio.toFixed(2).replace('.', ',')} : le badge se met en page.` }
+        : { ok: false, text: `Proportion ${ratio.toFixed(2).replace('.', ',')} : le côté long doit mesurer entre ${String(min).replace('.', ',')} et ${String(max).replace('.', ',')} fois le côté court.` };
+});
 const PHOTO_OPTIONS = [
     { value: 'CIRCLE', label: 'Ronde', icon: Circle },
     { value: 'ROUNDED', label: 'Carrée arrondie', icon: Square },
@@ -203,6 +245,7 @@ const sheet = computed(() => badgeSheetLayout({
     gap: Number(props.form.badge_gap) || 0,
     cardSize: props.form.badge_card_size,
     orientation: props.form.badge_orientation,
+    custom: custom.value,
 }));
 /** Les cartes de la planche schématique, centrées en largeur sous la marge du haut. */
 const sheetCards = computed(() => {
@@ -407,10 +450,35 @@ const OPTION_CLASS = 'cursor-pointer [&:has([data-state=checked])>div]:border-pr
                         </RadioGroup>
                     </SettingsField>
 
-                    <div class="grid gap-6 cq-4xl:grid-cols-3">
-                        <SettingsField label="Taille de la carte" for="reglage-badge_card_size" description="Le rapport de la carte bancaire est toujours gardé." :error="field('badge_card_size').error">
-                            <Select id="reglage-badge_card_size" :model-value="form.badge_card_size" :options="cardSizeOptions" :icon="Maximize2" class="w-full" :disabled="readonly" @update:model-value="(value) => set('badge_card_size', value || 'STANDARD')" />
+                    <div class="space-y-4">
+                        <SettingsField label="Format du badge — porte-badge" for="reglage-badge_card_size" :description="formatHint" :error="field('badge_card_size').error">
+                            <Select id="reglage-badge_card_size" :model-value="form.badge_card_size" :options="cardSizeOptions" :icon="Maximize2" class="w-full" :disabled="readonly" @update:model-value="chooseFormat" />
                         </SettingsField>
+
+                        <div v-if="isCustom" class="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+                            <p class="flex items-center gap-2 text-sm font-medium text-foreground"><Ruler class="h-4 w-4 text-muted-foreground" aria-hidden="true" />Dimensions de l’insert, en portrait</p>
+                            <div class="grid gap-4 cq-2xl:grid-cols-2">
+                                <SettingsField label="Largeur (côté court)" for="reglage-badge_card_width" :description="`De ${BADGE_NUMBERS.badge_card_width[0]} à ${BADGE_NUMBERS.badge_card_width[1]} mm.`" :error="field('badge_card_width').error">
+                                    <div class="flex items-center gap-2">
+                                        <Input id="reglage-badge_card_width" type="number" inputmode="numeric" :min="BADGE_NUMBERS.badge_card_width[0]" :max="BADGE_NUMBERS.badge_card_width[1]" step="1" :model-value="form.badge_card_width" class="w-28" :disabled="readonly" :aria-invalid="field('badge_card_width').invalid || undefined" @update:model-value="(value) => numberInput('badge_card_width', value)" />
+                                        <span class="text-sm text-muted-foreground">mm</span>
+                                    </div>
+                                </SettingsField>
+                                <SettingsField label="Hauteur (côté long)" for="reglage-badge_card_height" :description="`De ${BADGE_NUMBERS.badge_card_height[0]} à ${BADGE_NUMBERS.badge_card_height[1]} mm.`" :error="field('badge_card_height').error">
+                                    <div class="flex items-center gap-2">
+                                        <Input id="reglage-badge_card_height" type="number" inputmode="numeric" :min="BADGE_NUMBERS.badge_card_height[0]" :max="BADGE_NUMBERS.badge_card_height[1]" step="1" :model-value="form.badge_card_height" class="w-28" :disabled="readonly" :aria-invalid="field('badge_card_height').invalid || undefined" @update:model-value="(value) => numberInput('badge_card_height', value)" />
+                                        <span class="text-sm text-muted-foreground">mm</span>
+                                    </div>
+                                </SettingsField>
+                            </div>
+                            <p v-if="customProportion" :class="cn('flex items-start gap-1.5 text-[0.8rem]', customProportion.ok ? 'text-muted-foreground' : 'font-medium text-destructive')" :role="customProportion.ok ? undefined : 'alert'">
+                                <TriangleAlert v-if="! customProportion.ok" class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />{{ customProportion.text }}
+                            </p>
+                            <p class="text-[0.8rem] text-muted-foreground">Pour un porte-badge horizontal, choisissez « Paysage » dans l’orientation du badge.</p>
+                        </div>
+                    </div>
+
+                    <div class="grid gap-6 cq-4xl:grid-cols-2">
                         <SettingsField label="Photo" :error="field('badge_photo_shape').error">
                             <SegmentedField :model-value="form.badge_photo_shape" :options="PHOTO_OPTIONS" :disabled="readonly" aria-label="Forme de la photo" @update:model-value="(value) => set('badge_photo_shape', value)" />
                         </SettingsField>
@@ -506,10 +574,24 @@ const OPTION_CLASS = 'cursor-pointer [&:has([data-state=checked])>div]:border-pr
                         @click="sample = option.value"
                     ><component :is="option.icon" class="h-3.5 w-3.5" aria-hidden="true" />{{ option.label }}</button>
                 </div>
-                <div :class="cn('mx-auto mt-3 w-full overflow-hidden shadow-[0_12px_30px_-14px_rgb(15_23_42/0.45)]', landscape ? 'max-w-[17rem]' : 'max-w-[15rem]', form.badge_corners === 'SQUARE' ? 'rounded-none' : 'rounded-xl')">
+                <div class="mt-2 inline-flex rounded-lg border border-border bg-muted/40 p-1" role="radiogroup" aria-label="Présentation de l’aperçu">
+                    <button
+                        v-for="option in [{ value: 'holder', label: 'Porte-badge', icon: IdCardLanyard }, { value: 'card', label: 'Carte seule', icon: RectangleVertical }]"
+                        :key="option.value"
+                        type="button"
+                        role="radio"
+                        :aria-checked="previewMode === option.value"
+                        :class="cn('inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', previewMode === option.value ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')"
+                        @click="previewMode = option.value"
+                    ><component :is="option.icon" class="h-3.5 w-3.5" aria-hidden="true" />{{ option.label }}</button>
+                </div>
+                <div v-if="previewMode === 'holder'" class="mt-3 rounded-lg bg-muted/40 px-2 pb-3">
+                    <BadgeHolderMockup :person="person" :design="design" height="27rem" />
+                </div>
+                <div v-else :class="cn('mx-auto mt-3 w-full overflow-hidden shadow-[0_12px_30px_-14px_rgb(15_23_42/0.45)]', landscape ? 'max-w-[17rem]' : 'max-w-[15rem]', form.badge_corners === 'SQUARE' ? 'rounded-none' : 'rounded-xl')">
                     <EmployeeBadge :person="person" :design="design" />
                 </div>
-                <p class="mt-3 flex items-center gap-1.5 text-[0.8rem] text-muted-foreground"><Droplets class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Carte {{ formatMm(sheet.card) }}</p>
+                <p class="mt-3 flex items-center gap-1.5 text-[0.8rem] text-muted-foreground"><Droplets class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />{{ badgeFormatName(form.badge_card_size, sheet.card) }}</p>
                 <p class="mt-1 text-[0.8rem] leading-5 text-muted-foreground">Personne fictive. Le badge réel prend la photo, le nom, le service et la fonction du dossier ; s’imprime depuis la liste des employés, des stages ou la fiche.</p>
             </aside>
         </div>

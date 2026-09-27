@@ -57,7 +57,12 @@ final class BadgeDesign
         'badge_name_order' => ['FIRST_LAST', 'LAST_FIRST'],
         'badge_text_case' => ['UPPER', 'AS_IS'],
         'badge_orientation' => ['PORTRAIT', 'LANDSCAPE'],
-        'badge_card_size' => ['STANDARD', 'LARGE', 'XLARGE'],
+        // La carte bancaire et ses agrandissements, puis les inserts des porte-badges courants, puis sur mesure.
+        'badge_card_size' => [
+            'STANDARD', 'LARGE', 'XLARGE',
+            'HOLDER_86X101', 'HOLDER_74X110', 'HOLDER_80X135', 'HOLDER_A6', 'HOLDER_110X152', 'HOLDER_108X155',
+            'CUSTOM',
+        ],
         'badge_photo_shape' => ['CIRCLE', 'ROUNDED'],
         'badge_corners' => ['ROUNDED', 'SQUARE'],
         'badge_paper' => ['A4', 'A5', 'A3', 'LETTER', 'CARD'],
@@ -71,6 +76,9 @@ final class BadgeDesign
         'badge_tagline_size' => [70, 150, 100],
         'badge_page_margin' => [0, 25, 8],
         'badge_gap' => [0, 20, 4],
+        // Le format sur mesure, en portrait : côté court × côté long (mm). Vaut seulement pour « Sur mesure ».
+        'badge_card_width' => [40, 160, 105],
+        'badge_card_height' => [50, 230, 149],
     ];
 
     /** Ce qui s'affiche, et sa valeur quand personne ne l'a réglé. */
@@ -85,13 +93,38 @@ final class BadgeDesign
         'badge_show_site' => false,
         'badge_show_watermark' => true,
         'badge_show_decorations' => true,
+        // Le QR code du numéro imprimé (la référence « Badge », sinon le matricule) — et rien d'autre.
+        'badge_show_qr' => true,
         'badge_cut_marks' => true,
     ];
 
-    /** Le format de la carte (ISO/CEI 7810 ID-1), en portrait, et l'agrandissement de chaque taille. */
+    /** Le format de la carte (ISO/CEI 7810 ID-1), en portrait. */
     public const CARD_MM = ['width' => 54, 'height' => 85.6];
 
-    public const CARD_SCALES = ['STANDARD' => 1.0, 'LARGE' => 1.15, 'XLARGE' => 1.3];
+    /**
+     * Chaque format, en portrait (côté court × côté long, mm) : la carte bancaire et
+     * ses agrandissements (le rapport de la carte gardé), puis l'insert des
+     * porte-badges souples courants — 86 × 101, 110 × 74, 80 × 135, A6 105 × 149,
+     * 110 × 152 et 155 × 108. `CUSTOM` : les deux côtés réglés.
+     */
+    public const FORMATS_MM = [
+        'STANDARD' => [54, 85.6],
+        'LARGE' => [62.1, 98.4],
+        'XLARGE' => [70.2, 111.3],
+        'HOLDER_86X101' => [86, 101],
+        'HOLDER_74X110' => [74, 110],
+        'HOLDER_80X135' => [80, 135],
+        'HOLDER_A6' => [105, 149],
+        'HOLDER_110X152' => [110, 152],
+        'HOLDER_108X155' => [108, 155],
+    ];
+
+    /**
+     * Le rapport côté long / côté court qu'un format sur mesure peut avoir : au-delà,
+     * le badge ne se met plus en page (trop carré ou trop allongé). Les formats
+     * proposés vont de 1,17 (86 × 101) à 1,69 (80 × 135).
+     */
+    public const PROPORTION = [1.15, 1.8];
 
     /** Les papiers, en portrait (mm). `CARD` : une carte par page, pour une imprimante à badges. */
     public const PAPERS_MM = [
@@ -108,9 +141,10 @@ final class BadgeDesign
         'badge_logo_style', 'badge_icon', 'badge_font', 'badge_tagline_font', 'badge_name_case', 'badge_name_order', 'badge_text_case',
         'badge_orientation', 'badge_card_size', 'badge_photo_shape', 'badge_corners', 'badge_paper', 'badge_paper_orientation',
         'badge_name_size', 'badge_text_size', 'badge_tagline_size', 'badge_page_margin', 'badge_gap',
+        'badge_card_width', 'badge_card_height',
         'badge_show_photo', 'badge_show_tagline', 'badge_show_icon', 'badge_show_department', 'badge_show_job',
         'badge_show_number', 'badge_show_validity', 'badge_show_site', 'badge_show_watermark', 'badge_show_decorations',
-        'badge_cut_marks',
+        'badge_show_qr', 'badge_cut_marks',
     ];
 
     public function __construct(private readonly AppSettings $settings) {}
@@ -211,6 +245,9 @@ final class BadgeDesign
             'text_case' => $this->choice('badge_text_case'),
             'orientation' => $this->choice('badge_orientation'),
             'card_size' => $this->choice('badge_card_size'),
+            // Le format sur mesure (côté court × côté long, mm) ; lu seulement pour « Sur mesure ».
+            'card_width' => $this->number('badge_card_width'),
+            'card_height' => $this->number('badge_card_height'),
             'photo_shape' => $this->choice('badge_photo_shape'),
             'corners' => $this->choice('badge_corners'),
             'name_size' => $this->number('badge_name_size'),
@@ -226,6 +263,7 @@ final class BadgeDesign
             'show_site' => $this->switch('badge_show_site'),
             'show_watermark' => $this->switch('badge_show_watermark'),
             'show_decorations' => $this->switch('badge_show_decorations'),
+            'show_qr' => $this->switch('badge_show_qr'),
             // La mise en page proposée à l'impression ; le RH peut la changer pour une impression.
             'print' => [
                 'paper' => $this->choice('badge_paper'),
@@ -273,24 +311,50 @@ final class BadgeDesign
     }
 
     /**
-     * La carte en millimètres, dans son orientation.
+     * La carte en millimètres, dans son orientation. « Sur mesure » : les deux côtés
+     * réglés (`$custom`), rangés côté court × côté long ; un format inconnu est la
+     * carte bancaire.
      *
+     * @param  array{width?: int|float|null, height?: int|float|null}|null  $custom
      * @return array{width: float, height: float}
      */
-    public static function cardMm(?string $size, ?string $orientation): array
+    public static function cardMm(?string $size, ?string $orientation, ?array $custom = null): array
     {
-        $scale = self::CARD_SCALES[$size] ?? 1.0;
-        $width = round(self::CARD_MM['width'] * $scale, 1);
-        $height = round(self::CARD_MM['height'] * $scale, 1);
+        [$width, $height] = $size === 'CUSTOM'
+            ? self::customMm($custom)
+            : (self::FORMATS_MM[$size] ?? self::FORMATS_MM['STANDARD']);
+
+        $width = round((float) $width, 1);
+        $height = round((float) $height, 1);
 
         return $orientation === 'LANDSCAPE' ? ['width' => $height, 'height' => $width] : ['width' => $width, 'height' => $height];
+    }
+
+    /**
+     * Le format sur mesure, côté court puis côté long, dans ses bornes.
+     *
+     * @param  array{width?: int|float|null, height?: int|float|null}|null  $custom
+     * @return array{0: float, 1: float}
+     */
+    private static function customMm(?array $custom): array
+    {
+        [$minWidth, $maxWidth, $defaultWidth] = self::NUMBERS['badge_card_width'];
+        [$minHeight, $maxHeight, $defaultHeight] = self::NUMBERS['badge_card_height'];
+
+        $width = is_numeric($custom['width'] ?? null) ? max($minWidth, min($maxWidth, (float) $custom['width'])) : $defaultWidth;
+        $height = is_numeric($custom['height'] ?? null) ? max($minHeight, min($maxHeight, (float) $custom['height'])) : $defaultHeight;
+
+        return [min($width, $height), max($width, $height)];
     }
 
     /**
      * Combien de cartes tiennent sur une page, marges et espacement compris.
      * `null` pour une carte par page : la page prend la taille de la carte.
      */
-    public static function perPage(?string $paper, ?string $paperOrientation, ?string $size, ?string $orientation, int $margin, int $gap): ?int
+    /**
+     * @param  array{width?: int|float|null, height?: int|float|null}|null  $custom  le format sur mesure
+     */
+    public static function perPage(?string $paper, ?string $paperOrientation, ?string $size, ?string $orientation, int $margin, int $gap, ?array $custom = null): ?int
     {
         if (! isset(self::PAPERS_MM[$paper])) {
             return null;
@@ -301,7 +365,7 @@ final class BadgeDesign
             [$width, $height] = [$height, $width];
         }
 
-        $card = self::cardMm($size, $orientation);
+        $card = self::cardMm($size, $orientation, $custom);
         $columns = (int) floor(($width - 2 * $margin + $gap) / ($card['width'] + $gap));
         $rows = (int) floor(($height - 2 * $margin + $gap) / ($card['height'] + $gap));
 

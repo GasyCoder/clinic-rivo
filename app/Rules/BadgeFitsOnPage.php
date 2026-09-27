@@ -37,10 +37,11 @@ final class BadgeFitsOnPage implements DataAwareRule, ValidationRule
             $this->choice('badge_orientation'),
             is_numeric($value) ? (int) $value : $defaultMargin,
             is_numeric($this->data['badge_gap'] ?? null) ? (int) $this->data['badge_gap'] : $defaultGap,
+            ['width' => $this->data['badge_card_width'] ?? null, 'height' => $this->data['badge_card_height'] ?? null],
         );
 
         if ($perPage === 0) {
-            $fail('Avec ces marges, la carte ne tient pas sur la page : réduisez les marges, la taille de la carte, ou changez de papier ou d’orientation.');
+            $fail('Avec ces marges, la carte ne tient pas sur la page : réduisez les marges, le format du badge, ou changez de papier ou d’orientation.');
         }
     }
 

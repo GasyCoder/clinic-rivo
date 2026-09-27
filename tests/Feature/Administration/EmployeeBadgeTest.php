@@ -319,6 +319,61 @@ class EmployeeBadgeTest extends TestCase
         $this->assertSame(['width' => 111.3, 'height' => 70.2], BadgeDesign::cardMm('XLARGE', 'LANDSCAPE'));
     }
 
+    public function test_the_badge_takes_the_size_of_the_badge_holder_insert(): void
+    {
+        // L'insert A6 d'un porte-badge souple, et le horizontal 110 × 74 couché.
+        $this->assertSame(['width' => 105.0, 'height' => 149.0], BadgeDesign::cardMm('HOLDER_A6', 'PORTRAIT'));
+        $this->assertSame(['width' => 110.0, 'height' => 74.0], BadgeDesign::cardMm('HOLDER_74X110', 'LANDSCAPE'));
+        // Sur mesure : les côtés réglés, rangés côté court × côté long, dans leurs bornes.
+        $this->assertSame(['width' => 90.0, 'height' => 120.0], BadgeDesign::cardMm('CUSTOM', 'PORTRAIT', ['width' => 120, 'height' => 90]));
+        $this->assertSame(['width' => 105.0, 'height' => 149.0], BadgeDesign::cardMm('CUSTOM', 'PORTRAIT'));
+        // Un A6 par page d'A4 portrait, deux en paysage.
+        $this->assertSame(1, BadgeDesign::perPage('A4', 'PORTRAIT', 'HOLDER_A6', 'PORTRAIT', 8, 4));
+        $this->assertSame(2, BadgeDesign::perPage('A4', 'LANDSCAPE', 'HOLDER_A6', 'PORTRAIT', 8, 4));
+        $this->assertSame(0, BadgeDesign::perPage('A5', 'PORTRAIT', 'CUSTOM', 'PORTRAIT', 8, 4, ['width' => 150, 'height' => 220]));
+
+        $this->withHeaders($this->headers(['settings.update', 'settings.view']))
+            ->putJson(self::API, [...$this->validSettings(), 'badge_card_size' => 'HOLDER_A6', 'badge_show_qr' => false])
+            ->assertOk()
+            ->assertJsonPath('data.values.badge_card_size', 'HOLDER_A6')
+            ->assertJsonPath('data.values.badge_show_qr', false);
+
+        $this->withHeaders($this->headers(['settings.update', 'settings.view']))
+            ->putJson(self::API, [...$this->validSettings(), 'badge_card_size' => 'CUSTOM', 'badge_card_width' => 95, 'badge_card_height' => 140])
+            ->assertOk()
+            ->assertJsonPath('data.values.badge_card_width', 95)
+            ->assertJsonPath('data.values.badge_card_height', 140);
+
+        $employee = $this->employee('EMP-0001', 'Rabe');
+        $this->actingAs($this->administration)->get("/administration/employees/{$employee->uuid}/badge")
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('design.card_size', 'CUSTOM')
+                ->where('design.card_width', 95)
+                ->where('design.card_height', 140)
+                // Jamais réglé depuis : le QR de la clinique, affiché.
+                ->where('design.show_qr', true));
+    }
+
+    public function test_a_custom_badge_that_is_too_square_or_too_long_is_refused(): void
+    {
+        foreach ([[100, 105], [60, 150]] as [$width, $height]) {
+            $this->withHeaders($this->headers(['settings.update']))
+                ->putJson(self::API, [...$this->validSettings(), 'badge_card_size' => 'CUSTOM', 'badge_card_width' => $width, 'badge_card_height' => $height])
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors(['badge_card_height']);
+        }
+
+        // Hors « Sur mesure », les côtés réglés ne comptent pas.
+        $this->withHeaders($this->headers(['settings.update']))
+            ->putJson(self::API, [...$this->validSettings(), 'badge_card_size' => 'HOLDER_A6', 'badge_card_width' => 100, 'badge_card_height' => 105])
+            ->assertOk();
+
+        $this->withHeaders($this->headers(['settings.update']))
+            ->putJson(self::API, [...$this->validSettings(), 'badge_card_size' => 'LICORNE'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['badge_card_size']);
+    }
+
     private function employee(string $number, string $lastName, ?string $firstName = null, ?string $department = null, ?string $jobTitle = null, array $extra = [], bool $active = true): Employee
     {
         return Employee::query()->create([

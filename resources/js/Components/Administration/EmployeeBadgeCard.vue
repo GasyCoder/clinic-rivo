@@ -4,7 +4,7 @@ import { Link } from '@inertiajs/vue3';
 import { Camera, IdCard, Printer } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
 import EmployeeBadge from '@/Components/Administration/EmployeeBadge.vue';
-import { badgeCardMm, formatMm } from '@/utilities/employeeBadge';
+import { badgeCardOf, badgeFormatName } from '@/utilities/employeeBadge';
 import { hrContext, hrUrl } from '@/utilities/hrUrl';
 import { settingsUrl } from '@/utilities/settingsSections';
 
@@ -21,7 +21,7 @@ const props = defineProps({
 
 const person = computed(() => props.badge.person ?? {});
 const landscape = computed(() => props.badge.design?.orientation === 'LANDSCAPE');
-const cardSize = computed(() => formatMm(badgeCardMm(props.badge.design?.card_size, props.badge.design?.orientation)));
+const formatName = computed(() => badgeFormatName(props.badge.design?.card_size, badgeCardOf(props.badge.design ?? {})));
 const printUrl = computed(() => hrUrl(`/administration/employees/${props.employeeUuid}/badge`));
 /** L'apparence se règle sur le portail : le RH d'un site le lit, le Super Admin y va. */
 const onPortal = computed(() => Boolean(hrContext()));
@@ -36,7 +36,7 @@ const settingsHref = computed(() => settingsUrl('badges', hrContext()?.site?.cod
             </span>
             <div class="min-w-0 flex-1">
                 <h2 id="employee-badge-title" class="text-lg font-semibold leading-tight text-foreground">Badge</h2>
-                <p class="mt-0.5 text-sm text-muted-foreground">Carte {{ cardSize }}, {{ landscape ? 'en paysage' : 'en portrait' }}, lue dans le dossier.</p>
+                <p class="mt-0.5 text-sm text-muted-foreground">{{ formatName }}, {{ landscape ? 'en paysage' : 'en portrait' }}, lue dans le dossier.</p>
             </div>
             <Button v-if="canPrint" :as="Link" :href="printUrl" size="sm"><Printer class="h-4 w-4" aria-hidden="true" />Imprimer</Button>
         </div>

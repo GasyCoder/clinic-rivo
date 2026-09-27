@@ -19871,3 +19871,52 @@ Mêmes droits (`settings.view` / `settings.update`, `employees.print`), aucune p
 « Moderne » et « Classique » prennent celles du poste qui imprime. Pas de verso (consignes, « en cas de
 perte… ») : c'est une fonctionnalité, pas un réglage — à décider. L'icône ne se règle pas fonction par
 fonction.
+
+## Amendement du 2026-09-27 (bis) — le format du porte-badge, un QR code, l'aperçu au tour de cou
+
+Demande du propriétaire : « intégrer la mesure du porte-badge (ex. 105 × 149 mm) : le badge doit s'adapter
+à plusieurs porte-badges ; il doit porter un QR code ; l'aperçu doit montrer un tour de cou » — en s'inspirant
+des porte-badges du catalogue Cardalis (inserts 86 × 54, 86 × 101, 110 × 74, 80 × 135, 105 × 149, 110 × 152,
+155 × 108 mm). Et la page d'impression en pleine largeur, avec un lien vers ces réglages.
+
+```text
+format        « Format du badge — porte-badge » (badge_card_size) : la carte bancaire et ses agrandissements
+              (inchangés), les inserts des porte-badges souples courants — vertical 86 × 101, horizontal
+              110 × 74, vertical allongé 80 × 135, A6 105 × 149, XXL vertical 110 × 152, XXL horizontal
+              155 × 108 —, ou « Sur mesure » (badge_card_width × badge_card_height, en mm, 40–160 × 50–230).
+              Choisir un porte-badge horizontal propose « Paysage ». Une liste : BadgeDesign::FORMATS_MM,
+              miroir JS BADGE_FORMATS_MM, vérifié par test
+mise en page  le badge garde sa largeur de dessin ; sa hauteur suit la proportion du format
+              (badgeGeometry). En-tête collé en haut (bandes à gauche, établissement à droite), pied collé
+              en bas, le milieu (photo, nom, service, fonction) centré dans la place qui reste : agrandi
+              jusqu'à 110 % s'il y en a, resserré s'il en manque ; en portrait, sous 82 %, en-tête et
+              milieu se réduisent ensemble. La carte bancaire sans QR garde exactement le dessin d'avant
+sur mesure    côté long entre 1,15 et 1,8 fois le côté court (BadgeCustomFormat) : plus carré ou plus
+              allongé, la photo et le nom n'y tiennent plus. Les formats proposés vont de 1,17 à 1,69
+QR code       badge_show_qr, affiché par défaut. Il porte le numéro imprimé — la référence « Badge » du
+              dossier, sinon le matricule — et rien d'autre, comme la carte de l'ADR-198. Noir sur blanc
+              quelle que soit la couleur du texte, dans le coin bas droit sur les vagues (≈ 11,6 mm sur une
+              carte bancaire) ; le milieu s'arrête au-dessus de lui. Dessiné en SVG (qrcode, matrice
+              calculée sans attendre, donc aussi au rendu serveur). Sans numéro, pas de QR
+aperçu         BadgeHolderMockup : le vrai badge glissé dans un porte-badge souple transparent à triple
+              perforation, accroché par un mousqueton à un tour de cou aux couleurs du site, le nom de
+              l'établissement le long du cordon — à l'échelle, en mm. Vue « Porte-badge » de la page
+              d'impression (par défaut pour un badge seul) et de l'aperçu des paramètres. Jamais imprimé
+page          pleine largeur, comme la barre RH ; « Modifier le modèle » mène à Paramètres › Badge du
+              personnel du site (sur le portail) ; l'en-tête dit le format (« Porte-badge A6 · 105 × 149 mm »)
+              et le QR
+```
+
+L'impression reste celle d'avant : autant de badges par page que le papier en contient (un A6 par A4 portrait,
+deux en paysage), toujours les pages quel que soit l'aperçu ouvert. Vérifié en générant les PDF : sept badges
+tiennent sur une page A4 au format carte, sept pages en A6, et les 21 QR imprimés se décodent (150 dpi compris)
+en leur seul numéro.
+
+Aucune permission nouvelle. Migration `2026_11_13_090000_add_badge_holder_format_to_app_settings` (trois
+colonnes vides), à jouer sur chaque site et sur le portail ; une base non migrée refuse l'enregistrement des
+paramètres en le disant (`AppSettings::ensureInstalled`).
+
+**Signalé, non tranché.** Ce que lit un QR n'est défini nulle part : aucun écran de contrôle d'accès ne le
+scanne encore — il porte le numéro, pas une adresse. Le porte-badge dessiné est un modèle souple à triple
+perforation, quel que soit le format ; un porte-badge rigide ou à pince n'est pas dessiné. Le QR se place
+toujours en bas à droite.

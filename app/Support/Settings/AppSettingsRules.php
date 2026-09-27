@@ -4,6 +4,7 @@ namespace App\Support\Settings;
 
 use App\Enums\AuthTemplate;
 use App\Enums\ProfileTemplate;
+use App\Rules\BadgeCustomFormat;
 use App\Rules\BadgeFitsOnPage;
 use App\Rules\ReadableThemeColors;
 use App\Services\Settings\AppSettings;
@@ -231,6 +232,8 @@ final class AppSettingsRules
 
         // La carte doit tenir sur la page choisie, marges comprises.
         $rules['badge_page_margin'][] = new BadgeFitsOnPage;
+        // Un format sur mesure garde des proportions où le badge se met en page.
+        $rules['badge_card_height'][] = new BadgeCustomFormat;
 
         return $rules;
     }
@@ -242,6 +245,11 @@ final class AppSettingsRules
             'badge_logo_style.in' => 'Choisissez « Sceau », « Logo seul » ou « Aucun ».',
             'badge_icon.in' => 'Choisissez une icône proposée.',
             'badge_paper.in' => 'Choisissez un papier proposé.',
+            'badge_card_size.in' => 'Choisissez un format proposé, ou « Sur mesure ».',
+            'badge_card_width.min' => 'Le côté court mesure au moins '.BadgeDesign::NUMBERS['badge_card_width'][0].' mm.',
+            'badge_card_width.max' => 'Le côté court mesure au plus '.BadgeDesign::NUMBERS['badge_card_width'][1].' mm.',
+            'badge_card_height.min' => 'Le côté long mesure au moins '.BadgeDesign::NUMBERS['badge_card_height'][0].' mm.',
+            'badge_card_height.max' => 'Le côté long mesure au plus '.BadgeDesign::NUMBERS['badge_card_height'][1].' mm.',
         ];
 
         foreach (BadgeDesign::COLORS as $field) {

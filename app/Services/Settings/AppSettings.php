@@ -71,7 +71,7 @@ class AppSettings
         .'les migrations doivent d’abord être jouées (php artisan migrate).';
 
     /** Une colonne de chaque migration des paramètres : toutes présentes, la base est à jour. */
-    private const REQUIRED_COLUMNS = ['app_tagline', 'profile_template', 'theme_preset', 'employee_number_digits', 'staff_discount_value', 'badge_logo_style', 'badge_paper', 'ui_font_family'];
+    private const REQUIRED_COLUMNS = ['app_tagline', 'profile_template', 'theme_preset', 'employee_number_digits', 'staff_discount_value', 'badge_logo_style', 'badge_paper', 'ui_font_family', 'badge_show_qr'];
 
     private ?AppSetting $setting = null;
 

@@ -734,8 +734,12 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Couleurs, devise, sceau ou logo, emblème et éléments affichés réglés par site depuis Paramètres › Badge du personnel, avec aperçu en direct (ADR-209)
 - [x] Tout le badge réglable par site, en cinq onglets : couleurs du texte et du fond, textes (sceau, stagiaire, numéro, pied), éléments affichés, icône fixe ou automatique, polices et tailles, badge portrait ou paysage, taille de carte, photo et coins (ADR-209, amendement du 2026-09-27)
 - [x] Impression au papier choisi (A4, A5, A3, Lettre US, carte seule), portrait ou paysage, marges, espacement et traits de coupe ; pages réelles à l'écran, papier modifiable pour une impression ; carte trop grande refusée (ADR-209)
+- [x] Page d'impression des badges refaite en shadcn : aperçu « Cartes » (chaque badge en grand) ou « Pages » (au millimètre), panneau d'impression collant (papier, orientation, traits de coupe, badges / par page / pages, réglages de la fenêtre d'impression), « À vérifier » pour les badges sans photo et les dossiers inactifs ; ce sont toujours les pages qui s'impriment (ADR-209, ADR-099)
+- [x] Badge au format du porte-badge : carte bancaire, inserts courants (86 × 101, 110 × 74, 80 × 135, A6 105 × 149, 110 × 152, 155 × 108) ou sur mesure en mm ; la mise en page suit la proportion du format (ADR-209, amendement bis)
+- [x] QR code du numéro imprimé sur le badge (référence « Badge », sinon matricule — rien d'autre), noir sur blanc, désactivable ; décodé sur les PDF imprimés (ADR-209, amendement bis)
+- [x] Aperçu du badge dans son porte-badge, au tour de cou, sur la page d'impression et dans les paramètres ; page d'impression en pleine largeur avec « Modifier le modèle » (ADR-209, amendement bis)
 - [ ] Verso du badge (consignes, « en cas de perte »), polices livrées avec l'application, icône par fonction — à décider (ADR-209)
-- [ ] Badge d'un dossier inactif, QR/code-barres pour un contrôle d'accès, registre des badges remis — à décider (ADR-209)
+- [ ] Badge d'un dossier inactif, lecture du QR pour un contrôle d'accès, registre des badges remis, porte-badge rigide ou à pince dans l'aperçu — à décider (ADR-209)
 - [ ] Autres écrans RH à passer en shadcn-vue (contrats, présences, congés, planning, rapports, paramètres, documents, crédit Bloc) — seules leurs adresses ont été touchées (ADR-187)
 - [x] Espace RH : menu latéral en groupe, panneau « à traiter » sur la Vue d'ensemble, accueil et liste des employés refondus
 - [x] Présences et congés : chevauchements refusés pour un même employé

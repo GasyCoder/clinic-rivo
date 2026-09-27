@@ -19944,3 +19944,258 @@ les préférences personnelles des utilisateurs, ni aucune donnée clinique, RH 
 de numérotation ne réécrit aucun numéro existant (ADR-191). Pour un site, l'opération passe exclusivement par
 `DELETE /api/v1/super-admin/app-settings/reset`, avec authentification, autorisation, idempotence et audit dans
 sa base ; le portail ne se connecte jamais directement à la base du site (ADR-004).
+
+---
+
+# ADR-211 — Accueil : l'identité reprise du Personnel, des stagiaires et des partenaires ; module Partenaires
+
+**Status:** ACCEPTED (2026-09-27 — demande du propriétaire : « pour le personnel clinique, juste une
+recherche dans la base sans saisir les infos, possible aussi pour les stagiaires et les partenaires ISPSG » ;
+arbitrages explicites : un stagiaire existe dans la table des employés avec le statut stagiaire, et paie au
+tarif Standard ; l'ISPSG est une école partenaire, d'où un module Partenaires indépendant, Médical ou Autre ;
+une fiche = un partenaire ; un partenaire ne couvre encore aucun montant ; le module vit sur chaque site et
+s'ouvre depuis le portail)
+
+**Complète l'ADR-051 et l'ADR-053** (parcours de l'accueil), **applique l'ADR-194** (être stagiaire ne donne
+aucun droit de couverture) et **remplace le référentiel minimal** `partner_organizations` (un nom, aucune
+gestion) introduit sans ADR. Le CDC ne décrit ni la prise en charge du personnel, ni les stagiaires, ni les
+partenaires : les règles ci-dessous sont celles du propriétaire.
+
+## Le constat
+
+À l'étape Patient, un employé qui venait se faire soigner était saisi comme un nouveau patient : son identité,
+déjà dans le dossier RH, était retapée, avec le risque d'une faute ou d'un doublon. Le serveur savait pourtant
+créer le dossier depuis la fiche RH (`RegisterArrivalAction`, branche `employee_uuid`), mais le parcours
+progressif ne l'utilisait pas. Un stagiaire recevait la prise en charge Personnel à 100 %, contrairement à
+l'ADR-194. Un partenaire n'était qu'un nom, choisi à la prise en charge, et facturé comme Standard.
+
+## Où et quand : l'identité à l'étape 3, la prise en charge à l'étape 5
+
+La prise en charge reste choisie **après** la création du passage (ADR-051, ADR-053) : un même patient peut
+venir une fois en Personnel, la suivante en Standard. Ce qui change, c'est la façon de retrouver la personne.
+
+```text
+Étape 3 · Patient        Patient existant · Personnel & stagiaires · Partenaire médical · Nouveau patient
+  Personnel & stagiaires  recherche dans le dossier RH ; le dossier patient est créé (ou repris et mis à jour)
+                          depuis la fiche RH, rien n'est ressaisi ; une fiche sans date de naissance est
+                          montrée verrouillée avec sa raison
+  Partenaire médical      recherche dans les fiches Médical ; son dossier existant est repris tel quel, sinon
+                          le nouveau dossier est prérempli depuis sa fiche (le sexe absent n'est pas deviné)
+  dossier similaire       « C'est la même personne » relie le dossier existant à la fiche RH ou partenaire,
+                          au lieu d'en créer un second
+Étape 5 · Prise en charge la couverture est PROPOSÉE d'après le dossier : Personnel si relié à un employé en
+                          poste, Partenaire si relié à une fiche partenaire active — jamais enregistrée d'office
+```
+
+Relier un dossier à une fiche est un **lien d'identité**, jamais une prise en charge (ADR-051). Un employé relié
+peut venir en Standard ; rien ne part avant « Calculer la prise en charge ».
+
+## Stagiaires
+
+Un stagiaire est un dossier employé avec un contrat de stage (ADR-194, `InternshipDirectory`). Il est retrouvé
+à l'accueil comme un employé, sans ressaisie, marqué « Stagiaire », et son passage est **au tarif Standard**.
+`SetEpisodeFinancialContextAction`, l'unique chemin d'écriture du contexte financier, refuse la prise en charge
+Personnel d'un stagiaire (« Un stagiaire n'a pas droit à la prise en charge Personnel : son passage est au tarif
+Standard. ») ; l'écran le dit avant. La recherche d'employés sert `is_intern`, `staff_coverage_eligible` et
+`can_open_patient_record`, jamais l'email ni la pièce d'identité.
+
+## Module Partenaires
+
+`partner_organizations` devient la fiche d'un partenaire (migration `2026_11_14_090000`) :
+
+```text
+MEDICAL   une personne : nom*, prénom, métier* (Médecin, Infirmier·ère, Sage-femme, Laborantin·e,
+          Pharmacien·ne, Autre métier à préciser), sexe et date de naissance facultatifs — ils servent à
+          ouvrir son dossier patient sans ressaisie ; `patient_id` relie la fiche à ce dossier
+OTHER     un organisme ou une personne : nom ou identité* (ISPSG, TsaraShop…) ; jamais le patient, il se
+          choisit à la prise en charge du passage
+les deux  téléphone, email, adresse (référentiel du site, voir l'amendement ci-dessous), remarque, actif / inactif
+```
+
+Les partenaires existants deviennent « Autre ». Un nom n'est jamais porté deux fois, archives comprises (un
+partenaire archivé se restaure). Une fiche reliée à un dossier patient reste Médical. Archiver exige un motif ;
+rien n'est supprimé, et une fiche qui a servi (passage, dossier patient) est protégée de la suppression
+définitive. Chaque écriture est auditée, au nom du compte du site ou du Super Admin distant.
+
+**Couverture : aucune pour l'instant.** Le mode Partenaire trace qui vient et de quel partenaire, et facture au
+tarif Standard (`EpisodeFinancialMode::Partner`). Une règle de couverture reste à décider.
+
+## Où il vit
+
+`routes/partners.php`, écrit une fois, est monté sur le site (`/partenaires`, menu « Partenaires ») et sur l'API
+du site (`/api/v1/super-admin/site-partners`, `rivo.remote-actor`, `rivo.hr-screens`). Le portail le relaie
+comme les RH et la Pharmacie (ADR-187, ADR-189) : `SitePartnerGateway`, `SitePartnersController`,
+`/super-admin/sites/{site}/partenaires`, et `/super-admin/partners` (Référentiels › Partenaires) qui propose les
+sites — jamais une redirection vers un site, qu'une panne ramènerait sans fin. Dans l'écran, toute adresse passe
+par `partnerUrl()`.
+
+## Droits
+
+```text
+partner_organizations.view      voir les partenaires       RECEPTION, ADMINISTRATION
+partner_organizations.create    ajouter                    ADMINISTRATION
+partner_organizations.update    modifier                   ADMINISTRATION
+partner_organizations.archive   archiver                   ADMINISTRATION
+partner_organizations.restore   restaurer                  ADMINISTRATION
+```
+
+Le Super Admin du portail les reçoit à la migration (ADR-186). Relier un dossier à une fiche RH exige
+`employees.patient_lookup` et `patient_staff_links.create` ; à une fiche partenaire, `partner_organizations.view`.
+
+## Signalé, non tranché
+
+```text
+couverture Partenaire      aucune règle (chambre, lit, taux…) : 0 %, à décider
+ISPG dans les mutuelles     l'ADR-045 range « ISPG » parmi les organismes de mutuelle, et la base locale porte
+                            ISPG (mutuelle) et ISPSG (partenaire) : même établissement ou non, à confirmer
+partenaire « Autre »       une personne rangée en Autre n'est pas proposée à l'étape Patient : elle se saisit
+personne                   comme un nouveau patient, et son partenaire se choisit à la prise en charge
+mutuelle d'un patient qui   la couverture se ressaisit à chaque passage (ADR-051) ; reprendre celle du dernier
+revient                     passage avec confirmation reste à décider
+```
+
+## Amendement du 2026-09-27 — l'adresse vient du référentiel, la fenêtre tient à l'écran
+
+Demande du propriétaire, sur `/super-admin/sites/A/partenaires` : l'adresse doit passer par le composant
+d'adresse déjà utilisé, et la fenêtre « Nouveau partenaire » s'affichait mal (titre coupé en haut, boutons
+coupés en bas) et trop étroite.
+
+```text
+adresse       `partner_organizations.address_entry_id` : une entrée du référentiel d'adresses du site
+              (ADR-042), ou une nouvelle entrée qui le rejoint (`new_address_label`) ; `address` en garde le
+              libellé, comme pour un employé. Plus aucun texte libre : un champ `address` envoyé est ignoré
+droits        choisir une adresse exige `address_entries.view`, en ajouter une `address_entries.create` ;
+              sans le droit de lire le référentiel, le champ n'est ni montré ni envoyé — une fiche ne perd
+              jamais son adresse en silence. Omettre l'adresse la laisse, l'envoyer vide l'efface
+archivée      une adresse archivée ne se choisit plus ; celle qu'une fiche porte déjà reste affichée,
+              marquée ; l'accueil ne la reprend plus pour ouvrir un dossier (il la refuserait)
+un composant  `Components/Administration/AddressEntryField.vue` (Référentiel / Nouvelle), écrit une fois :
+              la fiche partenaire et la fiche employé l'emploient. Côté serveur, `AddressEntryResolver`
+              porte la règle ; `EmployeeAddressResolver` y délègue sans changer de comportement
+fenêtre       taille `xl`, deux colonnes (Identité / Coordonnées) ; « facultatif » une fois sur l'encadré
+              du dossier patient
+Dialog        le composant partagé ne dépasse plus l'écran : hauteur bornée à l'écran, en-tête et pied
+              fixes, le contenu défile. Toutes les fenêtres de l'application en profitent ; les écrans qui
+              bornaient eux-mêmes leur contenu (`max-h-[72vh] overflow-y-auto`) gardent leur réglage
+```
+
+La migration du module, non publiée, est amendée plutôt que doublée ; son retour arrière retire désormais
+les clés étrangères par colonne sous SQLite (portail, banc local), qui ne sait pas les retirer par nom.
+L'accueil (étape Patient) et la modification du dossier patient gardent leur propre champ d'adresse : les
+faire passer sur `AddressEntryField` reste à faire.
+
+
+---
+
+# ADR-212 — Recommandations de patients, bonus du personnel, prise en charge allégée
+
+**Status:** ACCEPTED (2026-09-27 — demande du propriétaire, quatre arbitrages explicites)
+
+**Amende la présentation de l'ADR-053** (étape « Prise en charge »), **complète l'ADR-211** et **signale un
+écart avec l'ADR-066 / ADR-206** : un bonus est une somme d'argent, mais RIVO ne calcule toujours aucune paie —
+il la trace. Le CDC ne dit rien des recommandations ni des bonus : les règles ci-dessous sont celles du
+propriétaire.
+
+## Les arbitrages
+
+```text
+étape 5         la garder, l'alléger
+bonus : compté  choisi par catégorie (patients recommandés, consultations, interventions…)
+bonus : calcul  un palier : seuil mensuel → montant fixe
+bonus : argent  validé par les RH, versé hors RIVO, marqué versé dans RIVO
+```
+
+## L'étape « Prise en charge » allégée
+
+Depuis l'ADR-211, un membre du personnel se retrouve à l'étape Patient (« Personnel & stagiaires ») et son
+dossier est relié à sa fiche RH. La recherche d'employé de l'étape 5 faisait donc doublon — et ne pouvait que
+proposer quelqu'un que le serveur allait refuser : `SetEpisodeFinancialContextAction` exige déjà le lien
+patient ↔ employé. Elle est retirée. La carte « Personnel » n'est active que pour un dossier relié à un employé
+en poste ; sinon elle le dit (« Réservé à un dossier relié au dossier RH », « Stagiaire : tarif Standard »).
+Standard, Mutuelle et Partenaire ne changent pas ; les cartes sont plus compactes. Aucune règle serveur ne
+change : l'étape reste celle où l'on choisit la prise en charge de ce passage (ADR-051), et où l'on requalifie
+en urgence (ADR-056).
+
+## Qui a recommandé la clinique
+
+À la création du dossier d'un **nouveau** patient — nouveau dossier, ou dossier prérempli depuis un partenaire
+(ADR-211) —, une case « Une personne a recommandé la clinique à ce patient ? ». Si oui : un membre du personnel
+en poste ou un partenaire actif (`GET /reception/referrers?q=`, nom, matricule, téléphone, plusieurs mots,
+jamais la naissance ni la pièce d'identité), ou une autre personne (nom, téléphone facultatif).
+
+```text
+patient_referrals   une par patient (unique), dans la transaction de l'arrivée : un refus annule
+                    toute l'arrivée, jamais un dossier à moitié créé
+source              EMPLOYEE (fiche), PARTNER (fiche), OTHER (nom) ; nom et téléphone figés ce jour-là
+jamais après coup   refusé sur un dossier existant et sur un membre du personnel venu se soigner
+                    (`prohibited`, et l'action le revérifie) ; un partenaire ne se recommande pas lui-même
+case cochée à vide  l'écran ne part pas en oubliant la recommandation
+```
+
+`RecordPatientReferralAction` porte la règle ; `utilities/referral.js` dit seul ce qui part au serveur.
+
+## Le cadeau
+
+`/reception/recommandations` (menu Réception) : les recommandations, filtrées Toutes / Cadeau à remettre /
+Cadeau remis, par mois et par recherche. « Remettre le cadeau » (`MarkReferralGiftGivenAction`) garde qui, quand
+et une note ; une seule fois. Aucun effet financier ni de stock : le cadeau n'est ni une facture, ni un paiement
+(ADR-012), ni une sortie de Pharmacie.
+
+Le mois se parcourt comme sur la page des bonus (‹ mois ›, jamais au-delà du mois en cours, « Tous les mois »),
+jamais par un champ mois natif : le test garde-fou de l'ADR-099 couvre désormais aussi les champs mois et semaine.
+Le bouton de la ligne dit l'action (« Remettre le cadeau ») ; « Cadeau remis » reste le nom de l'état, sur la
+pastille et la carte-filtre.
+
+## Les bonus du personnel
+
+Rubrique RH « Bonus » (`/administration/bonus`, servie aussi au portail par l'API du site, ADR-187).
+
+```text
+catégorie   nom (unique, archives comprises), mesure, seuil mensuel, montant fixe, description,
+            personnel concerné ; archivée avec motif, restaurée — jamais supprimée si elle a servi
+mesure      Patients recommandés (patient_referrals, source Personnel)
+            Consultations clôturées (consultations.doctor_id)
+            Interventions terminées (surgical_interventions.performed_by)
+            Résultats d'analyses rendus (lab_request_items.resulted_by)
+            Comptes rendus d'imagerie rendus (imaging_request_items.resulted_by)
+            Actes de soins (care_record_procedures.performed_by)
+            Actes de maternité (maternity_procedures.performed_by)
+compte      des patients DISTINCTS dans le mois, lus sur des faits déjà enregistrés (BonusMeter) ;
+            un patient soigné se lit sur le compte de connexion relié à la fiche RH (ADR-188) :
+            sans compte, rien n'est compté, et l'écran le dit
+tableau     par mois (‹ ›, jamais au-delà du mois en cours) : chaque catégorie, chaque personne,
+            « N / seuil », seuil atteint, bonus à valider / validé / versé / annulé
+valider     le serveur recompte ; seuil atteint, personne de la catégorie, mois écoulé ou en cours ;
+            un seul bonus en vigueur par catégorie, personne et mois (active_key) ; nombre de
+            patients, seuil, montant et liste des patients figés sur le bonus — corriger la
+            catégorie ensuite ne réécrit rien
+versé       marqué versé (note facultative) ; il ne se modifie plus
+annulé      avec motif, seulement tant qu'il n'est pas versé ; il libère le mois, reste dans
+            l'historique ; un bonus n'est jamais supprimé (ADR-010)
+```
+
+Un membre qui quitte son poste reste dans sa catégorie (ses bonus passés s'y rattachent) mais ne se choisit plus.
+Un bonus donné reste lisible même si la personne a quitté la catégorie depuis : il peut rester à verser.
+
+## Droits
+
+```text
+patient_referrals.view     voir les recommandations           RECEPTION, ADMINISTRATION
+patient_referrals.create   noter qui a recommandé              RECEPTION
+patient_referrals.gift     marquer le cadeau remis             RECEPTION, ADMINISTRATION
+bonus_categories.*         view, create, update, archive, restore        ADMINISTRATION
+bonus_awards.*             view, validate, pay, cancel                   ADMINISTRATION
+```
+
+Migration `2026_11_15_090000_create_referrals_and_bonuses`, sur chaque site et sur le portail (le Super Admin
+reçoit les droits par l'ADR-186).
+
+## Signalé, non tranché
+
+```text
+paliers multiples     un seul palier par catégorie ; 20 patients → X, 40 → Y n'existe pas
+cumul                 une personne peut toucher plusieurs catégories le même mois
+imagerie / labo       le compte rendu corrigé (ADR-130) garde son auteur d'origine : c'est lui qui compte
+remboursement         un bonus versé par erreur ne se reprend pas dans RIVO : c'est hors RIVO
+dossier existant      une recommandation oubliée à la première venue ne se rattrape pas
+```

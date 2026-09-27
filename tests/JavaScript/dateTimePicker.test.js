@@ -77,7 +77,8 @@ test('plus aucun champ date natif dans l’application : tout passe par les comp
 
         return entry.isDirectory() ? walk(path) : (path.endsWith('.vue') ? [path] : []);
     });
-    const offenders = walk('resources/js').filter((path) => /type="(date|datetime-local)"/.test(fs.readFileSync(path, 'utf8')));
+    // Un mois ou une semaine aussi : Chromium affiche « --------- ---- » dans un champ mois vide.
+    const offenders = walk('resources/js').filter((path) => /type="(date|datetime-local|month|week)"/.test(fs.readFileSync(path, 'utf8')));
 
     assert.deepEqual(offenders, []);
 });

@@ -39,7 +39,7 @@ const portalOwnPage = (code, base) => {
 export const HR_SECTION_GROUPS = [
     { key: 'people', label: 'Personnel', icon: Users, codes: ['hr-employees', 'hr-contracts', 'hr-internships', 'hr-documents', 'hr-staff-access', 'hr-professional-emails'] },
     { key: 'time', label: 'Temps de travail', icon: CalendarClock, codes: ['hr-attendance', 'hr-leave', 'hr-planning'] },
-    { key: 'steering', label: 'Pilotage', icon: SlidersHorizontal, codes: ['hr-reports', 'hr-block-credit', 'hr-departments', 'hr-job-titles', 'hr-settings'] },
+    { key: 'steering', label: 'Pilotage', icon: SlidersHorizontal, codes: ['hr-reports', 'hr-block-credit', 'hr-bonus', 'hr-departments', 'hr-job-titles', 'hr-settings'] },
 ];
 
 export const HR_HOME_CODE = 'hr-home';

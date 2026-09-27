@@ -92,7 +92,9 @@ test('un passage de médicaments seuls ne traverse pas le choix de couverture', 
     // calcul disparaissent : promettre une couverture qui ne s'appliquera
     // pas est pire que ne rien proposer.
     assert.match(page, /<section v-if="pharmacyOnlyCart"[\s\S]*?Ce passage ne contient que des médicaments/);
-    assert.match(page, /<div v-else class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">/);
+    assert.match(page, /<div v-if="! pharmacyOnlyCart" class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" role="group" aria-label="Mode de prise en charge">/);
+    // ADR-211 — la fiche RH ou partenaire reliée ne propose aucune couverture non plus.
+    assert.match(page, /<div v-if="! pharmacyOnlyCart && \(patientLinks\.employee \|\| patientLinks\.partner\)"/);
     assert.match(page, /<div v-if="! pharmacyOnlyCart" class="mt-6 flex justify-end/);
 });
 

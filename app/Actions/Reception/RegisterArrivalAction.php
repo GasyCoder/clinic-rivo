@@ -12,14 +12,17 @@ use App\Actions\Patient\CreatePatientAction;
 use App\Actions\Patient\UpdatePatientAction;
 use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodePriority;
+use App\Enums\PartnerCategory;
 use App\Enums\PatientType;
 use App\Exceptions\DuplicatePatientException;
 use App\Models\AddressEntry;
 use App\Models\Employee;
 use App\Models\Episode;
+use App\Models\PartnerOrganization;
 use App\Models\Patient;
 use App\Models\ReceptionJourneyDraft;
 use App\Models\User;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -46,6 +49,7 @@ class RegisterArrivalAction
         private readonly ResolveMutualOrganizationAction $resolveMutualOrganization,
         private readonly SetEpisodeFinancialContextAction $setFinancialContext,
         private readonly StoreEpisodeMutualCoverageAttachmentsAction $storeMutualAttachments,
+        private readonly RecordPatientReferralAction $recordReferral,
     ) {}
 
     /**
@@ -69,6 +73,8 @@ class RegisterArrivalAction
         array $episodeData = [],
         ?EpisodeFinancialMode $financialMode = null,
         ?array $receptionDraft = null,
+        ?string $partnerUuid = null,
+        ?array $referral = null,
     ): Episode {
         $storedAttachmentPaths = [];
         $actor ??= Auth::user();
@@ -91,9 +97,13 @@ class RegisterArrivalAction
                 $episodeData,
                 $financialMode,
                 $receptionDraft,
+                $partnerUuid,
+                $referral,
                 &$storedAttachmentPaths,
             ): Episode {
                 $mutualOrganizationUuid = null;
+                // ADR-212 — une recommandation se note à la création du dossier, jamais après coup.
+                $patientCreatedNow = false;
 
                 if ($existingPatientUuid) {
                     $patient = Patient::query()
@@ -103,6 +113,13 @@ class RegisterArrivalAction
                         ->firstOrFail();
 
                     $linkedEmployee = $patient->activeStaffLink?->employee;
+
+                    // ADR-211 — l'accueil a reconnu dans ce dossier la personne
+                    // de cette fiche RH (un dossier ouvert avant qu'on le relie).
+                    // Relier ne choisit aucune prise en charge (ADR-051).
+                    if ($employeeUuid !== null) {
+                        $linkedEmployee = $this->linkExistingPatientToEmployee($patient, $linkedEmployee, $employeeUuid, $actor);
+                    }
 
                     if ($linkedEmployee) {
                         if ($existingPatientData !== null) {
@@ -183,6 +200,17 @@ class RegisterArrivalAction
                     // keeps this legacy presentation field at STANDARD.
                     unset($newPatientData['patient_type']);
                     $patient = $this->createPatient->execute($newPatientData, $confirmDuplicate);
+                    $patientCreatedNow = true;
+                }
+
+                if ($referral !== null && ! $patientCreatedNow) {
+                    throw ValidationException::withMessages([
+                        'referral' => 'Qui a recommandé la clinique se note à la création du dossier d’un nouveau patient.',
+                    ]);
+                }
+
+                if ($partnerUuid !== null) {
+                    $this->linkPartner($patient, $partnerUuid, $actor);
                 }
 
                 if ($financialMode === EpisodeFinancialMode::Mutual) {
@@ -198,6 +226,10 @@ class RegisterArrivalAction
                 }
 
                 $episode = $this->createEpisode->execute($patient, $priority, $actor, $episodeData);
+
+                if ($referral !== null) {
+                    $this->recordReferral->execute($patient, $episode, $referral, $actor);
+                }
 
                 if ($priority !== EpisodePriority::Emergency && $receptionDraft !== null) {
                     ReceptionJourneyDraft::query()->create([
@@ -255,6 +287,78 @@ class RegisterArrivalAction
 
             throw $exception;
         }
+    }
+
+    private function linkExistingPatientToEmployee(Patient $patient, ?Employee $linkedEmployee, string $employeeUuid, User $actor): Employee
+    {
+        if ($linkedEmployee) {
+            if ($linkedEmployee->uuid !== $employeeUuid) {
+                throw ValidationException::withMessages([
+                    'employee_uuid' => 'Ce dossier patient est déjà relié à un autre employé.',
+                ]);
+            }
+
+            return $linkedEmployee;
+        }
+
+        $employee = Employee::query()
+            ->with('addressEntry')
+            ->where('uuid', $employeeUuid)
+            ->where('active', true)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $this->ensureEmployeeCanBeSynchronized($employee, 'employee_uuid');
+        $this->linkEmployee->execute($patient, $employee, $actor);
+
+        return $employee;
+    }
+
+    /**
+     * ADR-211 — le dossier patient d'un partenaire médical lui est relié : la
+     * prochaine fois, l'accueil le retrouve depuis sa fiche. Un lien
+     * d'identité seulement : la prise en charge Partenaire reste un choix du
+     * passage (ADR-051). Une fiche ne désigne qu'un dossier, et un dossier
+     * qu'une fiche.
+     */
+    private function linkPartner(Patient $patient, string $partnerUuid, User $actor): void
+    {
+        if ($actor->cannot('partner_organizations.view')) {
+            throw new AuthorizationException('Vous ne pouvez pas utiliser le référentiel des partenaires.');
+        }
+
+        $partner = PartnerOrganization::query()
+            ->with('patient:id,patient_number')
+            ->where('uuid', $partnerUuid)
+            ->where('category', PartnerCategory::Medical->value)
+            ->where('active', true)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $partner) {
+            throw ValidationException::withMessages([
+                'partner_uuid' => 'Cette fiche partenaire est indisponible ou archivée.',
+            ]);
+        }
+
+        if ($partner->patient_id === $patient->getKey()) {
+            return;
+        }
+
+        if ($partner->patient_id !== null) {
+            throw ValidationException::withMessages([
+                'partner_uuid' => 'Cette fiche partenaire est déjà reliée au dossier '.($partner->patient?->patient_number ?? 'd’un autre patient').'.',
+            ]);
+        }
+
+        if (PartnerOrganization::withTrashed()->where('patient_id', $patient->getKey())->exists()) {
+            throw ValidationException::withMessages([
+                'partner_uuid' => 'Ce dossier patient est déjà relié à une autre fiche partenaire.',
+            ]);
+        }
+
+        $partner->patient_id = $patient->getKey();
+        $partner->save();
     }
 
     /** @return array<string, mixed> */

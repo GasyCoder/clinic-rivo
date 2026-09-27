@@ -138,3 +138,20 @@ export function toLocalDateInput(date = new Date()) {
 export function localToday() {
     return toLocalDateInput(new Date());
 }
+
+/** « 2026-09 » décalé de `offset` mois, en « AAAA-MM ». */
+export function shiftMonth(month, offset) {
+    const [year, number] = String(month).split('-').map(Number);
+    const date = new Date(Date.UTC(year, number - 1 + offset, 1));
+
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** « 2026-09 » → « septembre 2026 ». */
+export function monthLabel(month) {
+    const [year, number] = String(month).split('-').map(Number);
+    if (! year || ! number) return String(month ?? '');
+
+    return new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+        .format(new Date(Date.UTC(year, number - 1, 1)));
+}

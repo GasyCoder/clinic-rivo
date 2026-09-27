@@ -103,6 +103,11 @@ class PortalDirectory
                 'areas' => ['Activité', 'Finance', 'Stocks', 'Administration'],
             ],
             [
+                'code' => 'PARTNERS', 'label' => 'Partenaires', 'icon' => 'handshake',
+                'description' => 'Partenaires médicaux et autres partenaires du site (ADR-211).',
+                'areas' => ['Partenaires médicaux', 'Autres partenaires', 'Archivés'],
+            ],
+            [
                 'code' => 'CATALOG', 'label' => 'Référentiels & tarifs', 'icon' => 'setting-alt',
                 'description' => 'Prestations et grilles tarifaires propres au site.',
                 'areas' => ['Désignations', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Mutuelles et partenaires', 'Historique tarifaire'],
@@ -126,6 +131,8 @@ class PortalDirectory
                 'link' => match ($module['code']) {
                     'HR' => '/super-admin/sites/'.$site['code'].'/rh',
                     'PHARMACY' => '/super-admin/sites/'.$site['code'].'/pharmacie',
+                    // ADR-211 — les Partenaires aussi.
+                    'PARTNERS' => '/super-admin/sites/'.$site['code'].'/partenaires',
                     default => '/super-admin/sites/'.$site['code'].'?module='.$module['code'],
                 },
             ])->all(),

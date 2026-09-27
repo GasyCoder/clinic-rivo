@@ -3,6 +3,7 @@
 namespace App\Services\Administration;
 
 use App\Enums\HrReferenceType;
+use App\Models\Employee;
 use App\Models\EmploymentContract;
 use App\Models\HrReferenceValue;
 use Illuminate\Database\Eloquent\Builder;
@@ -99,6 +100,30 @@ class InternshipDirectory
                         ->whereNull('later.deleted_at')
                         ->where(fn ($type) => $type->whereNull('later.contract_type_id')->orWhereNotIn('later.contract_type_id', $ids))
                         ->whereColumn('later.ends_on', '>=', 'employment_contracts.ends_on')))));
+    }
+
+    /**
+     * ADR-211 — parmi ces dossiers employés, lesquels sont des stagiaires. Une
+     * seule requête pour une page de recherche de l'accueil.
+     *
+     * @param  iterable<int, int>  $employeeIds
+     * @return Collection<int, int>
+     */
+    public function internIdsAmong(iterable $employeeIds): Collection
+    {
+        $ids = collect($employeeIds)->filter()->values();
+
+        if ($ids->isEmpty() || $this->contractTypeIds()->isEmpty()) {
+            return collect();
+        }
+
+        return $this->interns(Employee::query()->withTrashed()->whereKey($ids->all()))->pluck('id');
+    }
+
+    /** ADR-211 — un stagiaire n'a pas la prise en charge Personnel (ADR-194). */
+    public function isIntern(Employee $employee): bool
+    {
+        return $this->internIdsAmong([$employee->getKey()])->isNotEmpty();
     }
 
     /** ADR-207 — les employés, stagiaires exclus. */

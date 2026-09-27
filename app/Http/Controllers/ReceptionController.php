@@ -17,6 +17,7 @@ use App\Models\MutualOrganization;
 use App\Models\PartnerOrganization;
 use App\Models\Patient;
 use App\Models\VisitorVisit;
+use App\Services\Administration\InternshipDirectory;
 use App\Services\Reception\ReceptionEstimateService;
 use App\Services\Reception\ReceptionFinancialPreviewService;
 use App\Support\Reception\PatientSearchPayload;
@@ -94,7 +95,8 @@ class ReceptionController extends Controller
     public function resumeJourney(Request $request, Episode $episode): Response|RedirectResponse
     {
         $episode->load([
-            'patient',
+            'patient.activeStaffLink.employee',
+            'patient.partner',
             'receptionJourneyDraft',
             'mutualCoverage',
             'staffCoverage.employee',
@@ -218,7 +220,13 @@ class ReceptionController extends Controller
                 ? MutualOrganization::query()->where('active', true)->orderBy('name')->get(['uuid', 'name', 'coverage_rate'])
                 : [],
             'partnerOrganizations' => $request->user()->can('partner_organizations.view')
-                ? PartnerOrganization::query()->where('active', true)->orderBy('name')->get(['uuid', 'name'])
+                ? PartnerOrganization::query()->where('active', true)->orderBy('name')->get(['uuid', 'name', 'category'])
+                    ->map(fn (PartnerOrganization $partner) => [
+                        'uuid' => $partner->uuid,
+                        'name' => $partner->name,
+                        'category' => $partner->category?->value ?? 'OTHER',
+                        'category_label' => $partner->category?->label() ?? 'Autre',
+                    ])
                 : [],
             'estimateCatalog' => $this->estimates->catalog(),
             // ADR-104 — le second rayon du panier. Vide sans le droit de
@@ -251,6 +259,10 @@ class ReceptionController extends Controller
                 'partner_coverage' => $episode->partnerCoverage ? [
                     'partner_organization_uuid' => $episode->partnerCoverage->organization_uuid_snapshot,
                 ] : null,
+                // ADR-211 — la fiche RH ou la fiche partenaire de la même
+                // personne : la prise en charge est proposée d'après elles,
+                // jamais choisie d'office (ADR-051).
+                'patient_links' => $this->patientLinks($request, $episode->patient),
             ] : null,
             // ADR-177 — la prochaine étape suggérée : la liste vient du serveur,
             // l'écran ne la recopie pas. Aucun choix n'est obligatoire.
@@ -266,6 +278,8 @@ class ReceptionController extends Controller
                 'can_create_address' => $request->user()->can('address_entries.create'),
                 'can_use_mutual' => $request->user()->can('mutual_organizations.view'),
                 'can_use_partner' => $request->user()->can('partner_organizations.view'),
+                // ADR-212 — noter qui a recommandé la clinique à un nouveau patient.
+                'can_record_referral' => $request->user()->can('patient_referrals.create'),
                 'can_create_partner' => $request->user()->can('partner_organizations.create'),
                 'can_use_staff' => $request->user()->can('employees.patient_lookup'),
                 'can_link_staff' => $request->user()->can('patient_staff_links.create'),
@@ -324,7 +338,13 @@ class ReceptionController extends Controller
                 confirmDuplicate: $request->boolean('confirm_duplicate'),
                 priority: EpisodePriority::Normal,
                 actor: $request->user(),
-                employeeUuid: $jsonWorkflow ? null : $request->validated('employee_uuid'),
+                // ADR-211 — le parcours progressif aussi : l'identité reprise de la
+                // fiche RH, sans ressaisie. La prise en charge reste choisie au
+                // passage (financialMode nul ci-dessous), jamais déduite du lien.
+                employeeUuid: $request->validated('employee_uuid'),
+                partnerUuid: $request->validated('partner_uuid'),
+                // ADR-212 — qui a recommandé la clinique : à la création du dossier seulement.
+                referral: $request->filled('patient_uuid') ? null : ($request->validated('referral') ?: null),
                 mutualData: ! $jsonWorkflow && $request->input('patient_type') === PatientType::Mutual->value ? [
                     'organization_name' => $request->validated('mutual_organization_name'),
                     'employer_name' => $request->validated('mutual_employer_name'),
@@ -397,6 +417,44 @@ class ReceptionController extends Controller
 
         return redirect()->route('reception.passages.services.show', $episode)
             ->with('status', $message);
+    }
+
+    /**
+     * ADR-211 — à qui ce dossier est relié. La fiche RH n'est servie qu'à qui
+     * consulte le Personnel, la fiche partenaire qu'à qui voit les partenaires.
+     *
+     * @return array{employee: array<string, mixed>|null, partner: array<string, mixed>|null}
+     */
+    private function patientLinks(Request $request, Patient $patient): array
+    {
+        $employee = $request->user()->can('employees.patient_lookup')
+            ? $patient->activeStaffLink?->employee
+            : null;
+        $partner = $request->user()->can('partner_organizations.view')
+            ? $patient->partner
+            : null;
+
+        $isIntern = $employee !== null && app(InternshipDirectory::class)->isIntern($employee);
+
+        return [
+            'employee' => $employee ? [
+                'uuid' => $employee->uuid,
+                'employee_number' => $employee->employee_number,
+                'first_name' => $employee->first_name,
+                'last_name' => $employee->last_name,
+                'profession' => $employee->profession,
+                'eligible' => $employee->isAvailableForPatientLink(),
+                'is_intern' => $isIntern,
+                'staff_coverage_eligible' => $employee->isAvailableForPatientLink() && ! $isIntern,
+            ] : null,
+            'partner' => $partner && ! $partner->trashed() ? [
+                'uuid' => $partner->uuid,
+                'name' => $partner->name,
+                'category' => $partner->category?->value,
+                'profession_label' => $partner->professionLabel(),
+                'active' => (bool) $partner->active,
+            ] : null,
+        ];
     }
 
     /** @return array<string, mixed> */

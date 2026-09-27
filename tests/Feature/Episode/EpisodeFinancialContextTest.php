@@ -51,7 +51,7 @@ class EpisodeFinancialContextTest extends TestCase
             'mutual_organizations.view', 'employees.patient_lookup',
             'partner_organizations.view',
         ] as $name) {
-            $permission = Permission::query()->create(['name' => $name]);
+            $permission = Permission::query()->firstOrCreate(['name' => $name]);
             $role->permissions()->attach($permission);
         }
 

@@ -44,6 +44,13 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
             ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
             ->group(base_path('routes/pharmacy.php'));
 
+        // ADR-211 — les Partenaires du site, gérés aussi depuis le portail :
+        // mêmes routes, contrôleurs et droits que /partenaires (routes/partners.php).
+        Route::prefix('site-partners')
+            ->name('site-partners.')
+            ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
+            ->group(base_path('routes/partners.php'));
+
         // ADR-190 — adresses email professionnelles : le portail agit chez l'hébergeur, le site enregistre.
         Route::get('/professional-mailboxes', [ProfessionalMailboxController::class, 'index'])->name('professional-mailboxes.index');
         Route::post('/professional-mailboxes', [ProfessionalMailboxController::class, 'store'])->name('professional-mailboxes.store');

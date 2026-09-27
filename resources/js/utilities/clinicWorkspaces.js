@@ -18,8 +18,11 @@ import {
     DoorOpen,
     FileSearch,
     FileText,
+    Gift,
+    Medal,
     FlaskConical,
     GraduationCap,
+    Handshake,
     Heart,
     IdCard,
     Library,
@@ -64,6 +67,8 @@ export const CLINIC_WORKSPACES = [
     // aucune entrée de menu ne le vérifiait, la seule tuile existante étant
     // gardée par `guarding.view` — un droit que Réception n'a jamais reçu
     // (ADR-116).
+    // ADR-212 — qui a recommandé la clinique aux nouveaux patients, et le cadeau remis.
+    { key: 'referrals', group: 'clinical', text: 'Recommandations', description: 'Qui a recommandé la clinique, et le cadeau remis', icon: Gift, link: '/reception/recommandations', permission: 'patient_referrals.view', tone: 'navy' },
     { key: 'visitors', group: 'clinical', text: 'Visiteurs', description: 'Entrées, sorties et pièces jointes des visiteurs', icon: IdCard, link: '/reception/visitors', permission: 'visitors.view', tone: 'navy' },
     { key: 'cash', group: 'clinical', text: 'Caisse', description: 'Factures, règlements, session', icon: Wallet, link: '/cash', activeLinks: ['/cash', '/receipts'], permission: 'cash.view', tone: 'green' },
     { key: 'patients', group: 'clinical', text: 'Patients', description: 'Dossiers et historique des passages', icon: UsersRound, link: '/patients', permission: 'patients.view', tone: 'cyan' },
@@ -130,7 +135,7 @@ export const CLINIC_WORKSPACES = [
         // /administration/users stays with « Utilisateurs & accès ».
         exact: true,
         // ADR-066 — the sidebar is the HR space's only navigation (no tab bar).
-        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/internships', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/departments', '/administration/job-titles', '/administration/settings', '/administration/staff-access'],
+        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/internships', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/departments', '/administration/job-titles', '/administration/settings', '/administration/staff-access', '/administration/bonus'],
         permission: 'employees.view',
         tone: 'navy',
         children: [
@@ -148,6 +153,8 @@ export const CLINIC_WORKSPACES = [
             { code: 'hr-planning', icon: CalendarRange, label: 'Planning', link: '/administration/planning', activeLinks: ['/administration/planning'], permission: 'planning.view' },
             { code: 'hr-reports', icon: BarChart3, label: 'Rapports', link: '/administration/reports', activeLinks: ['/administration/reports'], permission: 'hr_reports.view' },
             { code: 'hr-block-credit', icon: Wallet, label: 'Crédit Bloc', link: '/administration/staff-block-credits', activeLinks: ['/administration/staff-block-credits'], permission: 'staff_block_credits.view' },
+            // ADR-212 — les bonus du personnel : catégories, seuils, attributions.
+            { code: 'hr-bonus', icon: Medal, label: 'Bonus', link: '/administration/bonus', activeLinks: ['/administration/bonus'], permission: 'bonus_awards.view' },
             // ADR-188 — les deux référentiels de structure ont leur module.
             { code: 'hr-departments', icon: Network, label: 'Départements', link: '/administration/departments', activeLinks: ['/administration/departments'], permission: 'hr_settings.view' },
             { code: 'hr-job-titles', icon: BriefcaseBusiness, label: 'Fonctions', link: '/administration/job-titles', activeLinks: ['/administration/job-titles'], permission: 'hr_settings.view' },
@@ -165,6 +172,10 @@ export const CLINIC_WORKSPACES = [
     { key: 'guarding', group: 'management', text: 'Gardiennage', description: 'Contrôle de sortie des patients', icon: ShieldCheck, link: '/guarding', permission: 'guarding.view', tone: 'ocean' },
     { key: 'users', group: 'management', text: 'Utilisateurs & accès', description: 'Comptes et permissions', icon: UserRoundCog, link: '/administration/users', activeLinks: ['/administration/users'], permission: 'users.view', tone: 'cyan' },
     { key: 'catalog', group: 'management', text: 'Référentiels & tarifs', description: 'Désignations et grilles tarifaires', icon: Tags, link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view', tone: 'navy' },
+    // ADR-211 — les partenaires du site : médicaux (médecins, infirmiers…) et
+    // autres (écoles, entreprises). L'accueil les consulte, l'Administration
+    // les gère.
+    { key: 'partners', group: 'management', text: 'Partenaires', description: 'Partenaires médicaux et autres', icon: Handshake, link: '/partenaires', permission: 'partner_organizations.view', tone: 'navy' },
     { key: 'analysis_catalog', group: 'management', text: 'Catalogue analyses', description: 'Analyses et valeurs de référence', icon: Microscope, link: '/administration/analyses', activeLinks: ['/administration/analyses'], permission: 'analysis_catalog.view', tone: 'cyan' },
     { key: 'trash', group: 'management', text: 'Corbeille', description: 'Éléments supprimés du site', icon: Trash2, link: '/trash', permission: 'trash.view', tone: 'navy' },
 ];
@@ -211,7 +222,7 @@ export const SIDEBAR_GROUPS = [
         key: 'reception-space',
         text: 'Réception',
         icon: ClipboardList,
-        members: ['reception', 'settlements', 'visitors'],
+        members: ['reception', 'settlements', 'referrals', 'visitors'],
         labels: { reception: 'Accueil & passages' },
     },
     {

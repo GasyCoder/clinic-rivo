@@ -32,6 +32,9 @@ import {
     ClipboardPenLine,
     Clock,
     Coins,
+    Gift,
+    Medal,
+    Trophy,
     Construction,
     ConciergeBell,
     Contact,
@@ -171,6 +174,8 @@ export const PERMISSION_CATEGORIES = {
     patients: { label: 'Dossiers patients', module: 'reception', icon: IdCard },
     episodes: { label: 'Passages (admissions)', module: 'reception', icon: DoorOpen },
     visitors: { label: 'Visiteurs', module: 'reception', icon: Users },
+    // ADR-212 — qui a recommandé la clinique, et le cadeau remis.
+    patient_referrals: { label: 'Recommandations de patients', module: 'reception', icon: Gift },
     patient_coverages: { label: 'Couvertures mutuelle du patient', module: 'reception', icon: ShieldCheck },
     patient_coverage_documents: { label: 'Justificatifs de mutuelle', module: 'reception', icon: FileCheck2 },
     patient_staff_links: { label: 'Lien patient – membre du personnel', module: 'reception', icon: Link2 },
@@ -252,7 +257,7 @@ export const PERMISSION_CATEGORIES = {
     // Tarifs & mutuelles
     catalog: { label: 'Prestations et tarifs', module: 'tariffs', icon: Tags },
     mutual_organizations: { label: 'Mutuelles et taux de couverture', module: 'tariffs', icon: ShieldPlus },
-    partner_organizations: { label: 'Organismes partenaires', module: 'tariffs', icon: Handshake },
+    partner_organizations: { label: 'Partenaires', module: 'tariffs', icon: Handshake },
 
     // Ressources humaines
     employees: { label: 'Dossiers employés', module: 'hr', icon: Contact },
@@ -264,6 +269,9 @@ export const PERMISSION_CATEGORIES = {
     document_templates: { label: 'Modèles de documents', module: 'hr', icon: FileCog },
     generated_documents: { label: 'Documents générés (attestations, contrats…)', module: 'hr', icon: FileOutput },
     staff_block_credits: { label: 'Crédit Bloc du personnel', module: 'hr', icon: Coins },
+    // ADR-212 — les bonus du personnel.
+    bonus_categories: { label: 'Catégories de bonus', module: 'hr', icon: Medal },
+    bonus_awards: { label: 'Bonus du personnel', module: 'hr', icon: Trophy },
     hr_reports: { label: 'Rapports RH', module: 'hr', icon: ChartPie },
     hr_settings: { label: 'Paramètres RH (services, fonctions…)', module: 'hr', icon: SlidersHorizontal },
     professional_emails: { label: 'Adresses email professionnelles', module: 'hr', icon: AtSign },

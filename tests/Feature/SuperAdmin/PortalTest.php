@@ -55,12 +55,13 @@ class PortalTest extends TestCase
                 ->where('sites.0.name', 'Mampikony')
                 ->where('sites.1.name', 'Ambondromamy')
                 ->where('sites.2.name', 'Boriziny')
-                ->has('modules', 14)
+                ->has('modules', 15)
                 ->where('modules.8.code', 'PHARMACY')
                 ->where('modules.9.code', 'HR')
                 ->where('modules.10.code', 'LOGISTICS')
                 ->where('modules.11.code', 'GUARDING')
-                ->where('modules.13.code', 'CATALOG')
+                ->where('modules.13.code', 'PARTNERS')
+                ->where('modules.14.code', 'CATALOG')
                 ->has('adminNavigation', 3));
     }
 
@@ -74,7 +75,7 @@ class PortalTest extends TestCase
                 ->assertInertia(fn ($page) => $page
                     ->component('SuperAdmin/Sites/Show')
                     ->where('clinic.code', $siteCode)
-                    ->has('clinic.modules', 14)
+                    ->has('clinic.modules', 15)
                     ->where('selectedModule.code', 'LABORATORY')
                     ->where('selectedModule.areas.1', 'Prélèvements')
                     ->where('selectedModule.areas.3', 'Résultats validés'));

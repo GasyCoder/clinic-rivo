@@ -13,6 +13,7 @@ use App\Models\MutualOrganization;
 use App\Models\PartnerOrganization;
 use App\Models\PatientStaffLink;
 use App\Models\User;
+use App\Services\Administration\InternshipDirectory;
 use App\Services\Audit\Auditor;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -191,6 +192,15 @@ class SetEpisodeFinancialContextAction
         if (! $employee) {
             throw ValidationException::withMessages([
                 'employee_uuid' => 'Le dossier Employé sélectionné est indisponible ou archivé.',
+            ]);
+        }
+
+        // ADR-194 / ADR-211 — être stagiaire ne donne aucun droit de
+        // couverture : son passage est au tarif Standard. La règle est ici,
+        // dans l'unique chemin d'écriture, et pas seulement à l'écran.
+        if (app(InternshipDirectory::class)->isIntern($employee)) {
+            throw ValidationException::withMessages([
+                'employee_uuid' => 'Un stagiaire n’a pas droit à la prise en charge Personnel : son passage est au tarif Standard.',
             ]);
         }
 

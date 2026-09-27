@@ -51,6 +51,7 @@ import IconInput from '@/Components/Shadcn/IconInput.vue';
 import NoticesButton from '@/Components/Shadcn/NoticesButton.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import ShadSelect from '@/Components/Shadcn/Select.vue';
+import AddressEntryField from '@/Components/Administration/AddressEntryField.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
@@ -202,7 +203,6 @@ watch(() => props.form.department_uuid, (departmentUuid) => {
     }
 });
 watch(() => props.form.job_title_uuid, (value) => { if (value) clearedJobTitle.value = ''; });
-const addressOptions = computed(() => referenceOptions(props.addresses, 'Non renseignée', 'archivée'));
 const listOptions = (items, empty) => [{ value: '', label: empty }, ...(items ?? []).map((item) => ({ value: item.value, label: item.label }))];
 const identityTypeOptions = computed(() => listOptions(props.options?.identity_document_types, 'Non renseigné'));
 const maritalOptions = computed(() => listOptions(props.options?.marital_statuses, 'Non renseignée'));
@@ -221,12 +221,8 @@ const chooseSex = (sex) => {
     props.form.sex = sex;
     props.form.clearErrors('sex');
 };
-const setAddressMode = (mode) => {
-    addressMode.value = mode;
-    if (mode === 'new') props.form.address_entry_uuid = '';
-    else props.form.new_address_label = '';
-    props.form.clearErrors('address_entry_uuid', 'new_address_label');
-};
+// Changer de source d'adresse efface l'erreur de l'autre (AddressEntryField vide l'autre champ).
+watch(addressMode, () => props.form.clearErrors('address_entry_uuid', 'new_address_label'));
 /** Photo : déposer une image sur le grand cadre de l'étape Identité. */
 const onDrop = (event) => {
     dropping.value = false;
@@ -670,28 +666,13 @@ const recap = computed(() => [
                             <p v-if="form.errors.email" class="text-xs font-medium text-destructive">{{ form.errors.email }}</p>
                         </div>
                     </div>
-                    <FormField as="div" label="Adresse" :error="form.errors.address_entry_uuid || form.errors.new_address_label">
-                        <template #action>
-                            <span class="inline-flex rounded-md bg-muted p-0.5" role="group" aria-label="Source de l’adresse">
-                                <button
-                                    v-for="mode in [{ key: 'existing', label: 'Référentiel' }, { key: 'new', label: 'Nouvelle' }]"
-                                    :key="mode.key"
-                                    type="button"
-                                    :aria-pressed="addressMode === mode.key"
-                                    :class="cn(
-                                        'rounded px-2.5 py-0.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                                        addressMode === mode.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-                                    )"
-                                    @click="setAddressMode(mode.key)"
-                                >{{ mode.label }}</button>
-                            </span>
-                        </template>
-                        <ShadSelect v-if="addressMode === 'existing'" id="address_entry_uuid" v-model="form.address_entry_uuid" :options="addressOptions" :icon="MapPin" placeholder="Non renseignée" class="w-full" aria-label="Adresse" />
-                        <template v-else>
-                            <IconInput id="new_address_label" v-model="form.new_address_label" :icon="MapPin" placeholder="Saisir une nouvelle adresse" aria-label="Nouvelle adresse" :class="fieldClass('new_address_label')" />
-                            <span class="mt-1.5 block text-xs text-muted-foreground">Ajoutée une seule fois au référentiel local après validation.</span>
-                        </template>
-                    </FormField>
+                    <AddressEntryField
+                        v-model:entry="form.address_entry_uuid"
+                        v-model:new-label="form.new_address_label"
+                        v-model:mode="addressMode"
+                        :addresses="addresses"
+                        :error="form.errors.address_entry_uuid || form.errors.new_address_label"
+                    />
                 </section>
                 <section class="space-y-4 lg:ps-5" aria-labelledby="employee-identity-title">
                     <div class="flex items-center gap-2">

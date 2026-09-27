@@ -33,6 +33,8 @@ class SiteHrGateway extends SiteScreenGateway
             'Administration/Leave/', 'Administration/Planning/', 'Administration/Reports/',
             'Administration/Settings/', 'Administration/Documents/', 'Administration/StaffBlockCredits/',
             'Administration/HrStructure/', 'Administration/ProfessionalEmails/', 'Administration/Internships/', 'Administration/StaffAccess/',
+            // ADR-212 — les bonus du personnel.
+            'Administration/Bonus/',
         ];
     }
 

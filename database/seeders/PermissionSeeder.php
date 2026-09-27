@@ -116,12 +116,29 @@ class PermissionSeeder extends Seeder
         'mutual_organizations.import' => 'Importer les organismes et leurs taux de couverture',
         'mutual_organizations.export' => 'Exporter les organismes et leurs taux de couverture',
 
-        // Partenaire commercial/institutionnel (ISPSG, TsaraShop…), distinct
-        // de la Mutuelle : couverture scopée à des prestations précises
-        // (chambre, lit), jamais un taux sur toute la grille tarifaire.
-        // Référentiel minimal pour l'instant — pas de gestion dédiée (voir
-        // EpisodeFinancialMode::Partner).
-        'partner_organizations.view' => 'Voir les organismes partenaires',
+        // ADR-211 — le module Partenaires : un partenaire Médical (une
+        // personne : médecin, infirmier…) ou Autre (un organisme comme l'ISPSG,
+        // ou une personne). Distinct de la Mutuelle ; il ne couvre encore
+        // aucun montant (EpisodeFinancialMode::Partner).
+        'partner_organizations.view' => 'Voir les partenaires',
+        'partner_organizations.create' => 'Ajouter un partenaire',
+        'partner_organizations.update' => 'Modifier un partenaire',
+        'partner_organizations.archive' => 'Archiver un partenaire',
+        'partner_organizations.restore' => 'Restaurer un partenaire archivé',
+        // ADR-212 — qui a recommandé la clinique à un nouveau patient, et le cadeau remis.
+        'patient_referrals.view' => 'Voir les recommandations de patients',
+        'patient_referrals.create' => 'Enregistrer qui a recommandé un nouveau patient',
+        'patient_referrals.gift' => 'Marquer remis le cadeau d’une recommandation',
+        // ADR-212 — les bonus du personnel : catégories et attributions.
+        'bonus_categories.view' => 'Voir les catégories de bonus',
+        'bonus_categories.create' => 'Créer une catégorie de bonus',
+        'bonus_categories.update' => 'Modifier une catégorie de bonus',
+        'bonus_categories.archive' => 'Archiver une catégorie de bonus',
+        'bonus_categories.restore' => 'Restaurer une catégorie de bonus',
+        'bonus_awards.view' => 'Voir les bonus du personnel',
+        'bonus_awards.validate' => 'Valider un bonus atteint',
+        'bonus_awards.pay' => 'Marquer un bonus versé',
+        'bonus_awards.cancel' => 'Annuler un bonus validé',
 
         'patient_coverages.view' => 'Voir la couverture administrative du patient',
         'patient_coverages.create' => 'Enregistrer une couverture mutuelle',

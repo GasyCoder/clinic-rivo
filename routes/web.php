@@ -49,11 +49,14 @@ use App\Http\Controllers\Pharmacy\SupplierCatalogTemplateController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\Reception\EmployeePatientLookupController;
+use App\Http\Controllers\Reception\PartnerPatientLookupController;
 use App\Http\Controllers\Reception\EpisodeFinancialContextController;
 use App\Http\Controllers\Reception\EpisodeNextStepController;
 use App\Http\Controllers\Reception\EpisodeServiceController;
 use App\Http\Controllers\Reception\EpisodeSettlementController;
 use App\Http\Controllers\Reception\ReceptionEstimateController;
+use App\Http\Controllers\Reception\ReferralController;
+use App\Http\Controllers\Reception\ReferrerLookupController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\RobotsTxtController;
 use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
@@ -74,6 +77,7 @@ use App\Http\Controllers\SuperAdmin\PharmacySupplierController as SuperAdminPhar
 use App\Http\Controllers\SuperAdmin\ProfessionalEmailController as SuperAdminProfessionalEmailController;
 use App\Http\Controllers\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\SuperAdmin\SiteHumanResourcesController;
+use App\Http\Controllers\SuperAdmin\SitePartnersController;
 use App\Http\Controllers\SuperAdmin\SitePharmacyController;
 use App\Http\Controllers\SuperAdmin\StaffAccessController as SuperAdminStaffAccessController;
 use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
@@ -459,6 +463,14 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
             ->where('path', '.*')
             ->name('sites.pharmacy')
             ->middleware('can:pharmacy.view');
+        // ADR-211 — les Partenaires d'un site, gérés depuis le portail par son API.
+        Route::get('/partners', [SitePartnersController::class, 'overview'])
+            ->name('partners.index')
+            ->middleware('can:partner_organizations.view');
+        Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/sites/{site}/partenaires/{path?}', SitePartnersController::class)
+            ->where('path', '.*')
+            ->name('sites.partners')
+            ->middleware('can:partner_organizations.view');
 
         Route::get('/workspaces/{workspace}', [SuperAdminController::class, 'workspace'])->name('workspaces.show');
     });
@@ -479,6 +491,8 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/logistics', LogisticsController::class)->name('logistics.index')->middleware('can:logistics.view');
     // ADR-098 / ADR-189 — la Pharmacie, partagée avec l'API du portail (routes/pharmacy.php).
     Route::prefix('pharmacy')->name('pharmacy.')->group(base_path('routes/pharmacy.php'));
+    // ADR-211 — les Partenaires, partagés avec l'API du portail (routes/partners.php).
+    Route::prefix('partenaires')->name('partners.')->group(base_path('routes/partners.php'));
 
     // Administration locale des comptes de ce site. Les comptes sont
     // désactivés, jamais supprimés, afin de préserver leurs traces d'audit.
@@ -558,6 +572,21 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/reception/employees/patient-lookup', EmployeePatientLookupController::class)
         ->name('reception.employees.patient-lookup')
         ->middleware('can:employees.patient_lookup');
+    // ADR-211 — un partenaire médical venu se faire soigner, retrouvé sans ressaisie.
+    Route::get('/reception/partners/patient-lookup', PartnerPatientLookupController::class)
+        ->name('reception.partners.patient-lookup')
+        ->middleware('can:partner_organizations.view');
+    // ADR-212 — qui a recommandé la clinique : recherche parmi le personnel et les
+    // partenaires, liste des recommandations et cadeau remis.
+    Route::get('/reception/referrers', ReferrerLookupController::class)
+        ->name('reception.referrers')
+        ->middleware('can:patient_referrals.create');
+    Route::get('/reception/recommandations', [ReferralController::class, 'index'])
+        ->name('reception.referrals.index')
+        ->middleware('can:patient_referrals.view');
+    Route::post('/reception/recommandations/{referral}/cadeau', [ReferralController::class, 'gift'])
+        ->name('reception.referrals.gift')
+        ->middleware('can:patient_referrals.gift');
     Route::get('/reception/passages/{episode}/prise-en-charge', [ReceptionController::class, 'resumeJourney'])
         ->name('reception.passages.journey.show')
         ->middleware('can:episodes.update');

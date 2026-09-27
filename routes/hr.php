@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Administration\BonusController;
 use App\Http\Controllers\Administration\AttendanceController;
 use App\Http\Controllers\Administration\EmployeeBadgeController;
 use App\Http\Controllers\Administration\EmployeeController;
@@ -153,6 +154,16 @@ Route::get('/documents/{document}', [HrDocumentController::class, 'show'])->name
 Route::get('/documents/{document}/download', [HrDocumentController::class, 'download'])->name('documents.download')->middleware('can:hr_documents.view')->withTrashed();
 Route::delete('/documents/{document}', [HrDocumentController::class, 'destroy'])->name('documents.destroy')->middleware('can:hr_documents.archive');
 Route::post('/documents/{document}/restore', [HrDocumentController::class, 'restore'])->name('documents.restore')->middleware('can:hr_documents.restore')->withTrashed();
+
+// ADR-212 — les bonus du personnel : le tableau du mois, les catégories, les attributions.
+Route::get('/bonus', [BonusController::class, 'index'])->name('bonus.index')->middleware('can:bonus_awards.view');
+Route::post('/bonus/categories', [BonusController::class, 'storeCategory'])->name('bonus.categories.store')->middleware('can:bonus_categories.create');
+Route::put('/bonus/categories/{category}', [BonusController::class, 'updateCategory'])->name('bonus.categories.update')->middleware('can:bonus_categories.update');
+Route::delete('/bonus/categories/{category}', [BonusController::class, 'destroyCategory'])->name('bonus.categories.destroy')->middleware('can:bonus_categories.archive');
+Route::post('/bonus/categories/{category}/restore', [BonusController::class, 'restoreCategory'])->name('bonus.categories.restore')->middleware('can:bonus_categories.restore')->withTrashed();
+Route::post('/bonus/awards', [BonusController::class, 'validateAward'])->name('bonus.awards.store')->middleware('can:bonus_awards.validate');
+Route::post('/bonus/awards/{award}/pay', [BonusController::class, 'payAward'])->name('bonus.awards.pay')->middleware('can:bonus_awards.pay');
+Route::post('/bonus/awards/{award}/cancel', [BonusController::class, 'cancelAward'])->name('bonus.awards.cancel')->middleware('can:bonus_awards.cancel');
 
 Route::get('/staff-block-credits', [StaffBlockCreditController::class, 'index'])
     ->name('staff-block-credits.index')

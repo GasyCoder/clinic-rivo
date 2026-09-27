@@ -34,7 +34,10 @@ const props = defineProps({
 defineEmits(['update:open']);
 
 const contentClassName = computed(() => cn(
-    'fixed left-1/2 top-1/2 z-[1500] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-0 text-card-foreground shadow-2xl focus:outline-none data-[state=open]:animate-[rivo-dialog-in_180ms_ease-out]',
+    // La fenêtre ne dépasse jamais l'écran : l'en-tête et le pied restent en
+    // place, seul le contenu défile. Sans cette borne, un formulaire plus haut
+    // que l'écran perdait son titre en haut et ses boutons en bas.
+    'fixed left-1/2 top-1/2 z-[1500] flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-card p-0 text-card-foreground shadow-2xl focus:outline-none data-[state=open]:animate-[rivo-dialog-in_180ms_ease-out]',
     // `wide` sert les panneaux de lecture — contexte clinique, synthèses —
     // dont le contenu est tabulaire : sous cette largeur, les colonnes se
     // replient et la fenêtre devient plus haute que l'écran.
@@ -55,7 +58,7 @@ const contentClassName = computed(() => cn(
                 @interact-outside="(event) => dismissible || event.preventDefault()"
                 @escape-key-down="(event) => dismissible || event.preventDefault()"
             >
-                <header class="flex items-start gap-4 border-b border-border px-6 py-5 pe-14">
+                <header class="flex shrink-0 items-start gap-4 border-b border-border px-6 py-5 pe-14">
                     <slot name="icon" />
                     <div class="min-w-0">
                         <DialogTitle class="text-lg font-bold tracking-tight text-foreground">{{ title }}</DialogTitle>
@@ -72,8 +75,8 @@ const contentClassName = computed(() => cn(
                     <X class="h-4 w-4" />
                 </DialogClose>
 
-                <div :class="cn('px-6 py-5', bodyClass)"><slot /></div>
-                <footer v-if="$slots.footer" class="flex flex-col-reverse gap-2 border-t border-border bg-muted/35 px-6 py-4 sm:flex-row sm:justify-end">
+                <div :class="cn('min-h-0 flex-1 overflow-y-auto px-6 py-5', bodyClass)"><slot /></div>
+                <footer v-if="$slots.footer" class="flex shrink-0 flex-col-reverse gap-2 border-t border-border bg-muted/35 px-6 py-4 sm:flex-row sm:justify-end">
                     <slot name="footer" />
                 </footer>
             </DialogContent>

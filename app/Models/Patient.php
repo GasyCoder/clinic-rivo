@@ -125,6 +125,18 @@ class Patient extends Model
         return $this->hasOne(PatientStaffLink::class)->whereNull('ended_at');
     }
 
+    /** ADR-212 — qui a recommandé la clinique à ce patient, noté à sa première arrivée. */
+    public function referral(): HasOne
+    {
+        return $this->hasOne(PatientReferral::class);
+    }
+
+    /** ADR-211 — la fiche partenaire médicale de la même personne, s'il en existe une. */
+    public function partner(): HasOne
+    {
+        return $this->hasOne(PartnerOrganization::class);
+    }
+
     public function mutualCoverages(): HasMany
     {
         return $this->hasMany(PatientMutualCoverage::class);

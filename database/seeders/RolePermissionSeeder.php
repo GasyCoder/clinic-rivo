@@ -28,6 +28,14 @@ class RolePermissionSeeder extends Seeder
             'professional_emails.view', 'professional_emails.request',
             // ADR-197 — le RH reçoit les accès créés et les remet aux employés.
             'staff_access.receive',
+            // ADR-211 — le module Partenaires (médicaux et autres).
+            'partner_organizations.view', 'partner_organizations.create', 'partner_organizations.update',
+            'partner_organizations.archive', 'partner_organizations.restore',
+            // ADR-212 — les bonus du personnel, et les recommandations qui les nourrissent.
+            'bonus_categories.view', 'bonus_categories.create', 'bonus_categories.update',
+            'bonus_categories.archive', 'bonus_categories.restore',
+            'bonus_awards.view', 'bonus_awards.validate', 'bonus_awards.pay', 'bonus_awards.cancel',
+            'patient_referrals.view', 'patient_referrals.gift',
             'employees.view', 'employees.create', 'employees.update',
             'employees.delete', 'employees.restore',
             'employees.import', 'employees.export', 'employees.print',
@@ -113,6 +121,8 @@ class RolePermissionSeeder extends Seeder
             'address_entries.view', 'address_entries.create',
             'mutual_organizations.view', 'mutual_organizations.create',
             'partner_organizations.view',
+            // ADR-212 — l'accueil note qui a recommandé la clinique et remet le cadeau.
+            'patient_referrals.view', 'patient_referrals.create', 'patient_referrals.gift',
             'patient_coverages.view', 'patient_coverages.create',
             'patient_coverage_documents.view', 'patient_coverage_documents.create',
             'visitors.view', 'visitors.create', 'visitors.close',

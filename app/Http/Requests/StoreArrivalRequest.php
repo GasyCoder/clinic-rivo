@@ -7,13 +7,16 @@ use App\Support\Patients\PatientAgeRules;
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
 use App\Enums\MutualBeneficiaryType;
+use App\Enums\PartnerCategory;
 use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Enums\PatientType;
 use App\Enums\ReceptionCartKind;
+use App\Enums\ReferralSource;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
+use Illuminate\Validation\Rules\Exists;
 use Illuminate\Validation\Validator;
 
 /**
@@ -31,6 +34,22 @@ class StoreArrivalRequest extends FormRequest
         $user = $this->user();
 
         if (! $user) {
+            return false;
+        }
+
+        // ADR-211 — relier le dossier à la fiche RH ou à la fiche partenaire de
+        // la même personne exige les droits de ces référentiels.
+        if ($this->filled('employee_uuid')
+            && (! $user->can('employees.patient_lookup') || ! $user->can('patient_staff_links.create'))) {
+            return false;
+        }
+
+        if ($this->filled('partner_uuid') && ! $user->can('partner_organizations.view')) {
+            return false;
+        }
+
+        // ADR-212 — noter qui a recommandé la clinique a son propre droit.
+        if ($this->filled('referral') && ! $user->can('patient_referrals.create')) {
             return false;
         }
 
@@ -75,6 +94,12 @@ class StoreArrivalRequest extends FormRequest
                     'uuid',
                     Rule::exists('patients', 'uuid')->whereNull('deleted_at'),
                 ],
+                // ADR-211 — le dossier trouvé est celui de cet employé (sa fiche
+                // RH le synchronisera) ou de ce partenaire médical.
+                'employee_uuid' => ['nullable', 'uuid', Rule::prohibitedIf($this->filled('partner_uuid')), $this->activeEmployeeRule()],
+                'partner_uuid' => ['nullable', 'uuid', $this->medicalPartnerRule()],
+                // ADR-212 — la recommandation se note à la création du dossier seulement.
+                'referral' => ['prohibited'],
                 // Emergency is a decision on the stable Episode UUID, never
                 // an arrival flag carried before the passage exists.
                 'is_emergency' => ['prohibited'],
@@ -121,10 +146,12 @@ class StoreArrivalRequest extends FormRequest
                 Rule::prohibitedIf(! $isStaff),
                 'nullable',
                 'uuid',
-                Rule::exists('employees', 'uuid')->where(fn ($query) => $query
-                    ->where('active', true)
-                    ->whereNull('deleted_at')),
+                $this->activeEmployeeRule(),
             ],
+            // ADR-211 — un nouveau dossier ouvert depuis la fiche d'un
+            // partenaire médical : il lui est relié. Jamais avec une fiche RH.
+            'partner_uuid' => [Rule::prohibitedIf($isStaff), 'nullable', 'uuid', $this->medicalPartnerRule()],
+            ...$this->referralRules($isStaff),
 
             'first_name' => $commonRule(['nullable', 'string', 'max:255']),
             'last_name' => $commonRule([Rule::requiredIf(! $isStaff), 'nullable', 'string', 'max:255']),
@@ -213,6 +240,50 @@ class StoreArrivalRequest extends FormRequest
             'is_emergency' => ['prohibited'],
             ...$this->receptionDraftRules(),
         ];
+    }
+
+    /**
+     * ADR-212 — qui a recommandé la clinique à ce nouveau patient : un membre du
+     * personnel ou un partenaire par sa fiche, ou une autre personne par son
+     * nom. Facultatif ; jamais pour un dossier ouvert depuis une fiche RH.
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    private function referralRules(bool $isStaff): array
+    {
+        $source = $this->input('referral.source');
+
+        return [
+            'referral' => [Rule::prohibitedIf($isStaff), 'nullable', 'array'],
+            'referral.source' => ['required_with:referral', new Enum(ReferralSource::class)],
+            'referral.employee_uuid' => [
+                Rule::excludeIf($source !== ReferralSource::Employee->value),
+                'required', 'uuid', $this->activeEmployeeRule(),
+            ],
+            'referral.partner_uuid' => [
+                Rule::excludeIf($source !== ReferralSource::Partner->value),
+                'required', 'uuid',
+                Rule::exists('partner_organizations', 'uuid')->where(fn ($query) => $query->where('active', true)->whereNull('deleted_at')),
+            ],
+            'referral.name' => [Rule::excludeIf($source !== ReferralSource::Other->value), 'required', 'string', 'max:255'],
+            'referral.phone' => [Rule::excludeIf($source !== ReferralSource::Other->value), 'nullable', 'string', 'max:40'],
+        ];
+    }
+
+    private function activeEmployeeRule(): Exists
+    {
+        return Rule::exists('employees', 'uuid')->where(fn ($query) => $query
+            ->where('active', true)
+            ->whereNull('deleted_at'));
+    }
+
+    /** ADR-211 — seul un partenaire Médical, actif, peut être la personne soignée. */
+    private function medicalPartnerRule(): Exists
+    {
+        return Rule::exists('partner_organizations', 'uuid')->where(fn ($query) => $query
+            ->where('category', PartnerCategory::Medical->value)
+            ->where('active', true)
+            ->whereNull('deleted_at'));
     }
 
     /** @return array<string, array<int, mixed>> */
@@ -342,6 +413,11 @@ class StoreArrivalRequest extends FormRequest
         return [
             'patient_type' => 'type de patient',
             'employee_uuid' => 'membre du personnel',
+            'referral.source' => 'type de recommandant',
+            'referral.employee_uuid' => 'membre du personnel qui a recommandé la clinique',
+            'referral.partner_uuid' => 'partenaire qui a recommandé la clinique',
+            'referral.name' => 'nom de la personne qui a recommandé la clinique',
+            'referral.phone' => 'téléphone de la personne qui a recommandé la clinique',
             'last_name' => 'nom',
             'first_name' => 'prénom(s)',
             'birth_date' => 'date de naissance',

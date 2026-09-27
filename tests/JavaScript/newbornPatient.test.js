@@ -58,17 +58,22 @@ test('le nom du bébé se saisit dans sa fiche, facultatif, avec celui de sa mè
     assert.match(maternity, /:placeholder="patient\.last_name"/);
 });
 
-/** ADR-177 — l'accueil ne connaît que « Patient existant » et « Nouveau patient » : plus de mode « Nouveau-né ». */
+/**
+ * ADR-177 — plus de mode « Nouveau-né » à l'accueil. ADR-211 y ajoute le
+ * Personnel et les partenaires médicaux, jamais un mode bébé.
+ */
 test('la Réception n’a plus de mode nouveau-né', () => {
     assert.equal(fs.existsSync('resources/js/Components/Reception/NewbornPicker.vue'), false);
     assert.doesNotMatch(reception, /NewbornPicker|patientMode === 'newborn'|isExternalNewborn|EXTERNAL_NEWBORN|\/reception\/newborns/);
-    assert.match(reception, /Patient existant/);
-    assert.match(reception, /Nouveau Patient/);
+    assert.match(reception, /label: 'Patient existant'/);
+    assert.match(reception, /label: 'Nouveau patient'/);
 });
 
 /** Un bébé né ailleurs est un nouveau patient ordinaire, au profil enfant : aucun champ d'adulte, un parent à joindre. */
 test('un bébé né ailleurs se crée comme un nouveau patient, au profil enfant', () => {
-    assert.match(reception, /v-if="patientMode === 'create'"/);
+    // ADR-211 — le même formulaire sert au partenaire médical sans dossier.
+    assert.match(reception, /const showIdentityForm = computed\(\(\) => patientMode\.value === 'create'/);
+    assert.match(reception, /<section v-if="showIdentityForm"/);
     assert.match(reception, /v-if="!isDependentPatient" label="Téléphone"/);
     assert.match(reception, /v-if="!isDependentPatient" label="Email"/);
     assert.match(reception, /v-if="!isDependentPatient" label="Profession"/);

@@ -14,6 +14,7 @@ import {
     ChevronUp,
     ClipboardList,
     Crown,
+    Handshake,
     FileText,
     GripVertical,
     History,
@@ -124,6 +125,8 @@ const adminMenu = computed(() => [
     { icon: MapPin, text: 'Adresses & localités', link: '/super-admin/addresses', permission: 'address_entries.view' },
     { icon: BedDouble, text: 'Services, chambres & lits', link: '/super-admin/hospital-beds', permission: 'hospital_beds.view' },
     { icon: Crown, text: 'Patients VIP', link: '/super-admin/patient-vip', permission: 'patient_vip.view' },
+    // ADR-211 — les partenaires de chaque site, gérés par son API.
+    { icon: Handshake, text: 'Partenaires', link: '/super-admin/partners', permission: 'partner_organizations.view' },
     { heading: 'Pharmacie & stocks' },
     { icon: Pill, text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
     { icon: Building2, text: 'Fournisseurs pharmacie', link: '/super-admin/pharmacy-suppliers', permission: 'medicine_suppliers.view' },

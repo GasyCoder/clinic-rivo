@@ -1,5 +1,6 @@
 import {
     Activity,
+    Handshake,
     Palmtree,
     ArrowLeft,
     Check,
@@ -141,6 +142,7 @@ const ICONS = {
     truck: Truck,
     user: User,
     users: Users,
+    handshake: Handshake,
 };
 
 export const lucideIcon = (name) => ICONS[name] ?? Inbox;

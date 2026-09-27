@@ -17,6 +17,8 @@ import {
     CircleCheck,
     ClipboardList,
     Eye,
+    GraduationCap,
+    Handshake,
     Heart,
     History,
     IdCard,
@@ -59,7 +61,11 @@ import FormError from '@/Components/UI/FormError.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import NextStepPicker from '@/Components/Reception/NextStepPicker.vue';
+import PartnerIdentityPicker from '@/Components/Reception/PartnerIdentityPicker.vue';
+import ReferralPicker from '@/Components/Reception/ReferralPicker.vue';
+import StaffIdentityPicker from '@/Components/Reception/StaffIdentityPicker.vue';
 import { financialModeLabel } from '@/utilities/financialMode';
+import { emptyReferral, referralPayload } from '@/utilities/referral';
 import { formatMoney } from '@/utilities/money';
 import {
     formatPatientAge, formatPatientBirthDate, formatPatientCivilName,
@@ -103,7 +109,27 @@ const estimateLoading = ref(false);
 const estimateError = ref('');
 const designationDeferred = ref(Boolean(props.receptionDraft?.designation_deferred));
 
+// ADR-211 — quatre façons de retrouver la personne : un dossier patient
+// (`search`), le dossier du personnel (`staff`), un partenaire médical
+// (`partner`), ou un nouveau dossier (`create`).
 const patientMode = ref('search');
+// L'identité reprise d'un référentiel au lieu d'être ressaisie : la fiche RH
+// d'un membre du personnel ou d'un stagiaire, la fiche d'un partenaire médical.
+const identityEmployee = ref(null);
+const identityPartner = ref(null);
+// Un dossier similaire reconnu comme celui de cette personne.
+const linkTarget = ref(null);
+/** Les onglets de l'étape Patient, chacun selon son droit. */
+const identityModes = computed(() => [
+    { value: 'search', label: 'Patient existant', icon: Search },
+    props.capabilities.can_use_staff && props.capabilities.can_link_staff
+        && { value: 'staff', label: 'Personnel & stagiaires', icon: IdCard },
+    props.capabilities.can_use_partner && { value: 'partner', label: 'Partenaire médical', icon: Handshake },
+    props.capabilities.can_create_patient && { value: 'create', label: 'Nouveau patient', icon: UserRoundPlus },
+].filter(Boolean));
+/** Le formulaire d'identité : un nouveau patient, ou prérempli depuis un partenaire sans dossier. */
+const showIdentityForm = computed(() => patientMode.value === 'create'
+    || (patientMode.value === 'partner' && identityPartner.value !== null && ! identityPartner.value.linked_patient));
 const patientQuery = ref('');
 const patientMatches = ref([]);
 const patientSearchLoading = ref(false);
@@ -114,6 +140,8 @@ const arrivalLoading = ref(false);
 const arrivalErrors = ref({});
 const arrivalMessage = ref('');
 const episode = ref(props.resumeEpisode ?? null);
+// ADR-212 — qui a recommandé la clinique à ce nouveau patient : noté à la création de son dossier.
+const referral = ref(emptyReferral());
 // ADR-177 — indicative et facultative : aucune case cochée est une réponse valide.
 const nextSteps = ref([]);
 
@@ -171,10 +199,17 @@ const mutualSelectOptions = computed(() => [
         label: `${organization.name} · ${Number(organization.coverage_rate).toLocaleString('fr-FR')} %`,
     })),
 ]);
-const partnerSelectOptions = computed(() => [
-    { value: '', label: 'Choisir un partenaire' },
-    ...(props.partnerOrganizations ?? []).map((organization) => ({ value: organization.uuid, label: organization.name })),
-]);
+// ADR-211 — les partenaires rangés par sorte : médicaux, puis autres.
+const partnerSelectOptions = computed(() => {
+    const group = (category, label) => ({
+        label,
+        items: (props.partnerOrganizations ?? [])
+            .filter((organization) => (organization.category ?? 'OTHER') === category)
+            .map((organization) => ({ value: organization.uuid, label: organization.name })),
+    });
+
+    return [group('MEDICAL', 'Partenaires médicaux'), group('OTHER', 'Autres partenaires')].filter((entry) => entry.items.length);
+});
 
 /**
  * ADR-184 — la tranche d'âge du patient, d'après la naissance ou l'âge saisi et
@@ -186,13 +221,13 @@ const ageBands = computed(() => page.props.site?.ageBands ?? DEFAULT_AGE_BANDS);
 const patientYears = computed(() => (birthMode.value === 'date'
     ? yearsFromBirthDate(patientForm.birth_date)
     : (patientForm.age !== '' && patientForm.age !== null ? Number(patientForm.age) : null)));
-const patientBand = computed(() => (patientMode.value === 'create' ? ageBandFor(patientYears.value, ageBands.value) : null));
+const patientBand = computed(() => (showIdentityForm.value ? ageBandFor(patientYears.value, ageBands.value) : null));
 const ageBandsHint = computed(() => describeAgeBands(ageBands.value));
 /** Un bébé se déclare avec sa date de naissance exacte : « 0 an » ne dit pas s'il a trois semaines ou onze mois. */
 const babyNeedsBirthDate = computed(() => patientBand.value === 'BABY' && birthMode.value === 'age');
 
 const isChildPatient = computed(() => (
-    patientMode.value === 'create'
+    showIdentityForm.value
     && (['GIRL', 'BOY'].includes(patientForm.civility) || isMinorBand(patientBand.value))
 ));
 // Un bébé né ailleurs est un nouveau patient ordinaire (ADR-177) : seule la
@@ -229,7 +264,23 @@ watch([patientBand, () => patientForm.sex], ([band]) => {
     if (isMinorBand(band)) resetAdultAdministrativeFields();
 });
 
-const financialMode = ref(props.resumeEpisode?.financial_mode ?? 'SELF');
+/**
+ * ADR-211 — la fiche RH ou la fiche partenaire de la même personne. La prise
+ * en charge est **proposée** d'après elles, jamais enregistrée d'office : rien
+ * ne part avant « Calculer la prise en charge », et la Réception peut choisir
+ * autre chose (ADR-051). Un stagiaire n'a pas la prise en charge Personnel
+ * (ADR-194).
+ */
+const patientLinks = computed(() => props.resumeEpisode?.patient_links ?? { employee: null, partner: null });
+const proposedFinancialMode = computed(() => {
+    const { employee, partner } = patientLinks.value;
+
+    if (employee?.staff_coverage_eligible && props.capabilities.can_use_staff && props.capabilities.can_link_staff) return 'STAFF';
+    if (partner?.active && props.capabilities.can_use_partner) return 'PARTNER';
+
+    return null;
+});
+const financialMode = ref(props.resumeEpisode?.financial_mode ?? proposedFinancialMode.value ?? 'SELF');
 const financialLoading = ref(false);
 const financialErrors = ref({});
 const preview = ref(props.financialPreview ?? null);
@@ -240,13 +291,28 @@ const mutualForm = reactive({
     membership_number: props.resumeEpisode?.mutual_coverage?.membership_number ?? '',
 });
 const partnerForm = reactive({
-    partner_organization_uuid: props.resumeEpisode?.partner_coverage?.partner_organization_uuid ?? '',
+    partner_organization_uuid: props.resumeEpisode?.partner_coverage?.partner_organization_uuid
+        ?? (financialMode.value === 'PARTNER' ? patientLinks.value.partner?.uuid : null)
+        ?? '',
 });
-const employeeQuery = ref('');
-const employeeMatches = ref([]);
-const employeeSearchLoading = ref(false);
-const employeeSearchPerformed = ref(false);
-const selectedEmployee = ref(props.resumeEpisode?.staff_coverage?.employee ?? null);
+/**
+ * ADR-212 — la prise en charge Personnel ne se cherche plus à cette étape :
+ * l'employé est celui dont la fiche RH est reliée à ce dossier (étape Patient ›
+ * Personnel & stagiaires). Le serveur l'exigeait déjà ; chercher ici ne pouvait
+ * que proposer quelqu'un qu'il allait refuser. Un stagiaire n'y a pas droit
+ * (ADR-194).
+ */
+const staffCoverageEmployee = computed(() => (patientLinks.value.employee?.staff_coverage_eligible ? patientLinks.value.employee : null));
+const staffCardAvailable = computed(() => props.capabilities.can_use_staff && props.capabilities.can_link_staff && staffCoverageEmployee.value !== null);
+const staffCardHint = computed(() => {
+    if (staffCardAvailable.value) return `${formatPatientName(staffCoverageEmployee.value)} · règles Personnel du serveur.`;
+    if (patientLinks.value.employee?.is_intern) return 'Stagiaire : tarif Standard, pas de prise en charge Personnel.';
+
+    return 'Réservé à un dossier relié au dossier RH (étape Patient › Personnel & stagiaires).';
+});
+const selectedEmployee = computed(() => (financialMode.value === 'STAFF'
+    ? props.resumeEpisode?.staff_coverage?.employee ?? staffCoverageEmployee.value
+    : null));
 
 const finalForm = useForm({
     defer_designation: false,
@@ -573,13 +639,34 @@ const choosePatient = (patient) => {
     duplicates.value = [];
     arrivalErrors.value = {};
 };
-const chooseExistingPatient = () => {
-    patientMode.value = 'search';
+const resetIdentityForm = () => {
+    Object.assign(patientForm, {
+        civility: '', first_name: '', last_name: '', birth_date: '', age: '', sex: 'M',
+        identity_document_type: '', identity_document_number: '',
+        marital_status: '', children_count: '',
+        phone: '', email: '', profession: '', address_entry_uuid: '', new_address_label: '',
+    });
+    birthMode.value = 'date';
+    addressMode.value = 'existing';
+};
+/** Quitter une identité reprise d'un référentiel : rien d'elle ne reste dans le formulaire. */
+const clearReferenceIdentity = () => {
+    const hadPartnerDraft = identityPartner.value && ! identityPartner.value.linked_patient;
+    identityEmployee.value = null;
+    identityPartner.value = null;
+    linkTarget.value = null;
+    if (hadPartnerDraft) resetIdentityForm();
+};
+const switchPatientMode = (mode) => {
+    if (patientMode.value !== mode) clearReferenceIdentity();
+    patientMode.value = mode;
     selectedPatient.value = null;
     duplicates.value = [];
     arrivalErrors.value = {};
+    arrivalMessage.value = '';
     resetEpisodeContact();
 };
+const chooseExistingPatient = () => switchPatientMode('search');
 // Éditer le dossier reste dans le même onglet (plus prévisible pour un
 // utilisateur peu familier des onglets) : l'état de la prise en charge en
 // cours est donc sauvegardé ici puis restauré au retour, voir
@@ -652,13 +739,57 @@ const chooseAnotherPatient = () => {
     arrivalErrors.value = {};
     resetEpisodeContact();
 };
-const chooseNewPatient = () => {
-    patientMode.value = 'create';
-    selectedPatient.value = null;
-    duplicates.value = [];
-    arrivalErrors.value = {};
-    resetEpisodeContact();
+const chooseNewPatient = () => switchPatientMode('create');
+
+/**
+ * ADR-211 — le nouveau dossier d'un partenaire médical, prérempli depuis sa
+ * fiche : rien n'est ressaisi, tout reste modifiable. Un sexe absent de la
+ * fiche n'est pas deviné : la Réception le choisit.
+ */
+const prefillFromPartner = (partner) => {
+    resetIdentityForm();
+    patientForm.last_name = partner.last_name ?? '';
+    patientForm.first_name = partner.first_name ?? '';
+    patientForm.sex = partner.sex ?? '';
+    if (partner.birth_date) patientForm.birth_date = partner.birth_date;
+    patientForm.phone = partner.phone ?? '';
+    patientForm.email = partner.email ?? '';
+    patientForm.profession = partner.profession_label ?? '';
+    // L'adresse de la fiche est une entrée du référentiel : reprise telle quelle.
+    if (partner.address_entry_uuid) patientForm.address_entry_uuid = partner.address_entry_uuid;
 };
+/** Ce que la fiche du partenaire ne dit pas, et que la Réception doit compléter. */
+const partnerMissing = computed(() => {
+    const partner = identityPartner.value;
+    if (! partner || partner.linked_patient) return [];
+
+    return [
+        ! partner.sex && 'le sexe',
+        ! partner.birth_date && 'la date de naissance ou l’âge',
+    ].filter(Boolean);
+});
+watch(identityEmployee, () => {
+    duplicates.value = [];
+    linkTarget.value = null;
+    arrivalErrors.value = {};
+    arrivalMessage.value = '';
+});
+watch(identityPartner, (partner, previous) => {
+    duplicates.value = [];
+    linkTarget.value = null;
+    arrivalErrors.value = {};
+    arrivalMessage.value = '';
+    if (partner && ! partner.linked_patient) prefillFromPartner(partner);
+    else if (previous && ! previous.linked_patient) resetIdentityForm();
+});
+/** Il y a une personne à accueillir : un dossier, une fiche RH, une fiche partenaire ou un nouveau dossier. */
+const identityReady = computed(() => {
+    if (patientMode.value === 'staff') return identityEmployee.value !== null;
+    if (patientMode.value === 'partner') return identityPartner.value !== null;
+    if (patientMode.value === 'create') return true;
+
+    return selectedPatient.value !== null;
+});
 const setBirthMode = (mode) => {
     birthMode.value = mode;
     if (mode === 'date') patientForm.age = '';
@@ -689,12 +820,38 @@ const arrivalPayload = (confirmDuplicate = false) => {
         },
     };
 
-    if (selectedPatient.value) {
+    // ADR-211 — un membre du personnel ou un stagiaire : son dossier patient
+    // vient de la fiche RH. Un dossier similaire reconnu lui est relié.
+    if (patientMode.value === 'staff' && identityEmployee.value) {
+        const employee = identityEmployee.value;
+
+        if (linkTarget.value) return { patient_uuid: linkTarget.value.uuid, employee_uuid: employee.uuid, ...contact, ...journey };
+        if (employee.linked_patient) return { patient_uuid: employee.linked_patient.uuid, ...contact, ...journey };
+
+        return { patient_type: 'STAFF', employee_uuid: employee.uuid, confirm_duplicate: confirmDuplicate, ...contact, ...journey };
+    }
+
+    // ADR-211 — un partenaire médical : son dossier existant, ou le nouveau
+    // dossier prérempli ci-dessous, relié à sa fiche.
+    const partnerUuid = patientMode.value === 'partner' ? identityPartner.value?.uuid ?? null : null;
+
+    if (partnerUuid && linkTarget.value) {
+        return { patient_uuid: linkTarget.value.uuid, partner_uuid: partnerUuid, ...contact, ...journey };
+    }
+
+    if (partnerUuid && identityPartner.value.linked_patient) {
+        return { patient_uuid: identityPartner.value.linked_patient.uuid, partner_uuid: partnerUuid, ...contact, ...journey };
+    }
+
+    if (selectedPatient.value && ! partnerUuid) {
         return { patient_uuid: selectedPatient.value.uuid, ...contact, ...journey };
     }
 
+    const recommendation = props.capabilities.can_record_referral ? referralPayload(referral.value) : null;
     const identity = {
         patient_type: 'STANDARD',
+        ...(partnerUuid ? { partner_uuid: partnerUuid } : {}),
+        ...(recommendation ? { referral: recommendation } : {}),
         first_name: patientForm.first_name || null,
         last_name: patientForm.last_name,
         birth_date: birthMode.value === 'date' ? patientForm.birth_date || null : null,
@@ -728,7 +885,13 @@ const arrivalPayload = (confirmDuplicate = false) => {
     };
 };
 const createEpisode = async (confirmDuplicate = false) => {
-    if (!selectedPatient.value && patientMode.value !== 'create') return;
+    if (! identityReady.value) return;
+    // La case cochée sans personne choisie : on ne part pas en oubliant la recommandation.
+    if (showIdentityForm.value && props.capabilities.can_record_referral && referralPayload(referral.value) === undefined) {
+        arrivalErrors.value = { referral: ['Choisissez qui a recommandé la clinique, ou décochez la case.'] };
+        arrivalMessage.value = '';
+        return;
+    }
     arrivalLoading.value = true;
     arrivalErrors.value = {};
     arrivalMessage.value = '';
@@ -747,43 +910,33 @@ const createEpisode = async (confirmDuplicate = false) => {
         arrivalErrors.value = error.payload?.errors ?? {};
         duplicates.value = error.payload?.duplicates ?? [];
         arrivalMessage.value = error.message;
+        linkTarget.value = null;
     } finally {
         arrivalLoading.value = false;
     }
 };
+/** ADR-211 — « c'est la même personne » : ce dossier existant est relié à sa fiche RH ou partenaire. */
+const linkToExistingPatient = (patient) => {
+    linkTarget.value = patient;
+    createEpisode(false);
+};
 
+/** Les quatre prises en charge possibles, chacune avec ce qui la rend indisponible. */
+const financialCards = computed(() => [
+    { mode: 'SELF', label: 'Standard', icon: Wallet, disabled: false, hint: 'Tarif STANDARD, à la charge du patient.' },
+    { mode: 'MUTUAL', label: 'Mutuelle', icon: ShieldCheck, disabled: ! props.capabilities.can_use_mutual, hint: 'Organisme et adhésion de ce passage, tarif MUTUAL.' },
+    { mode: 'STAFF', label: 'Personnel', icon: Briefcase, disabled: ! staffCardAvailable.value, hint: staffCardHint.value },
+    { mode: 'PARTNER', label: 'Partenaire', icon: Handshake, disabled: ! props.capabilities.can_use_partner, hint: 'Partenaire médical ou autre (ISPSG…). Ne couvre encore aucun montant.' },
+]);
 const selectFinancialMode = (mode) => {
+    if (mode === 'STAFF' && ! staffCardAvailable.value) return;
     financialMode.value = mode;
     preview.value = null;
     financialErrors.value = {};
-    selectedEmployee.value = null;
-    employeeSearchPerformed.value = false;
-};
-const searchEmployees = async () => {
-    if (employeeQuery.value.trim().length < 2) return;
-    employeeSearchLoading.value = true;
-    employeeSearchPerformed.value = false;
-    selectedEmployee.value = null;
-    financialErrors.value = {};
 
-    try {
-        const result = await requestJson(`/reception/employees/patient-lookup?q=${encodeURIComponent(employeeQuery.value.trim())}`);
-        employeeMatches.value = result.data ?? [];
-        employeeSearchPerformed.value = true;
-    } catch (error) {
-        financialErrors.value = { employee_uuid: [error.message] };
-    } finally {
-        employeeSearchLoading.value = false;
-    }
-};
-const employeeSelectable = (employee) => employee.eligible
-    && (!employee.linked_patient || employee.linked_patient.uuid === selectedPatient.value?.uuid);
-const chooseEmployee = (employee) => {
-    if (employeeSelectable(employee)) selectedEmployee.value = employee;
-};
-const chooseAnotherEmployee = () => {
-    selectedEmployee.value = null;
-    financialErrors.value = {};
+    // ADR-211 — la fiche déjà reliée à ce dossier : rien à rechercher.
+    const { partner } = patientLinks.value;
+    if (mode === 'PARTNER' && partner?.active && ! partnerForm.partner_organization_uuid) partnerForm.partner_organization_uuid = partner.uuid;
 };
 const financialPayload = () => {
     // Seules les prestations : la couverture Mutuelle/Personnel porte sur le
@@ -1156,12 +1309,20 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
             <CardBody v-else-if="currentStep === 3" class="!p-5 lg:!p-7">
                 <div>
                     <h2 class="text-xl font-bold text-foreground">Identifier le Patient</h2>
-                    <p class="mt-1 text-sm text-muted-foreground">Recherchez d’abord le dossier permanent. Créez-en un uniquement si le patient n’existe pas.</p>
+                    <p class="mt-1 text-sm text-muted-foreground">Retrouvez d’abord la personne : son dossier patient, sa fiche du personnel ou sa fiche partenaire. Créez un dossier seulement si elle n’est connue nulle part.</p>
                 </div>
 
-                <div class="mt-5 inline-flex rounded-md border border-border bg-card p-1">
-                    <button type="button" :class="['inline-flex items-center gap-1.5 rounded px-5 py-2.5 text-sm font-semibold transition', patientMode === 'search' ? 'bg-muted text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']" @click="chooseExistingPatient"><Search class="h-4 w-4" />Patient existant</button>
-                    <button v-if="capabilities.can_create_patient" type="button" :class="['inline-flex items-center gap-1.5 rounded px-5 py-2.5 text-sm font-semibold transition', patientMode === 'create' ? 'bg-muted text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']" @click="chooseNewPatient"><UserRoundPlus class="h-4 w-4" />Nouveau Patient</button>
+                <!-- ADR-211 — quatre façons de retrouver la personne, chacune selon son droit. -->
+                <div class="mt-5 flex flex-wrap gap-1 rounded-md border border-border bg-card p-1 sm:inline-flex" role="tablist" aria-label="Retrouver la personne">
+                    <button
+                        v-for="mode in identityModes"
+                        :key="mode.value"
+                        type="button"
+                        role="tab"
+                        :aria-selected="patientMode === mode.value"
+                        :class="['inline-flex flex-1 items-center justify-center gap-1.5 rounded px-4 py-2.5 text-sm font-semibold transition sm:flex-none', patientMode === mode.value ? 'bg-muted text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground']"
+                        @click="switchPatientMode(mode.value)"
+                    ><component :is="mode.icon" class="h-4 w-4" />{{ mode.label }}</button>
                 </div>
 
                 <section v-if="patientMode === 'search'" class="mt-5 w-full">
@@ -1213,10 +1374,23 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     </div>
                 </section>
 
-                <!-- ADR-177 — deux modes seulement : patient existant, nouveau patient.
-                     Un bébé né ailleurs est un nouveau patient (civilité « Enfant ») ;
-                     un bébé né à la clinique devient patient depuis la Maternité. -->
-                <section v-if="patientMode === 'create'" class="mt-5 w-full overflow-hidden rounded-md border border-border">
+                <section v-if="patientMode === 'staff'" class="mt-5 w-full">
+                    <StaffIdentityPicker v-model="identityEmployee" />
+                </section>
+
+                <section v-if="patientMode === 'partner'" class="mt-5 w-full">
+                    <PartnerIdentityPicker v-model="identityPartner" />
+                    <p v-if="partnerMissing.length" class="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                        <CircleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>La fiche du partenaire ne dit pas {{ partnerMissing.join(' ni ') }} : complétez-{{ partnerMissing.length > 1 ? 'les' : 'le' }} ci-dessous.</span>
+                    </p>
+                </section>
+
+                <!-- ADR-177 — un bébé né ailleurs est un nouveau patient (civilité
+                     « Enfant ») ; un bébé né à la clinique devient patient depuis la
+                     Maternité. ADR-211 — ce formulaire sert aussi au partenaire
+                     médical sans dossier : prérempli depuis sa fiche. -->
+                <section v-if="showIdentityForm" class="mt-5 w-full overflow-hidden rounded-md border border-border">
                     <div class="border-b border-border bg-muted/35 px-5 py-4">
                         <div class="flex items-start gap-3">
                             <div>
@@ -1330,7 +1504,14 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     </div>
                 </section>
 
-                <section v-if="patientMode === 'create' || selectedPatient" class="mt-5 w-full overflow-hidden rounded-md border border-border">
+                <ReferralPicker
+                    v-if="showIdentityForm && capabilities.can_record_referral"
+                    v-model="referral"
+                    :exclude-partner-uuid="patientMode === 'partner' ? identityPartner?.uuid ?? null : null"
+                    :errors="arrivalErrors"
+                />
+
+                <section v-if="identityReady" class="mt-5 w-full overflow-hidden rounded-md border border-border">
                     <div class="flex items-start gap-3 border-b border-border bg-muted/35 px-5 py-4">
                         <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg text-primary"><UsersRound class="h-4 w-4" /></span>
                         <div>
@@ -1354,11 +1535,28 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     </div>
                 </section>
 
-                <div v-if="duplicates.length" class="mt-4 w-full rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20"><p class="text-sm font-bold text-amber-800 dark:text-amber-200">Un dossier similaire existe déjà.</p><div class="mt-2 space-y-1 text-xs text-amber-700 dark:text-amber-300"><p v-for="patient in duplicates" :key="patient.uuid">{{ patient.patient_number }} · {{ formatPatientName(patient) }}</p></div><div class="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="white-outline" @click="patientMode = 'search'; patientMatches = duplicates; patientSearchPerformed = true">Utiliser un dossier existant</Button><Button size="sm" :disabled="arrivalLoading" @click="createEpisode(true)">Créer quand même</Button></div></div>
+                <div v-if="duplicates.length" class="mt-4 w-full rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+                    <p class="text-sm font-bold text-amber-800 dark:text-amber-200">Un dossier similaire existe déjà.</p>
+                    <!-- ADR-211 — depuis une fiche RH ou partenaire, un dossier reconnu lui est relié plutôt que doublé. -->
+                    <template v-if="patientMode === 'staff' || patientMode === 'partner'">
+                        <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">S’il s’agit de la même personne, reliez son dossier à sa fiche {{ patientMode === 'staff' ? 'RH' : 'partenaire' }} au lieu d’en créer un second.</p>
+                        <ul class="mt-3 divide-y divide-amber-200 overflow-hidden rounded-md border border-amber-200 bg-card dark:divide-amber-900 dark:border-amber-900">
+                            <li v-for="patient in duplicates" :key="patient.uuid" class="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                                <span class="min-w-0 flex-1 text-sm"><span class="font-mono text-xs font-semibold text-muted-foreground">{{ patient.patient_number }}</span> · <span class="font-semibold text-foreground">{{ formatPatientName(patient) }}</span></span>
+                                <Button size="sm" variant="white-outline" :disabled="arrivalLoading" @click="linkToExistingPatient(patient)"><Link2 class="h-4 w-4" />C’est la même personne</Button>
+                            </li>
+                        </ul>
+                        <div class="mt-3"><Button size="sm" :disabled="arrivalLoading" @click="createEpisode(true)">Ce n’est pas elle : créer un dossier</Button></div>
+                    </template>
+                    <template v-else>
+                        <div class="mt-2 space-y-1 text-xs text-amber-700 dark:text-amber-300"><p v-for="patient in duplicates" :key="patient.uuid">{{ patient.patient_number }} · {{ formatPatientName(patient) }}</p></div>
+                        <div class="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="white-outline" @click="patientMode = 'search'; patientMatches = duplicates; patientSearchPerformed = true">Utiliser un dossier existant</Button><Button size="sm" :disabled="arrivalLoading" @click="createEpisode(true)">Créer quand même</Button></div>
+                    </template>
+                </div>
                 <FormError v-if="arrivalMessage && !duplicates.length" class="mt-4 w-full">{{ arrivalMessage }}</FormError>
                 <div class="mt-6 flex flex-col-reverse gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
                     <Button size="lg" variant="white-outline" @click="returnFromPatientStep"><ArrowLeft class="h-4 w-4" />{{ patientBackLabel }}</Button>
-                    <Button v-if="patientMode === 'create' || selectedPatient" size="lg" :disabled="arrivalLoading" @click="createEpisode(false)">{{ arrivalLoading ? 'Création du passage…' : 'Créer le passage' }}<ArrowRight class="h-4 w-4" /></Button>
+                    <Button v-if="identityReady" size="lg" :disabled="arrivalLoading" @click="createEpisode(false)">{{ arrivalLoading ? 'Création du passage…' : 'Créer le passage' }}<ArrowRight class="h-4 w-4" /></Button>
                 </div>
             </CardBody>
 
@@ -1410,11 +1608,39 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     </div>
                 </section>
 
-                <div v-else class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <button type="button" :aria-pressed="financialMode === 'SELF'" :class="['relative rounded-md border p-5 text-start transition lg:p-6', financialMode === 'SELF' ? 'border-primary bg-primary/5 ring-1 ring-ring/25 ' : 'border-border hover:border-primary/40']" @click="selectFinancialMode('SELF')"><CircleCheck class="h-5 w-5 absolute end-4 top-4 text-primary" v-if="financialMode === 'SELF'" /><Wallet class="h-6 w-6 text-primary" /><span class="mt-3 block text-sm font-bold text-foreground">Standard</span><span class="mt-1 block text-xs leading-5 text-muted-foreground">Tarif STANDARD, à la charge du patient.</span></button>
-                    <button type="button" :disabled="!capabilities.can_use_mutual" :aria-pressed="financialMode === 'MUTUAL'" :class="['relative rounded-md border p-5 text-start transition disabled:cursor-not-allowed disabled:opacity-50 lg:p-6', financialMode === 'MUTUAL' ? 'border-primary bg-primary/5 ring-1 ring-ring/25 ' : 'border-border hover:border-primary/40']" @click="selectFinancialMode('MUTUAL')"><CircleCheck class="h-5 w-5 absolute end-4 top-4 text-primary" v-if="financialMode === 'MUTUAL'" /><ShieldCheck class="h-6 w-6 text-primary" /><span class="mt-3 block text-sm font-bold text-foreground">Mutuelle</span><span class="mt-1 block text-xs leading-5 text-muted-foreground">Organisme existant et tarif MUTUAL du site.</span></button>
-                    <button type="button" :disabled="!capabilities.can_use_staff || !capabilities.can_link_staff" :aria-pressed="financialMode === 'STAFF'" :class="['relative rounded-md border p-5 text-start transition disabled:cursor-not-allowed disabled:opacity-50 lg:p-6', financialMode === 'STAFF' ? 'border-primary bg-primary/5 ring-1 ring-ring/25 ' : 'border-border hover:border-primary/40']" @click="selectFinancialMode('STAFF')"><CircleCheck class="h-5 w-5 absolute end-4 top-4 text-primary" v-if="financialMode === 'STAFF'" /><Briefcase class="h-6 w-6 text-primary" /><span class="mt-3 block text-sm font-bold text-foreground">Personnel</span><span class="mt-1 block text-xs leading-5 text-muted-foreground">Employé RH existant et règles Personnel serveur.</span></button>
-                    <button type="button" :disabled="!capabilities.can_use_partner" :aria-pressed="financialMode === 'PARTNER'" :class="['relative rounded-md border p-5 text-start transition disabled:cursor-not-allowed disabled:opacity-50 lg:p-6', financialMode === 'PARTNER' ? 'border-primary bg-primary/5 ring-1 ring-ring/25 ' : 'border-border hover:border-primary/40']" @click="selectFinancialMode('PARTNER')"><CircleCheck class="h-5 w-5 absolute end-4 top-4 text-primary" v-if="financialMode === 'PARTNER'" /><Link2 class="h-6 w-6 text-primary" /><span class="mt-3 block text-sm font-bold text-foreground">Partenaire</span><span class="mt-1 block text-xs leading-5 text-muted-foreground">Organisme partenaire existant (ISPSG, TsaraShop…).</span></button>
+                <!-- ADR-211 — à qui ce dossier est relié : la prise en charge en est proposée, jamais imposée. -->
+                <div v-if="! pharmacyOnlyCart && (patientLinks.employee || patientLinks.partner)" class="mt-5 flex flex-col gap-2 rounded-md border border-primary/20 bg-primary/5 px-4 py-3 text-xs leading-5">
+                    <p v-if="patientLinks.employee" class="flex items-start gap-2 text-foreground">
+                        <component :is="patientLinks.employee.is_intern ? GraduationCap : Briefcase" class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <span>
+                            Relié au dossier RH de <strong>{{ formatPatientName(patientLinks.employee) }}</strong> ({{ patientLinks.employee.employee_number }}).
+                            <template v-if="patientLinks.employee.is_intern"> Stagiaire : son passage est au tarif Standard, la prise en charge Personnel ne s’applique pas.</template>
+                            <template v-else-if="patientLinks.employee.staff_coverage_eligible"> La prise en charge Personnel est proposée ; vous pouvez en choisir une autre.</template>
+                        </span>
+                    </p>
+                    <p v-if="patientLinks.partner" class="flex items-start gap-2 text-foreground">
+                        <Handshake class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <span>
+                            Relié à la fiche partenaire <strong>{{ patientLinks.partner.name }}</strong><template v-if="patientLinks.partner.profession_label"> · {{ patientLinks.partner.profession_label }}</template>.
+                            <template v-if="proposedFinancialMode === 'PARTNER'"> La prise en charge Partenaire est proposée ; elle ne couvre encore aucun montant.</template>
+                        </span>
+                    </p>
+                </div>
+                <div v-if="! pharmacyOnlyCart" class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" role="group" aria-label="Mode de prise en charge">
+                    <button
+                        v-for="card in financialCards"
+                        :key="card.mode"
+                        type="button"
+                        :disabled="card.disabled"
+                        :aria-pressed="financialMode === card.mode"
+                        :class="['relative rounded-md border p-4 text-start transition disabled:cursor-not-allowed disabled:opacity-60', financialMode === card.mode ? 'border-primary bg-primary/5 ring-1 ring-ring/25' : 'border-border hover:border-primary/40']"
+                        @click="selectFinancialMode(card.mode)"
+                    >
+                        <CircleCheck v-if="financialMode === card.mode" class="absolute end-3 top-3 h-5 w-5 text-primary" />
+                        <component :is="card.icon" class="h-5 w-5 text-primary" />
+                        <span class="mt-2 flex flex-wrap items-center gap-1.5 text-sm font-bold text-foreground">{{ card.label }}<Badge v-if="proposedFinancialMode === card.mode" variant="secondary">Proposé</Badge></span>
+                        <span class="mt-1 block text-xs leading-5 text-muted-foreground">{{ card.hint }}</span>
+                    </button>
                 </div>
 
                 <section v-if="financialMode === 'MUTUAL'" class="mt-5 w-full overflow-hidden rounded-md border border-border">
@@ -1438,31 +1664,17 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     </div>
                 </section>
 
-                <section v-if="financialMode === 'STAFF'" class="mt-5 w-full overflow-hidden rounded-md border border-border">
-                    <div class="flex items-start gap-3 border-b border-border bg-muted/35 px-5 py-4"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg text-primary"><Briefcase class="h-4 w-4" /></span><div><h3 class="text-sm font-bold text-foreground">Identifier l’Employé RH</h3><p class="mt-1 text-xs text-muted-foreground">Recherchez le dossier Employé existant puis confirmez la personne liée à ce Patient.</p></div></div>
-                    <div class="p-5">
-                        <div class="min-w-0">
-                            <span class="mb-1.5 flex h-6 items-center text-sm font-medium text-foreground">Employé de la clinique <span class="text-destructive">&nbsp;*</span></span>
-                            <form class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" @submit.prevent="searchEmployees">
-                                <IconInput v-model="employeeQuery" size="lg" :icon="Search" placeholder="Matricule, nom, prénom, téléphone ou pièce d’identité…" autocomplete="off" @update:model-value="employeeSearchPerformed = false" />
-                                <Button size="lg" type="submit" class="justify-center" :disabled="employeeQuery.trim().length < 2 || employeeSearchLoading"><component :is="employeeSearchLoading ? LoaderCircle : Search" class="h-4 w-4" />{{ employeeSearchLoading ? 'Recherche…' : 'Rechercher' }}</Button>
-                            </form>
-
-                            <div v-if="selectedEmployee" class="mt-4 flex flex-col gap-3 rounded-md border border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center">
-                                <Avatar rounded size="rg" variant="primary-pale" :text="formatPatientInitials(selectedEmployee)" />
-                                <div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2"><p class="truncate text-sm font-bold text-foreground">{{ formatPatientName(selectedEmployee) }}</p><span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary"><CircleCheck class="h-3.5 w-3.5" />Employé sélectionné</span></div><p class="mt-1 text-xs text-muted-foreground"><span class="font-mono font-semibold">{{ selectedEmployee.employee_number }}</span><span class="mx-2 text-muted-foreground">·</span>{{ selectedEmployee.profession || 'Fonction non renseignée' }}</p></div>
-                                <Button size="sm" variant="white-outline" @click="chooseAnotherEmployee">Changer d’employé</Button>
-                            </div>
-
-                            <div v-else-if="employeeSearchPerformed && employeeMatches.length" class="mt-4 overflow-hidden rounded-md border border-border">
-                                <div class="border-b border-border bg-muted/35 px-4 py-2.5 text-xs font-semibold text-muted-foreground">{{ employeeMatches.length }} employé{{ employeeMatches.length > 1 ? 's' : '' }} trouvé{{ employeeMatches.length > 1 ? 's' : '' }}</div>
-                                <button v-for="employee in employeeMatches" :key="employee.uuid" type="button" :disabled="!employeeSelectable(employee)" :class="['grid w-full gap-3 border-b border-border px-4 py-3.5 text-start transition last:border-0 sm:grid-cols-[44px_minmax(0,1fr)_auto] sm:items-center', employeeSelectable(employee) ? 'hover:bg-primary/5' : 'cursor-not-allowed bg-muted/30 opacity-60']" @click="chooseEmployee(employee)"><Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(employee)" /><span class="min-w-0"><span class="block truncate text-sm font-bold text-foreground">{{ formatPatientName(employee) }}</span><span class="mt-0.5 block text-xs text-muted-foreground"><span class="font-mono">{{ employee.employee_number }}</span> · {{ employee.profession || 'Fonction non renseignée' }}</span></span><span :class="['inline-flex items-center rounded-full px-2 py-1 text-[11px] font-bold', employeeSelectable(employee) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300']"><component :is="employeeSelectable(employee) ? CircleCheck : CircleAlert" class="h-4 w-4" />{{ employeeSelectable(employee) ? 'Sélectionner' : 'Relié à un autre Patient' }}</span></button>
-                            </div>
-
-                            <div v-else-if="employeeSearchPerformed && !employeeSearchLoading" class="mt-4 rounded-md border border-dashed border-border px-5 py-7 text-center"><Search class="mx-auto h-6 w-6 text-muted-foreground" /><p class="mt-2 text-sm font-semibold text-foreground">Aucun Employé RH trouvé</p><p class="mt-1 text-xs text-muted-foreground">Vérifiez le matricule, l’identité ou le numéro saisi.</p></div>
-                            <FormError v-if="firstError(financialErrors, 'employee_uuid')" class="mt-2">{{ firstError(financialErrors, 'employee_uuid') }}</FormError>
+                <!-- ADR-212 — l'employé est celui dont la fiche RH est reliée à ce dossier : rien à rechercher ici. -->
+                <section v-if="financialMode === 'STAFF'" class="mt-5 flex flex-col gap-3 rounded-md border border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center">
+                    <template v-if="selectedEmployee">
+                        <Avatar rounded size="rg" variant="primary-pale" :text="formatPatientInitials(selectedEmployee)" />
+                        <div class="min-w-0 flex-1">
+                            <p class="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">{{ formatPatientName(selectedEmployee) }}<span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary"><CircleCheck class="h-3.5 w-3.5" />Dossier RH relié</span></p>
+                            <p class="mt-1 text-xs text-muted-foreground"><span class="font-mono font-semibold">{{ selectedEmployee.employee_number }}</span><span class="mx-2">·</span>{{ selectedEmployee.job_title || selectedEmployee.profession || 'Fonction non renseignée' }}</p>
                         </div>
-                    </div>
+                    </template>
+                    <p v-else class="text-sm text-muted-foreground">Aucun dossier RH relié à ce patient : choisissez une autre prise en charge.</p>
+                    <FormError v-if="firstError(financialErrors, 'employee_uuid')" class="w-full">{{ firstError(financialErrors, 'employee_uuid') }}</FormError>
                 </section>
 
                 <section v-if="financialMode === 'PARTNER'" class="mt-5 w-full overflow-hidden rounded-md border border-border">

@@ -194,6 +194,13 @@ test('the settings read module by module: the open module in a card, the modules
     assert.match(read('resources/js/Components/Settings/SearchVisibilitySettings.vue'), /<Switch id="search-engines-hidden" v-model="form\.search_engines_hidden"/, 'un interrupteur shadcn, avec son libellé');
     assert.match(read('resources/js/Components/Settings/SearchVisibilitySettings.vue'), /<Label for="search-engines-hidden"/);
     assert.match(read('resources/js/Components/Settings/IdentitySettings.vue'), /v-model="form\.app_tagline"/);
+    assert.match(page, /Réinitialiser tous les paramètres/);
+    assert.match(page, /const RESET_CONFIRMATION = 'RÉINITIALISER'/);
+    assert.match(page, /v-model="resetSettingsConfirmation"/);
+    assert.match(page, /:disabled="!resetSettingsConfirmed"/);
+    assert.match(page, /router\.delete\('\/super-admin\/settings\/reset'/, 'la réinitialisation utilise son action serveur auditée');
+    assert.match(page, /title="Réinitialiser tous les paramètres \?"/);
+    assert.match(page, /Les coupons et l’état de maintenance ne seront pas modifiés\./);
     assert.match(asset, /router\.post\(`\/super-admin\/settings\/assets\/\$\{props\.kind\}`/);
     assert.match(asset, /forceFormData: true/);
     assert.match(asset, /title="`Retirer : \$\{label\.toLowerCase\(\)\} \?`"|:title="`Retirer : \$\{label\.toLowerCase\(\)\} \?`"/);

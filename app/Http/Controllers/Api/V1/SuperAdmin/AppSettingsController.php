@@ -6,6 +6,7 @@ use App\Actions\Discounts\ArchiveDiscountCouponAction;
 use App\Actions\Discounts\CreateDiscountCouponAction;
 use App\Actions\Discounts\DeleteDiscountCouponAction;
 use App\Actions\Settings\LiftSiteMaintenanceAction;
+use App\Actions\Settings\ResetAppSettingsAction;
 use App\Actions\Settings\SetSiteMaintenanceAction;
 use App\Actions\Settings\StoreAppSettingAssetAction;
 use App\Actions\Settings\UpdateAppSettingsAction;
@@ -45,6 +46,22 @@ class AppSettingsController extends Controller
 
         return response()->json([
             'message' => 'Paramètres de l’application enregistrés pour ce site.',
+            'data' => $presenter->payload(),
+        ]);
+    }
+
+    public function reset(Request $request, ResetAppSettingsAction $action, AppSettingsPresenter $presenter): JsonResponse
+    {
+        $actor = $this->authorizeActor($request, 'settings.update');
+        $request->validate([
+            'confirmation' => ['required', 'string', 'in:'.ResetAppSettingsAction::CONFIRMATION],
+        ], [
+            'confirmation.in' => 'Tapez exactement « '.ResetAppSettingsAction::CONFIRMATION.' » pour confirmer.',
+        ]);
+        $action->execute($actor);
+
+        return response()->json([
+            'message' => 'Tous les paramètres ont été réinitialisés aux valeurs par défaut pour ce site.',
             'data' => $presenter->payload(),
         ]);
     }

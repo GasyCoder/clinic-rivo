@@ -1,10 +1,11 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Head, router, useForm, usePage } from '@inertiajs/vue3';
-import { Loader2, Save, Server, TriangleAlert } from 'lucide-vue-next';
+import { Loader2, RotateCcw, Save, Server, TriangleAlert } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
+import Input from '@/Components/Shadcn/Input.vue';
 import AdvancedSettings from '@/Components/Settings/AdvancedSettings.vue';
 import AgeBandSettings from '@/Components/Settings/AgeBandSettings.vue';
 import BadgeSettings from '@/Components/Settings/BadgeSettings.vue';
@@ -164,6 +165,22 @@ const leaveGuard = useUnsavedChangesGuard(dirty);
 
 const changedCount = computed(() => FIELDS.filter((field) => String(form[field] ?? '') !== String(saved.value[field] ?? '')).length);
 
+const RESET_CONFIRMATION = 'RÉINITIALISER';
+const resetSettingsOpen = ref(false);
+const resetSettingsProcessing = ref(false);
+const resetSettingsConfirmation = ref('');
+const resetSettingsError = ref('');
+const resetSettingsConfirmed = computed(() => resetSettingsConfirmation.value === RESET_CONFIRMATION);
+// Un reset remonte le module ouvert pour purger aussi ses fichiers encore sélectionnés.
+const settingsRevision = ref(0);
+
+const setResetSettingsOpen = (open) => {
+    if (resetSettingsProcessing.value) return;
+    resetSettingsOpen.value = open;
+    resetSettingsError.value = '';
+    if (! open) resetSettingsConfirmation.value = '';
+};
+
 /* ------------------------------------------------------------------ */
 /* Aperçus partagés                                                    */
 /* ------------------------------------------------------------------ */
@@ -201,6 +218,30 @@ const submit = () => {
                 afterSave();
             },
         });
+};
+
+const resetSettings = () => {
+    if (! target.value?.ok || ! resetSettingsConfirmed.value || resetSettingsProcessing.value) return;
+
+    router.delete('/super-admin/settings/reset', {
+        data: { site_code: selectedCode.value, confirmation: resetSettingsConfirmation.value },
+        preserveScroll: true,
+        onStart: () => {
+            resetSettingsProcessing.value = true;
+            resetSettingsError.value = '';
+        },
+        onFinish: () => {
+            resetSettingsProcessing.value = false;
+        },
+        onError: (errors) => { resetSettingsError.value = errors.confirmation || errors.site_code || 'La réinitialisation a échoué.'; },
+        onSuccess: () => {
+            resetSettingsOpen.value = false;
+            resetSettingsConfirmation.value = '';
+            settingsRevision.value += 1;
+            loadTarget();
+            afterSave();
+        },
+    });
 };
 
 /**
@@ -241,7 +282,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                 <p class="text-muted-foreground">Les réglages de chaque site et du portail. Un site se règle par son API ; le portail se règle lui-même.</p>
             </div>
             <div class="flex min-w-0 flex-col gap-1.5 xl:shrink-0 xl:items-end">
-                <SettingsSiteSwitcher :targets="targets" :model-value="selectedCode" @update:model-value="selectTarget" />
+                <div class="flex w-full flex-wrap items-center justify-end gap-2">
+                    <SettingsSiteSwitcher :targets="targets" :model-value="selectedCode" @update:model-value="selectTarget" />
+                    <Button v-if="!readonly" type="button" size="sm" variant="outline" class="whitespace-nowrap" :disabled="!target?.ok" :title="target?.ok ? 'Rétablir toutes les valeurs du déploiement' : 'Cette cible est indisponible'" @click="setResetSettingsOpen(true)">
+                        <RotateCcw class="h-4 w-4" aria-hidden="true" />
+                        Réinitialiser tous les paramètres
+                    </Button>
+                </div>
                 <p class="flex items-start gap-1.5 text-[0.8rem] leading-5 text-muted-foreground" aria-live="polite">
                     <span :class="cn('mt-2 h-1.5 w-1.5 shrink-0 rounded-full', target?.ok ? 'bg-emerald-500' : target?.status === 'UNCONFIGURED' ? 'bg-muted-foreground' : 'bg-destructive')" aria-hidden="true" />
                     <span><span class="font-medium text-foreground">{{ target?.site.name }}</span> · {{ siteStatus }}</span>
@@ -263,7 +310,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                 </div>
 
                 <form v-else novalidate @submit.prevent="submit">
-                    <div class="space-y-8 p-5 sm:p-8">
+                    <div :key="settingsRevision" class="space-y-8 p-5 sm:p-8">
                         <p v-if="readonly && usesCommonForm" class="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
                             <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />Lecture seule : modifier les paramètres demande le droit « settings.update ».
                         </p>
@@ -370,6 +417,52 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
             </div>
         </div>
 
+        <ConfirmModal
+            :open="resetSettingsOpen"
+            title="Réinitialiser tous les paramètres ?"
+            :description="`Tous les réglages personnalisés de ${target?.site.name} reprendront leurs valeurs par défaut.`"
+            confirm-label="Réinitialiser tous les paramètres"
+            tone="warning"
+            :icon="RotateCcw"
+            :processing="resetSettingsProcessing"
+            :disabled="!resetSettingsConfirmed"
+            :dismissible="!resetSettingsProcessing"
+            @update:open="setResetSettingsOpen"
+            @confirm="resetSettings"
+        >
+            <div class="space-y-4">
+                <div class="rounded-lg border border-amber-300/70 bg-amber-50/70 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                    <p class="font-semibold">Cette action remettra à zéro :</p>
+                    <ul class="mt-2 list-disc space-y-1 ps-5">
+                        <li>l’identité, le thème, l’affichage et les modèles d’écran ;</li>
+                        <li>la numérotation, les âges, les badges et la monnaie ;</li>
+                        <li>la remise du personnel, les mentions légales, la direction et la visibilité ;</li>
+                        <li>le logo, l’icône, la signature, le fond de connexion et l’emblème du badge.</li>
+                    </ul>
+                    <p class="mt-3 font-medium">Les coupons et l’état de maintenance ne seront pas modifiés.</p>
+                    <p v-if="form.isDirty" class="mt-2">Les modifications non enregistrées seront également abandonnées.</p>
+                </div>
+
+                <div>
+                    <label for="reset-settings-confirmation" class="mb-1.5 block text-sm font-medium text-foreground">
+                        Tapez <span class="font-mono font-bold">{{ RESET_CONFIRMATION }}</span> pour confirmer
+                    </label>
+                    <Input
+                        id="reset-settings-confirmation"
+                        v-model="resetSettingsConfirmation"
+                        type="text"
+                        autocomplete="off"
+                        :spellcheck="false"
+                        :disabled="resetSettingsProcessing"
+                        :aria-invalid="Boolean(resetSettingsConfirmation && !resetSettingsConfirmed)"
+                        placeholder="RÉINITIALISER"
+                    />
+                    <p v-if="resetSettingsConfirmation && !resetSettingsConfirmed" class="mt-1.5 text-xs text-destructive">Le texte doit être exactement « {{ RESET_CONFIRMATION }} ».</p>
+                    <p v-if="resetSettingsError" class="mt-1.5 text-xs text-destructive" role="alert">{{ resetSettingsError }}</p>
+                </div>
+            </div>
+            <template #confirm-icon><RotateCcw class="h-4 w-4" aria-hidden="true" /></template>
+        </ConfirmModal>
         <ConfirmModal
             :open="pendingTarget !== null"
             title="Abandonner vos modifications ?"

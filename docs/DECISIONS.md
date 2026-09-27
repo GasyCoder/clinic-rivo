@@ -19920,3 +19920,27 @@ paramètres en le disant (`AppSettings::ensureInstalled`).
 scanne encore — il porte le numéro, pas une adresse. Le porte-badge dessiné est un modèle souple à triple
 perforation, quel que soit le format ; un porte-badge rigide ou à pince n'est pas dessiné. Le QR se place
 toujours en bas à droite.
+
+---
+
+# ADR-210 — Réinitialiser tous les paramètres d'une cible aux valeurs du déploiement
+
+**Status:** ACCEPTED (2026-09-27 — exigence explicite du propriétaire)
+
+Depuis n'importe quel module de `/super-admin/settings`, le Super Administrateur peut remettre **tous** les
+paramètres personnalisés du site ou du portail sélectionné aux valeurs par défaut du déploiement. Le bouton
+est global, pas limité à Identité. La confirmation exige de taper exactement `RÉINITIALISER` avant l'envoi ;
+le portail et l'API du site revalident tous deux ce texte et `settings.update`.
+
+La réinitialisation retire la ligne `app_settings` après en avoir audité le contenu sous
+`app_settings.reset`. L'absence de ligne est la source de vérité existante d'ADR-184 pour appliquer
+`config/rivo.php` : elle couvre ainsi identité, thème, affichage avancé, modèles d'écran, numérotation, âges,
+badge, monnaie, remise du personnel, identité légale, direction et visibilité, ainsi que tout futur champ.
+Les cinq fichiers personnalisés (logo, icône, signature, fond de connexion, emblème du badge) sont supprimés
+après la transaction.
+
+Ne sont pas réinitialisés : les coupons, l'historique et l'état de maintenance, les compteurs de numérotation,
+les préférences personnelles des utilisateurs, ni aucune donnée clinique, RH ou financière. Changer le modèle
+de numérotation ne réécrit aucun numéro existant (ADR-191). Pour un site, l'opération passe exclusivement par
+`DELETE /api/v1/super-admin/app-settings/reset`, avec authentification, autorisation, idempotence et audit dans
+sa base ; le portail ne se connecte jamais directement à la base du site (ADR-004).

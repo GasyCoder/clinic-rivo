@@ -379,6 +379,12 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'PUT', 'super-admin/app-settings', $data, $actor);
     }
 
+    /** @return array<string, mixed> */
+    public function resetAppSettings(string $siteCode, string $confirmation, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/app-settings/reset', ['confirmation' => $confirmation], $actor);
+    }
+
     /** Le fichier part tel quel, en multipart, jamais converti. @return array<string, mixed> */
     public function storeAppSettingAsset(string $siteCode, string $kind, UploadedFile $file, User $actor): array
     {

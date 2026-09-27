@@ -309,6 +309,7 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
             ->name('settings.section')
             ->middleware('can:settings.view');
         Route::put('/settings', [SuperAdminAppSettingsController::class, 'update'])->name('settings.update')->middleware('can:settings.update');
+        Route::delete('/settings/reset', [SuperAdminAppSettingsController::class, 'reset'])->name('settings.reset')->middleware('can:settings.update');
         Route::post('/settings/assets/{kind}', [SuperAdminAppSettingsController::class, 'storeAsset'])->name('settings.assets.store')->middleware('can:settings.update');
         Route::delete('/settings/assets/{kind}', [SuperAdminAppSettingsController::class, 'destroyAsset'])->name('settings.assets.destroy')->middleware('can:settings.update');
         // ADR-192 — les coupons de remise d'un site.

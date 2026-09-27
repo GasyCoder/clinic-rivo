@@ -3,10 +3,13 @@
 namespace Tests\Feature\Api;
 
 use App\Models\AppSetting;
+use App\Models\DiscountCoupon;
+use App\Models\SiteMaintenance;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\ThemeColor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -67,6 +70,10 @@ class AppSettingsApiTest extends TestCase
             ->putJson(self::URL, $this->valid())
             ->assertForbidden();
 
+        $this->withHeaders($this->headers(['settings.view']))
+            ->deleteJson(self::URL.'/reset', ['confirmation' => 'RÉINITIALISER'])
+            ->assertForbidden();
+
         $this->assertSame(0, AppSetting::query()->count());
     }
 
@@ -124,6 +131,11 @@ class AppSettingsApiTest extends TestCase
             ->post(self::URL.'/assets/logo', ['file' => UploadedFile::fake()->image('logo.png', 300, 100)], ['Accept' => 'application/json'])
             ->assertUnprocessable()
             ->assertJsonPath('errors.file.0', AppSettings::NOT_INSTALLED_MESSAGE);
+
+        $this->withHeaders($this->headers(['settings.update']))
+            ->deleteJson(self::URL.'/reset', ['confirmation' => 'RÉINITIALISER'])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.site_code.0', AppSettings::NOT_INSTALLED_MESSAGE);
 
         Storage::disk(AppSettings::DISK)->assertDirectoryEmpty('branding');
     }
@@ -215,6 +227,100 @@ class AppSettingsApiTest extends TestCase
 
         Storage::disk(AppSettings::DISK)->assertMissing($second);
         $this->assertDatabaseHas('audit_logs', ['action' => 'app_settings.asset.remove']);
+    }
+
+    public function test_all_settings_and_assets_can_be_reset_to_their_defaults(): void
+    {
+        $actor = (string) Str::uuid();
+        $coupon = DiscountCoupon::query()->create([
+            'code' => 'GARDE26',
+            'discount_type' => 'PERCENT',
+            'discount_value' => 10,
+        ]);
+        $maintenance = SiteMaintenance::query()->create([
+            'title' => 'Maintenance programmée',
+            'message' => 'Ne doit pas être retirée par les paramètres.',
+            'starts_at' => now()->addDay(),
+        ]);
+        DB::table('patient_number_sequences')->insert(['year' => now()->year, 'next_number' => 42]);
+
+        $assets = [
+            'logo_path' => 'branding/logo-custom.png',
+            'icon_path' => 'branding/icon-custom.png',
+            'signature_path' => 'branding/signature-custom.png',
+            'auth_background_path' => 'branding/background-custom.png',
+            'badge_logo_path' => 'branding/badge-custom.png',
+        ];
+
+        foreach ($assets as $path) {
+            Storage::disk(AppSettings::DISK)->put($path, 'image');
+        }
+
+        AppSetting::query()->create([
+            'app_name' => 'Nom personnalisé',
+            'app_tagline' => 'Devise personnalisée',
+            'primary_color' => '#0F766E',
+            'theme_preset' => 'forest',
+            'ui_density' => 'compact',
+            'patient_number_prefix' => 'PAT',
+            'employee_number_prefix' => 'RH',
+            'auth_template' => 'SPLIT',
+            'profile_template' => 'BANNER',
+            'badge_tagline' => 'Badge personnalisé',
+            'currency_label' => 'Ariary',
+            'currency_position' => 'before',
+            'currency_decimals' => 2,
+            'baby_max_age' => 2,
+            'child_max_age' => 16,
+            'director_name' => 'Direction personnalisée',
+            'legal_nif' => 'NIF-PERSONNALISE',
+            'staff_discount_type' => 'PERCENT',
+            'staff_discount_value' => 10,
+            'search_engines_hidden' => false,
+            ...$assets,
+        ]);
+
+        $this->withHeaders($this->headers(['settings.update', 'settings.view'], $actor))
+            ->deleteJson(self::URL.'/reset', ['confirmation' => 'RÉINITIALISER'])
+            ->assertOk()
+            ->assertJsonPath('data.values.app_name', null)
+            ->assertJsonPath('data.values.app_tagline', null)
+            ->assertJsonPath('data.assets.logo.present', false)
+            ->assertJsonPath('data.assets.icon.present', false)
+            ->assertJsonPath('data.assets.signature.present', false)
+            ->assertJsonPath('data.assets.background.present', false)
+            ->assertJsonPath('data.assets.badge.present', false)
+            ->assertJsonPath('data.values.primary_color', null)
+            ->assertJsonPath('data.values.currency_label', 'Ar')
+            ->assertJsonPath('data.values.child_max_age', 15);
+
+        $this->assertSame(0, AppSetting::query()->count(), 'Aucune personnalisation ne doit subsister après le retour aux valeurs du déploiement.');
+        $this->assertTrue(DiscountCoupon::query()->whereKey($coupon->getKey())->exists());
+        $this->assertTrue(SiteMaintenance::query()->whereKey($maintenance->getKey())->exists());
+        $this->assertSame(42, DB::table('patient_number_sequences')->where('year', now()->year)->value('next_number'));
+
+        foreach ($assets as $path) {
+            Storage::disk(AppSettings::DISK)->assertMissing($path);
+        }
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'app_settings.reset',
+            'external_actor_uuid' => $actor,
+        ]);
+    }
+
+    public function test_reset_requires_the_exact_confirmation_text(): void
+    {
+        AppSetting::query()->create(['app_name' => 'À conserver']);
+
+        foreach (['', 'réinitialiser', 'REINITIALISER', 'RÉINITIALISER!'] as $confirmation) {
+            $this->withHeaders($this->headers(['settings.update']))
+                ->deleteJson(self::URL.'/reset', ['confirmation' => $confirmation])
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('confirmation');
+        }
+
+        $this->assertSame('À conserver', AppSetting::query()->sole()->app_name);
+        $this->assertDatabaseMissing('audit_logs', ['action' => 'app_settings.reset']);
     }
 
     public function test_an_svg_or_oversized_file_is_refused(): void

@@ -192,6 +192,7 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         // ADR-184 — paramètres de l'application de ce site.
         Route::get('/app-settings', [AppSettingsController::class, 'show'])->name('app-settings.show');
         Route::put('/app-settings', [AppSettingsController::class, 'update'])->name('app-settings.update');
+        Route::delete('/app-settings/reset', [AppSettingsController::class, 'reset'])->name('app-settings.reset');
         Route::post('/app-settings/assets/{kind}', [AppSettingsController::class, 'storeAsset'])->name('app-settings.assets.store');
         Route::delete('/app-settings/assets/{kind}', [AppSettingsController::class, 'destroyAsset'])->name('app-settings.assets.destroy');
         // ADR-192 — les coupons de remise de ce site.

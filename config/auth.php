@@ -99,6 +99,16 @@ return [
             'expire' => 60,
             'throttle' => 60,
         ],
+
+        // A new account's "set your password" link (SendUserInvitationJob).
+        // Its own table, so a one-hour reset token can never be replayed
+        // here to live for days.
+        'invitations' => [
+            'provider' => 'users',
+            'table' => 'account_invitation_tokens',
+            'expire' => (int) env('AUTH_INVITATION_EXPIRE_MINUTES', 4320),
+            'throttle' => 60,
+        ],
     ],
 
     /*

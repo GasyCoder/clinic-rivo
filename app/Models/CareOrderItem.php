@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'care_order_id', 'catalog_item_id', 'catalog_item_code_snapshot',
     'catalog_item_name_snapshot', 'quantity', 'instructions',
     'not_performed_at', 'not_performed_reason', 'not_performed_by',
+    'cancelled_at', 'cancelled_by', 'cancel_reason',
 ])]
 class CareOrderItem extends Model
 {
@@ -24,6 +25,7 @@ class CareOrderItem extends Model
         return [
             'quantity' => 'decimal:2',
             'not_performed_at' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 
@@ -60,9 +62,22 @@ class CareOrderItem extends Model
         return number_format(max($remaining, 0), 2, '.', '');
     }
 
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    /** Withdrawn by the doctor before Soins took the patient: nothing left to do. */
+    public function isCancelled(): bool
+    {
+        return $this->cancelled_at !== null;
+    }
+
     public function isResolved(): bool
     {
-        return $this->not_performed_at !== null || (float) $this->remainingQuantity() <= 0.0;
+        return $this->isCancelled()
+            || $this->not_performed_at !== null
+            || (float) $this->remainingQuantity() <= 0.0;
     }
 
     protected function auditModule(): ?string

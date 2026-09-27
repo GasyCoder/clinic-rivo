@@ -18,7 +18,13 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Inertia.js
 - [x] Configuration frontend
 - [x] Configuration base locale
-- [ ] DashWind
+- [x] shadcn-vue comme design system par défaut (ADR-099) ; DashWind conservé en reliquat le temps des migrations
+- [x] Sélecteur de date et d'heure shadcn (`Shadcn/DateTimePicker`, calendrier `reka-ui` en français, colonnes Heure / Minutes), d'abord sur la programmation du bloc ; même valeur qu'un `datetime-local` (ADR-099)
+- [x] `Shadcn/DatePicker` (date seule) et migration de tous les champs date natifs de l'application (59) vers `DatePicker` / `DateTimePicker` ; test garde-fou contre leur retour (ADR-099)
+- [x] Sélecteur de date compact (242 × 296 px au lieu de ~390 × 317) : cases de 28 px, ligne Heure : Minutes sous le calendrier, bouton « Maintenant » ; cartes Voie veineuse / Sonde urinaire placées par requêtes de conteneur, plus aucun champ qui déborde ni date tronquée (ADR-099)
+- [x] Menu latéral fidèle au rendu serveur : l'ordre personnel et les vues liste/grille ne sont plus lus pendant le rendu, plus aucune ligne portant le libellé d'un module et le lien d'un autre (ADR-115)
+- [x] Entrées mères par module (Médecine, Réception, Référentiels) ; un seul enfant actif à la fois ; icônes revues (ADR-115)
+- [x] Marque de l'application unifiée dans la navigation : pastille d'initiales dérivées de `rivo.brand` et enseigne en majuscules, écrites une seule fois pour le bandeau latéral et la barre du haut
 - [x] Authentification locale avec comptes actifs et rôle obligatoire
 - [x] RBAC dynamique
 - [x] Permissions et exceptions individuelles auditées
@@ -45,6 +51,12 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Lien patient-personnel vers un véritable dossier Employé
 - [ ] Identification patient
 - [ ] Recherche patient
+- [x] Répertoire patients : où chacun a encore besoin d'aller — Médecine, Soins, Pharmacie en combinaisons exactes (« seulement »), comptes-filtres qui suivent la recherche, pastille par service sur chaque ligne (ADR-119)
+- [x] Besoin de Pharmacie servi comme information de routage, sans médicament, quantité, montant ni état de règlement
+- [x] Répertoire patients passé à shadcn-vue (ADR-099) : compteurs partagés avec les files, colonne « Situation actuelle » à la place de « Catégorie », recherche lancée d'elle-même
+- [x] Répertoire patients classé par onglets — Tous / Besoin en cours / En attente de règlement / Aucun passage ouvert — comptes du serveur, combinables avec les autres filtres (ADR-120)
+- [x] Répertoire patients : tri A → Z / Z → A, filtre par initiale (A–Z) et export Excel de la liste filtrée (`patients.export`, audité) (ADR-133)
+- [x] Patients normaux / VIP : VIP = passages ET montant encaissé sur une fenêtre glissante, seuils propres à chaque site réglés depuis le portail par l'API, catégorie calculée jamais stockée (ADR-133)
 - [ ] Détection des doublons
 - [ ] Episode de soins
 - [x] Numéro patient annuel `SITE-YY-NNNN`
@@ -63,7 +75,15 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Estimation read-only au tarif Standard avant Patient/Episode
 - [x] Expérience progressive Besoin → Estimation → Patient → Episode → mode financier → confirmation → routage
 - [x] Prévisualisation financière SELF/MUTUAL/STAFF sans débit anticipé du crédit Bloc
-- [x] Branche Réception vers la Vente comptoir Pharmacie sans panier médicament dupliqué
+- [x] ~~Branche Réception vers la Vente comptoir Pharmacie sans panier médicament dupliqué~~ — remplacé (ADR-104)
+- [x] Panier d'arrivée à deux rayons : désignations/consultations et Pharmacie, une seule sélection (ADR-104)
+- [x] Estimation chiffrant les deux rayons avec leurs sous-totaux séparés, sans rien créer
+- [x] Passage « médicaments seuls » : aucune file clinique, `PENDING_SETTLEMENT` et bascule directe à la Caisse avec son ticket
+- [x] Vente comptoir anonyme retirée : toute vente de médicament passe par la Réception sur un dossier patient ; `pharmacy.counter_sales.create` déplacée de PHARMACY vers RECEPTION
+- [x] Un acte du bloc peut être la raison de la venue : la Réception l'inscrit et le bloc reçoit sa demande à programmer (ADR-159) ; sans tarif configuré, la demande part et la facturation attend (ADR-031)
+- [x] Le besoin n'ouvre plus aucune file Soins / Médecine / Maternité : il reste facturé, seules les analyses et l'acte du bloc créent leur demande ; « besoin à préciser » ne force plus les Soins ; l'urgence garde ses deux orientations (ADR-177)
+- [x] Étape « Routage » retirée : six étapes, et une prochaine étape suggérée facultative et multiple à la Confirmation, indicative, auditée, corrigeable depuis le détail du passage (ADR-177)
+- [x] Mode « Nouveau-né » retiré de l'accueil : « Patient existant » et « Nouveau patient » seulement ; un bébé né ailleurs est un nouveau patient au profil enfant (ADR-177)
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste (si validées)
 - [x] Taux de couverture par organisme et répartition figée part mutuelle / part patient
 - [x] Import/export Excel des tarifs Standard/Mutuelle et des organismes mutualistes
@@ -79,9 +99,17 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Caisse unique
 - [ ] Paiements
 - [ ] Paiements partiels
-- [ ] Créances
+- [x] Sorties & règlements : file des passages en attente de règlement, contrôle du compte (§33.2) et sortie administrative payé comptant / dette validée / évadé (ADR-090)
+- [x] Créance immuable créée par une sortie non soldée, jamais effacée par une évasion
+- [x] Sortie refusée tant qu'une prestation n'est portée sur aucune facture (tous types), avec « Facturer ces prestations » dans la fenêtre : plus aucun montant ne se perd à la sortie (ADR-090, amendement du 2026-09-20)
+- [x] Sélection multiple sur « Sorties & règlements » : sortie « payé comptant » en lot (comptes soldés), facturation en lot, fiches de sortie groupées (un PDF, une fiche par page) et export Excel de la sélection ; chaque passage jugé séparément, rapport des refus (ADR-090, amendement du 2026-09-20 ter)
+- [x] Cartes compteur sur « Sorties & règlements » : passages à régler, sorties prononcées, sorties avec dette et reste à payer — ce dernier réservé à `billing.view`
+- [x] Fiche de sortie imprimable après la sortie administrative, distinguant sortie médicale et sortie administrative (le papier les confondait), avec QR pour le contrôle de gardiennage (ADR-116)
+- [ ] Créances : suivi et règlement ultérieur d'une créance (aucune règle CDC — hors périmètre ADR-090)
 - [ ] Remboursements autorisés
-- [ ] Remises autorisées
+- [x] Remises : une par facture, la plus avantageuse, sur la part patient — VIP (réglée avec les seuils dans Patients VIP) et personnel (Paramètres › Remises), par site, remise propre à un patient (discounts.approve), coupons (portail) ; appliquée à la Caisse avant tout paiement, retirée tracée (ADR-192)
+- [x] Coupon archivé jamais utilisé supprimable définitivement (corbeille, confirmation, audit, code libéré) ; un coupon qui a servi reste archivé, la corbeille le dit (ADR-192, amendement du 2026-09-25)
+- [ ] Remise appliquée d'office à la création de la facture, remise libre du caissier avec validation hiérarchique, total des remises dans les rapports — à décider (ADR-192)
 - [ ] Reçus
 - [ ] Ouverture caisse
 - [ ] Clôture caisse
@@ -99,23 +127,311 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Constantes
 - [ ] Soins
 - [x] Fiche de soins NURSE par passage (constantes, IMC, actes et transmission)
+- [x] Soins réunit Infirmière, Maternité et Anesthésie : une entrée mère dans le menu et une barre d'onglets sur chacune des trois pages, chaque onglet gardant son adresse et sa permission (ADR-134)
+- [x] File Maternité en quatre vues exclusives — À prendre / En cours / Orientées vers Médecine / Terminées — comptes du serveur, badges de suivi (médecin, césarienne) sur chaque ligne (ADR-135)
+- [x] Fin de prise en charge Maternité à deux issues (terminer, ou terminer et orienter vers Médecine avec message) ; un passage sans service restant passe en attente de règlement, comme après les Soins (ADR-135)
+- [x] File Anesthésie en quatre étapes exclusives — À évaluer / Transmis à Chirurgie / Au bloc / Terminés — lues sur les faits existants de la demande chirurgicale, demandes annulées masquées (ADR-135)
+- [x] En-tête partagé des trois espaces Soins (`SoinsWorkspaceHeader`), tableaux et états vides en shadcn-vue (ADR-135)
+- [x] Liste d'actes Maternité de la clinique rapprochée du catalogue : Utilisation Aspirateur bébé, IEC et Nursie ajoutés, Syana Press / Dépôt Provera déplacé du Planning familial, Doppler et Photothérapie renommés (ADR-136)
+- [x] Dossier Maternité adapté à l’acte demandé à la Réception : sections attendues signalées et ouvertes d'office, deux fiches de nouveau-né vides pour un accouchement gémellaire, rien n'est verrouillé ni ajouté comme champ (ADR-136) — remplacé par les deux parcours de l’ADR-204
+- [x] Actes demandés à la Réception enregistrables en un clic ; choix des actes en boutons ; « Autres » exige sa précision (ADR-136)
+- [x] Acte Maternité corrigeable (quantité, précision) ou retirable (crayon, corbeille) par le personnel, sauf l'acte d'un médecin qui reste intact ; retrait tracé, l'acte quitte la liste (ADR-140)
+- [x] Acte Maternité enregistré facturé au tarif serveur, rattaché à la facturation de la Réception quand elle existe déjà ; retirer ou changer la quantité défacture ce que la Maternité avait porté, jamais une facture (ADR-141)
+- [x] État de facturation de chaque acte affiché sans montant — « À la Caisse », « Sur facture », « Non facturé — à régulariser » (ADR-141, ADR-103)
+- [x] Matériel utilisé en Maternité transmis à la Pharmacie par le circuit des consommables Soins, dans le même geste que les actes, avec matériel habituel suggéré et origine Soins/Maternité dans la file (ADR-142)
+- [x] Matériel habituel configurable pour les actes Maternité avec tout produit stockable (DIU, implant, injectable), les Soins restant limités à la parapharmacie (ADR-142)
+- [ ] Créer en Pharmacie DIU / implant / Sayana Press, les prix de vente, et les associer aux actes Maternité — configuration de la clinique (ADR-142)
+- [x] Dossier médical : la Maternité en est une section (grossesse, prénatal, travail, accouchement, actes) et chaque bébé y a son bloc, gardée par `maternity.view` ; un dossier, pas deux (ADR-143)
+- [x] Le bébé devient un patient relié à sa mère par un geste explicite : numéro dérivé (A-26-0009-B1), naissance jamais devinée, jumeaux acceptés, geste idempotent, aucun passage ouvert, soins du bébé sur le compte de la mère (ADR-144)
+- [x] Lien mère–bébé lu dans les deux sens (dossier Maternité, dossier patient, dossier médical) sans rien de clinique de la mère chez le bébé ; retirer la fiche d'un bébé relié est refusé (ADR-144)
+- [x] Dossier médical lisible par patient, sans passage (`/patients/{patient}/dossier-medical`) : le modèle papier existe enfin pour un bébé, avec un bloc « Naissance » et rien de clinique de la mère (ADR-145)
+- [x] Onglets Mère · Bébé 1 · Bébé 2 sur le dossier médical, et un seul composant `NewbornDossiers` (Maternité, détail du passage) au lieu de trois blocs écrits à la main, hors du formulaire verrouillé (ADR-145)
+- [x] Sexe du bébé choisi dans la fenêtre de création quand la fiche ne le porte pas, puis écrit dans la fiche (ADR-145)
+- [x] Le bébé vit dans le dossier de sa mère et ne devient patient qu'à l'accueil : la Réception demande « accouchement chez nous ou ailleurs ? », cherche la mère, choisit le bébé dans son arborescence (ADR-146)
+- [x] Arrivée nouveau-né cohérente : né ici = recherche de la mère seulement ; né ailleurs = identité minimale du bébé, champs d'adulte refusés, parent/responsable porté par le passage (ADR-146, amendement du 2026-09-22)
+- [x] Profil enfant piloté par « Enfant fille / garçon » : identité et domicile familial seulement ; champs d'adulte masqués et refusés, contact parent porté par le passage (ADR-146, amendement du 2026-09-22)
+- [x] Nom et prénom du bébé saisis dans sa fiche Maternité (facultatifs) ; un bébé non prénommé se dit « Bébé 2 de RAKOTO », jamais un prénom inventé (ADR-146)
+- [x] Dossier médical d'un bébé lisible dès sa fiche, avant tout dossier patient (`/passages/{episode}/nouveau-nes/{uuid}/dossier-medical`), qui redirige vers son dossier patient dès qu'il en a un (ADR-146)
+- [x] Geste de création retiré de la Maternité : la sage-femme consigne le bébé, l'accueil ouvre son dossier patient (ADR-146)
+- [x] Dossiers de bébés ouverts par l'ancien geste et jamais utilisés rendus à la fiche de leur mère, nom compris, numéro libéré ; ceux qui ont servi restent patients (ADR-146, amendement du 2026-09-20)
+- [x] Ligne « Nouveau-né de RAKOTO Vola » dans le répertoire, qui mène au dossier de la mère : un bébé accueilli reste un patient qu'on cherche par son nom (ADR-146)
+- [x] Carte « Nouveau-nés nés à la clinique » dans le dossier de la mère, lue sur les fiches : un bébé y figure dès l'accouchement, avant tout dossier patient (ADR-146, amendement du 2026-09-20 bis)
+- [x] Repère « 1 bébé né ici » sur la ligne d'une mère dans le répertoire, ce que la Réception cherche à chaque arrivée d'un nouveau-né (ADR-146)
+- [x] Droits propres au nouveau-né — `newborns.view`, `newborns.medical_record.view`, `newborns.patient.create` — à la place de `maternity.view`, que ni la Réception ni Médecine ne détiennent (ADR-146, amendement du 2026-09-20 ter)
+- [x] Catégorie « Nouveau-nés » dans « Rôles & permissions » : le droit d'ouvrir le dossier d'un bébé se coche depuis le portail, il n'est pas accordé d'office à la Réception (ADR-064)
+- [x] Dossier médical d'un bébé composé comme une feuille de nouveau-né — identité, mère à joindre, naissance et accouchement, état à la naissance — sans situation maritale, profession, adresse, tabac ni antécédents d'adulte (ADR-145, amendement du 2026-09-20)
+- [ ] Validation par les sages-femmes du partage mère / bébé des données d'accouchement (mode, terme, complications côté bébé ; gestité, travail, délivrance côté mère) — le CDC ne décrit aucun dossier de nouveau-né (ADR-145)
+- [ ] Bébé de sexe indéterminé comme patient, correction d'un lien créé par erreur, facturation propre au bébé pour ses futurs passages — règles non définies par le CDC (ADR-144)
+- [x] Soins bébé notés par nouveau-né (jumeaux : chacun ses soins), soins mère uniques ; ancienne note commune conservée si elle existe (ADR-139)
+- [x] Actes Maternité enregistrés dans un panier : ajout d'un clic, quantité et précision par ligne, enregistrement de tout le panier d'un geste (tout ou rien), actes demandés ajoutables en bloc (ADR-138)
+- [x] Saisie du dossier Maternité conservée côté serveur par compte, restaurée après une actualisation (ADR-136, comme ADR-073)
+- [x] Repères sous les champs du dossier Maternité : poids de naissance (unité, conversion kg, faible/élevé), Apgar, terme, hauteur utérine, rythme fœtal, parité, dates ; la prévisualisation navigateur reste indicative, la DPA et le terme enregistrés sont désormais calculés par Laravel depuis la datation de la grossesse (ADR-137, amendée par ADR-201)
+- [x] Grossesse longitudinale distincte de la patiente, du passage et de la consultation ; choix explicite Continuer/Créer, verrou anti-doublon, anciens dossiers laissés sans liaison incertaine (ADR-201)
+- [x] Historique limité à la même grossesse, grossesses précédentes séparées, comparaison prénatale factuelle et consultations historiques en lecture seule (ADR-201)
+- [x] DDR/DPA/G/P/facteurs de risque sur Pregnancy, terme semaines + jours figé sur chaque consultation, correction de datation auditée sans réécrire les snapshots (ADR-201)
+- [x] Accouchement terminé clôt la grossesse à son heure clinique ; une grossesse livrée n'est plus proposée comme active et les naissances multiples restent une seule grossesse (ADR-201)
+- [x] Suivi de la grossesse lisible : un seul choix « Continuer cette grossesse » dans le résumé, carte à onglets (consultations, comparaison, grossesses précédentes), terme instantané sur une consultation relue, écarts et intervalle servis par le serveur, référence stable, onglets « renseignés » seulement par une saisie (ADR-201, amendement du 2026-09-27)
+- [x] Deux parcours Maternité liés à la même grossesse, choisis explicitement : consultation prénatale (Vue d’ensemble, Interrogatoire, Examen, Paraclinique, Synthèse, Rendez-vous) et accouchement (Admission, Travail, Surveillance, Accouchement, Nouveau-né, Transmission) ; suggestion de la Réception présélectionnée seulement (ADR-204)
+- [x] Enregistrement automatique réel du dossier Maternité, jamais avant le choix de la grossesse ; Précédent / Suivant ; état Enregistré / Échec + Réessayer ; finalisation explicite nommée selon le parcours ; un dossier terminé refuse tout enregistrement tardif (ADR-204)
+- [x] Consultation prénatale structurée (motif, rapporté depuis la dernière consultation, mouvements fœtaux, contractions, présentation, synthèse, surveillance, conduite à tenir), sans diagnostic automatique (ADR-204)
+- [x] Analyses et imagerie demandées depuis la Maternité, rattachées au dossier (`maternity_record_id`), facturées à la demande, résultats lus du Laboratoire et de l’Imagerie ; un résultat en attente ne bloque rien ; historique paraclinique de toute la grossesse (ADR-204)
+- [x] Rappels du suivi prénatal selon le terme, indicatifs et « à valider par la clinique » (ADR-204)
+- [x] Prochain rendez-vous facultatif créé à la fin de la consultation, sans ouvrir de passage (`appointments`) (ADR-204)
+- [x] Accouchement : suivi prénatal complet dans un panneau latéral, examens pendant le travail, clôture de la grossesse à l’heure consignée (ADR-204)
+- [x] File Maternité : onglets Tous / Consultations / Accouchements, parcours choisi à la prise en charge (ADR-204)
+- [x] File Maternité lisible : parcours et grossesse sous le nom de la patiente, plus de grand cadre ; anciens dossiers rangés par leur parcours déduit dans le bon onglet (ADR-204, amendement du 2026-09-27)
+- [x] En-tête de la file Maternité : parcours à droite du titre (comptes du bloc ouvert, dit à l'écran), compteurs du tableau des passages en bande serrée de 55 px au lieu de ~95 — Soins, Médecine et Maternité (ADR-204, amendement du 2026-09-27 bis)
+- [x] DPA mise en valeur dans l'en-tête du parcours et la carte de grossesse : case teintée, date en gras, délai restant coloré (rose, ambre les deux dernières semaines, rouge une fois dépassée) (ADR-204, amendement du 2026-09-27 bis)
+- [x] La grossesse ne s'affiche plus qu'une fois dans le dossier Maternité : l'en-tête du parcours porte aussi « Continuer cette grossesse », « Corriger la datation » et les facteurs de risque ; doublons de l'étape 1 et de l'admission retirés (ADR-204, amendement du 2026-09-27 bis)
+- [x] Étape « Ordonnance » dans les deux parcours Maternité : la sage-femme prescrit comme le médecin (même écran que le séjour, réservation FEFO, relecture, confirmation signée), délivrance après règlement à la Caisse (ADR-205)
+- [x] Droits de prescription recommandés au profil sage-femme, jamais accordés d'office ; l'étape nomme le droit manquant (ADR-205)
+- [x] Feuille d'ordonnance d'une sage-femme sous son titre (« Sage-femme … », « cachet du prescripteur »), jamais « Dr » (ADR-205)
+- [x] Étapes prénatales rangées en blocs iconés (motif, rapporté depuis la dernière consultation en cartes à cocher, mesures, fœtus, synthèse) ; lien `#étape` suivi sans recharger (ADR-205)
+- [ ] Redessiner les étapes de l'accouchement (Admission, Travail, Surveillance, Accouchement, Transmission) comme les étapes prénatales (ADR-205)
+- [ ] Propositions d'ordonnance (ADR-111) en Maternité — à décider (ADR-205)
+- [ ] Appliquer les recommandations du profil sage-femme aux comptes concernés depuis le portail (ADR-205)
+- [ ] Valider le calendrier des examens prénatals avec la clinique (document de référence non fourni) (ADR-204)
+- [ ] Accorder ou non `laboratory_orders.create` / `imaging_orders.create` aux sages-femmes (ADR-204)
+- [ ] Écran du cycle d’un rendez-vous (honoré, non venu, annulé) (ADR-204)
+- [ ] Geste « Grossesse terminée sans accouchement » (`ENDED`) : validation, auteur et motif à définir par la clinique (ADR-201)
+- [ ] Rattacher un ancien dossier Maternité non lié à une grossesse — geste explicite à décider, jamais un regroupement automatique (ADR-201)
+- [ ] Validation des seuils Maternité par une sage-femme ou un médecin de la clinique (ADR-137)
+- [ ] Champs cliniques propres à chaque acte Maternité — à fournir par les sages-femmes, rien n'est inventé (ADR-136)
+- [ ] Facturation d'un acte ajouté en Maternité au-delà de la demande de la Réception — règle à définir (ADR-136)
 - [x] Référentiel initial des actes infirmiers fourni par le client, sans tarifs inventés
 - [x] Projection partagée des constantes et alertes (CareRecordReadModel) entre Soins, Médecine et Chirurgie/Anesthésie
 - [x] Antécédents patient exposés via un point d'entrée générique, consultables et ajoutables depuis Médecine
+- [x] Antécédents distingués personnels / familiaux, traitements actuels déclarés en consultation, lieu de naissance au dossier patient
 - [x] Clôture administrative automatique (PENDING_SETTLEMENT) d'un parcours Soins seul réellement terminé, sans sortie médicale fictive
 - [x] Page transversale « Détail du passage » en lecture seule, sécurisée section par section côté serveur
+- [x] Parcours d'un passage composé une seule fois (`EpisodePathwayTimeline`) : Réception, orientations, Pharmacie, factures, encaissements et sortie, affichés à l'identique par le détail du passage et par la frise du dossier patient (ADR-117)
+- [x] Deux demandes vers le même service numérotées (« Soins 1 », « Soins 2 ») au lieu d'un doublon apparent ; chaque demande de soins dit d'où elle vient, qui l'a faite et la suite décidée par le médecin (retour en Médecine ou sortie directe)
+- [x] Actes demandés au sein de chaque demande de soins, lus sur les actes réellement enregistrés (réalisé, à réaliser, non réalisé, retiré)
+- [x] Étape « Sortie — à prononcer par la Réception » quand le passage n'attend plus que son règlement : la réponse à « pourquoi ce passage est-il encore ouvert ? »
+- [x] L'ordonnance du prescripteur figure au parcours (« Pharmacie · Ordonnance ») avec son issue — transmise, délivrée, annulée — sans révéler l'état de règlement de la Pharmacie ; une ordonnance hors référentiel s'annonce comme telle ; facture et encaissement d'un ticket Pharmacie portent la mention « Ticket Pharmacie » (ADR-117)
+- [x] Dossier médical imprimable, reprenant identité, constantes, allergies, antécédents familiaux, hospitalisation et diagnostic déjà consignés — rien n'est ressaisi, les sections sensibles restent gardées par leur permission (ADR-116)
+- [x] Fuite corrigée : le diagnostic, les traitements et le motif d'hospitalisation de la feuille imprimée sont gardés par `diagnoses.view`, `medical_record.view` et `hospitalization.view` — la Réception les lisait avec `patients.view` seul (ADR-116, amendement du 2026-09-20)
+- [x] Journal de traitement (« Dossier médical – Traitement ») : chronologie automatique lue depuis ce qui est déjà enregistré, complétée de lignes manuelles append-only pour ce que l'application ne sait pas encore (ADR-116)
+- [x] Tous les journaux de traitement d'un patient réunis en un seul document (couverture puis une feuille par passage, une page chacune), lisible à l'écran et enregistrable en un seul PDF par l'impression du navigateur, sous un nom de fichier explicite (ADR-118)
+- [x] Bouton « Journaux de traitement » dans l'en-tête du dossier patient, sur l'onglet Passages (avec « Journal » par passage) et dans la fenêtre d'un patient de la file Soins, réservé à `treatment_journal.view` (ADR-118)
+- [x] File Soins : « 1 passage · 2 demandes de soins » au lieu de « 2 passages » ; chaque demande dit qui l'a faite, la suite décidée et ses actes, par une règle partagée avec le parcours du passage (`CareRequestSummary`, ADR-118)
+- [x] Dossier patient passé à shadcn-vue (ADR-099) : statuts en pastilles et icônes lucide, `FormField` et `Checkbox`, plus aucune classe de la police d'icônes
+- [ ] PDF généré par le serveur (envoi par courriel, archivage sans interaction) — exigerait une bibliothèque de rendu, à décider si le besoin apparaît (ADR-118)
+- [x] Tabac et alcool lus selon l'âge (« Oui » improbable avant 10 ans, à signaler chez un mineur), âge invraisemblable signalé, « Oui » rouge / « Non » vert (ADR-126)
+- [x] Constantes lues selon l'âge — FC, tension, température du nourrisson —, table unique servie à l'écran, et toast sur une valeur critique ou improbable ; tables à valider par un médecin (ADR-125)
+- [ ] Tension et IMC de l'enfant par percentiles (âge, sexe, taille) — tables à fournir par la clinique (ADR-125)
+- [x] Fiche de soins à cinq étapes : la transmission à Médecine, facultative, rejoint « Terminer » au lieu d'avoir son propre écran (ADR-123)
+- [x] Patient pris en charge par erreur aux Soins : « Remettre en file » le replace à sa place tant qu'aucun soin n'est enregistré, audité (ADR-122)
+- [x] Patient pris en charge par erreur en Médecine : « Remettre en file » le replace à sa place tant que la consultation est vierge, audité (ADR-127)
+- [x] Les trois profils Soins (Infirmière, Maternité, Anesthésie) sont toujours affichés : celui sans droit est verrouillé et nomme la permission, au lieu d'être masqué — la barre disparue faisait lire l'écran comme une version ancienne (ADR-158)
+- [x] La file Soins s'ouvre avec `care.create` (faire les soins), plus avec `care.update` : un compte Médecine, qui l'a pour corriger une fiche (ADR-093), entrait dans l'espace des infirmières (ADR-157)
+- [x] La suite des Soins se choisit à l'étape Terminer : un patient attendu en Médecine se termine aux Soins avec un motif obligatoire (tracé, visible dans le parcours), un patient prévu aux Soins seuls s'envoie au médecin avec sa transmission ; la consultation prévue reste facturée (ADR-166)
+- [ ] Besoin inconnu terminé aux Soins sans Médecine : le passage reste « en soins » (ADR-054 ne vaut que pour Soins seuls) — à décider (ADR-166)
+- [x] Reprendre la prise en charge Soins d'un collègue, motif obligatoire et tracé (`care.complete`) ; la suite des soins se montre verrouillée avec le nom de qui la décide, au lieu d'être masquée (ADR-167)
+- [x] Suite prévue affichée seulement (bordure bleue) ; la suite non prévue demande un motif dans les deux sens, et un seul motif suffit quand il faut aussi reprendre le patient (ADR-166, ADR-167, amendements du 2026-09-21)
+- [x] Une seule fenêtre de reprise : un motif, puis la case « Reprendre la prise en charge » ; bandeau jaune retiré, reprise sans changer la suite depuis le pied de l'étape Terminer (ADR-167, amendement bis du 2026-09-21)
+- [x] « Suite après les soins » déplacée en bas de l'étape Terminer, juste au-dessus du bouton qu'elle commande ; conséquence lue une seule fois sous le choix, qui dit ce qui manque tant qu'elle ne peut pas être validée ; transmission abandonnée signalée (ADR-166, amendement du 2026-09-27)
+- [x] File Soins réduite à deux onglets — À prendre aux Soins / Orientés en attente du médecin : les patients déjà accueillis par le médecin quittent la page pour le module Patients (ADR-124)
+- [x] Tableau partagé des passages pour Soins, Médecine et Maternité (`ActiveEpisodeBoard`) : tout passage ouvert et accueilli est visible, aucune donnée clinique ni financière sur la ligne ; remplace les files par orientation (ADR-177)
+- [x] Trois blocs exclusifs — En attente (chaque patient numéroté par ordre d'arrivée, n° 1 « Prochain »), En cours chez moi, Terminés chez moi — plus les filtres « Suggérés pour moi » et « Urgences » ; colonnes adaptées à chaque bloc, « Actuellement : Soins » pour un patient en soin ailleurs (ADR-177, amendement du 2026-09-23)
+- [x] Passage terminé relu depuis le tableau : Consulter, Journal, Dossier et Passage sur une ligne, chaque bouton servi selon son droit (ADR-177)
+- [x] Suggestion de l'accueil : une étape déjà faite (Soins terminés) passe en vert avec coche et date ; renvoyé au service, elle ne l'est plus (ADR-177, amendement du 2026-09-27)
+- [x] « Aux Soins » sur le tableau Médecine : envoyer aux Soins, avant la consultation, un patient venu directement pour le médecin (consigne facultative), annulable tant que les Soins ne l'ont pas pris ; il garde sa place et revient par « Transmettre au médecin » (ADR-177, amendement du 2026-09-27)
+- [x] « Aux Soins » à tout moment : avant, pendant (consultation laissée ouverte) ou après la consultation (passage « à régler » repassé « en soins »), même si les Soins l'ont déjà vu ; la fenêtre dit ce qui suit les soins (ADR-177, amendement du 2026-09-27 bis)
+- [x] Les Soins prennent un patient attendu en Médecine : fenêtre d'information puis « Prendre aux Soins », plus aucun « Prendre » verrouillé ni refus serveur ; il reste hors de leur file numérotée (ADR-177, amendement du 2026-09-27 bis)
+- [x] Patient déjà pris en charge en Médecine ou aux Soins : « En cours » à la place de « Prendre » (service et médecin écrits à côté) dans les autres tableaux, message au clic, refus serveur ; demandes adressées au service et urgences jamais bloquées (ADR-177, amendement du 2026-09-27)
+- [x] Prise en charge réelle et tracée depuis le tableau (`TakeChargeOfEpisodeAction`) : regarder ne crée ni orientation, ni consultation, ni fiche ; reprise après fin refusée (ADR-177)
+- [x] Par où le passage devrait entrer : la Médecine est prévenue d'un patient attendu aux Soins et choisit (faire les soins elle-même avec les droits Soins, ou consulter quand même) ; les Soins sont informés et refusés côté serveur pour un patient attendu directement en Médecine — urgence et soin demandé par le médecin jamais soumis (ADR-177, amendement du 2026-09-23 ; refus retiré le 2026-09-27 bis)
+- [x] Dossier patient d'un bébé né à la clinique ouvert depuis la Maternité (« Créer le dossier patient »), droit recommandé au profil sage-femme (ADR-177)
+- [ ] À confirmer : passages en attente de règlement hors de « Tous », Maternité voyant tous les passages, socle RECEPTION gardant `newborns.patient.create`, tableaux Labo / Pharmacie / bloc pour la suggestion (ADR-177)
+- [x] File Soins : prendre un patient qui n'est pas le premier demande confirmation, comme en Médecine — règle et fenêtre partagées, rien n'est bloqué (ADR-121)
 - [x] Ordres de soins Médecine → Soins (CareOrder), retour Médecine optionnel sans nouvel Episode
+- [x] Consommables déclarés aux Soins, notifiés à la Pharmacie, facturés séparément et sortis du stock sans attendre le règlement
+- [x] Matériel habituel configurable par acte de soins, pré-rempli comme suggestion et toujours confirmé par le soignant
+- [x] Saisie en cours de la fiche de soins conservée par auteur et restaurée après actualisation
+- [x] Fiche de soins corrigeable après le transfert vers Médecine, par tout compte Soins autorisé et tracée à l'audit ; le transfert lui-même reste unique (ADR-092)
+- [x] Alcool déclaré à côté du Tabac, à trois états (non renseigné / non / oui)
+- [x] Constantes toujours affichées avec leur date et leur heure (bande des constantes, détail du passage, dossier patient), « il y a 2 mois » en ambre pour un relevé d'un autre jour (ADR-093, amendement du 2026-09-27)
+- [x] Constantes corrigeables par le médecin depuis la consultation, périmètre borné aux constantes et écrasement tracé à l'audit (ADR-093)
+- [x] Alertes de constantes hors bornes présentées comme des alertes actionnables en Médecine, et confirmation explicite avant de clôturer sur une constante critique
+- [x] Brouillon serveur étendu aux demandes de « Conduite à tenir » (chirurgie, hospitalisation, transfert), jusque-là perdues à l'actualisation (ADR-073)
 - [ ] Demande laboratoire
 - [ ] Demande chirurgie
-- [ ] Hospitalisation
-- [ ] Transfert médical
+- [x] Hospitalisation (ADR-113)
+- [x] Transfert médical : module Transferts, demande en un clic, établissement complété dans le module, « Transfert effectué » (ADR-114)
+- [ ] Arrivée et accusé de réception d'un transfert — personne ici ne les observe (ADR-114)
 - [x] Sortie médicale découplée de la sortie administrative
+- [x] Interrogatoire et Examen clinique en deux étapes distinctes du parcours, chacune son enregistrement serveur
+- [x] Intention d'orientation préparée en Prescription (sortie, hospitalisation, Maternité, Chirurgie, Pédiatrie, transfert), sans créer le workflow spécialisé
+- [x] Statut réel par étape de consultation (`consultation_steps`) : validée, en cours, non nécessaire ou non commencée — jamais déduit d'une donnée présente ni d'un écran ouvert
+- [x] Étapes optionnelles explicitement « passées » avec auteur, date et motif facultatif ; étapes sans objet pour le patient ni exigées ni verrouillées
+- [x] Statut de consultation `DRAFT/IN_PROGRESS/COMPLETED/CANCELLED`, clôture refusée tant qu'une étape pertinente n'est pas résolue, lecture seule ensuite
+- [x] Examen clinique semi-structuré : état général, conscience, neuf appareils à trois états et notes complémentaires facultatives (ADR-077, amende ADR-074)
+- [x] `NOT_EXAMINED` par défaut et jamais stocké : une absence de saisie n'est jamais un examen normal ; `ABNORMAL` exige ses constatations
+- [x] Aucune constante vitale ressaisie en Médecine : la fiche Soins reste la source unique, en lecture seule
+- [x] Interrogatoire semi-structuré : motif principal exploitable séparé du récit, début/durée, évolution et notes complémentaires (ADR-078)
+- [x] Traitements habituels du dossier patient (`patient_treatments`) affichés sans ressaisie, avec question de changement déclaré
+- [x] Allergies, antécédents et traitements signalés pendant l'entretien conservés sur la consultation ; promotion au dossier permanent explicite et soumise à `patients.medical_history.manage`
+- [x] Examens paracliniques (analyses, ECG, échographie) facturés dès la demande du médecin, comme à la Réception (ADR-105)
+- [x] Un examen déjà demandé à la Réception n'est **jamais refacturé** : la demande du médecin rattache la prestation de l'arrivée au lieu d'en créer une seconde (ADR-109)
+- [x] Le besoin de l'arrivée entre de lui-même dans la demande paraclinique, retirable, avec la mention « déjà porté au compte du patient » (ADR-109)
+- [x] ECG et Échographie séparés en deux onglets, sur une famille réglée au catalogue (`imaging_modality`) — jamais déduite d'un code (ADR-106)
+- [x] Onglet « Non classés » visible uniquement s'il contient un examen : un examen sans famille n'est jamais rangé au hasard
+- [x] Transmission d'une demande d'examen confirmée comme une signature : examens nommés un par un et responsabilité nominative (ADR-106)
+- [x] Validation d'une ordonnance confirmée comme une signature : chaque ligne relue avec sa posologie composée, mention « Hors référentiel » pour une ligne manuelle (ADR-106)
+- [x] Bandeau « Orientation actuelle » retiré de la Prescription : redondant depuis l'ADR-089, et son bouton menait à un écran où la carte n'existe plus
+- [x] Pied « Précédent / Suivant » retiré de « Décision & clôture » : les onglets 1 · 2 · 3 sont la seule navigation, et aucun n'est condamné par l'état du dossier (ADR-106)
+- [x] Corriger et retirer un diagnostic depuis « Décision & clôture » : les endpoints existaient depuis l'ADR-081, aucun écran ne les appelait plus (ADR-106)
+- [x] Obstacle de clôture menant à sa sous-étape (`closure_section`) : « déjà sur place » ne disait pas où agir sur un écran à trois sections
+- [x] Bandeau des résultats attendus rendu neutre : l'ambre le faisait lire comme un verrou alors qu'un résultat manquant n'a jamais bloqué la clôture (ADR-105, ADR-106)
+- [x] Demande transmise ne retenant plus la clôture : l'étape se résout à l'envoi, et le fait clinique prime sur l'état de l'écran (ADR-105)
+- [x] Retrait d'une demande annulant ce qu'elle avait porté au compte du patient, sans toucher un montant déjà facturé
+- [x] Règle « facturer sans jamais bloquer l'acte » écrite une seule fois (`ClinicalActBiller`) au lieu d'une copie par appelant
+- [x] Décision paraclinique explicite en tête de l'étape Paraclinique : « Non » la déclare non nécessaire et mène au Diagnostic, « Oui » ouvre la sélection (ADR-079)
+- [x] Diagnostic conclu dans l'Examen clinique quand il peut l'être ; « Pas maintenant » diffère sans rien bloquer (ADR-080)
+- [x] Étape Diagnostic retirée de l'assistant (six étapes) : correction et annulation dans l'examen, historique complet — annulés compris — dans « Contexte clinique » (ADR-081)
+- [x] Clôture vérifiant directement l'existence d'un diagnostic actif, au lieu de l'état d'un écran
+- [x] Diagnostic déjà posé à l'examen rappelé à la clôture (« rien à ressaisir ») ; retirer le dernier diagnostic d'une vraie consultation prévient que la clôture en dépend — l'exigence du CDC §33.1 est maintenue (ADR-081, amendement du 2026-09-20)
+- [x] Diagnostic final facultatif pour un passage venu seulement pour un examen (ECG, écho, analyse) : la conclusion de l'examen en tient lieu, et le résultat n'est souvent pas revenu à la clôture (ADR-094)
+- [x] « Le diagnostic peut-il être posé maintenant ? » posée à Décision & clôture, seule étape que tout patient atteint ; un report est nommé comme tel dans les blocages au lieu de passer pour un oubli (ADR-095)
+- [x] « Oui » sans diagnostic ouvre la saisie au lieu d'échouer : le refus serveur renvoyait à un champ que « Pas maintenant » gardait replié (ADR-095)
+- [x] Saisie de diagnostic sans distinction hypothèse / final ; les hypothèses déjà enregistrées gardent leur type et restent signalées (ADR-082)
+- [x] Voie d'administration sur les lignes d'ordonnance, facultative et jamais rétro-remplie (ADR-083)
+- [x] Posologie composée avec ses unités à la saisie ; plus de « Dose 500 / Fréquence 3 » sans contexte
+- [x] Dose facultative pour un produit qui ne se dose pas (compresses, gants) : la forme du référentiel décide, jamais le libellé (ADR-110)
+- [x] Ligne d'ordonnance relue avant signature : voie incompatible avec la forme, fréquence sans unité, quantité insuffisante, allergie, enfant sans poids, doublon de principe actif, dose en mg/kg — sans jamais bloquer ni prétendre juger une dose (ADR-128)
+- [ ] Doses maximales par produit, âge et poids — à fournir par la clinique pour détecter réellement une dose trop élevée (ADR-128)
+- [x] Quantité totale déduite de la fréquence et de la durée, base du calcul écrite sous le champ, jamais imposée sur une quantité déjà corrigée (ADR-110)
+- [x] Aucune quantité suggérée quand la posologie n'en implique aucune (« si besoin », fréquence libre, durée absente)
+- [x] Écran Ordonnance passé à shadcn (ADR-099) : `Select`/`FormField` dans l'éditeur de ligne, unité attachée à la quantité, catalogue distinguant « Dans l'ordonnance » et « Épuisé », reprise de la quantité déduite en un clic (amendement ADR-110)
+- [x] Protocoles thérapeutiques de la clinique (`/medicine/protocoles`) : signes évocateurs, population (âge, sexe, poids), ordonnance type — rédigés par les médecins, jamais inventés (ADR-111)
+- [x] Diagnostics proposés à l'Examen clinique et à Décision & clôture, avec les signes retrouvés ; « Retenir » les enregistre, toujours corrigeables (ADR-111)
+- [x] Ordonnance proposée à la Prescription pour les diagnostics posés : lignes préremplies et modifiables, épuisés non ajoutables, allergies en rouge et exclues de « Tout ajouter » (ADR-111)
+- [x] Origine de chaque diagnostic et ligne retenus tracée (`suggestion_source`, `clinical_protocol_id`) et revérifiée par le serveur (ADR-111)
+- [x] Algorithme local « Pratique de la clinique » : diagnostics appris du vocabulaire des consultations passées, ordonnance habituelle et sa posologie la plus fréquente, sans aucun service externe (ADR-111)
+- [x] Seuils de prudence (3 cas, 2 occurrences, 30 %), consultation en cours exclue de sa propre preuve, patient hors de la tranche d'âge déjà traitée signalé (ADR-111)
+- [x] Motif prérempli par le nom de la prestation retiré du texte analysé : ce n'est pas un symptôme (ADR-111)
+- [x] Navigation précédente pointant vers la dernière étape réellement pertinente, jamais vers une étape « Non nécessaire »
+- [x] Demandes d'analyses et d'imagerie annulables (`cancelled_at`), jamais supprimées ; une demande avec résultat n'est jamais retirée
+- [x] Conduite à tenir portée par `consultation_orientations` (SELECTED / SUBMITTED / CANCELLED), décidée dès que le médecin en sait assez (ADR-084)
+- [x] Parcours à six étapes terminé par une vraie Clôture : vérifier, signaler ce qui manque, valider — jamais redemander la décision
+- [x] Formulaire de la destination ouvert immédiatement après le choix, prérempli du dossier : plus aucune double saisie
+- [x] Demandes d'hospitalisation et de référence/transfert avec leur table, leur statut et leur document imprimable
+- [x] Module Hospitalisation (ADR-113) : admission automatique à la demande du médecin, séjour, chambre/lit en texte libre, sortie par la sortie médicale
+- [x] Fiche de régime par séjour : grille jour/heure en texte libre, remplie par Médecine et Soins, en-tête repris du dossier, imprimable au format papier, sans facturation
+- [x] Sortie d'hospitalisation alimentée par les diagnostics déjà consignés (passage et séjour), cochés d'office : la sortie était impossible, le formulaire n'en recevait aucun (ADR-147)
+- [x] Diagnostic conclu au terme du séjour enregistré sur le séjour (`hospital_stay_diagnoses`), append-only : la consultation qui a demandé l'hospitalisation est close et n'est jamais réécrite (ADR-147, ADR-076)
+- [x] Réception en lecture sur l'Hospitalisation (`hospitalization.view`) : détail, dossier et impression de la fiche ; sortie, séjour, régime, demande et diagnostic restent refusés (ADR-147)
+- [ ] Annulation tracée d'un diagnostic de sortie, et reprise de ces diagnostics par les propositions de l'ADR-111 — à décider (ADR-147)
+- [x] Visite de service : chaque visite ouvre une vraie consultation rattachée au séjour (diagnostic, ordonnance, analyses, imagerie, ordre de soins), sans dupliquer un seul circuit ; le patient n'entre jamais dans la file d'attente et reste hospitalisé (ADR-148)
+- [x] Bloc de sortie regroupé en trois sections encadrées — Décision / Conclusion médicale / Consignes — au lieu d'une colonne étalée dont la moitié restait vide (ADR-148, ADR-099)
+- [x] Conduite à tenir « Poursuite de l'hospitalisation » : une visite de service se clôture enfin — « Sortie médicale » et « Hospitalisation » sont retirées pour un patient au lit (second séjour, sortie sans fin de séjour), et l'écran dit où la sortie se prononce (ADR-149)
+- [x] Repère « Hospitalisé · chambre » dans l'en-tête de la consultation et dans la carte de conduite à tenir (ADR-149)
+- [x] Aucun rôle codé en dur sur l'Hospitalisation : un compte de Réception à qui l'on accorde les droits fait tout ce qu'ils permettent — séjour, régime, diagnostic, visite et sortie ; un test le prouve et interdit toute régression (ADR-152)
+- [x] Sortie médicale refusée **côté serveur** depuis une consultation tant qu'un séjour est actif : l'écran le retirait déjà, mais l'interface n'est jamais la seule garde — règle de cohérence, jamais de droit (ADR-152)
+- [x] Une sortie déjà prononcée n'est plus redemandée : la clôture la rattache comme conduite à tenir (DISCHARGE/SUBMITTED), le bouton « Clôturer » ne reste plus gris au-dessus d'un fait daté et signé (ADR-156, ADR-107)
+- [x] Vue « Sortie médicale prononcée · service pas encore clôturé » à la Réception : un passage sorti du lit mais dont la consultation reste ouverte n'était visible nulle part (ADR-156)
+- [x] Toutes les sorties se suivent à « Sorties & règlements » : chaque ligne dit si le passage est passé par un lit (service, chambre, lien vers le séjour avec `hospitalization.view`) — retirer la liste des séjours terminés sans la remplacer les aurait perdus (ADR-156)
+- [x] `/hospitalisation` ne liste plus que les patients au lit : l'onglet « Sortis » doublait « Sorties & règlements » ; une recherche nommée retrouve un séjour terminé (ADR-156)
+- [x] Une seule sortie médicale, prononcée dans la consultation (« Décision & clôture » › Sortie médicale) : elle termine le séjour dans la même transaction, et le second formulaire du module Hospitalisation est retiré (ADR-156, renverse ADR-149/152)
+- [x] ~~Une visite de service ouverte retient la sortie d'hospitalisation~~ — sans objet (ADR-156) : la sortie est prononcée dans la visite : elle restait « En cours » après la sortie, gardait une orientation Médecine active et empêchait le passage d'atteindre « Sorties & règlements » (ADR-155)
+- [x] Une visite laissée ouverte par une sortie déjà prononcée se clôture enfin : la sortie se lit sur le passage, plus seulement sur sa consultation (ADR-155, ADR-107)
+- [x] Transférer au bloc depuis le séjour : le patient garde son lit (séjour ACTIVE, passage HOSPITALIZED), demande PENDING d'origine « Hospitalisation », intervention choisie, service/chambre/diagnostic d'entrée repris sans ressaisie (ADR-160)
+- [x] Défaut évité : passer par la consultation d'origine encore ouverte annulait le séjour — le patient perdait son lit (ADR-160)
+- [x] Le bloc et l'anesthésie savent qu'un lit attend : bandeau sur la fiche, pastille dans la file, lien vers le séjour avec `hospitalization.view` ; la page du séjour suit ses passages au bloc (ADR-160)
+- [x] La liste des hospitalisés marque qui va au bloc, qui y est et qui en revient (sous le nom, visible sur téléphone), avec une carte « Vers le bloc » qui filtre ; libellés partagés avec la page du séjour (ADR-160, amendement du 2026-09-21)
+- [ ] Paramètres du bloc / de l'anesthésie « selon les modèles » — captures attendues de la clinique (ADR-160)
+- [x] Transfert externe : le séjour se termine au départ du patient, constaté dans Transferts ; un seul circuit pour un patient au lit — la sortie « Transfert » ne lui est plus proposée (ADR-161)
+- [x] Motif de fin de chaque séjour (domicile, transfert, à la demande, refus, décès), repris pour les séjours déjà terminés depuis leur sortie réelle (ADR-161)
+- [x] Emplacements du séjour : historique service / lit / niveau de soins, « Changer de service / lit » distinct de « Corriger » ; mutation en réanimation ou surveillance continue sans quitter le séjour (ADR-161)
+- [x] Surveillance répétée des constantes pendant le séjour, bornes et repères de la fiche Soins, relevés corrigeables et tracés (ADR-161)
+- [x] L'onglet Surveillance nomme qui relève et le droit manquant au lieu d'un cadre vide ; un relevé est saisi à la main, jamais alimenté par un autre circuit (ADR-161, amendement du 2026-09-21)
+- [ ] `vitals.create` au socle `MEDICINE` — un médecin qui examine au lit prend la tension ; se coche depuis le portail (ADR-064), décision du propriétaire
+- [x] Le séjour, poste de travail du patient hospitalisé : onglets Vue d'ensemble / Notes / Ordonnances / Examens / Soins / Surveillance / Régime / Bloc / Sortie, chaque geste par l'action existante (`executeForStay`), sans rouvrir de consultation (ADR-162)
+- [x] Note du jour S/O/A/P, append-only, droits `hospital_notes.view` / `.create` (ADR-162)
+- [x] Ordonnance du séjour délivrée au service sans attendre le règlement ; la facture rejoint « Sorties & règlements » (ADR-162, amende ADR-049)
+- [x] Sortie médicale d'un patient hospitalisé prononcée sur la page du séjour, et là seulement ; refusée depuis une consultation tant que le séjour est actif (ADR-162, renverse ADR-156)
+- [x] Ajouter un diagnostic depuis l'étape Sortie, sans renvoi vers un autre onglet : les diagnostics consignés restent cochés, le nouveau arrive coché (ADR-162, amendement du 2026-09-21)
+- [x] Diagnostic final multi-lignes lu ligne par ligne à la sortie : la liste cochée n'est plus enregistrée comme un diagnostic de plus (ADR-162, amendement du 2026-09-21)
+- [x] Étape Sortie à deux colonnes : formulaire pleine largeur et colonne « Repères du séjour » — séjour, allergies, dernier relevé, avant de conclure (ADR-162, amendement du 2026-09-21)
+- [x] Transfert depuis le séjour : les autres sites de la clinique proposés dans une liste, « Autre établissement… » pour une saisie libre ; liste des sites calculée une seule fois (`ClinicSites`) (ADR-162, amendement du 2026-09-21)
+- [x] Bande des constantes (consultation, séjour, Maternité) ramenée à une seule ligne : 48 px au lieu de ~150 sur ordinateur, 146 au lieu de ~250 sur téléphone ; flèche, libellé écrit et aria-label conservés, le décompte des anomalies ouvre le détail
+- [x] En-tête clinique (consultation, Soins, Maternité) en deux lignes serrées : identité et actions, puis repères et orientation sur une ligne — 98 px au lieu de ~190 sur ordinateur ; « Dr Dr. » corrigé quand le nom porte déjà son titre
+- [x] Vue d'ensemble du séjour : cartes « Séjour » et « Demande d'hospitalisation » refondues en shadcn avec icônes (repères en tuiles, jour de séjour, priorité en pastille, rubriques repliables mesurées à l'écran), extraites en `StayLocationCard` / `StayRequestCard`
+- [x] Demande d'hospitalisation corrigée rubrique par rubrique (un crayon par rubrique et pour la priorité) ; le serveur n'écrit que les champs envoyés, plus jamais les six à la fois (ADR-113, amendement du 2026-09-21)
+- [x] Carte « Diagnostics » du séjour placée sous « Séjour » et refondue (`StayDiagnosesCard`) : compteur, origine Consultation / Séjour, auteur et date iconés, ajout en pied de carte
+- [x] Visite de service retirée ; les visites déjà ouvertes restent lisibles (ADR-162)
+- [x] Retirer une analyse / une imagerie depuis le séjour, avec la facturation qu'elle avait portée (ADR-163)
+- [x] Propositions d'ordonnance (ADR-111) pour le séjour, sur les diagnostics du passage, origine revérifiée (ADR-163)
+- [x] Annuler un transfert au bloc depuis le séjour tant que le bloc ne l'a pas programmé ; la conduite « Chirurgie » d'une consultation suit (ADR-163)
+- [x] Annuler une visite de service restée ouverte, sans l'effacer, tant qu'elle n'a rien produit ; sinon la clôturer (ADR-163)
+- [x] Carte « Visites de service » retirée du séjour : une visite ouverte paraît parmi les consultations à conclure, une visite close se relit sur la page du passage (ADR-163)
+- [x] Annuler un transfert externe demandé depuis le séjour tant que le patient n'est pas parti (ADR-163)
+- [x] Consultations du passage restées ouvertes signalées sur le séjour, avec ce qui manque et une clôture d'un clic (ADR-163)
+- [x] Le séjour ne s'annule plus dès qu'il a eu lieu (note, ordonnance, examen, relevé, bloc…) : piège de l'ADR-160 fermé (ADR-163)
+- [x] Retirer une demande en consultation annule enfin ce qu'elle avait facturé ; la prestation de la Réception n'est jamais annulée et se libère (ADR-163)
+- [ ] Déprogrammer une intervention côté bloc, et prise en charge / fin de l'orientation vers le bloc — non définis (ADR-163)
+- [ ] Lot 2 (reste) : plan de prise en charge, médecin référent (ADR-161)
+- [ ] À décider : traitement hospitalier et délivrance sans attendre le paiement, référentiel des lits, évasion pendant le séjour, compte rendu d'hospitalisation, facturation du séjour, paramètres de surveillance supplémentaires (ADR-161)
+- [x] Services, chambres et lits par site, réglés depuis le portail par l'API du site : chambre créée avec son nombre de lits, lits renommables, ajoutables, hors service avec motif, archivables (ADR-164)
+- [x] Un lit occupé ne peut pas être donné à un autre patient : occupation lue sur les séjours en cours, garantie par un index unique en base et un verrou, refus qui nomme l'occupant ; lit libéré à toute fin de séjour (ADR-164)
+- [x] Séjour ouvert « lit à attribuer », puis « Attribuer un lit » / « Changer de lit » parmi les lits libres ; niveau de soins repris du service ; onglet « Plan des lits » dans `/hospitalisation` (ADR-164)
+- [x] Texte libre de l'ADR-113 conservé tant qu'un site n'a configuré aucun lit, refusé côté serveur ensuite ; instantanés `service` / `room_bed` jamais réécrits (ADR-164)
+- [x] Liste des hospitalisés en shadcn avec icônes et sélection multiple (50 au plus) : tour de salle en paysage, fiches de régime et dossiers médicaux groupés (une feuille par page, les mêmes que l'impression unitaire), export Excel audité — jamais d'action clinique en lot (ADR-165)
+- [x] Droit dédié `hospitalization.export`, accordé à Médecine et Soins, pas à la Réception (ADR-165)
+- [ ] Configurer les services, chambres et lits de chaque site en production depuis le portail — tant qu'aucun n'existe, le site reste en texte libre (ADR-164)
+- [ ] Tour de salle en lot, prescription permanente reconduite, forfait journalier, réservation d'un lit pour une admission future — aucune règle définie (ADR-113, ADR-148, ADR-164)
+- [x] Module Pédiatrie simple (ADR-114) : file, prise en charge, sortie médicale rattachée à la consultation d'origine
+- [ ] Fiche pédiatrique — aucune fournie par la clinique, rien n'est inventé (ADR-114)
+- [x] Conduite à tenir vers un module transmise en un clic (Maternité, Pédiatrie, Transfert) ; Chirurgie : intervention choisie, diagnostic/hypothèse généré du dossier (ADR-114)
+- [x] Changement d'orientation traçable : annulation propre tant que la destination n'a pas pris la demande, refus explicite ensuite
+- [x] « Décision & clôture » refaite sur un seul écran : diagnostic facultatif, conduite à tenir choisie puis transmise par « Clôturer », une seule confirmation signée ; plus de sous-étapes ni de « Transmettre la demande » par destination (ADR-203)
+- [x] Clôture conditionnée par la seule conduite à tenir : ni diagnostic, ni étape validée, ni report ; transfert retiré des types de sortie en consultation, état du patient facultatif (ADR-203, divergence CDC §33.1 signalée)
+- [x] Question « Le diagnostic peut-il être posé maintenant ? » retirée, avec sa route (ADR-203, retire ADR-095)
+- [x] Conduite déjà transmise lue telle quelle, changée par une annulation tracée, jamais remplacée en silence ; brouillon effacé à la clôture (ADR-203)
+- [x] Le bouton dit ce qu'il fait : « Transmettre et clôturer » et « Je transmets ce patient à la Maternité et je clôture » pour un service, « Je prononce la sortie et je clôture » pour une sortie (ADR-203, amendement)
+- [x] Clôture seule responsable de terminer l'orientation Médecine et de porter la sortie sur l'épisode
+- [x] Permission propre à l'espace « Demandes d'examens » (`paraclinical_requests.view`, ADR-100) : l'écran s'ouvrait uniquement avec le droit sur les analyses, refusant un compte qui n'avait que l'imagerie
+- [x] Compte rendu d'imagerie saisi depuis « Demandes d'examens » (éditeur riche) et imprimable avec l'en-tête du site (ADR-070)
+- [x] Feuilles de compte rendu de la clinique (écho abdomino-pelvienne, écho obstétricale 1er trimestre) insérables dans le compte rendu, choisies par le médecin et jamais déduites du nom de l'examen (ADR-108)
+- [ ] Feuille ECG — aucun modèle transmis, rien n'est inventé (ADR-108)
+- [x] Cinq feuilles d'échographie strictement identiques au papier : abdomino-pelvienne (deux versions : N.B. ou Prostate), pelvienne, obstétricale 1er trimestre et 2e–3e trimestre, en deux colonnes avec cases Conclusion / N.B. pleine largeur (saut `<hr>`, amendement ADR-108)
+- [x] Fenêtre de compte rendu d'imagerie refondue (shadcn) : liste de feuilles, un éditeur par case du papier, barre d'outils commune, observations repliées, compteur du plafond serveur (ADR-108)
+- [x] Feuilles d'échographie ajoutées par les médecins du site : « + » depuis la fenêtre de compte rendu, enregistre le contenu actuel, retrait par archivage, droits `imaging_templates.*` (amendement ADR-108)
+- [x] La feuille d'un examen s'ouvre d'elle-même à la première saisie (réglée par site, liste explicite par code pour les feuilles papier, jamais déduite d'un nom) ; épingle pour la régler ou la retirer (amendement ADR-108)
+- [x] Aperçu du compte rendu avant de l'enregistrer : document composé par le serveur, identique à l'impression, sans rien écrire (amendement ADR-108) ; puces des listes rétablies à l'écran et à l'impression
+- [x] Sept propositions de feuilles pour les échographies sans modèle papier (abdominale, rénale, prostatique, mammaire, thyroïdienne, scrotale, parties molles), marquées « à valider », sans aucune valeur ni norme
+- [ ] Validation médicale des propositions par la clinique, ou modèles papier réels pour les remplacer (ADR-108)
+- [x] Modifier une feuille ajoutée : renommer et remplacer son contenu, comptes rendus déjà écrits intacts (`imaging_templates.update`)
+- [x] Titre exact de la feuille dans le bandeau, figé sur le compte rendu (instantané lu côté serveur) (ADR-108)
+- [x] Compte rendu d'imagerie corrigeable après saisie : la version remplacée est conservée (auteur, date, motif), la signature d'origine ne bouge pas, « Corrigé » et historique visibles dans « Demandes d'examens » (ADR-130)
+- [x] « Demandes d'examens » : onglets ECG / Échographie / Analyses combinés avec les vues, boutons compacts (actions par examen, icônes nommées, consultation avec son icône), archivage à la main réversible (ADR-131)
+- [ ] Modifier un compte rendu depuis l'étape Paraclinique de la consultation — à décider (ADR-130)
+- [x] Une seule saisie du compte rendu d'imagerie (`ImagingReportDialog`), identique depuis la consultation et « Demandes d'examens » ; plus d'éditeur vide sous un compte rendu déjà enregistré (amendement ADR-108)
+- [x] Compte rendu d'imagerie au format de la feuille papier de la clinique (logo, N° de dossier, identité, deux colonnes, N.B., signature), identique à l'écran et à l'impression (amendement ADR-108)
+- [x] File Maternité passée à shadcn (ADR-099) : cartes, pastilles d'état et pagination par les primitives partagées ; la prise en charge devient un POST au lieu d'un bouton imbriqué dans un lien-bouton
+- [x] Cartes compteur partagées sur les files cliniques (Médecine, Soins, Laboratoire, Demandes d'examens) : la carte est le filtre, et le compte vient du serveur — jamais de la page affichée
+- [x] Réouverture tracée d'une consultation clôturée, tant que la Réception n'a pas clos le passage (ADR-096, construit le mécanisme annoncé par l'ADR-076)
+- [x] Registre des décès (`/deces`) : un décès prononcé ne réapparaissait nulle part, la file Médecine ne montrant que les prises en charge en cours (ADR-107)
+- [x] Acte de constatation de décès : distinct de la sortie qui prononce le décès, un seul par passage, jamais avant lui, imprimable (ADR-107)
+- [x] Sortie pour décès ne proposant plus état du patient, traitement de sortie, conseils ni contrôle : des instructions sans destinataire, refusées aussi côté serveur (ADR-107)
+- [x] État du patient d'un décès posé par le serveur (« Décédé ») : aucune des cinq options ne convenait, et l'absence aurait été lue comme un oubli
+- [x] Sortie médicale confirmée comme une signature, dans ses propres termes pour un décès (ADR-106, ADR-107)
+- [x] Acte de constatation de décès conforme à la feuille papier de la clinique (médecin traitant, défunt, filiation, CNI, signatures), causes et observations en texte riche, sans jamais modifier le dossier patient (amendement ADR-107)
+- [ ] Volet état civil de l'acte (numéro, déclarant, officier) — absent du CDC, non inventé (ADR-107)
+- [x] Transmission d'une demande de conduite à tenir confirmée comme une signature : destination nommée, contenu relu, responsabilité nominative (ADR-106)
+- [x] Derniers contrôles natifs des formulaires cliniques passés à `Select` et `Textarea` (ADR-099) : deux listes et dix-sept zones de texte habillées à la main, aux classes déjà divergentes
+- [x] Compte rendu d'imagerie converti en texte dans le préremplissage d'une demande : le HTML de l'éditeur partait tel quel au service d'accueil et à l'impression (ADR-107)
+- [x] Libellés des demandes portés par `FormField` (libellé, astérisque, précision, erreur), et résumé clinique à dix rangées au lieu de quatre (ADR-099)
+- [x] Parcours Médecine entièrement migré à shadcn (ADR-099) : les 6 étapes de l'assistant, le stepper et les 22 composants cliniques quittent la police d'icônes et les nuances codées en dur, sans changer aucun contrat de props ni aucune règle métier
+- [x] Barre d'écran des documents imprimés migrée ; le corps du document garde ses couleurs — il décrit du papier, pas une interface
 
 ---
 
 # Phase 3 — Laboratoire
 
 - [x] Catalogue analyses structuré, références par profil et import/export Excel
+- [x] File de paillasse filtrable (à analyser / rendues / toutes) avec cartes compteur ; une demande annulée par le médecin (ADR-079) quitte la file au lieu d'y rester à faire
 - [ ] Demande analyse
 - [ ] Analyse interne
 - [ ] Analyse externe
@@ -160,8 +476,123 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Délivrance complète ou partielle en FEFO
 - [x] Déstockage uniquement lors de la délivrance autorisée
 - [ ] Retours
+- [x] File Pharmacie des consommables Soins avec sortie de stock FEFO respectant les réservations
+- [x] File « Consommables Soins » en shadcn (ADR-099) : compteurs partagés, fenêtre de sortie de stock par la primitive `Dialog`, tokens sémantiques
+- [x] La file des consommables reçoit aussi le matériel du bloc, origine « Bloc opératoire » sur la demande et le mouvement de stock (ADR-169)
+- [x] Ce que le patient doit pour ce matériel affiché sur la file Pharmacie — montant, facture et statut, en lecture seule (ADR-103)
+- [x] Ligne jamais facturée comptée et nommée (`unbilled_lines`) : l'échec de facturation, volontairement non bloquant, n'est plus silencieux (ADR-103)
+- [x] Définition des demandes de dispensation ouvertes écrite une seule fois (`PharmacyDispenseStatus::openValues()`), partagée par la file Pharmacie et le répertoire patients (ADR-119)
 - [x] Alertes automatiques de seuil minimal et rupture
 - [x] Alertes et visibilité des lots proches de la péremption
+- [x] Dossier fournisseur façon Drive : catalogues Excel/PDF multiples, historisés, un seul actif à la fois
+- [x] Catalogue fournisseur importé (Excel), distinct du catalogue réellement stocké par la clinique
+- [x] Liaison catalogue fournisseur ↔ catalogue clinique avec prix d'achat versionné, jamais écrasé, plusieurs fournisseurs simultanés par médicament
+- [x] Commandes fournisseur (brouillon, passée, annulée) avec prix figé à la commande
+- [x] Réceptions distinctes de la commande, partielles, alimentant les entrées de stock existantes sans jamais recalculer une réception antérieure
+- [x] Factures fournisseur liées à la commande/réception, sans impact sur le stock
+- [x] Menu latéral comme seule navigation Pharmacie : une vraie page par tâche, chaque entrée filtrée par permission (ADR-098)
+- [x] Espace Fournisseurs en dossiers (dossier, catalogues, commandes, factures, prix), consultation au site
+- [x] Aperçu d'un catalogue Excel avant import, sans écriture, avec erreurs par ligne
+- [x] Ajout au catalogue clinique depuis une ligne fournisseur, rattaché au prix du fournisseur en une transaction
+- [x] Fournisseurs et approvisionnement accordés à aucun rôle par défaut, octroi nominatif par le Super Admin
+- [x] Calcul unique de la disponibilité d'un lot, partagé par le stock, la Médecine et les alertes
+- [x] Tâches Pharmacie sur la Vue d'ensemble, plus de second accueil
+- [x] Entrée de stock filtrée par fournisseur, prix fournisseur actuel pré-rempli
+- [x] Simulation locale de l'approvisionnement (prix, catalogues, commandes, réceptions, facture)
+- [x] Médicaments d'essai de nouveau chargés par `migrate:fresh --seed` (38 fictifs : injectables, solutés, contraception, matériel), créés une seule fois et jamais réécrits (ADR-086, ADR-163)
+- [x] Page unique « Médicaments & stock » et page « Achats » à onglets (Commandes, À réceptionner, Réceptions, Factures)
+- [x] Entrée de stock par livraison : liste relue et modifiable, enregistrement atomique en une fois
+- [x] Inventaire par feuille de comptage imprimable, ajustements seulement sur les écarts
+- [x] Étiquettes QR imprimables par sélection de médicaments
+- [x] Colonne Actions sur les tableaux Pharmacie et icônes dans le menu
+- [x] Modifier un médicament (nouveau prix historisé), désactiver/réactiver avec motif, clinique et portail
+- [x] Écran « Stock médicaments » du portail passé à shadcn (ADR-099) : recherche, filtre d'état, cases de sélection, import Excel et pastilles d'état par les primitives partagées, plus de contrôles natifs habillés à la main
+- [x] Familles de médicaments passées à shadcn : fenêtre d'archivage par le `Dialog` partagé, champs par `Input`/`Textarea`
+- [x] Fiche médicament passée à shadcn (ADR-099) : `MedicineForm` et `MedicineStatusPanel`, partagés par la clinique et le portail, quittent les champs habillés à la main et la fenêtre modale maison
+- [x] Familles : renommer, archiver (refusé si médicament actif), restaurer
+- [x] Modifier une commande brouillon, une facture fournisseur et la date/remarque d'un catalogue, clinique et portail
+- [x] Comparateur de prix fournisseurs par médicament (prix, moins-disant, stock restant), point d'entrée de la commande d'achat
+- [x] Commande d'achat composée sur plusieurs fournisseurs : un brouillon par fournisseur, jamais une commande mixte
+- [x] « Comparer et commander » liste aussi les produits du catalogue fournisseur pas encore repris par la clinique, regroupés par nom avec le même produit d'un autre fournisseur
+- [x] Formulaire de commande limité aux produits réellement fournis par le fournisseur
+- [x] Lignes du catalogue fournisseur actif commandables directement : le produit entre au catalogue de la clinique à la commande, sans prix de vente (fixé après réception)
+- [x] Choix du produit en fenêtre cherchable (prix fournisseur, provenance, déjà commandé) au lieu d'une liste déroulante de cent lignes
+- [x] Un même produit proposé par deux fournisseurs n'est jamais créé deux fois ; un produit désactivé n'est pas ranimé par une commande
+- [x] Facture fournisseur enregistrable comme document global (numéro, date, montant, pièce jointe) ; le détail par produit devient facultatif
+- [x] Fournisseurs, catalogues et factures archivés visibles dans la Corbeille, restaurables
+- [x] Suppression définitive depuis la seule Corbeille, refusée dès que l'élément a servi (`trash.force_delete`)
+- [x] Prix facultatif dans un catalogue fournisseur : un fichier sans tarif s'importe, le prix est exigé au rattachement à un médicament
+- [x] Erreur d'import nommant la ligne, la colonne, la valeur lue et la raison ; montant formaté (« 4 500,50 Ar ») accepté
+- [x] Téléchargement d'un fichier de catalogue depuis le portail, relayé par l'API du site
+- [x] Actions Ouvrir / Modifier / Corbeille / Restaurer sur la liste des fournisseurs du portail
+- [x] Ligne de catalogue corrigeable et retirable (corbeille + restauration), au site comme au portail — un import mal transcrit se répare
+- [x] Rattachement erroné défaisable : le prix d'achat qu'il avait créé est clos, jamais supprimé
+- [x] Relire un catalogue conserve les rattachements déjà faits, au lieu de les effacer silencieusement
+- [x] Actions Modifier / Corbeille / Restaurer sur les factures fournisseur du portail
+- [x] « Archiver » remplacé par « Mettre à la corbeille » ; « Supprimer définitivement » réservé à la Corbeille
+- [x] Colonne « Famille » facultative au canevas de catalogue fournisseur : lignes classées, filtrables, et famille proposée au médicament créé
+- [x] Prix d'achat appliqué automatiquement à la commande (quantité seule à saisir) ; prix négocié possible et signalé, sans écraser le tarif fournisseur
+- [x] Commande sans action possible : le motif est affiché (reçue, annulée, déjà envoyée) au lieu d'une colonne vide
+- [x] Un produit listé sous deux références du même catalogue n'occupe qu'une ligne de commande : refus nommé côté serveur, références marquées dans le sélecteur
+- [x] Provenance d'un produit fournisseur affichée (catalogue d'origine) et distinction proposé / réellement réceptionné
+- [x] Deux prix seulement : prix d'achat repris de la commande à la réception et confidentiel ; prix de vente fixé par la Pharmacie (`medicines.sale_price.update`, ADR-174)
+- [x] Réceptionner n'entre plus rien au stock : la livraison est constatée (quantité, lot, péremption, remarque), puis rangée par un second geste (ADR-175)
+- [x] Entrée en stock corrigeable tant que rien n'est rangé : quantité, lot et péremption mettent à jour la réception et la commande ; une ligne n'entre qu'une fois
+- [x] ~~Écran unique d'entrée en stock : « Marchandise réceptionnée » (déjà remplie) et « Entrée sans commande » (catalogue à cocher), plus deux formulaires redondants~~ — remplacé par l'ADR-180, puis l'ADR-182 (plus d'entrée sans commande)
+- [x] Aucune date du système saisie : commande, envoi, réception et entrée en stock sont datés par le serveur ; les dates externes (péremption, facture, échéance, livraison attendue) se choisissent par raccourci
+- [x] Réception en deux étapes avec la facture du fournisseur dans le même geste, ou « Facture en attente » et saisie plus tard au même formulaire
+- [x] Échéance de facture fournisseur (`supplier_invoices.due_date`), facultative, sans workflow de paiement inventé
+- [x] Tableau plein par défaut : la commande affiche tout le catalogue du fournisseur et l'entrée sans commande tout le catalogue de la pharmacie ; la recherche ne fait que filtrer
+- [x] Brouillon de commande mis à la corbeille avec motif et restaurable (`purchase_orders.delete`/`.restore`, `TrashCategory::PurchaseOrder`) ; une commande envoyée s'annule
+- [x] Plus aucune fenêtre `confirm()` du navigateur dans les parcours Achats/Stock : une confirmation qui nomme ce qui va se passer (`ConfirmModal`)
+- [x] « Nouveau produit » signalé à la réception et à l'entrée en stock, avec son nom à la pharmacie et son prix de vente au même endroit
+- [x] Réceptionner revient au socle `PHARMACY` (`purchase_orders.view`, `goods_receipts.view`, `goods_receipts.create`) : la pharmacie ne pouvait pas réceptionner sa propre livraison, et l'écran affichait « Envoyée au fournisseur » comme s'il n'y avait plus rien à faire (ADR-176)
+- [x] L'action de l'étape passe devant sur une commande : « Envoyer » / « Réceptionner » en tête, « Annuler » à droite en bouton discret — la règle de l'ADR-097 ne change pas, un fournisseur peut ne jamais livrer (ADR-176)
+- [x] Une commande sans bouton d'action nomme le droit manquant (`goods_receipts.create`) au lieu de son seul statut (ADR-176, ADR-154)
+- [ ] Étendre le masque du prix d'achat (ADR-174) aux écrans de commande : le montant d'une commande est désormais lisible par tout compte Pharmacie — à décider (ADR-176)
+- [x] Une commande annulée part à la corbeille, avec motif et restaurable, à la clinique **et** depuis le portail (nouveau `DELETE` de l'API du site) ; une commande vivante s'annule d'abord (ADR-176)
+- [x] « Commandé » n'est plus « en rupture » : un produit jamais réceptionné a son état, quitte la liste courante et vit dans l'onglet « Commandés, jamais reçus » — troisième signalement du même point (ADR-176, ADR-098)
+- [x] La carte « Disponibles » devient « Disponibles sans alerte » : elle affichait 0 pendant que trois produits avaient du stock, comptés sous « Péremption proche » (ADR-176)
+- [x] La facture fournisseur rejoint le socle `PHARMACY` (`supplier_invoices.view`/`.create`) : l'assistant de réception s'arrêtait à mi-chemin, l'étape 2 n'était jamais proposée (ADR-176, ADR-175)
+- [x] Péremption reprise d'un lot déjà détenu quand le n° de lot saisi le désigne, et liste des lots connus proposée — à la réception comme à l'entrée en stock (ADR-176)
+- [x] Défaut corrigé : ce remplissage existait à l'entrée en stock et ne marchait jamais (`@input` lu avant `v-model`, recherche sur le caractère précédent)
+- [ ] Automatiser le n° de lot et la péremption eux-mêmes — **refusé** : ils sont imprimés sur la boîte, les inventer fausserait le FEFO et rendrait un rappel de lot intraçable (ADR-175, ADR-036)
+- [x] Les quinze écrans Pharmacie passent aux icônes lucide comme Médecine et Hospitalisation ; 19 noms ajoutés à la table partagée, sans quoi `lucideIcon()` retombait sur `Inbox` (ADR-176, ADR-099)
+- [ ] Reste ~65 fichiers sur la police d'icônes DashWind, dont 46 dans Administration/RH — écran par écran (ADR-091, ADR-099)
+- [x] Confirmation du fournisseur enregistrée comme une trace (date, référence, document), corrigeable et retirable — jamais un passage obligé : une commande sans elle se réceptionne comme avant (ADR-179)
+- [x] Un article commandé mais jamais livré se signale « en rupture » avec motif : son reliquat cesse d'être attendu, et la commande peut enfin se clore — une seule ligne la bloquait à vie (ADR-179)
+- [x] Statut « Clôturée » distinct de « Reçue » et d'« Annulée » : plus rien n'est attendu, mais la commande n'a pas été livrée en entier (ADR-179)
+- [x] Une commande clôturée ne s'annule plus, donc ne se jette plus : elle a été envoyée et souvent livrée en partie ; retirer ses ruptures la rouvre, puis elle s'annule (ADR-179, ADR-176)
+- [x] Confirmation du fournisseur et clôture des reliquats enregistrables **depuis le portail**, par l'API du site : sans ce chemin, `purchase_orders.confirm` accordé au Super Admin ne commandait rien (ADR-179, ADR-101)
+- [x] Document de confirmation relayé au portail comme un fichier de catalogue : il reste sur le site, mais une pièce déposée là peut être rouverte (ADR-179, ADR-098)
+- [x] Clôture globale d'une commande : tous les reliquats abandonnés d'un geste, avec un motif commun (`purchase_orders.cancel`)
+- [x] Rupture réversible : le fournisseur livre finalement, la ligne redevient attendue et la commande se rouvre
+- [x] Descendre la quantité à 0 décoche la ligne et dit « pas dans cette livraison » ; elle était bornée à 1 sans que rien ne l'explique (ADR-179)
+- [x] Les autres fournisseurs du même produit nommés quand un article n'arrive pas — le même médicament, jamais un équivalent deviné (ADR-179, ADR-052)
+- [x] Article livré hors commande constaté sur la réception, sans réécrire la commande ni son montant (ADR-179, ADR-098)
+- [x] Écart entre le montant facturé et ce qui est réellement arrivé signalé à la saisie, avec le montant commandé et le déjà-facturé à côté — jamais bloquant (ADR-179, ADR-175)
+- [x] Commande envoyée au fournisseur par un brouillon ouvert dans la messagerie de la personne (à l'envoi, et « Envoyer par e-mail » depuis la commande) ; sans adresse au dossier, rien n'est proposé et la commande part comme avant (ADR-179)
+- [x] Numéro de commande gardant sa casse dans le brouillon : la phrase mettait la référence entière en minuscule, alors que le fournisseur la cite en retour (ADR-179)
+- [ ] Envoi réel par le serveur (SMTP par site, expéditeur, pièce jointe, file d'attente, accusé) — RIVO ne peut pas savoir qu'un e-mail est parti : décision à part (ADR-179)
+- [x] ~~« Entrée sans commande » conservée après analyse : don, stock de départ et dépannage n'ont aucun fournisseur — les rattacher à une réception fausserait l'origine du mouvement et les statistiques d'achat (ADR-179)~~ — renversé par l'ADR-182, arbitrage du propriétaire
+- [ ] UUID sur les lignes de commande : les routes de rupture exposent leur id SQL, contrairement à l'esprit de l'ADR-050 (ADR-179)
+- [ ] Commander depuis la fenêtre de rupture : l'écran nomme les autres fournisseurs mais ne crée pas le brouillon (ADR-179)
+- [ ] Délai de livraison par fournisseur — aucune donnée de délai au référentiel (ADR-179)
+- [x] Simulation locale d'approvisionnement exercée par un test : elle ne se parsait plus, passait un `User` là où un `CatalogActor` est attendu depuis l'ADR-098, et son compte de test ne pouvait plus enregistrer un prix d'achat depuis l'ADR-174 (ADR-179, ADR-098, ADR-086)
+- [x] Entrée en stock en un seul écran et un seul envoi, tout ou rien (ADR-180)
+- [x] Le stock n'entre que depuis une livraison réceptionnée : catalogue à cocher, provenance, « Stock de départ », entrée unitaire (`POST /pharmacy/stock/entries`) et boutons « Entrée de stock pour … » retirés ; champs forgés et prix d'achat refusés en les nommant (ADR-182, renverse ADR-179 §7)
+- [x] « Entrée en stock · N à ranger » sur « Médicaments & stock » et sur l'accueil Pharmacie : ce qui est rangé quitte l'écran d'entrée et apparaît dans le stock ; avant toute réception, l'écran d'entrée est vide (ADR-182)
+- [x] Lots déjà détenus proposés pour les lignes réceptionnées, servis par la file des réceptions avec les droits de lecture du stock (ADR-182, ADR-176)
+- [x] Article livré hors commande choisi dans le catalogue actif du fournisseur, et lui seul ; un produit de la clinique hors commande doit être vendu par ce fournisseur (ADR-182, amendement du 2026-09-24)
+- [x] Réceptionner suffit à faire entrer au catalogue un produit livré depuis le catalogue du fournisseur (délégation étroite, DENY prioritaire, sans famille ni prix de vente) — amende ADR-024/098 pour la réception (ADR-182)
+- [x] Entrée en stock restructurée : livraisons à gauche (la plus ancienne d'abord), cartes-filtres À ranger / Nouveaux produits / Sans prix de vente, « Ranger cette livraison » (ADR-182)
+- [x] Date de facture et échéances fournisseur calculées en heure locale : « 30 jours » tombait un jour trop tôt à Madagascar (ADR-182)
+- [ ] Autres champs date encore calculés par toISOString() (5 écrans hors facture fournisseur) — même correctif à appliquer
+- [ ] Don et dépannage d'un confrère : plus aucun chemin local — à décider si le cas se présente ; le stock de départ passe par l'import central (ADR-182, ADR-042)
+- [x] Rapprocher deux libellés que les fournisseurs n'écrivent pas pareil : proposition, fenêtre « C'est le même produit ? », rattachement depuis le portail (ADR-181)
+- [x] Règle de rapprochement corrigée : un libellé doit dire tout ce que dit l'autre, mots et nombres dans le même sens — « Alcool 125ml 70° » n'est plus proposé pour « Alcool iodé salicylé 125 ml » (ADR-181, amendement du 2026-09-24)
+- [x] Comparateur filtré par couverture (« Chez les deux fournisseurs », « Seulement chez X », chaque produit dans une seule case) et par famille, liste rangée par famille (ADR-181, amendement du 2026-09-24)
+- [x] Mettre un catalogue ou une ligne fournisseur à la corbeille clôt les prix d'achat qu'ils avaient fournis ; restaurer les rétablit sans écraser un prix fixé depuis ; reprise des catalogues déjà à la corbeille, auditée (ADR-183)
 - [ ] Transfert stock
 - [ ] Rapports
 
@@ -177,6 +608,45 @@ AUCUN PAIEMENT DANS LA PHARMACIE
 # Phase 5 — Chirurgie
 
 - [x] Demande chirurgie
+- [x] Onze actes du récapitulatif « Revenus » de la clinique ajoutés au référentiel (abcès, ectopie testiculaire, furoncles, hernie inguinale et inguino-scrotale, invagination, kyste sous-cutané, plaie linéaire, torsion du cordon, volvulus, cystostomie de dérivation) — sans tarif : le prix appartient au Super Admin (ADR-024)
+- [x] Chirurgie · la file se lit comme les autres espaces : en-tête `SoinsWorkspaceHeader`, quatre vues exclusives en cartes-filtres (À programmer / Programmées / Au bloc / Terminées) comptées par le serveur, tableau et pastilles shadcn (ADR-099, ADR-135)
+- [x] La demande du bloc naît à la Réception (acte = raison de la venue) ou en consultation (conduite à tenir) ; le bloc ne crée plus de dossier — `/surgery/create` retiré et redirigé vers la file (ADR-159)
+- [x] `SURGERY_DIRECT` : un acte du bloc sélectionné à l'arrivée ouvre l'orientation `RECEPTION → SURGERY` **et** sa demande `PENDING`, idempotente, sur le modèle des analyses (ADR-068)
+- [x] 37 actes rendus sélectionnables à la Réception — « Autres », la césarienne (ADR-067), la consultation chirurgicale et la petite chirurgie écartées ; migration listant les codes explicitement, jamais tout le module (ADR-052, ADR-064)
+- [x] Origine de chaque demande affichée et tracée (`surgical_requests.origin` : Réception / Médecine / Maternité), nullable et jamais rétro-remplie ; état vide expliquant les deux chemins (ADR-159)
+- [x] Les trois garanties du catalogue (instantané du libellé, « Autres » à préciser, module respecté) déplacées sur la correction au bloc (`PUT /surgery/{demande}`) et testées là
+- [x] Chirurgie · Show.vue refondu en assistant clinique shadcn à 5 étapes ; les fiches papier entrée, pré-anesthésie, paraclinique et sortie restent le vocabulaire métier, avec identité/âge cohérents et synthèse Soins sans ressaisie
+- [x] Dossier du bloc lu dans l'ordre de son workflow : étape à faire marquée, étapes en attente qui disent pourquoi, barre « Prochaine étape » qui ouvre le bon formulaire, en-tête compact, sections shadcn (ADR-048, amendement du 2026-09-22)
+- [x] Valider un compte rendu hors du bloc ne laisse plus un compte rendu à moitié validé (erreur 500 corrigée) ; « Valider » attend l'heure de fin, la sortie du bloc est proposée avant la sortie de Chirurgie (ADR-048)
+- [x] Dossier du bloc en deux colonnes : le geste de l'étape à gauche (Programmation → Équipe ; Feu vert → Entrée au bloc ; Intervention ; Compte rendu → Suivi → Complications → Sortie), le contexte à droite (Anesthésie, Demande, Soins), le patient hospitalisé en pastille à côté du statut ; états Fait / À faire / en attente, sections en attente repliées (ADR-048)
+- [x] Formulaires du bloc et de l'anesthésie enregistrés automatiquement, « Enregistrer et continuer » remplacé par « Suivant » ; statut d'enregistrement visible, aucun toast (ADR-048, amendement du 2026-09-22)
+- [x] Espace Anesthésie refondu en shadcn (ADR-099) : en-tête d'étape commun avec icône, position « étape N sur 3 » et avancement des sous-étapes, blocs de champs iconés, antécédents en pastilles cochables ; aucune donnée ni règle modifiée (ADR-048, amendement du 2026-09-22)
+- [ ] Enregistrement automatique réel de la consultation Médecine (aujourd'hui brouillon seulement, ADR-073) — à décider
+- [x] Réinitialiser un dossier du bloc saisi à tort : tout archivé avant retrait, demande remise « À programmer », motif et confirmation obligatoires, refusé si la Pharmacie a déjà servi du matériel (`surgery.reset`, ADR-171)
+- [ ] Relire / restaurer une archive de réinitialisation depuis l'écran (ADR-171)
+- [x] « Dossier chirurgical » imprimable généré depuis les données — quatre feuilles fidèles au papier (Entrée au bloc, Sortie du bloc, Consultation pré-anesthésique, Examen paraclinique), une par page, entier ou une seule feuille, chaque feuille gardée par son droit ; « Imprimer le dossier » dans les deux espaces (ADR-172)
+- [x] Le bloc figure au journal de traitement (entrée, intervention, sortie, traitements, complications) et au dossier médical (section « Bloc opératoire », anesthésie avec `anesthesia.view`) (ADR-172)
+- [ ] Refus serveur d'un compte rendu rédigé avant l'intervention ou validé sans heure de fin — règle à décider (ADR-048)
+- [x] Chirurgie et Anesthésie en parallèle, avec deux rendez-vous opposables : `SurgicalReadinessGate` garde l'incision et la clôture, appelé sous verrou dans la transaction — un POST direct est refusé comme l'écran (ADR-170)
+- [x] Autorisation anesthésique distincte de la validation du bilan (`AnesthesiaClearanceStatus` : Autorisé / sous conditions / non autorisé / reporté) ; `DRAFT` n'est pas une décision et retient l'incision ; motif obligatoire pour un refus ou un report, lu par le bloc (ADR-170)
+- [x] Conditions d'une autorisation sous conditions (`OPEN` / `RESOLVED`) : une condition ouverte bloque l'incision, et se lève par l'anesthésie seule (ADR-170)
+- [x] Checklist de sécurité du bloc en trois temps (SIGN IN / TIME OUT / SIGN OUT) avec confirmation nominative par métier ; `completed_at` calculé des faits, jamais posé par un clic (ADR-170)
+- [x] Bloquant ≠ avertissement : la fiche d'entrée au bloc et les points facultatifs avertissent sans jamais retenir une incision (ADR-170)
+- [x] Valider le compte rendu ne clôt plus le dossier : `CompleteSurgicalCaseAction` exige intervention terminée, compte rendu validé, SIGN OUT, sortie du bloc et anesthésie finalisée (ADR-170)
+- [x] Dossier d'anesthésie non verrouillable avant l'incision : la conduite peropératoire doit pouvoir y être consignée (ADR-170)
+- [x] Autorisation par dossier au-dessus du RBAC (`SurgicalCaseActors`, `SurgicalRequestPolicy`, `AnesthesiaRecordPolicy`) ; plus aucun `authorize(): true` sur l'incision, l'anesthésie, la checklist et la clôture ; `performed_by` restreint aux chirurgiens du dossier (ADR-170)
+- [x] `readiness` composé par le serveur (`SurgicalReadinessPresenter`) : aucune règle sensible recalculée en JavaScript ; un bouton désactivé dit pourquoi et nomme le métier attendu (ADR-170)
+- [x] Étape « Décision » dans l'espace Anesthésie, entre Paraclinique et Conduite (ADR-170)
+- [ ] Faire valider par la clinique le contenu des trois temps de la checklist (`SurgicalSafetyChecklistItems`) : items obligatoires et facultatifs — point de départ, jamais une règle médicale transcrite (ADR-170)
+- [ ] Autorisation par dossier pour les huit FormRequests restées à `authorize(): true` (programmation, sortie de Chirurgie, équipe, sortie du bloc, notes, traitements) — gardées aujourd'hui par le seul `can:` de route (ADR-170)
+- [ ] `WAIVED` sur une condition d'autorisation (qui pourrait passer outre la réserve d'un anesthésiste ?) et cohérence horaire entrée/sortie du bloc — non définis par le CDC, non inventés (ADR-170)
+- [x] Programmation à plusieurs chirurgiens : « Moi-même » pour un compte au profil Chirurgien, principal + aides (équipe de bloc), disponibilité lue sur le planning RH à l'heure choisie, indisponibles montrés verrouillés (ADR-168)
+- [x] Profils métier du rôle Chirurgie — Chirurgien, Infirmier de bloc, Paramédical — sans droit recommandé ; seul le profil Chirurgien est programmable (ADR-168)
+- [x] Équipe de bloc : chaque fonction ne propose que les comptes de son profil métier (Anesthésiste, Infirmier de bloc, Paramédical), refus serveur sinon, pas de doublon (ADR-168)
+- [ ] Attribuer le profil Chirurgien aux comptes SURGERY de chaque site depuis le portail — sans lui, aucune intervention ne se programme (ADR-168)
+- [x] Programmation corrigeable tuile par tuile (crayon) : date, chirurgien principal, aides et opérateur ; au bloc avec motif obligatoire et audit, l'ancien principal restant aide s'il a opéré (ADR-168, amendements du 2026-09-22)
+- [ ] À décider : refuser aussi un chirurgien sans fiche RH reliée, contrôle de conflit d'horaire, durée d'intervention (ADR-168)
+- [ ] Pédiatrie · Index et Show à passer à shadcn
 - [x] Programmation
 - [x] Référentiel contrôlé des interventions avec choix « Autres » documenté
 - [x] Espaces Chirurgie et Anesthésie séparés par permission, dossier partagé
@@ -188,6 +658,8 @@ AUCUN PAIEMENT DANS LA PHARMACIE
 - [x] Anesthésie
 - [x] Equipe bloc
 - [x] Consommables
+- [x] Consommables du bloc reliés au stock Pharmacie : produits de parapharmacie et matériel configuré pour l'acte, demande dans la file Pharmacie, sortie FEFO sans attendre le règlement, facturés en plus de l'intervention ; ligne « hors stock » conservée (ADR-169)
+- [ ] Configurer le matériel habituel des actes de Chirurgie et le prix de vente des produits concernés — configuration de la clinique (ADR-169)
 - [x] Compte rendu et verrouillage après validation
 - [x] Complications
 - [x] Entrée/sortie du bloc et suivi postopératoire structuré
@@ -209,24 +681,140 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Attribution des rôles
 - [x] Activation / désactivation des comptes
 - [x] Exceptions de permissions individuelles
-- [ ] Employés
+- [x] Employés
 - [x] Socle Employé et lien sécurisé avec le dossier patient
 - [x] Classification explicite des prestations et registre immuable du crédit bloc
 - [ ] Période et renouvellement éventuel du crédit Bloc (règle métier non définie)
-- [ ] RH
-- [ ] Contrats
-- [ ] Présences
-- [ ] Congés
+- [x] RH
+- [x] Contrats
+- [x] ~~Modèles de contrat privés Word/PDF, variables serveur et versionnement~~ — retiré (ADR-071), remplacé par le canevas ci-dessous
+- [x] Canevas de documents administratifs (contrat/congé/attestation/certificat/lettre/décision), rédaction libre façon traitement de texte avec import DOCX/PDF, composés par le Super Admin et poussés par site
+- [x] Génération de documents par le RH : page 1 (infos RH, pré-remplie) + canevas verbatim, aperçu serveur, snapshot figé
+- [x] Présences
+- [x] Congés
+- [x] Types de congé configurables, date serveur, durée et soldes automatisés
 - [ ] Absences
-- [ ] Planning
+- [x] Planning
 - [ ] Logistique
 - [ ] Stock administratif
 - [ ] Catalogue des équipements
 - [ ] Affectations et localisations des équipements
 - [ ] Maintenance et mise hors service des équipements
 - [x] Visiteurs (saisie opérationnelle à la Réception ; rapports administratifs à venir)
-- [ ] Gardiennage
-- [ ] Rapports RH
+- [x] Visiteurs : entrée de menu dédiée (`visitors.view`) — la seule existante pointait vers cette page sous `guarding.view`, un droit que Réception n'a jamais reçu (ADR-116)
+- [x] Gardiennage : poste de contrôle de sortie (`/guarding`), premier consommateur réel du catalogue `guarding.*` seedé depuis l'origine sans aucun écran (ADR-116)
+- [x] Le gardien constate une sortie déjà prononcée par la Caisse, ne la décide jamais ; un seul contrôle par passage, aucun motif exigé
+- [ ] Journal et rapports de gardiennage (`guarding.reports.*`) — catalogue seedé, écran non construit
+- [x] Rapports RH
+- [x] RH d'un site gérées depuis le portail : les mêmes écrans, règles et actions que l'accueil RH du site, par son API, chaque geste signé du Super Admin (ADR-187)
+- [x] Page « Ressources humaines » du portail refaite en shadcn : vue d'ensemble avec « À traiter » et comparatif des sites (chaque chiffre ouvre sa liste), vue d'un site avec accès direct aux rubriques, site gardé dans l'adresse (ADR-187)
+- [x] Barre RH du portail en deux niveaux — thèmes (Personnel, Temps de travail, Pilotage) puis rubriques du thème ouvert — sans barre de défilement, sur une ou deux lignes selon la largeur ; thèmes partagés avec l'accueil RH (ADR-187, amendement du 2026-09-25)
+- [x] Accueil RH en shadcn : compteurs compacts en deux groupes, rubriques rangées en Personnel / Temps de travail / Pilotage, cartes avec bordure et ombre, pastille de ce qui attend une décision (ADR-099, ADR-187)
+- [x] Rubriques de l'accueil RH arrangeables : « Personnaliser », glisser-déposer d'une colonne à l'autre, flèches pour le tactile et le clavier, disposition gardée sur le poste, « Réinitialiser »
+- [x] Liste des employés en shadcn-vue, au site comme au portail : bouton « Modèle Excel » à côté d'Importer et Exporter (même droit que l'import), cartes-compteurs qui filtrent (Tous, Actifs, Inactifs, Archivés, avec leur part), recherche lancée d'elle-même, pastilles d'état, contacts cliquables, dates en jj/mm/aaaa, actions en icônes, état vide qui propose de créer, d'importer ou de télécharger le modèle ; pagination RH en shadcn
+- [x] Création et modification d’un employé en shadcn-vue, au site comme au portail : parcours guidé en cinq étapes avec icônes, champs shadcn (listes, dates, cases), référentiels archivés visibles mais non choisissables, résumé des erreurs qui mène au champ fautif, en-tête « Créer un employé » avec sa vraie icône (ADR-099, ADR-187)
+- [x] « Stages » ouvrait un 404 au portail : écran ajouté aux écrans RH relayés, et test qui refuse qu'un écran RH soit oublié (ADR-187, amendement bis du 2026-09-26)
+- [x] Un seul accueil RH par site au portail (l'écran du site, relayé) ; la page RH du portail garde le comparatif « Tous les sites » ; « Effectif par département » rejoint l'accueil RH du site (ADR-187)
+- [x] Au portail, « Emails professionnels » d'un site ouvre la page du portail filtrée sur ce site (celle qui a l'accès à l'hébergeur) ; chiffres fixes retirés de la barre RH (ADR-187, ADR-190)
+- [x] Fiche employé → « Créer son compte » / « Voir le compte » : l'écran Utilisateurs s'ouvre sur « Personnel clinique » et cette fiche, au portail comme sur le site (ADR-188, ADR-187)
+- [x] Un stagiaire n'est pas un employé : exclu de « Employés », de ses compteurs et des chiffres RH, lu dans « Stages » ; embauché ensuite, il redevient employé (ADR-207)
+- [x] « Actif » et « En congé » se lisent ensemble : état, compteur-filtre « En congé aujourd'hui », chiffre RH (ADR-207)
+- [x] Photo à la place de l'icône dans la vue « Grandes icônes » (ADR-207)
+- [x] Impression d'un congé → document officiel depuis les canevas « congé » du Super Admin, prérempli ; l'éditeur de canevas montre la page 1 du RH et signale un contexte mal réglé (ADR-207)
+- [x] « Générer un document » refait en shadcn et expliqué ; Présences avec un onglet « Aujourd'hui » (présents, partis, attendus, en congé) et entrée/sortie en un clic (ADR-207)
+- [x] Bouton « Imprimer » des Présences et des Rapports RH réparé (window.print dans le gabarit) (ADR-207)
+- [ ] Export Excel des employés sans les stagiaires — à décider (ADR-207)
+- [x] Documents du personnel en dossiers (Contrats, Congés, Attestations, Certificats, Lettres, Décisions, Autres) au site comme au portail, à la manière des fournisseurs (ADR-208)
+- [x] Document produit : voir, modifier (nouvelle version préremplie, l'ancienne archivée), archiver avec motif, restaurer — jamais effacé ; droits `generated_documents.archive` / `.restore` (ADR-208)
+- [x] « Imprimer » un contrat ouvre son document déjà produit, sinon la génération avec le seul canevas de contrat ; `?choisir=1` garde l'écran de choix (ADR-208)
+- [x] Canevas du portail en dossiers : générer, modifier, dupliquer, activer, archiver, restaurer par dossier ; « Nouveau canevas » réglé sur le type du dossier (ADR-208)
+- [ ] Impression d'un congé qui ouvre seule le document déjà produit, comme le contrat — à décider (ADR-208)
+- [x] Badge du personnel au modèle de la clinique, un seul pour tous (employés et stagiaires), lu dans le dossier : photo, nom, service, fonction, « Stagiaire » + filière + fin de stage, numéro, icône du métier par code (ADR-209)
+- [x] Badges de toute la liste affichée (filtres, toutes pages) ou des dossiers cochés, depuis Employés et Stages ; « Badge » par ligne ; carte « Badge » sur la fiche ; planche A4 de 9 avec traits de coupe ou une carte par page, format réel 54 × 85,6 mm (ADR-209)
+- [x] Couleurs, devise, sceau ou logo, emblème et éléments affichés réglés par site depuis Paramètres › Badge du personnel, avec aperçu en direct (ADR-209)
+- [x] Tout le badge réglable par site, en cinq onglets : couleurs du texte et du fond, textes (sceau, stagiaire, numéro, pied), éléments affichés, icône fixe ou automatique, polices et tailles, badge portrait ou paysage, taille de carte, photo et coins (ADR-209, amendement du 2026-09-27)
+- [x] Impression au papier choisi (A4, A5, A3, Lettre US, carte seule), portrait ou paysage, marges, espacement et traits de coupe ; pages réelles à l'écran, papier modifiable pour une impression ; carte trop grande refusée (ADR-209)
+- [x] Page d'impression des badges refaite en shadcn : aperçu « Cartes » (chaque badge en grand) ou « Pages » (au millimètre), panneau d'impression collant (papier, orientation, traits de coupe, badges / par page / pages, réglages de la fenêtre d'impression), « À vérifier » pour les badges sans photo et les dossiers inactifs ; ce sont toujours les pages qui s'impriment (ADR-209, ADR-099)
+- [x] Badge au format du porte-badge : carte bancaire, inserts courants (86 × 101, 110 × 74, 80 × 135, A6 105 × 149, 110 × 152, 155 × 108) ou sur mesure en mm ; la mise en page suit la proportion du format (ADR-209, amendement bis)
+- [x] QR code du numéro imprimé sur le badge (référence « Badge », sinon matricule — rien d'autre), noir sur blanc, désactivable ; décodé sur les PDF imprimés (ADR-209, amendement bis)
+- [x] Aperçu du badge dans son porte-badge, au tour de cou, sur la page d'impression et dans les paramètres ; page d'impression en pleine largeur avec « Modifier le modèle » (ADR-209, amendement bis)
+- [ ] Verso du badge (consignes, « en cas de perte »), polices livrées avec l'application, icône par fonction — à décider (ADR-209)
+- [ ] Badge d'un dossier inactif, lecture du QR pour un contrôle d'accès, registre des badges remis, porte-badge rigide ou à pince dans l'aperçu — à décider (ADR-209)
+- [ ] Autres écrans RH à passer en shadcn-vue (contrats, présences, congés, planning, rapports, paramètres, documents, crédit Bloc) — seules leurs adresses ont été touchées (ADR-187)
+- [x] Espace RH : menu latéral en groupe, panneau « à traiter » sur la Vue d'ensemble, accueil et liste des employés refondus
+- [x] Présences et congés : chevauchements refusés pour un même employé
+- [x] Fiche Employé reliée au compte de connexion (un compte, une fiche) : son planning RH dit quand la personne est disponible, sans créer de compte ni donner de droit (ADR-168)
+- [x] Modules « Départements » et « Fonctions » dans le menu RH, au site comme au portail : liste avec nombre de dossiers, compteurs-filtres, création (code déduit du libellé), modification, archivage avec motif, restauration — même référentiel et mêmes droits que les Paramètres RH (ADR-188)
+- [x] « Compte de connexion » retiré du formulaire Employé ; à la création d'un compte, choix « Personnel clinique » (fiche Employé, nom et email proposés) ou « Externe », dans l'assistant du portail et l'écran Utilisateurs du site ; une fiche, un compte ; audité (ADR-188)
+- [x] Formulaire Employé (création et modification) en shadcn-vue : parcours en cinq étapes avec icônes, référentiels archivés visibles mais non choisissables, résumé des erreurs qui mène au champ
+- [x] Compte « Personnel clinique » : recherche de la personne en auto-complétion d'abord (accents ignorés, clavier, surlignage), Nom et Email ensuite, repris de sa fiche RH — au portail comme au site (ADR-188, amendement du 2026-09-25)
+- [x] Fonctions par département : le dossier employé ne propose que les fonctions du département choisi, refus serveur d'un couple incohérent (saisie et import), correspondance réglée dans le module Fonctions, proposition livrée depuis le CDC §9 (ADR-194)
+- [x] Photo d'identité 4 × 4 du dossier employé : recadrage, stockage privé réencodé, affichée dans la liste, la fiche, le planning, les stages et la fiche imprimée (ADR-194)
+- [x] Envoi de la photo réparé (le grand cadre de l'étape Identité n'ouvrait plus rien) ; recadrage refait : rotation, pincement et zoom sous le pointeur, aperçu fiche et liste, niveau de qualité, « Recadrer » sans redemander le fichier (ADR-194, amendement du 2026-09-26)
+- [x] Fiche employé refaite en shadcn : en-tête avec photo, l'essentiel en tuiles, identité, coordonnées (copier), congés, planning à venir et présences récentes — déjà servis par le serveur, jamais affichés —, contrats, documents par glisser-déposer, archivage par fenêtre avec motif (ADR-198)
+- [x] « Écrire » depuis la fiche : message déjà adressé dans la messagerie RIVO (`?ecrire=`, jamais envoyé seul), sinon messagerie du poste (ADR-198)
+- [x] ~~Badge professionnel au format carte (54 × 85,6 mm) : photo, fonction, matricule, QR du seul matricule, impression à taille réelle avec cadre de découpe ; refusée pour un dossier inactif ou archivé (ADR-198)~~ — remplacé par le modèle de la clinique (ADR-209)
+- [ ] Badge : date de validité — à décider (ADR-198 ; QR et dossier inactif repris par l'ADR-209)
+- [x] Stagiaires : employé + contrat de stage (filière, école, niveau, encadrant), page « Stages » filtrable, parcours « Nouveau stagiaire », repère dans l'annuaire (ADR-194)
+- [x] Planning du personnel et planning de garde : deux onglets, calendrier semaine / mois / liste, impression et export par type (ADR-194)
+- [ ] Filière d'un stage importé par Excel, gardes distinguées pour la disponibilité au bloc — à décider (ADR-194)
+- [x] Page « Ressources humaines » du portail identique à l'accueil RH du site : même en-tête, mêmes chiffres, même grille de rubriques (composant partagé `HrAreaBoard`), sélecteur de site, « Tous les sites » pour le comparatif (ADR-187, amendement du 2026-09-26)
+- [x] Rémunération déclarée du dossier employé (Salaire / Indemnité / Non rémunéré + montant mensuel) et compte bancaire (numéro, titulaire), droits dédiés `employees.payroll.*` accordés au RH, étape « Rémunération » avec icônes, carte sur la fiche et section à l'impression — aucune paie calculée (ADR-206)
+- [x] Ancienneté de service calculée depuis la date d'entrée, affichée pendant la saisie, sur la fiche et à l'impression (ADR-206)
+- [ ] Historique des salaires à l'écran, indemnité forfaitaire, champs de paie dans l'export / import Excel — à décider (ADR-206)
+- [x] Adresses email professionnelles : demande par le RH depuis la fiche employé, création par le Super Admin chez l'hébergeur (API cPanel o2switch), mot de passe montré une fois, adresse reportée sur la fiche (ADR-190)
+- [x] Suspension au départ de l'employé (vue « À suspendre »), réactivation, nouveau mot de passe ; jamais de suppression ; reprise sans double création si le site ne confirme pas (ADR-190)
+- [x] Accès à l'hébergeur vérifié sur abyssin.o2switch.net avec le mot de passe du compte : o2switch refuse l'authentification Basic sur l'API, le client ouvre une session cPanel puis la ferme (ADR-190, correction du 2026-09-25)
+- [x] Première création réelle d'une boîte sur cbdc.mg depuis le portail (ADR-190)
+- [x] Création accélérée : session cPanel gardée quelques minutes et ouverte d'avance à l'ouverture de la fenêtre ; une opération passe de 5–17 s à 2–3 s (ADR-190)
+- [x] Page RH « Emails professionnels » sur chaque site ; un RH à qui le Super Admin accorde le droit crée, suspend, réactive ou renouvelle le mot de passe depuis son site (accès à l'hébergeur posés aussi sur le site) (ADR-190, amendement)
+- [x] Plus de champ email à la création ni à l'import d'un employé : son email est l'adresse pro, posée à son activation ; une modification de fiche ne l'efface plus (ADR-190, amendement du 2026-09-25)
+- [ ] Domaine officiel de la clinique à la place de cbdc.mg (ADR-190)
+- [x] Accès du personnel en un geste depuis le portail : adresse pro + compte RIVO (sans mot de passe depuis l'ADR-202) ; l'hébergeur n'est appelé qu'après l'accord du site, et un nouvel essai ne recrée jamais la boîte (ADR-197)
+- [x] ~~Remise au RH du site : notification, fiches d'accès imprimables, mots de passe chiffrés effacés à la remise (7 jours au plus, 24 h après le premier affichage), chaque affichage audité ; afficher et remettre restent au site, verrouillés sur le portail (ADR-197)~~ — remplacé par l'ADR-202 : plus aucun mot de passe à remettre
+- [x] Liste RH des remises refaite : cartes-filtres (À remettre, Remis, Effacés, Toutes), recherche par employé, délai d'effacement coloré par urgence, frise d'avancement, bouton selon ce qui attend (ADR-197, amendement du 2026-09-26)
+- [x] Super Admin prévenu des employés ajoutés par le RH (lecture des sites après la réponse et toutes les 5 minutes, une seule fois par employé) ; « Aucun accès nécessaire » avec motif (ADR-197)
+- [x] Module Notifications, site et portail : cloche avec non lues et « À traiter », page Toutes / Non lues / Archivées, recherche, catégorie, sélection multiple, liens internes seulement (ADR-197)
+- [x] Demande d'adresse retirée de la fiche employé ; « Nouvelle adresse » devient « Adresse seule » (ADR-197)
+- [x] Rôle du compte proposé par la fonction de l'employé, réglé dans RH › Fonctions et prérempli à la création de l'accès comme dans l'assistant de compte ; proposition de départ tirée du CDC §9, jamais par-dessus un réglage (ADR-199)
+- [x] « Utilisateurs » : un seul module, deux onglets — Comptes (vie du compte, extérieurs) et Accès du personnel (arrivée d'un employé) — une seule entrée de menu (ADR-199)
+- [x] Personne au site ne peut remettre les accès : le Super Admin désigne, depuis la fenêtre ou « Accès créés », le compte du site qui les remettra (droit accordé en exception auditée) (ADR-199)
+- [x] Portail : « Compte externe » seulement à la création (un employé passe par « Accès du personnel ») ; relier un compte existant à sa fiche RH reste possible en modification (ADR-199)
+- [x] Notification « employés en attente » marquée « Traité » (et lue) dès que ses employés ont leur accès, « N sur M attend encore » entre-temps (ADR-199)
+- [x] Onglet « Accès créés » refait : une carte par remise avec frise d'avancement, délai avant effacement, comptes lisibles sur téléphone, filtres par état (ADR-199)
+- [x] Fenêtre « Créer les accès » refaite : 56 rem, champs côte à côte, une carte par employé, rôle « selon sa fonction », aucune erreur avant un geste (ADR-199)
+- [ ] Redonner l'accès après effacement des mots de passe (un seul mot de passe, nouvelle remise), purge des notifications anciennes, retrait de l'ancienne route de demande du RH — à décider (ADR-197)
+- [x] Messagerie des adresses pro dans RIVO : la boîte de son titulaire seul, mot de passe gardé chiffré dans la session, messages lus en direct sans copie (ADR-195)
+- [x] Dossiers, favoris, recherche, filtres, sélection multiple, libellés et modèles propres au compte, rédaction riche (répondre, transférer, brouillons, pièces jointes) (ADR-195)
+- [x] HTML reçu nettoyé et affiché dans un cadre sans script, images distantes bloquées jusqu'à demande, envoi audité sans le corps (ADR-195)
+- [x] Client IMAP vérifié contre un vrai serveur : mot de passe refusé reconnu, objets accentués décodés, recherche accentuée en littéral IMAP (ADR-195)
+- [x] Messagerie rapide depuis Madagascar : sans NOOP de contrôle, connexion au premier usage, commandes groupées (pipelining), dossiers et quota en cache court, envoi en 465 — dossier 1,5 s au lieu de 56 s, message 1,7 s au lieu de 21 s, envoi 2,7 s au lieu de 10 s (ADR-195, amendement du 2026-09-25)
+- [x] Lectures annoncées parties avec les compteurs des dossiers : ouvrir un message = connexion + un seul aller-retour (au lieu de quatre), une liste en économise un (ADR-195, amendement du 2026-09-26)
+- [x] Messagerie sans attente à l'écran : la page reste en place, en-tête du message et dossier affichés aussitôt, retour à la liste instantané par l'historique, dossiers préchargés au survol, envoi en arrière-plan rendu intact à la fenêtre s'il échoue (ADR-195, amendement du 2026-09-26)
+- [x] « Ouvrir une boîte » en pleine largeur (shadcn) : boîtes en grille par site, filtre par site, flèches du clavier, curseur au mot de passe ; liste des boîtes du portail servie par le cache, « Actualiser » (ADR-195, amendement du 2026-09-26)
+- [x] Boîte de réception : compteurs en pastilles rouges sur « Tous / Non lus / Favoris » (lus par le serveur dans le même lot, mis à jour tout de suite), non-lus rouges dans les dossiers, pastille « Boîte d'un employé » à la place du bandeau, filtres sur une ligne à 390 px (ADR-195, amendement du 2026-09-26 bis)
+- [x] Aucun mot de passe créé par le Super Admin : le compte attend sa première connexion ; l'employé tape son adresse, « Continuer », est salué par son nom et sa fonction et choisit son mot de passe, qui devient aussi celui de sa boîte (ADR-202)
+- [x] Connexion en deux temps pour tous : l'adresse, puis le mot de passe ; aucune réponse ne dit qu'une adresse n'existe pas (ADR-202)
+- [x] Première connexion : bienvenue dans la cloche, email « Votre compte est validé », RH prévenu, audit IP et navigateur (ADR-202)
+- [x] Remise au RH devenue une annonce : message à copier avec le lien (adresse déjà écrite), fiche imprimée avec QR code, qui s'est connecté, délai dépassé rouvert d'un clic ; affichage, impression et effacement des mots de passe retirés (ADR-202)
+- [ ] Accès à l'hébergeur (`RIVO_MAIL_HOSTING_*`) sur chaque site, sans quoi la boîte ne reçoit pas le mot de passe choisi (ADR-202)
+- [ ] Première connexion guidée aussi pour « Personnel clinique » créé depuis « Utilisateurs » (aujourd'hui : invitation par email) — à décider (ADR-202)
+- [x] Sa boîte s'ouvre directement avec le mot de passe de connexion à RIVO (chiffré en session, jamais en base) ; mot de passe différent → demandé une fois ; retour à sa boîte depuis celle d'un collègue sans rien taper (ADR-200)
+- [x] « Messagerie » ouvre la boîte de réception même après une reconnexion par « Se souvenir de moi » : mot de passe gardé chiffré sur l'appareil, lié au compte, effacé à la déconnexion (ADR-200, amendement du 2026-09-26)
+- [ ] Changer aussi le mot de passe de la boîte quand on change celui de RIVO dans « Mon profil » — à décider (ADR-200)
+- [x] « Actualiser » et « Réessayer » tournent à chaque clic, dans toute l'application : au moins un tour, arrêt en fin de tour, animations réduites respectées (`Shadcn/RefreshIcon`, ADR-195)
+- [x] Connexion IMAP gardée ouverte entre les clics : un processus par boîte ouverte, fermé seul après 10 min ; page en un seul aller-retour, première page lue d'avance à la connexion — liste 1,7 s → 0,33 s en TLS sur le banc (ADR-195, amendement du 2026-09-26 quater)
+- [ ] Vérifier en production que l'hébergement permet proc_open et des processus de fond (sinon repli : connexion à chaque clic) ; RIVO_WEBMAIL_KEEP_ALIVE_PHP sous PHP-FPM si besoin (ADR-195)
+- [x] Messagerie pilotée par les permissions : `webmail.view` (sa boîte, menu visible) et `webmail.open_any` (la boîte d'un autre employé du site), mot de passe toujours exigé, audité (ADR-195, amendement du 2026-09-25 ; ouverture depuis le portail retirée le 2026-09-26)
+- [x] Page « Aucune boîte à ouvrir » qui dit pourquoi : droit manquant, compte non relié, fiche sans adresse, adresse inactive (ADR-195)
+- [x] Le Super Admin arrive directement dans la boîte du portail (réglée dans son .env), sans choisir de boîte d'employé ni saisir de mot de passe ; ouverture des boîtes d'employés retirée du portail ; adresses des sites proposées comme destinataires (ADR-195, amendement du 2026-09-26 ter)
+- [x] « Nouveau message » : une adresse tapée compte sans Entrée (« Envoyer » n'est plus grisé en silence), « Écrire à … » proposé pour toute adresse hors collègues (ADR-195, amendement du 2026-09-26 ter)
+- [ ] Créer l'adresse du portail chez l'hébergeur (ex. direction@…) et renseigner `RIVO_WEBMAIL_PORTAL_ADDRESS` / `_PASSWORD` / `_NAME` dans le .env du portail (ADR-195)
+- [ ] Boîtes nominatives par Super Admin (au lieu d'une boîte partagée) — demanderait une saisie de mot de passe, à décider (ADR-195)
+- [ ] Renseigner `RIVO_WEBMAIL_IMAP_HOST` / `RIVO_WEBMAIL_SMTP_HOST` sur chaque site, puis un premier essai sur une vraie boîte o2switch (ADR-195)
+- [ ] Relier chaque compte d'un site à sa fiche employé (Utilisateurs › Personnel clinique) pour que chacun ouvre sa boîte (ADR-188, ADR-195)
+- [ ] Prévenir le titulaire quand un autre ouvre sa boîte ; recopier cet audit sur le site — à décider (ADR-195)
+- [ ] Boîtes partagées (secretariat@…) ou délégation, compteur de non-lus hors de la messagerie — à décider (ADR-195)
 
 ---
 
@@ -272,7 +860,10 @@ admin.rivo.mg
 - [ ] Vue Mampikony
 - [ ] Vue Ambondromamy
 - [ ] Vue Boriziny
-- [ ] Vue consolidée
+- [x] Vue consolidée : tableau de bord central alimenté par le rapport de chaque site (ADR-102) — activité, finance, files, pharmacie, personnel, avec courbe, histogramme et diagrammes
+- [x] Courbe lisible sur 30 et 90 jours : un libellé de date sur N, compté depuis la fin, et format jj/mm au-delà de la semaine
+- [x] Répartitions (encaissements par mode, patients, comptes patients) en colonne à droite de la courbe
+- [x] Une donnée absente affichée « — » avec son motif (site injoignable, permission manquante), jamais zéro
 - [ ] Patients
 - [ ] Activités
 - [ ] Caisse
@@ -289,6 +880,71 @@ admin.rivo.mg
 - [x] Taux de couverture par organisme (100 % par défaut) et import/export Excel via API
 - [x] Répartition financière brute / mutuelle / patient historisée sur les factures
 - [x] Sélection multiple par site : export ciblé Stock/Adresses et archivage/restauration atomiques des référentiels
+- [x] Éditeur de canevas de documents (TipTap) : création, modification versionnée, duplication, activation, archivage/restauration par site
+- [x] Catalogue des permissions administrable depuis le portail (ADR-101) : créer un droit, reformuler son libellé, retirer un nom que rien ne vérifie — le nom lui-même ne change jamais
+- [x] Usage réel de chaque permission calculé depuis le code (`PermissionUsageScanner`) : « vérifiée par l'application » ou « pas encore vérifiée », jamais une liste tenue à la main
+- [x] Panneaux redimensionnables à la barre (clavier, double-clic, largeur conservée par poste) sur le socle des rôles et les exceptions par compte
+- [x] Choix du rôle et du compte en fenêtre cherchable, colonne de gauche rendue aux catégories et filtre propre au rail (ADR-101)
+- [x] Les droits qui agissent dans plusieurs modules le disent dans leur libellé et leur catégorie : chercher « hospitalisation » trouve enfin `medical_discharge.create`, qui gouverne « Prononcer la sortie » d'un séjour (ADR-151)
+- [x] Le Super Admin du portail détient réellement toutes les permissions : rétabli à chaque `php artisan migrate` du portail — 44 droits lui manquaient, dont les canevas de documents RH (ADR-186)
+- [x] Défaut corrigé : après des migrations, la synchronisation du Super Admin ne s'exécutait qu'au `migrate` suivant (un écouteur renvoyait `false` et arrêtait l'événement) (ADR-197)
+- [ ] Taille de l'en-tête `X-Rivo-Actor-Permissions` (7,7 Ko, limite nginx par défaut 8 Ko) — tampon à élargir ou transmission à revoir avant la production (ADR-186)
+- [x] Un 403 nomme le droit manquant et où l'accorder ; s'il s'agit d'un refus nominatif, il le dit et renvoie vers « Exceptions par compte » — vaut pour toutes les routes gardées par `can:` (ADR-154)
+- [x] Chaque case du socle porte « Refusé à N comptes » quand des comptes du rôle la refusent individuellement : cocher un droit sans effet visible ne se lit plus comme un défaut (ADR-153, ADR-033)
+- [x] L'éditeur de socle signale les comptes du rôle qui portent des exceptions individuelles : un socle à zéro ne se lit plus « personne n'y a accès » alors qu'un ALLOW nominatif l'emporte (ADR-150, ADR-033)
+- [x] Rail des catégories de permissions refondu (shadcn) : hauteur qui suit l'écran, lignes plus grandes, domaines repliables, navigation au clavier, largeur 30 % par défaut (ADR-101, amendement du 2026-09-20)
+- [x] Écran « Rôles & permissions » à quatre sections annoncées par portée (socle du rôle / exception d'un compte / rôles du site / catalogue), avec compteurs et phrase de portée avant le clic
+- [x] Référentiel des rôles administrable depuis le portail (ADR-100) : créer, renommer, archiver avec motif (refusé si des comptes le portent) et restaurer, par site via l'API — le code d'un rôle reste son identité et ne change jamais
+- [x] Écrans « Utilisateurs » et « Rôles & permissions » séparés (ADR-100) : les comptes d'un côté, le socle des rôles et les exceptions individuelles de l'autre, sans changer la résolution DENY > ALLOW > socle
+- [x] Socle des rôles refondu (shadcn, ADR-099) : rail des rôles et des catégories sans pagination, recherche sur tout le catalogue, écart « accordées / retirées » relisible avant envoi, barre d'enregistrement collante et garde-fou sur le brouillon
+- [x] Réinitialisation confirmée des droits (ADR-173) : rôle standard vers son socle livré, sans toucher aux exceptions ; compte vers l'héritage pur de son rôle, sans réappliquer silencieusement les recommandations du profil ; API et audit distincts
+- [x] « Rôles & permissions » refondu en centre de gestion (ADR-178) : trois onglets (Rôles, Exceptions par compte, Catalogue), liste des rôles en colonne avec recherche et compteurs, rôle créé et renommé sur place, adresse qui suit la sélection
+- [x] Permissions rangées en 14 modules et une grille à sept colonnes communes (Voir, Créer, Modifier, Supprimer, Restaurer, Valider, Exporter), accordéons avec compteurs, « Tout sélectionner / désélectionner », pastilles sur écran étroit (ADR-178)
+- [x] Une icône par fonctionnalité dans chaque module (Dossier médical, Diagnostics, Ordonnances…), sous-fonctionnalités décalées, mêmes icônes dans le catalogue (ADR-178)
+- [x] Un seul module ouvert à la fois : en ouvrir un referme les autres, l'en-tête cliqué reste en place ; « Tout déplier » retiré (ADR-178)
+- [x] Menus ancrés (exceptions, « Tout le module », panneaux) ouverts directement à leur place : l'animation des fenêtres centrées les faisait glisser vers la gauche (ADR-178)
+- [x] Un brouillon, un seul enregistrement : barre collante (nombre de changements, Revoir, Annuler, Enregistrer), confirmation seulement pour les droits sensibles à l'enregistrement, les réinitialisations, l'archivage et l'abandon d'un brouillon (ADR-178)
+- [ ] Description d'un rôle éditable (colonne, validation, API du site) — aujourd'hui phrase fixe pour les rôles livrés (ADR-178)
+- [x] Paramètres de l'application propres à chaque site et au portail (ADR-184) : nom, logo, icône (favicon + barre latérale), couleur principale déclinée clair/sombre avec contrôle de contraste, écriture de l'Ariary, identité légale (NIF, STAT, adresse, téléphone, email, banque, compte), directeur général et signature — par l'API du site, audités
+- [x] Tranches d'âge réglables par site (bébé, enfant, adulte) appliquées au formulaire « Nouveau patient » : profil enfant d'office, date de naissance exacte pour un bébé, civilité contraire à l'âge refusée par le serveur (ADR-184)
+- [x] Signature du directeur général apposée sur demande au bas des documents RH, copiée dans le document au moment où il est produit (ADR-184)
+- [ ] Tranches d'âge à la modification d'un dossier patient existant — non contraintes aujourd'hui (ADR-184)
+- [x] Devise ou slogan réglable par site, sur la page de connexion, à la place de la phrase écrite en dur (ADR-184, amendement du 2026-09-24)
+- [x] Case « Masquer l'application des moteurs de recherche », cochée par défaut : robots.txt « Disallow: / », balise et en-tête « noindex » sur chaque réponse (ADR-184, amendement du 2026-09-24)
+- [ ] Devise imprimée sur les documents (factures, reçus, ordonnances) — non fait : changerait d'office tous les en-têtes, à décider (ADR-184)
+- [x] Modèles des pages d'authentification choisis par site (Couverture, Partagé, Centré — inspirés de DashWind, en shadcn), un pour toutes les pages ; image de fond de connexion déposée par site (ADR-184, amendement bis)
+- [x] Page « Mon profil » : identité, rôle, droits effectifs, et changement de son mot de passe (ancien exigé, autres sessions fermées, audité) ; deux modèles choisis par site (ADR-184, amendement bis)
+- [x] Apparence Clair / Système / Sombre (barre du haut à côté de la cloche, menu du compte sur téléphone, pages de connexion), « Système » suivant l'appareil en direct, sans éclair au chargement (ADR-185)
+- [x] Squelette de chargement shadcn sur toutes les pages de la mise en page principale, à la forme de la page qui arrive (tableau de bord, liste, fiche, formulaire, document, réglages) (ADR-185)
+- [x] Thème par site : préréglages (RIVO, Océan, Forêt, Ardoise, Prune, Ambre, Nuit), couleurs du mode clair et du mode sombre côte à côte, texte illisible refusé, export / copie / import JSON (ADR-191)
+- [x] Réglages avancés du site (taille du texte, densité, arrondis, animations, contraste) appliqués dès le rendu serveur ; chacun ajuste taille, animations et contraste dans « Mon profil › Apparence », gardé sur son compte (ADR-191)
+- [x] Numéro de patient et de passage réglables par site (préfixe, année, chiffres, séparateur, remise annuelle ou continue) ; défaut inchangé, aucun numéro réécrit ni redonné (ADR-191)
+- [x] Un patient déjà numéroté garde son séparateur pour ses passages et ses bébés : changer le réglage ne fabrique plus « A_26_001-002 » (ADR-191, amendement du 2026-09-27)
+- [x] Matricule d'employé proposé selon un modèle (EMP-0001), modifiable ; attribué à une ligne d'import sans matricule (ADR-191)
+- [x] Pastilles de choix désactivées en lecture seule dans les paramètres (ADR-191)
+- [x] « Paramètres » refaits sur la page « Settings » de shadcn/ui : site réglé en en-tête, menu des modules à gauche, champs empilés (listes, onglets clair/sombre, vignettes radio, interrupteur), « Enregistrer » en bas, garde des modifications (ADR-191, amendement du 2026-09-25)
+- [x] « Paramètres » : module dans une carte bordée (icône et groupe en tête, pied collant « Enregistrer »), menu des modules à droite en carte, rangé par groupe avec icônes ; ligne qui défile au-dessus du module sur téléphone (ADR-191, complément du 2026-09-25)
+- [x] « Paramètres » sur toute la largeur : champs à trois colonnes quand la carte est large (requêtes de conteneur), site choisi en un clic avec son état, Ctrl+S pour enregistrer (ADR-191, complément du 2026-09-25)
+- [x] Vignette de couleurs (clair / sombre) devant chaque thème de départ, reprise dans le champ fermé ; slot `leading` sur le `Select` partagé (ADR-191)
+- [x] Repère visuel devant chaque option de l'affichage avancé (taille, densité, arrondis, animations, contraste) (ADR-191)
+- [x] Repères dans les listes de la Numérotation et de la Monnaie ; icône en tête des champs texte (Identité, Identité légale, Direction, Âges, préfixes) et des aperçus (ADR-191)
+- [x] « Moteurs de recherche » : carte d'état (Masquée / Visible), trois consignes en cartes, liens vers les outils de retrait, robots.txt et en-tête copiables (ADR-191)
+- [ ] Couleurs d'alerte et format des autres numéros (factures, reçus, commandes) réglables — à décider (ADR-191)
+- [x] Mode maintenance par site depuis Paramètres › Maintenance : maintenant ou programmée, message personnalisable avec aperçu, bandeau 24 h avant, réouverture automatique à la fin prévue, levée tracée ; seul le droit `app_maintenance.bypass` traverse, connexion et API restent ouvertes (ADR-193)
+- [x] Assistant « Créer / Modifier un utilisateur » refondu en shadcn : étapes iconées, champs avec aide en ligne et contrôle de l'email, rôles en cartes compactes (recherche au-delà de six rôles), profil choisi dans une fenêtre quand le rôle en a (Annuler rend le choix précédent), aperçu du compte et liste de contrôle, barre d'actions qui dit ce qui manque ; mot de passe replié en modification
+- [x] Défauts corrigés dans l'assistant : Entrée à l'étape 1 envoyait le compte avec le premier rôle de la liste — elle mène désormais au rôle, aucun rôle n'est présélectionné ; une erreur du site sur le nom ou l'email ramène à l'étape 1 au lieu de rester invisible
+- [x] Fournisseurs pharmacie et catalogues gérés depuis le portail par API du site (ADR-098)
+- [x] Pharmacie d'un site lisible depuis le portail (ordonnances, consommables, stock, achats, fournisseurs) : les mêmes écrans et règles que le site, par son API, arrivée sur « Médicaments & stock » (ADR-189)
+- [x] L'administratif de la Pharmacie géré depuis le portail (médicaments, prix de vente, familles, fournisseurs, commandes, factures), signé du Super Admin ; les actes physiques refusés par le site et montrés verrouillés (ADR-189)
+- [ ] Fusionner l'espace « Fournisseurs pharmacie » du portail (ADR-098) avec les écrans du site servis au portail — doublon signalé (ADR-189)
+- [x] Import Excel des fournisseurs avec aperçu ligne par ligne puis écriture tout ou rien, export Excel par site ou tous sites
+- [x] Correction, archivage avec motif (refusé si commande en cours) et restauration d'un fournisseur depuis le portail
+- [x] Dossier fournisseur au portail identique à la clinique (catalogues, commandes, factures, produits et prix)
+- [x] Commandes (créer, envoyer, annuler) et factures (enregistrer avec document, archiver, restaurer) depuis le portail ; réception réservée au site
+- [x] Services, chambres et lits de chaque site : écran portail `/super-admin/hospital-beds`, par l'API du site, sans jamais afficher le nom d'un patient (ADR-164)
+- [x] Espace Fournisseurs pharmacie entièrement en shadcn (ADR-099) : index en dossiers avec vue liste, création et import en fenêtres, et les quatorze pages de détail migrées avec leurs composants partagés
+- [x] Portail Super Administration entièrement en shadcn (ADR-099) : les 36 écrans et les composants partagés (`PageHeader`, `IconInput`, `Card`, `Breadcrumb`, `EmptyState`, `Explorer*`, `FolderCard`, `FormSection`, `ValidationErrorSummary`) quittent la police d'icônes et la palette DashWind, sans changer aucun contrat de props
+- [x] Navigation du portail regroupée en six blocs repliables (un seul ouvert), destinations et permissions inchangées ; sidebar redimensionnable à la souris, au tactile et au clavier, largeur conservée sur le poste (ADR-196)
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste
 - [ ] Action « appliquer aux deux sites »
 - [ ] Résultat et reprise séparés en cas d’échec partiel

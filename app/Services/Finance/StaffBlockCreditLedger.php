@@ -8,6 +8,7 @@ use App\Models\Employee;
 use App\Models\Episode;
 use App\Models\StaffBlockCreditMovement;
 use App\Models\User;
+use App\Support\Authorization\RemoteActorAttribution;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -96,6 +97,7 @@ class StaffBlockCreditLedger
                 'idempotency_key' => $idempotencyKey,
                 'reason' => $reason,
                 'created_by' => $actor->getKey(),
+                ...RemoteActorAttribution::fields('created', $actor),
             ]);
         });
     }
@@ -153,6 +155,7 @@ class StaffBlockCreditLedger
                 'idempotency_key' => $idempotencyKey,
                 'reason' => "Consommation du forfait Bloc — prestation {$billableItem->uuid}",
                 'created_by' => $actor->getKey(),
+                ...RemoteActorAttribution::fields('created', $actor),
             ]);
         });
     }
@@ -206,6 +209,7 @@ class StaffBlockCreditLedger
                 'idempotency_key' => $idempotencyKey,
                 'reason' => $reason,
                 'created_by' => $actor->getKey(),
+                ...RemoteActorAttribution::fields('created', $actor),
             ]);
         });
     }

@@ -17,6 +17,7 @@ class StartLocalSiteApis extends Command
     /** @var string */
     protected $signature = 'rivo:local-apis
         {--reset : Recréer explicitement les trois bases SQLite locales}
+        {--import-legacy-analyses : Importer le référentiel historique ctb-cover dans chaque site}
         {--prepare-only : Préparer les bases sans démarrer les serveurs HTTP}';
 
     /** @var string */
@@ -174,15 +175,24 @@ class StartLocalSiteApis extends Command
                 });
             }
 
+            if (! $this->siteHasAnalysisCatalog($site)) {
+                $this->components->task("{$site['name']} — catalogue paraclinique de test", function () use ($site): void {
+                    $this->runArtisan($site, ['db:seed', '--class=Database\\Seeders\\DevelopmentParaclinicalCatalogSeeder', '--force', '--no-interaction']);
+                });
+            }
+
+            if ($this->option('import-legacy-analyses') && ! $this->siteHasLegacyAnalysisCatalog($site)) {
+                $this->components->task("{$site['name']} — migration des 719 analyses historiques", function () use ($site): void {
+                    $this->runArtisan($site, ['rivo:import-legacy-analyses', '--source=ctb-cover', '--no-interaction']);
+                });
+            }
+
             $this->components->task("{$site['name']} — mutuelles et partenaires de test", function () use ($site): void {
                 $this->runArtisan($site, ['db:seed', '--class=Database\\Seeders\\DevelopmentMutualOrganizationSeeder', '--force', '--no-interaction']);
             });
 
-            if ($wasCreated) {
-                $this->components->task("{$site['name']} — stock Pharmacie de test", function () use ($site): void {
-                    $this->runArtisan($site, ['db:seed', '--class=Database\\Seeders\\DevelopmentMedicineStockSeeder', '--force', '--no-interaction']);
-                });
-            }
+            // ADR-086 — la Pharmacie d'un site local se saisit avec de vraies
+            // données ; son stock de démonstration s'appelle à la main.
         } catch (Throwable $exception) {
             if ($wasCreated) {
                 File::delete($databasePath);
@@ -248,7 +258,11 @@ class StartLocalSiteApis extends Command
             'RIVO_SITE_NAME' => (string) $site['name'],
             'RIVO_SITE_TYPE' => 'clinic',
             'RIVO_SITE_API_TOKEN' => (string) $site['token'],
-            'RIVO_CATALOG_SEED_ACTOR' => "administration.{$suffix}@rivo.test",
+            // ADR-086 — le catalogue est peuplé par `DatabaseSeeder` lui-même,
+            // avant que `DevelopmentUserSeeder` ne crée les comptes par rôle :
+            // l'auteur du provisioning est donc le compte de test du site,
+            // seul existant à cet instant.
+            'RIVO_CATALOG_SEED_ACTOR' => 'user@rivo.test',
             'RIVO_LOCAL_SITE_APIS' => 'false',
             'DB_CONNECTION' => 'sqlite',
             'DB_DATABASE' => $this->databasePath($site),
@@ -278,6 +292,24 @@ class StartLocalSiteApis extends Command
         $statement = $pdo->query("SELECT COUNT(*) FROM catalog_items WHERE type = 'SERVICE'");
 
         return (int) $statement->fetchColumn() > 0;
+    }
+
+    /** @param array<string, mixed> $site */
+    private function siteHasAnalysisCatalog(array $site): bool
+    {
+        $pdo = new PDO('sqlite:'.$this->databasePath($site));
+        $statement = $pdo->query('SELECT COUNT(*) FROM analysis_catalogs');
+
+        return (int) $statement->fetchColumn() > 0;
+    }
+
+    /** @param array<string, mixed> $site */
+    private function siteHasLegacyAnalysisCatalog(array $site): bool
+    {
+        $pdo = new PDO('sqlite:'.$this->databasePath($site));
+        $statement = $pdo->query("SELECT COUNT(*) FROM analysis_catalogs WHERE source_system = 'CTB_COVER'");
+
+        return (int) $statement->fetchColumn() >= 719;
     }
 
     /** @param array<string, mixed> $site */

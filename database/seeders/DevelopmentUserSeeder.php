@@ -33,7 +33,9 @@ class DevelopmentUserSeeder extends Seeder
         ['key' => 'infirmiere', 'name' => 'Compte test Infirmière', 'role' => 'NURSE', 'profile' => 'REGISTERED_NURSE'],
         ['key' => 'sage-femme', 'name' => 'Compte test Sage-femme', 'role' => 'NURSE', 'profile' => 'MIDWIFE'],
         ['key' => 'anesthesiste', 'name' => 'Compte test Anesthésiste', 'role' => 'NURSE', 'profile' => 'ANESTHETIST'],
-        ['key' => 'chirurgien', 'name' => 'Compte test Chirurgien', 'role' => 'SURGERY'],
+        ['key' => 'chirurgien', 'name' => 'Compte test Chirurgien', 'role' => 'SURGERY', 'profile' => 'SURGEON'],
+        ['key' => 'chirurgien-aide', 'name' => 'Compte test Chirurgien (aide)', 'role' => 'SURGERY', 'profile' => 'SURGEON'],
+        ['key' => 'infirmier-bloc', 'name' => 'Compte test Infirmier de bloc', 'role' => 'SURGERY', 'profile' => 'OR_NURSE'],
         ['key' => 'pharmacie', 'name' => 'Compte test Pharmacie', 'role' => 'PHARMACY'],
         ['key' => 'laboratoire', 'name' => 'Compte test Laboratoire', 'role' => 'LABORATORY'],
     ];

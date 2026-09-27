@@ -30,3 +30,6 @@ Homestead.yaml
 Thumbs.db
 /template/
 /docs/Idée_client_pendant_reunion.pdf
+
+# Rapport généré par vitest (le projet teste avec node --test)
+/.vitest/

@@ -92,6 +92,68 @@ class StockAndAddressPortalTest extends TestCase
             && $request['label'] === 'Nouvelle localité');
     }
 
+    public function test_analysis_catalog_page_and_create_command_use_only_site_apis(): void
+    {
+        $payload = [
+            'data' => [
+                'analyses' => [[
+                    'uuid' => 'analysis-m', 'code' => 'GLYC', 'level' => 'NORMAL',
+                    'designation' => 'Glycémie', 'description' => null, 'result_type' => 'NUMERIC',
+                    'reference_general' => '0,70–1,10', 'reference_male' => null,
+                    'reference_female' => null, 'reference_child_male' => null,
+                    'reference_child_female' => null, 'unit' => 'g/L',
+                    'predefined_values' => [], 'display_order' => 10, 'is_active' => true,
+                    'catalog_item' => ['uuid' => '11111111-1111-4111-8111-111111111111', 'code' => 'LAB-GLYC', 'name' => 'Glycémie'],
+                    'parent' => null,
+                ]],
+                'catalog_items' => [['uuid' => '11111111-1111-4111-8111-111111111111', 'code' => 'LAB-GLYC', 'name' => 'Glycémie']],
+                'parents' => [], 'levels' => ['PARENT', 'CHILD', 'NORMAL'],
+                'result_types' => ['NUMERIC', 'TEXT', 'CHOICE', 'BOOLEAN'],
+            ],
+            'meta' => ['summary' => ['displayed' => 1, 'active' => 1, 'inactive' => 0, 'services' => 1]],
+        ];
+        Http::fake([
+            'https://m.test/api/v1/super-admin/analysis-catalogs*' => Http::response($payload, 200),
+            'https://a.test/api/v1/super-admin/analysis-catalogs*' => Http::response([
+                'data' => ['analyses' => [], 'catalog_items' => [], 'parents' => [], 'levels' => [], 'result_types' => []],
+                'meta' => ['summary' => ['displayed' => 0, 'active' => 0, 'inactive' => 0, 'services' => 0]],
+            ], 200),
+        ]);
+
+        $this->actingAs($this->superAdmin)->get('/super-admin/analyses?status=ALL')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/Analyses/Index')
+                ->has('sites', 3)
+                ->where('sites.0.data.analyses.0.code', 'GLYC')
+                ->where('filters.status', 'ALL'));
+
+        $this->actingAs($this->superAdmin)->post('/super-admin/analyses', [
+            'site_code' => 'M',
+            'catalog_item_uuid' => '11111111-1111-4111-8111-111111111111',
+            'parent_uuid' => null,
+            'code' => 'GLYC',
+            'level' => 'NORMAL',
+            'designation' => 'Glycémie',
+            'description' => null,
+            'result_type' => 'NUMERIC',
+            'reference_general' => '0,70–1,10',
+            'reference_male' => null,
+            'reference_female' => null,
+            'reference_child_male' => null,
+            'reference_child_female' => null,
+            'unit' => 'g/L',
+            'predefined_values' => [],
+            'display_order' => 10,
+            'is_active' => true,
+        ])->assertRedirect()->assertSessionHas('status');
+
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && $request->url() === 'https://m.test/api/v1/super-admin/analysis-catalogs'
+            && $request->hasHeader('Idempotency-Key')
+            && $request['code'] === 'GLYC');
+    }
+
     public function test_cash_registers_page_and_create_command_use_the_selected_site_api(): void
     {
         Http::fake([

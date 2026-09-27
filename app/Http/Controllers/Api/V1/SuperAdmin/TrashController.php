@@ -59,4 +59,26 @@ class TrashController extends Controller
             'data' => $result,
         ]);
     }
+
+    /** Destroy a trashed record for good — refused as soon as anything used it. */
+    public function destroy(
+        Request $request,
+        string $category,
+        string $uuid,
+        TrashDirectory $trash,
+    ): JsonResponse {
+        $validated = validator(
+            ['category' => $category, 'uuid' => $uuid],
+            ['category' => [Rule::enum(TrashCategory::class)], 'uuid' => ['required', 'uuid']],
+        )->validate();
+
+        return response()->json([
+            'message' => 'Élément supprimé définitivement.',
+            'data' => $trash->forceDelete(
+                TrashCategory::from($validated['category']),
+                $validated['uuid'],
+                CatalogActor::fromRemoteRequest($request),
+            ),
+        ]);
+    }
 }

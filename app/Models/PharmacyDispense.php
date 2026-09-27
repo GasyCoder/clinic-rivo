@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use LogicException;
 
 #[Fillable([
-    'type', 'prescription_id', 'patient_id', 'episode_id', 'invoice_id',
+    'type', 'prescription_id', 'patient_id', 'episode_id', 'hospital_stay_id', 'invoice_id',
     'customer_name', 'customer_phone', 'external_prescription_reference',
     'external_prescriber', 'status', 'requested_at', 'requested_by',
     'completed_at', 'cancelled_at', 'cancelled_by', 'cancellation_reason',
@@ -76,5 +76,22 @@ class PharmacyDispense extends Model
     protected function auditModule(): ?string
     {
         return 'pharmacy';
+    }
+
+    /**
+     * ADR-162 — la délivrance au service d'un patient hospitalisé. Elle
+     * n'attend pas le règlement : le patient est au lit, le traitement ne
+     * peut pas attendre que la famille passe à la Caisse. La facture est
+     * préparée comme toujours, et seule la Caisse encaisse (ADR-012).
+     */
+    public function isWardDispense(): bool
+    {
+        return $this->hospital_stay_id !== null;
+    }
+
+    /** ADR-162 — la demande faite depuis le séjour, sans consultation. */
+    public function hospitalStay(): BelongsTo
+    {
+        return $this->belongsTo(HospitalStay::class);
     }
 }

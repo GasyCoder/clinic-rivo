@@ -21,6 +21,9 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 {
     use RefreshDatabase;
 
+    // +11 actes du récapitulatif « Revenus » de la clinique (2026-09-20).
+    private const EXPECTED_CATALOG_ITEMS = 97;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -35,15 +38,15 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
-        $this->assertDatabaseCount('catalog_items', 55);
-        $this->assertDatabaseCount('catalog_tariffs', 16);
+        $this->assertDatabaseCount('catalog_items', self::EXPECTED_CATALOG_ITEMS);
+        $this->assertDatabaseCount('catalog_tariffs', 22);
         $this->assertSame(
-            16,
+            21,
             CatalogItem::query()
                 ->where('type', CatalogItemType::Service->value)
                 ->where('billable', true)
                 ->where('stockable', false)
-                ->whereHas('currentTariff')
+                ->whereHas('currentStandardTariff')
                 ->count(),
         );
         $this->assertDatabaseHas('catalog_items', [
@@ -84,17 +87,47 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         ]);
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'LAB-NFS',
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::LaboratoryDirect->value,
+        ]);
+        // ADR-159 — les actes du bloc rejoignent la sélection de la Réception,
+        // sauf « Autres » (sans nom ni prix) et la césarienne (Maternité,
+        // ADR-067). La consultation chirurgicale et la petite chirurgie restent
+        // hors sélection : un module SURGERY ne signifie pas « bloc » (ADR-052).
+        $this->assertSame(70, CatalogItem::query()->where('reception_selectable', true)->count());
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'SURG-HERNIE-INGUINALE',
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::SurgeryDirect->value,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'SURG-CESARIENNE',
             'reception_selectable' => false,
             'reception_routing_mode' => null,
         ]);
-        $this->assertSame(10, CatalogItem::query()->where('reception_selectable', true)->count());
-        $this->assertSame(18, CatalogItem::query()->where('module', 'CARE')->count());
-        $this->assertSame(27, CatalogItem::query()->where('module', 'SURGERY')->count());
+        $this->assertSame(20, CatalogItem::query()->where('module', 'CARE')->count());
+        // Récapitulatif « Revenus » de la clinique (2026-09-20) : 30 + 11 actes.
+        $this->assertSame(41, CatalogItem::query()->where('module', 'SURGERY')->count());
+        // ADR-136 : 16 actes + Nursie, IEC, Aspirateur bébé + l'injectable contraceptif.
+        $this->assertSame(20, CatalogItem::query()->where('module', 'MATERNITY')->count());
+        $this->assertSame(1, CatalogItem::query()->where('module', 'FAMILY_PLANNING')->count());
+        $this->assertSame(5, CatalogItem::query()->where('module', 'OPHTHALMOLOGY')->count());
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'MAT-DELIVERY-SIMPLE',
+            'module' => 'MATERNITY',
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::MaternityDirect->value,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'MAT-CESAREAN-TWIN',
+            'module' => 'MATERNITY',
+            'reception_selectable' => false,
+        ]);
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'SURG-APPENDICITE',
             'name' => 'Appendicite',
             'module' => 'SURGERY',
-            'reception_selectable' => false,
+            'reception_selectable' => true,
         ]);
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'SURG-OTHER',
@@ -113,6 +146,44 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $this->assertDatabaseMissing('catalog_tariffs', [
             'catalog_item_id' => CatalogItem::query()->where('code', 'CARE-ABL-SONDE')->value('id'),
         ]);
+
+        // Prestations et Tarifs (Clinique Saint Georges) — physical price sheet import.
+        $cesarienne = CatalogItem::query()->where('code', 'SURG-CESARIENNE')->firstOrFail();
+        $this->assertSame('650000.00', $cesarienne->currentStandardTariff->amount);
+        $this->assertSame('800000.00', $cesarienne->currentMutualTariff->amount);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'SURG-CERCLAGE', 'module' => 'SURGERY']);
+        $this->assertSame(
+            '300000.00',
+            CatalogItem::query()->where('code', 'SURG-CERCLAGE')->firstOrFail()->currentStandardTariff->amount,
+        );
+        $this->assertDatabaseHas('catalog_items', ['code' => 'SURG-RUPTURE-UTERINE', 'module' => 'SURGERY']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'SURG-PLACENTA-PRAEVIA', 'module' => 'SURGERY']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'PANSEMENT-S-INT', 'module' => 'CARE']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'PANSEMENT-C-INT', 'module' => 'CARE']);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'MAT-CONSULT-PRENATAL-SUIVI',
+            'module' => 'MATERNITY',
+            'reception_selectable' => true,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'FP-INJECTABLE',
+            'module' => 'MATERNITY',
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::MaternityDirect->value,
+        ]);
+        foreach (['MAT-NURSIE', 'MAT-IEC', 'MAT-BABY-ASPIRATOR'] as $code) {
+            $this->assertDatabaseHas('catalog_items', [
+                'code' => $code,
+                'module' => 'MATERNITY',
+                'reception_selectable' => true,
+                'reception_routing_mode' => ReceptionRoutingMode::MaternityDirect->value,
+            ]);
+        }
+        $this->assertDatabaseHas('catalog_items', ['code' => 'MAT-DOPPLER', 'name' => 'Utilisation Echo Doppler']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'MAT-PHOTOTHERAPY', 'name' => 'Utilisation Photothérapie']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'FP-PILPLAN', 'module' => 'FAMILY_PLANNING']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'OPHT-CONSULT', 'module' => 'OPHTHALMOLOGY']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'OPHT-LUNETTE-T1', 'module' => 'OPHTHALMOLOGY']);
         $this->assertDatabaseHas('audit_logs', [
             'action' => 'create',
             'module' => 'catalog',
@@ -139,8 +210,8 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
-        $this->assertDatabaseCount('catalog_items', 55);
-        $this->assertDatabaseCount('catalog_tariffs', 16);
+        $this->assertDatabaseCount('catalog_items', self::EXPECTED_CATALOG_ITEMS);
+        $this->assertDatabaseCount('catalog_tariffs', 22);
         $this->assertSame('27500.00', $ecg->fresh()->currentTariff->amount);
     }
 
@@ -165,19 +236,29 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $this->assertSame($actor->id, $specialistConsultation->fresh()->updated_by);
     }
 
-    public function test_an_explicit_provisioning_actor_gets_no_catalog_permission(): void
+    public function test_explicit_provisioning_actor_without_catalog_permissions_is_rejected(): void
     {
         $role = Role::query()->where('code', 'RECEPTION')->firstOrFail();
         $actor = User::factory()->create(['role_id' => $role->id]);
         config(['rivo.seeders.catalog_actor' => $actor->uuid]);
 
         $this->assertFalse($actor->hasPermissionTo('catalog.items.create'));
+        $this->assertFalse($actor->hasPermissionTo('catalog.items.update'));
         $this->assertFalse($actor->hasPermissionTo('catalog.tariffs.create'));
 
-        $this->seed(ClinicalServiceCatalogSeeder::class);
+        try {
+            $this->seed(ClinicalServiceCatalogSeeder::class);
+            $this->fail('Le seeder aurait dû refuser l’acteur sans permissions catalogue.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('RIVO_CATALOG_SEED_ACTOR', $exception->getMessage());
+            $this->assertStringContainsString('catalog.items.create', $exception->getMessage());
+            $this->assertStringContainsString('catalog.items.update', $exception->getMessage());
+            $this->assertStringContainsString('catalog.tariffs.create', $exception->getMessage());
+        }
 
-        $this->assertDatabaseCount('catalog_items', 55);
+        $this->assertDatabaseCount('catalog_items', 0);
         $this->assertFalse($actor->fresh()->hasPermissionTo('catalog.items.create'));
+        $this->assertFalse($actor->fresh()->hasPermissionTo('catalog.items.update'));
         $this->assertFalse($actor->fresh()->hasPermissionTo('catalog.tariffs.create'));
     }
 
@@ -188,7 +269,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
             $this->fail('Le seeder aurait dû exiger un compte autorisé existant.');
         } catch (RuntimeException $exception) {
             $this->assertStringContainsString(
-                'Aucun compte actif ne peut créer le référentiel',
+                'Aucun compte actif ne possède les permissions requises',
                 $exception->getMessage(),
             );
         }
@@ -202,6 +283,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $role->permissions()->syncWithoutDetaching(
             Permission::query()->whereIn('name', [
                 'catalog.items.create',
+                'catalog.items.update',
                 'catalog.tariffs.create',
             ])->pluck('id'),
         );

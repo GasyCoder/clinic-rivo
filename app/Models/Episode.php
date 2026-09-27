@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AdministrativeExitType;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodeMedicalStatus;
@@ -37,6 +38,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'service_plan_finalized_at', 'started_at', 'ended_at', 'created_by',
     'emergency_contact_name', 'emergency_contact_phone',
     'emergency_contact_relationship', 'emergency_contact_email',
+    'administrative_exit_type', 'administrative_exit_at', 'administrative_exit_by',
+    'administrative_exit_balance', 'administrative_exit_reason',
 ])]
 class Episode extends Model
 {
@@ -54,6 +57,9 @@ class Episode extends Model
             'medical_status' => EpisodeMedicalStatus::class,
             'financial_mode' => EpisodeFinancialMode::class,
             'administrative_status' => EpisodeAdministrativeStatus::class,
+            'administrative_exit_type' => AdministrativeExitType::class,
+            'administrative_exit_at' => 'datetime',
+            'administrative_exit_balance' => 'decimal:2',
             'financial_context_completed_at' => 'datetime',
             'designation_deferred' => 'boolean',
             'service_plan_finalized_at' => 'datetime',
@@ -109,6 +115,21 @@ class Episode extends Model
         return $this->belongsTo(User::class, 'financial_context_completed_by');
     }
 
+    public function administrativeExitAuthor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'administrative_exit_by');
+    }
+
+    /**
+     * CDC §33.3 — at most one receivable per passage today (an exit happens
+     * once), kept as HasMany so a future correction flow can add a reversal
+     * line instead of rewriting history.
+     */
+    public function debts(): HasMany
+    {
+        return $this->hasMany(PatientDebt::class);
+    }
+
     public function serviceRequests(): HasMany
     {
         return $this->hasMany(EpisodeServiceRequest::class);
@@ -119,9 +140,23 @@ class Episode extends Model
         return $this->hasOne(ReceptionJourneyDraft::class);
     }
 
+    /**
+     * ADR-177 — ce que la Réception suggère comme prochaine étape. Indicatif :
+     * aucune de ces lignes ne décide qui voit le passage, ni ne vaut orientation.
+     */
+    public function receptionNextSteps(): HasMany
+    {
+        return $this->hasMany(EpisodeReceptionNextStep::class);
+    }
+
     public function careRecord(): HasOne
     {
         return $this->hasOne(CareRecord::class);
+    }
+
+    public function maternityRecord(): HasOne
+    {
+        return $this->hasOne(MaternityRecord::class);
     }
 
     public function medicalDischarge(): HasOne
@@ -129,9 +164,33 @@ class Episode extends Model
         return $this->hasOne(MedicalDischarge::class);
     }
 
+    /** L'acte de constatation, distinct de la sortie qui prononce le décès (ADR-107). */
+    public function deathRecord(): HasOne
+    {
+        return $this->hasOne(DeathRecord::class);
+    }
+
+    /** ADR-113 — les séjours hospitaliers du passage (au plus un en cours). */
+    public function hospitalStays(): HasMany
+    {
+        return $this->hasMany(HospitalStay::class);
+    }
+
     public function surgicalRequests(): HasMany
     {
         return $this->hasMany(SurgicalRequest::class);
+    }
+
+    /** ADR-116 — les lignes saisies à la main du journal de traitement. */
+    public function treatmentJournalEntries(): HasMany
+    {
+        return $this->hasMany(TreatmentJournalEntry::class);
+    }
+
+    /** ADR-116 — la sortie constatée par le gardien, au plus une. */
+    public function exitControl(): HasOne
+    {
+        return $this->hasOne(EpisodeExitControl::class);
     }
 
     /**
@@ -185,7 +244,15 @@ class Episode extends Model
 
     protected function auditableSkipsChange(array $changes): bool
     {
-        return $this->status === EpisodeStatus::Cancelled && array_key_exists('status', $changes);
+        if ($this->status === EpisodeStatus::Cancelled && array_key_exists('status', $changes)) {
+            return true;
+        }
+
+        // RecordAdministrativeExitAction records its own
+        // `episode.administrative_exit` entry, with the reason and the
+        // frozen balance. Letting the generic hook fire too would leave a
+        // redundant pair for one decision (ADR-090).
+        return array_key_exists('administrative_exit_type', $changes);
     }
 
     protected function auditModule(): ?string

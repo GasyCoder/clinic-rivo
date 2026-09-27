@@ -2,16 +2,18 @@
 
 namespace App\Actions\User;
 
+use App\Jobs\SendUserInvitationJob;
 use App\Models\Permission;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Administration\EmployeeAccountLinker;
 use App\Services\Audit\Auditor;
+use App\Services\Auth\AccountActivation;
 use App\Services\Authorization\UserAdministrationGuard;
 use App\Services\Catalog\CatalogActor;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -20,6 +22,8 @@ class CreateUserAction
     public function __construct(
         private readonly UserAdministrationGuard $guard,
         private readonly Auditor $auditor,
+        private readonly SyncProfessionalProfilePermissionsAction $syncProfilePermissions,
+        private readonly EmployeeAccountLinker $employeeLinker,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -43,35 +47,53 @@ class CreateUserAction
             $this->guard->assertProfileMatchesRole($role, $profile);
 
             $overrides = $data['permission_overrides'] ?? [];
+            // Same default as an update: a new account given a profile
+            // starts with that profile's access unless told otherwise.
+            $syncRecommended = (bool) ($data['sync_profile_permissions'] ?? $profile !== null);
 
-            if ($overrides !== [] && ! $actor->can('permissions.assign')) {
+            if (($overrides !== [] || $syncRecommended) && ! $actor->can('permissions.assign')) {
                 throw ValidationException::withMessages([
                     'permission_overrides' => "Vous n'êtes pas autorisé à attribuer des permissions individuelles.",
                 ]);
             }
 
+            // ADR-202 — accès du personnel : aucun mot de passe n'est créé ni
+            // communiqué. La personne le choisit à sa première connexion, en
+            // tapant son adresse sur la page de connexion (AccountActivation).
+            $firstLogin = (bool) ($data['activation_on_first_login'] ?? false);
+
             // No password supplied: the account is provisioned by invitation
             // instead — a random, never-communicated password satisfies the
             // column, and the real one is set by the user themselves through
             // the same reset-password link and page as "forgot password".
-            $invited = blank($data['password'] ?? null);
+            $invited = ! $firstLogin && blank($data['password'] ?? null);
 
             $user = new User([
                 'name' => $data['name'],
                 'email' => mb_strtolower($data['email']),
-                'password' => $invited ? Str::password(40) : $data['password'],
+                'password' => $invited || $firstLogin ? Str::password(40) : $data['password'],
                 'role_id' => $role->id,
                 'professional_profile_id' => $profile?->id,
                 'email_verified_at' => now(),
             ]);
-            $user->forceFill(['active' => true])->save();
+            $user->forceFill([
+                'active' => true,
+                'activation_open_until' => $firstLogin ? now()->addDays(AccountActivation::days()) : null,
+            ])->save();
 
-            if ($overrides !== []) {
-                $user->permissions()->sync($this->pivotValues($overrides));
-            }
+            $profileSync = $this->syncProfilePermissions->execute(
+                $user,
+                null,
+                $profile,
+                array_key_exists('permission_overrides', $data) ? $overrides : null,
+                $syncRecommended,
+            );
 
+            // Queued, and only once this transaction has committed: a slow or
+            // unreachable mail server can neither time the request out nor
+            // roll the account back (SendUserInvitationJob).
             if ($invited) {
-                Password::sendResetLink(['email' => $user->email]);
+                SendUserInvitationJob::dispatch($user)->afterCommit();
             }
 
             $this->auditor->record(
@@ -84,6 +106,7 @@ class CreateUserAction
                     'professional_profile' => $profile?->code,
                     'active' => true,
                     'invited' => $invited,
+                    ...($firstLogin ? ['first_login_until' => $user->activation_open_until?->toIso8601String()] : []),
                 ],
                 module: 'administration',
                 actor: $actorUser,
@@ -91,13 +114,16 @@ class CreateUserAction
 
             if ($invited) {
                 $this->auditor->record(
-                    'user.invite.sent',
+                    'user.invite.queued',
                     entity: $user,
                     newValues: ['email' => $user->email],
                     module: 'administration',
                     actor: $actorUser,
                 );
             }
+
+            // ADR-188 — personnel clinique relié à sa fiche Employé, ou externe.
+            $this->employeeLinker->apply($user, $data, $actorUser);
 
             $this->auditor->record(
                 'user.role.assign',
@@ -117,38 +143,44 @@ class CreateUserAction
                 );
             }
 
-            if ($overrides !== []) {
+            $user->load('permissions');
+            $assignedOverrides = $this->auditOverrides($user);
+
+            if ($assignedOverrides !== []) {
                 $this->auditor->record(
                     'user.permissions.assign',
                     entity: $user,
-                    newValues: ['overrides' => $this->auditOverrides($overrides)],
+                    newValues: ['overrides' => $assignedOverrides],
                     module: 'administration',
                     actor: $actorUser,
                 );
             }
 
-            return $user->load(['role', 'professionalProfile', 'permissions']);
+            if ($syncRecommended) {
+                $this->auditor->record(
+                    'user.profile.permissions.sync',
+                    entity: $user,
+                    newValues: [
+                        'old_profile' => null,
+                        'new_profile' => $profile?->code,
+                        ...$profileSync,
+                    ],
+                    module: 'administration',
+                    actor: $actorUser,
+                );
+            }
+
+            return $user->load(['role', 'professionalProfile', 'permissions', 'employee' => fn ($query) => $query->withTrashed()]);
         });
     }
 
-    /** @param array<int, array{permission_id: int, name?: string, effect: string}> $overrides */
-    private function pivotValues(array $overrides): array
+    private function auditOverrides(User $user): array
     {
-        return collect($overrides)->mapWithKeys(fn (array $override) => [
-            $override['permission_id'] => ['effect' => $override['effect']],
-        ])->all();
-    }
-
-    /** @param array<int, array{permission_id: int, name?: string, effect: string}> $overrides */
-    private function auditOverrides(array $overrides): array
-    {
-        $names = Permission::query()
-            ->whereIn('id', collect($overrides)->pluck('permission_id'))
-            ->pluck('name', 'id');
-
-        return collect($overrides)->map(fn (array $override) => [
-            'permission' => $names->get($override['permission_id']),
-            'effect' => $override['effect'],
+        return $user->permissions->map(fn (Permission $permission) => [
+            'permission' => $permission->name,
+            'effect' => $permission->pivot->effect,
+            'source' => $permission->pivot->source,
+            'source_profile_id' => $permission->pivot->source_profile_id,
         ])->sortBy('permission')->values()->all();
     }
 }

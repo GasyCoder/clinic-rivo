@@ -2,12 +2,15 @@
 
 namespace Tests\Feature\Surgery;
 
+use App\Actions\Surgery\CreateSurgicalRequestAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\SurgicalRequestOrigin;
 use App\Models\CatalogItem;
 use App\Models\Episode;
 use App\Models\Patient;
 use App\Models\Role;
+use App\Models\SurgicalRequest;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -67,21 +70,50 @@ class SurgicalRequestCatalogTest extends TestCase
         ]);
     }
 
-    public function test_request_selects_a_controlled_procedure_and_keeps_its_clinical_snapshot(): void
+    /**
+     * ADR-159 — le bloc ne crée plus de demande : il corrige celle qu'il a
+     * reçue. Les trois garanties du catalogue (instantané du libellé,
+     * « Autres » à préciser, module respecté) valent donc désormais sur la
+     * correction, et sont vérifiées ici sur ce chemin.
+     */
+    private function pendingRequest(Episode $episode, CatalogItem $procedure): SurgicalRequest
+    {
+        return $this->actingAs($this->surgeon)->app->make(CreateSurgicalRequestAction::class)->execute($episode, [
+            'catalog_item_id' => $procedure->id,
+            'procedure_name' => $procedure->name,
+        ], SurgicalRequestOrigin::Reception);
+    }
+
+    public function test_the_block_cannot_open_a_file_of_its_own(): void
     {
         $episode = $this->episode();
         $procedure = $this->procedure('SURG-APPENDICITE', 'Appendicite');
 
+        // L'URL reste valide et ramène à la file, jamais une page disparue.
+        $this->actingAs($this->surgeon)->get('/surgery/create')->assertRedirect('/surgery');
         $this->actingAs($this->surgeon)->post('/surgery', [
             'episode_uuid' => $episode->uuid,
             'catalog_item_uuid' => $procedure->uuid,
-            'notes' => 'Demande urgente',
+        ])->assertStatus(405);
+
+        $this->assertDatabaseCount('surgical_requests', 0);
+    }
+
+    public function test_correcting_a_request_selects_a_controlled_procedure_and_keeps_its_snapshot(): void
+    {
+        $episode = $this->episode();
+        $planned = $this->procedure('SURG-ABCES', 'Abcès');
+        $procedure = $this->procedure('SURG-APPENDICITE', 'Appendicite');
+        $request = $this->pendingRequest($episode, $planned);
+
+        $this->actingAs($this->surgeon)->put("/surgery/{$request->uuid}", [
+            'catalog_item_uuid' => $procedure->uuid,
+            'notes' => 'Corrigé au bloc',
         ])->assertRedirect();
 
-        $request = $episode->surgicalRequests()->sole();
+        $request->refresh();
         $this->assertSame($procedure->id, $request->catalog_item_id);
         $this->assertSame('Appendicite', $request->procedure_name);
-        $this->assertNull($request->procedure_details);
         $this->assertDatabaseCount('billable_items', 0);
 
         $procedure->update(['name' => 'Appendicite — libellé corrigé']);
@@ -91,23 +123,24 @@ class SurgicalRequestCatalogTest extends TestCase
     public function test_other_procedure_requires_a_clinical_description(): void
     {
         $episode = $this->episode();
+        $planned = $this->procedure('SURG-ABCES', 'Abcès');
         $other = $this->procedure('SURG-OTHER', 'Autres');
+        $request = $this->pendingRequest($episode, $planned);
 
-        $this->actingAs($this->surgeon)->post('/surgery', [
-            'episode_uuid' => $episode->uuid,
+        $this->actingAs($this->surgeon)->put("/surgery/{$request->uuid}", [
             'catalog_item_uuid' => $other->uuid,
             'procedure_details' => '',
         ])->assertSessionHasErrors('procedure_details');
 
-        $this->assertDatabaseCount('surgical_requests', 0);
+        $this->assertSame($planned->id, $request->fresh()->catalog_item_id);
 
-        $this->actingAs($this->surgeon)->post('/surgery', [
-            'episode_uuid' => $episode->uuid,
+        $this->actingAs($this->surgeon)->put("/surgery/{$request->uuid}", [
             'catalog_item_uuid' => $other->uuid,
             'procedure_details' => 'Drainage d’un abcès profond',
         ])->assertRedirect();
 
         $this->assertDatabaseHas('surgical_requests', [
+            'id' => $request->id,
             'catalog_item_id' => $other->id,
             'procedure_name' => 'Autres',
             'procedure_details' => 'Drainage d’un abcès profond',
@@ -117,13 +150,14 @@ class SurgicalRequestCatalogTest extends TestCase
     public function test_request_rejects_a_surg_prefixed_item_from_another_module(): void
     {
         $episode = $this->episode();
+        $planned = $this->procedure('SURG-ABCES', 'Abcès');
         $wrongModule = $this->procedure('SURG-INVALID', 'Mauvais domaine', CatalogModule::Medicine);
+        $request = $this->pendingRequest($episode, $planned);
 
-        $this->actingAs($this->surgeon)->post('/surgery', [
-            'episode_uuid' => $episode->uuid,
+        $this->actingAs($this->surgeon)->put("/surgery/{$request->uuid}", [
             'catalog_item_uuid' => $wrongModule->uuid,
         ])->assertSessionHasErrors('catalog_item_uuid');
 
-        $this->assertDatabaseCount('surgical_requests', 0);
+        $this->assertSame($planned->id, $request->fresh()->catalog_item_id);
     }
 }

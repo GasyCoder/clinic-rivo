@@ -13,9 +13,39 @@ use Inertia\Response;
 
 class LaboratoryController extends Controller
 {
+    private const FILTERS = ['pending', 'resulted', 'all'];
+
     public function index(Request $request, AnalysisReferenceResolver $references): Response
     {
-        $items = LabRequestItem::query()
+        $filter = in_array($request->query('filter'), self::FILTERS, true)
+            ? $request->query('filter')
+            : 'pending';
+
+        /**
+         * Une demande annulée par le médecin quitte la paillasse.
+         *
+         * L'ADR-079 la retire de l'écran Paraclinique et cesse de la compter
+         * comme demande en attente — mais la file du Laboratoire, elle, la
+         * listait encore : un technicien pouvait passer une analyse que le
+         * prescripteur avait annulée. Une demande portant déjà un résultat
+         * ne peut pas être annulée (la même ADR le refuse), donc l'écarter
+         * ici ne cache jamais un résultat acquis.
+         */
+        $baseQuery = LabRequestItem::query()
+            ->whereHas('labRequest', fn ($request) => $request->whereNull('cancelled_at'));
+
+        $counts = [
+            'pending' => (clone $baseQuery)->whereNull('resulted_at')->count(),
+            'resulted' => (clone $baseQuery)->whereNotNull('resulted_at')->count(),
+            'all' => (clone $baseQuery)->count(),
+            // Ce que la paillasse a réellement rendu aujourd'hui : un total
+            // cumulé ne dit rien de la journée en cours.
+            'resulted_today' => (clone $baseQuery)->whereDate('resulted_at', now()->toDateString())->count(),
+        ];
+
+        $items = (clone $baseQuery)
+            ->when($filter === 'pending', fn ($query) => $query->whereNull('resulted_at'))
+            ->when($filter === 'resulted', fn ($query) => $query->whereNotNull('resulted_at'))
             ->with([
                 'catalogItem.analysisDefinitions' => fn ($query) => $query->where('is_active', true),
                 'labRequest.episode.patient:id,uuid,patient_number,first_name,last_name,birth_date,declared_age,sex',
@@ -49,7 +79,11 @@ class LaboratoryController extends Controller
                 'episode_number' => $item->labRequest->episode->episode_number,
             ]);
 
-        return Inertia::render('Laboratory/Index', ['items' => $items]);
+        return Inertia::render('Laboratory/Index', [
+            'items' => $items,
+            'counts' => $counts,
+            'filter' => $filter,
+        ]);
     }
 
     public function recordResult(

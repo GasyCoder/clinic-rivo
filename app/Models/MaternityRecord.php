@@ -1,0 +1,113 @@
+<?php
+
+namespace App\Models;
+
+use App\Enums\MaternityEncounterType;
+use App\Models\Concerns\Auditable;
+use App\Models\Concerns\HasUuid;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+
+#[Fillable([
+    'episode_id', 'episode_orientation_id', 'pregnancy_id', 'encounter_type',
+    'gestational_age_weeks', 'gestational_age_days', 'obstetric_context',
+    'pregnancy_data', 'prenatal_data', 'labor_data', 'delivery_data', 'newborn_data',
+    'maternal_care_notes', 'baby_care_notes', 'observations', 'transmission_notes',
+    'created_by', 'updated_by', 'completed_by', 'completed_at',
+])]
+class MaternityRecord extends Model
+{
+    use Auditable, HasUuid;
+
+    protected function casts(): array
+    {
+        return [
+            'pregnancy_data' => 'array',
+            'prenatal_data' => 'array',
+            'labor_data' => 'array',
+            'delivery_data' => 'array',
+            'newborn_data' => 'array',
+            'gestational_age_weeks' => 'integer',
+            'gestational_age_days' => 'integer',
+            'completed_at' => 'datetime',
+            'encounter_type' => MaternityEncounterType::class,
+        ];
+    }
+
+    public function episode(): BelongsTo
+    {
+        return $this->belongsTo(Episode::class);
+    }
+
+    public function orientation(): BelongsTo
+    {
+        return $this->belongsTo(EpisodeOrientation::class, 'episode_orientation_id');
+    }
+
+    public function pregnancy(): BelongsTo
+    {
+        return $this->belongsTo(Pregnancy::class);
+    }
+
+    public function procedures(): HasMany
+    {
+        return $this->hasMany(MaternityProcedure::class)->latest('performed_at');
+    }
+
+    /** ADR-204 — les analyses demandées depuis cette prise en charge : le Laboratoire reste la source. */
+    public function labRequests(): HasMany
+    {
+        return $this->hasMany(LabRequest::class);
+    }
+
+    /** ADR-204 — les examens d'imagerie demandés depuis cette prise en charge. */
+    public function imagingRequests(): HasMany
+    {
+        return $this->hasMany(ImagingRequest::class);
+    }
+
+    /** ADR-204 — le rendez-vous programmé à la fin de cette consultation, s'il y en a un. */
+    public function appointment(): HasOne
+    {
+        return $this->hasOne(Appointment::class, 'source_maternity_record_id');
+    }
+
+    /** Terminée : plus rien ne s'y écrit, pas même un enregistrement automatique tardif. */
+    public function isFinalized(): bool
+    {
+        return $this->completed_at !== null;
+    }
+
+    /**
+     * Le parcours de ce dossier. Un dossier antérieur au choix n'en porte pas :
+     * son parcours est **lu** sur son contenu pour l'afficher, jamais écrit.
+     */
+    public function effectiveEncounterType(): MaternityEncounterType
+    {
+        return $this->encounter_type
+            ?? MaternityEncounterType::inferredFor($this->labor_data, $this->delivery_data);
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function updater(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'updated_by');
+    }
+
+    public function completer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'completed_by');
+    }
+
+    protected function auditModule(): ?string
+    {
+        return 'maternity';
+    }
+}

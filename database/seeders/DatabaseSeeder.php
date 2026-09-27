@@ -19,7 +19,14 @@ class DatabaseSeeder extends Seeder
             AllergenReferenceSeeder::class,
             AddressEntrySeeder::class,
             PartnerOrganizationSeeder::class,
+            HrReferenceSeeder::class,
             RolePermissionSeeder::class,
         ]);
+
+        // Local only: test accounts, catalogue, tariffs, analyses, stock and
+        // cash desks, so a fresh database is immediately usable.
+        if (app()->environment('local') || config('app.env') === 'local') {
+            $this->call(DevelopmentSeeder::class);
+        }
     }
 }

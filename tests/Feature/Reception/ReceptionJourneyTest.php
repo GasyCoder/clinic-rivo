@@ -26,18 +26,18 @@ class ReceptionJourneyTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_need_page_only_exposes_configured_reception_services_and_keeps_pharmacy_separate(): void
+    public function test_need_page_exposes_every_domain_but_only_marks_routable_priced_services_ready(): void
     {
         $actor = $this->receptionist(['episodes.create']);
         $eligible = $this->service($actor, 'CONS-NEW', 'Consultation nouvelle', CatalogModule::Medicine);
-        $this->service(
+        $notSelectable = $this->service(
             $actor,
             'LAB-HIDDEN',
             'Analyse non validée',
             CatalogModule::Laboratory,
             receptionSelectable: false,
         );
-        $this->service(
+        $noRoute = $this->service(
             $actor,
             'NO-ROUTE',
             'Prestation sans parcours',
@@ -61,11 +61,27 @@ class ReceptionJourneyTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Reception/Create')
-                ->has('estimateCatalog', 1)
-                ->where('estimateCatalog.0.catalog_item_uuid', $eligible->uuid)
-                ->where('estimateCatalog.0.module_label', 'Médecine')
-                ->where('estimateCatalog.0.routing_mode', ReceptionRoutingMode::MedicineDirect->value)
-                ->where('capabilities.can_open_pharmacy_counter_sale', false)
+                // Every domain/designation is visible for browsing (ADR-053
+                // amendment: the Reception picker no longer hides a whole
+                // domain silently) — MED-NOT-RECEPTION stays excluded on a
+                // different, still-valid ground: it is a Pharmacy MEDICINE,
+                // never a Service the Reception picker deals with (ADR-049).
+                // Ordered by module value: CARE < LABORATORY < MEDICINE.
+                ->has('estimateCatalog', 3)
+                ->where('estimateCatalog.0.catalog_item_uuid', $noRoute->uuid)
+                ->where('estimateCatalog.0.routing_mode', null)
+                ->where('estimateCatalog.0.routing_label', 'Non proposée à la Réception')
+                ->where('estimateCatalog.0.reception_ready', false)
+                ->where('estimateCatalog.1.catalog_item_uuid', $notSelectable->uuid)
+                ->where('estimateCatalog.1.reception_ready', false)
+                ->where('estimateCatalog.2.catalog_item_uuid', $eligible->uuid)
+                ->where('estimateCatalog.2.module_label', 'Médecine')
+                ->where('estimateCatalog.2.routing_mode', ReceptionRoutingMode::MedicineDirect->value)
+                ->where('estimateCatalog.2.reception_ready', true)
+                // Sans les droits Pharmacie, le rayon reste vide : un
+                // écran ne propose jamais ce qu'il ne pourra pas vendre.
+                ->where('capabilities.can_sell_medicines', false)
+                ->has('pharmacyCatalog', 0)
                 ->where('capabilities.can_manage_catalog', false));
     }
 
@@ -182,7 +198,9 @@ class ReceptionJourneyTest extends TestCase
             ->assertJsonPath('preview.totals.gross_amount', '60000.00')
             ->assertJsonPath('preview.totals.coverage_amount', '45000.00')
             ->assertJsonPath('preview.totals.patient_amount', '15000.00')
-            ->assertJsonPath('preview.initial_destination.module', 'MEDICINE');
+            // ADR-177 — plus de « destination initiale » : la prestation ne
+            // décide pas qui voit le patient.
+            ->assertJsonMissingPath('preview.initial_destination');
 
         $this->actingAs($actor)->get(route('reception.passages.journey.show', $episode))
             ->assertOk()
@@ -211,7 +229,10 @@ class ReceptionJourneyTest extends TestCase
         $this->assertDatabaseCount('patients', 1);
         $this->assertDatabaseCount('episodes', 1);
         $this->assertDatabaseCount('episode_service_requests', 1);
-        $this->assertDatabaseCount('episode_orientations', 1);
+        // ADR-177 — aucune orientation n'est déduite du besoin, et aucune
+        // suggestion n'est obligatoire : le passage est confirmé sans elle.
+        $this->assertDatabaseCount('episode_orientations', 0);
+        $this->assertDatabaseCount('episode_reception_next_steps', 0);
         $this->assertDatabaseCount('billable_items', 1);
         $this->assertDatabaseCount('invoices', 1);
         $this->assertDatabaseCount('reception_journey_drafts', 0);

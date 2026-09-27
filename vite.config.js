@@ -35,8 +35,20 @@ export default defineConfig({
 
     server: {
         watch: {
+            // Laravel écrit sans arrêt dans ces dossiers pendant qu'on travaille :
+            // les DevTools Inertia y déposent un JSON par requête
+            // (storage/inertia-devtools), SQLite y crée et supprime ses journaux,
+            // les logs et les caches y tournent. Chaque *création* de fichier dans
+            // l'arbre surveillé fait recharger entièrement toutes les pages ouvertes
+            // (Vite suppose que le nouveau fichier peut résoudre un import cassé) :
+            // le rechargement déclenche une requête, qui écrit un nouveau fichier, qui
+            // déclenche un rechargement. Aucun de ces dossiers n'appartient au
+            // graphe de modules du frontend.
             ignored: [
-                '**/storage/framework/views/**',
+                '**/storage/**',
+                '**/vendor/**',
+                '**/bootstrap/cache/**',
+                '**/public/build/**',
                 '**/.agents/**',
                 '**/.claude/**',
                 '**/.codex/**',

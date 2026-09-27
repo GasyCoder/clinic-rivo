@@ -4,6 +4,7 @@ namespace App\Services\SuperAdmin;
 
 use App\Models\User;
 use Illuminate\Http\Client\Response;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Throwable;
@@ -40,6 +41,15 @@ class PortalSiteApiClient
     {
         return collect(config('rivo.clinics', []))
             ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/pharmacy/stock', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function humanResourcesForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/human-resources', [], $actor))
             ->values()
             ->all();
     }
@@ -134,6 +144,117 @@ class PortalSiteApiClient
             ->all();
     }
 
+    /**
+     * ADR-164 — services, chambres et lits de chaque site, avec leur occupation.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function hospitalBedsForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/hospital-beds', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * ADR-164 — une commande sur le référentiel des lits d'un site. Le chemin est
+     * relatif à `super-admin/hospital-beds` ; le site revérifie chaque droit.
+     *
+     * @return array<string, mixed>
+     */
+    public function hospitalBedCommand(string $siteCode, string $method, string $path, array $payload, User $actor): array
+    {
+        return $this->request($this->site($siteCode), $method, 'super-admin/hospital-beds/'.ltrim($path, '/'), $payload, $actor);
+    }
+
+    /**
+     * ADR-190 — les adresses email professionnelles de chaque site.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function professionalMailboxesForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/professional-mailboxes', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * ADR-190 — « Nouvelle adresse » : le portail enregistre la demande sur le site.
+     *
+     * @param  array{employee_uuid: string, local_part: string, note?: string}  $payload
+     * @return array<string, mixed>
+     */
+    public function requestProfessionalMailbox(string $siteCode, array $payload, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/professional-mailboxes', $payload, $actor);
+    }
+
+    /**
+     * ADR-190 — une adresse, ou une commande sur elle (`activate`, `reject`,
+     * `suspend`, `reactivate`). Le site revérifie le droit et la transition.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function professionalMailbox(string $siteCode, string $mailboxUuid, User $actor, ?string $command = null, array $payload = []): array
+    {
+        $path = 'super-admin/professional-mailboxes/'.rawurlencode($mailboxUuid).($command ? '/'.$command : '');
+
+        return $this->request($this->site($siteCode), $command ? 'POST' : 'GET', $path, $payload, $actor);
+    }
+
+    /**
+     * ADR-197 — l'accès du personnel de chaque site : employés sans compte, remises
+     * au RH, rôles. Jamais un mot de passe.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function staffAccessForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/staff-access', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed> L'état d'un employé, relu juste avant de créer son accès. */
+    public function staffAccessEmployee(string $siteCode, string $employeeUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/staff-access/employees/'.rawurlencode($employeeUuid), [], $actor);
+    }
+
+    /**
+     * ADR-197 — crée le compte d'un employé (ou le vérifie seulement, `dry_run`).
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function grantStaffAccess(string $siteCode, array $payload, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/staff-access/grant', $payload, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function sendStaffAccessHandover(string $siteCode, string $handoverUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/staff-access/handovers/'.rawurlencode($handoverUuid).'/send', [], $actor);
+    }
+
+    /** @return array<string, mixed> ADR-199 — confie la remise des accès à un compte du site. */
+    public function designateStaffAccessReceiver(string $siteCode, string $userUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/staff-access/receivers', ['user_uuid' => $userUuid], $actor);
+    }
+
+    /** @return array<string, mixed> `waive` (avec un motif) ou `unwaive`. */
+    public function staffAccessWaiver(string $siteCode, string $employeeUuid, string $command, array $payload, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/staff-access/employees/'.rawurlencode($employeeUuid).'/'.$command, $payload, $actor);
+    }
+
     /** @return array<string, mixed> */
     public function createCashRegister(string $siteCode, string $name, User $actor): array
     {
@@ -158,10 +279,148 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers/'.$uuid.'/activate', [], $actor);
     }
 
+    /**
+     * @param  array<int, string>  $paymentMethodUuids
+     * @return array<string, mixed>
+     */
+    public function updateCashRegisterPaymentMethods(
+        string $siteCode,
+        string $uuid,
+        array $paymentMethodUuids,
+        User $actor,
+    ): array {
+        return $this->request(
+            $this->site($siteCode),
+            'PUT',
+            'super-admin/cash-registers/'.$uuid.'/payment-methods',
+            ['payment_method_uuids' => $paymentMethodUuids],
+            $actor,
+        );
+    }
+
     /** @return array<string, mixed> */
     public function deactivateCashRegister(string $siteCode, string $uuid, User $actor): array
     {
         return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers/'.$uuid.'/deactivate', [], $actor);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function paymentMethodsForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/payment-methods', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed> */
+    public function createPaymentMethod(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/payment-methods', $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function updatePaymentMethod(string $siteCode, string $uuid, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/payment-methods/'.$uuid, $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function activatePaymentMethod(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/payment-methods/'.$uuid.'/activate', [], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function deactivatePaymentMethod(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/payment-methods/'.$uuid.'/deactivate', [], $actor);
+    }
+
+    /**
+     * ADR-133 — les seuils des patients VIP, site par site. Chaque site répond
+     * avec ses propres seuils et ce qu'ils donnent chez lui.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function patientVipSettingsForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/patient-vip-settings', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed> */
+    public function previewPatientVipSettings(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/patient-vip-settings/preview', $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function updatePatientVipSettings(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/patient-vip-settings', $data, $actor);
+    }
+
+    /** ADR-184 — les paramètres de l'application de chaque site. @return array<int, array<string, mixed>> */
+    public function appSettingsForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/app-settings', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function updateAppSettings(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/app-settings', $data, $actor);
+    }
+
+    /** Le fichier part tel quel, en multipart, jamais converti. @return array<string, mixed> */
+    public function storeAppSettingAsset(string $siteCode, string $kind, UploadedFile $file, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/app-settings/assets/'.rawurlencode($kind), [], $actor, $file, 'file');
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteAppSettingAsset(string $siteCode, string $kind, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/app-settings/assets/'.rawurlencode($kind), [], $actor);
+    }
+
+    /** ADR-192 — un coupon de remise sur le site. @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function createDiscountCoupon(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/app-settings/coupons', $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function archiveDiscountCoupon(string $siteCode, string $couponUuid, string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/app-settings/coupons/'.rawurlencode($couponUuid).'/archive', ['reason' => $reason], $actor);
+    }
+
+    /** ADR-192 — supprimer définitivement un coupon archivé jamais utilisé. @return array<string, mixed> */
+    public function deleteDiscountCoupon(string $siteCode, string $couponUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/app-settings/coupons/'.rawurlencode($couponUuid), [], $actor);
+    }
+
+    /** ADR-193 — mettre le site en maintenance, la programmer ou la modifier. @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function updateSiteMaintenance(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/app-settings/maintenance', $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function liftSiteMaintenance(string $siteCode, ?string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/app-settings/maintenance/lift', ['reason' => $reason], $actor);
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -187,6 +446,105 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'PUT', 'super-admin/users/'.$uuid, $data, $actor);
     }
 
+    /**
+     * Le rapport consolidé de chaque site, pour le tableau de bord central
+     * (ADR-102). Un site injoignable ne fait pas tomber les autres : son
+     * enveloppe porte `ok: false` et son message, comme partout ailleurs.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function reportsForAllSites(User $actor, int $days): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/reports/overview', ['days' => $days], $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Le référentiel des rôles d'un site (ADR-100) — jamais une lecture SQL
+     * directe : le portail passe par l'API du site comme pour le reste du
+     * domaine catalogue (ADR-004, ADR-027).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function rolesForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/roles', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function createRole(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/roles', $data, $actor);
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function updateRole(string $siteCode, string $roleCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/roles/'.$roleCode, $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function archiveRole(string $siteCode, string $roleCode, string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/roles/'.$roleCode, ['reason' => $reason], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function restoreRole(string $siteCode, string $roleCode, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/roles/'.$roleCode.'/restore', [], $actor);
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function createPermission(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/permissions', $data, $actor);
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function updatePermission(string $siteCode, int $permissionId, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/permissions/'.$permissionId, $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function deletePermission(string $siteCode, int $permissionId, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/permissions/'.$permissionId, [], $actor);
+    }
+
+    /**
+     * Les exceptions individuelles d'un compte, sans toucher à son identité.
+     *
+     * @param  array<int, array{permission_id: int, effect: string}>  $overrides
+     * @return array<string, mixed>
+     */
+    public function updateUserPermissionOverrides(string $siteCode, string $userUuid, array $overrides, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode), 'PUT', 'super-admin/roles/accounts/'.$userUuid.'/permissions',
+            ['permission_overrides' => $overrides], $actor,
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function resetUserPermissions(string $siteCode, string $userUuid, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode), 'POST', 'super-admin/roles/accounts/'.$userUuid.'/permissions/reset',
+            [], $actor,
+        );
+    }
+
     /** @param array<int, int> $permissionIds
      * @return array<string, mixed> */
     public function updateRolePermissions(string $siteCode, string $roleCode, array $permissionIds, User $actor): array
@@ -194,6 +552,15 @@ class PortalSiteApiClient
         return $this->request(
             $this->site($siteCode), 'PUT', 'super-admin/roles/'.$roleCode.'/permissions',
             ['permission_ids' => $permissionIds], $actor,
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function resetRolePermissions(string $siteCode, string $roleCode, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode), 'POST', 'super-admin/roles/'.$roleCode.'/permissions/reset',
+            [], $actor,
         );
     }
 
@@ -390,6 +757,82 @@ class PortalSiteApiClient
         );
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function documentTemplatesForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/document-templates', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed> */
+    public function documentTemplate(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/document-templates/'.$uuid, [], $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function createDocumentTemplate(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/document-templates', $data, $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function updateDocumentTemplate(string $siteCode, string $uuid, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/document-templates/'.$uuid, $data, $actor);
+    }
+
+    public function archiveDocumentTemplate(string $siteCode, string $uuid, string $reason, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'DELETE',
+            'super-admin/document-templates/'.$uuid,
+            ['reason' => $reason],
+            $actor,
+        );
+    }
+
+    public function restoreDocumentTemplate(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/document-templates/'.$uuid.'/restore', [], $actor);
+    }
+
+    public function duplicateDocumentTemplate(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/document-templates/'.$uuid.'/duplicate', [], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function documentTemplateHistory(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/document-templates/'.$uuid.'/history', [], $actor);
+    }
+
+    public function revertDocumentTemplateVersion(string $siteCode, string $uuid, string $reason, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/document-templates/'.$uuid.'/revert',
+            ['reason' => $reason],
+            $actor,
+        );
+    }
+
+    public function setDocumentTemplateActive(string $siteCode, string $uuid, bool $active, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/document-templates/'.$uuid.'/'.($active ? 'activate' : 'deactivate'),
+            [],
+            $actor,
+        );
+    }
+
     /** @return array<string, mixed> */
     public function createMutualOrganization(
         string $siteCode,
@@ -503,8 +946,316 @@ class PortalSiteApiClient
         );
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function analysisCatalogsForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/analysis-catalogs', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    public function analysisDetail(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/analysis-catalogs/'.$uuid, [], $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function createAnalysis(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/analysis-catalogs', $data, $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function updateAnalysis(string $siteCode, string $uuid, array $data, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'PUT',
+            'super-admin/analysis-catalogs/'.$uuid,
+            $data,
+            $actor,
+        );
+    }
+
+    public function setAnalysisActive(string $siteCode, string $uuid, bool $active, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/analysis-catalogs/'.$uuid.'/'.($active ? 'activate' : 'deactivate'),
+            [],
+            $actor,
+        );
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    public function importAnalyses(string $siteCode, array $rows, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/analysis-catalogs/import',
+            ['rows' => $rows],
+            $actor,
+        );
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function pharmacySuppliersForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/pharmacy/suppliers', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * ADR-098 — an order or invoice command on one supplier folder of a site.
+     * An invoice document travels as the multipart field « attachment ».
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function pharmacyProcurement(
+        string $siteCode,
+        string $supplierUuid,
+        User $actor,
+        string $method,
+        string $path,
+        array $payload = [],
+        ?UploadedFile $attachment = null,
+    ): array {
+        return $this->request(
+            $this->site($siteCode),
+            $method,
+            'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).'/'.ltrim($path, '/'),
+            $payload,
+            $actor,
+            $attachment,
+            'attachment',
+        );
+    }
+
+    /** @param 'orders'|'invoices'|'products'|null $section null reads the folder itself */
+    public function pharmacySupplierFolder(string $siteCode, string $supplierUuid, User $actor, ?string $section = null): array
+    {
+        $path = 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).($section ? '/'.$section : '');
+
+        return $this->request($this->site($siteCode), 'GET', $path, [], $actor);
+    }
+
+    /**
+     * @param  array<int, string>  $supplierUuids
+     */
+    public function forceDeleteTrashItem(string $siteCode, string $category, string $uuid, User $actor): array
+    {
+        $path = 'super-admin/trash/'.rawurlencode($category).'/'.rawurlencode($uuid);
+
+        return $this->request($this->site($siteCode), 'DELETE', $path, [], $actor);
+    }
+
+    /**
+     * A catalogue file of a site (ADR-098).
+     *
+     * @return array{ok: bool, message: string, body: ?string, content_type: string, filename: string}
+     */
+    public function pharmacySupplierCatalogFile(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor, string $filename): array
+    {
+        return $this->pharmacySupplierFile($siteCode, $supplierUuid, 'catalogs/'.rawurlencode($catalogUuid).'/download', $actor, $filename);
+    }
+
+    /**
+     * ADR-179 — the confirmation document a supplier sent for an order.
+     *
+     * @return array{ok: bool, message: string, body: ?string, content_type: string, filename: string}
+     */
+    public function pharmacyOrderConfirmationFile(string $siteCode, string $supplierUuid, string $orderUuid, User $actor, string $filename): array
+    {
+        return $this->pharmacySupplierFile($siteCode, $supplierUuid, 'orders/'.rawurlencode($orderUuid).'/confirmation/document', $actor, $filename);
+    }
+
+    /**
+     * A supplier file of a site, fetched as bytes so the portal can hand it
+     * to the browser. Nothing is stored centrally: the file keeps living on
+     * its site (ADR-098).
+     *
+     * @return array{ok: bool, message: string, body: ?string, content_type: string, filename: string}
+     */
+    private function pharmacySupplierFile(string $siteCode, string $supplierUuid, string $path, User $actor, string $filename): array
+    {
+        $site = $this->site($siteCode);
+        $apiUrl = trim((string) ($site['api_url'] ?? ''));
+        $token = trim((string) ($site['api_token'] ?? ''));
+        $failure = fn (string $message) => ['ok' => false, 'message' => $message, 'body' => null, 'content_type' => 'application/octet-stream', 'filename' => $filename];
+
+        if ($apiUrl === '' || $token === '') {
+            return $failure('L’URL ou le jeton API de ce site n’est pas configuré.');
+        }
+
+        try {
+            $response = Http::withToken($token)
+                ->withHeaders([
+                    'X-Request-UUID' => (string) Str::uuid(),
+                    'X-Rivo-Actor-UUID' => $actor->uuid,
+                    'X-Rivo-Actor-Name' => $actor->name,
+                    'X-Rivo-Actor-Permissions' => $actor->effectivePermissionNames()->implode(','),
+                ])
+                ->timeout(max(5, (int) config('rivo.site_api.timeout', 5)))
+                ->get(rtrim($apiUrl, '/').'/super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).'/'.ltrim($path, '/'));
+        } catch (Throwable $exception) {
+            return $failure('Le site est injoignable : '.$exception->getMessage());
+        }
+
+        if (! $response->successful()) {
+            return $failure('Le site a refusé le téléchargement de ce fichier.');
+        }
+
+        return [
+            'ok' => true,
+            'message' => '',
+            'body' => $response->body(),
+            'content_type' => $response->header('Content-Type') ?: 'application/octet-stream',
+            'filename' => $filename,
+        ];
+    }
+
+    public function pharmacySupplierOffers(string $siteCode, User $actor, array $supplierUuids = []): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/pharmacy/supplier-offers', ['suppliers' => $supplierUuids], $actor);
+    }
+
+    public function pharmacySuppliers(string $siteCode, User $actor, array $query = []): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/pharmacy/suppliers', $query, $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function updatePharmacySupplier(string $siteCode, string $supplierUuid, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid), $data, $actor);
+    }
+
+    public function archivePharmacySupplier(string $siteCode, string $supplierUuid, string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid), ['reason' => $reason], $actor);
+    }
+
+    public function restorePharmacySupplier(string $siteCode, string $supplierUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).'/restore', [], $actor);
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    public function previewPharmacySupplierImport(string $siteCode, array $rows, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/pharmacy/suppliers/import-preview', ['rows' => $rows], $actor);
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    public function importPharmacySuppliers(string $siteCode, array $rows, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/pharmacy/suppliers/import', ['rows' => $rows], $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function createPharmacySupplier(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/pharmacy/suppliers', $data, $actor);
+    }
+
+    public function pharmacySupplierCatalogs(string $siteCode, string $supplierUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', $this->supplierCatalogsPath($supplierUuid), [], $actor);
+    }
+
+    /**
+     * ADR-098 — a catalog is a file the pharmacy will open later, so it is
+     * forwarded as the binary the Super Admin chose, never re-encoded.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function uploadPharmacySupplierCatalog(string $siteCode, string $supplierUuid, UploadedFile $file, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', $this->supplierCatalogsPath($supplierUuid), $data, $actor, $file);
+    }
+
+    public function activatePharmacySupplierCatalog(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/activate', [], $actor);
+    }
+
+    public function pharmacySupplierCatalogItems(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/items', [], $actor);
+    }
+
+    /**
+     * ADR-098 — one line of a supplier catalogue: correct it, withdraw it,
+     * restore it, or undo the medicine it was attached to. The site applies
+     * its own rules; the portal only carries the intent.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function pharmacySupplierCatalogItem(
+        string $siteCode,
+        string $supplierUuid,
+        string $catalogUuid,
+        string $itemUuid,
+        User $actor,
+        string $method,
+        string $suffix = '',
+        array $payload = [],
+    ): array {
+        $path = $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/items/'.rawurlencode($itemUuid).$suffix;
+
+        return $this->request($this->site($siteCode), $method, $path, $payload, $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function updatePharmacySupplierCatalog(string $siteCode, string $supplierUuid, string $catalogUuid, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PATCH', $this->supplierCatalogsPath($supplierUuid, $catalogUuid), $data, $actor);
+    }
+
+    /**
+     * ADR-098 — a command or read on one site's medicine records and families.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function pharmacyCatalog(string $siteCode, User $actor, string $method, string $path, array $payload = []): array
+    {
+        return $this->request($this->site($siteCode), $method, 'super-admin/pharmacy/'.ltrim($path, '/'), $payload, $actor);
+    }
+
+    public function archivePharmacySupplierCatalog(string $siteCode, string $supplierUuid, string $catalogUuid, string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', $this->supplierCatalogsPath($supplierUuid, $catalogUuid), ['reason' => $reason], $actor);
+    }
+
+    public function restorePharmacySupplierCatalog(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/restore', [], $actor);
+    }
+
+    public function previewPharmacySupplierCatalogImport(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/import-preview', [], $actor);
+    }
+
+    public function importPharmacySupplierCatalog(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/import', [], $actor);
+    }
+
+    private function supplierCatalogsPath(string $supplierUuid, ?string $catalogUuid = null): string
+    {
+        $path = 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).'/catalogs';
+
+        return $catalogUuid === null ? $path : $path.'/'.rawurlencode($catalogUuid);
+    }
+
     /** @return array<string, mixed> */
-    private function request(array $site, string $method, string $path, array $payload, User $actor): array
+    private function request(array $site, string $method, string $path, array $payload, User $actor, ?UploadedFile $file = null, string $fileField = 'file'): array
     {
         $identity = ['code' => $site['code'], 'name' => $site['name']];
         $apiUrl = trim((string) ($site['api_url'] ?? ''));
@@ -540,9 +1291,14 @@ class PortalSiteApiClient
             }
 
             $url = rtrim($apiUrl, '/').'/'.ltrim($path, '/');
-            $response = $method === 'GET'
-                ? $pending->get($url, $payload)
-                : $pending->send($method, $url, ['json' => $payload]);
+            $response = match (true) {
+                $method === 'GET' => $pending->get($url, $payload),
+                // Read into memory so a retry re-sends the whole file.
+                $file !== null => $pending
+                    ->attach($fileField, (string) file_get_contents($file->getRealPath()), $file->getClientOriginalName())
+                    ->post($url, $payload),
+                default => $pending->send($method, $url, ['json' => $payload]),
+            };
 
             return $this->normalizeResponse($identity, $response);
         } catch (Throwable $exception) {

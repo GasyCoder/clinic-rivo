@@ -9,6 +9,10 @@ enum TrashCategory: string
     case AddressEntry = 'ADDRESS_ENTRY';
     case MutualOrganization = 'MUTUAL_ORGANIZATION';
     case CashRegister = 'CASH_REGISTER';
+    case MedicineSupplier = 'MEDICINE_SUPPLIER';
+    case SupplierCatalog = 'SUPPLIER_CATALOG';
+    case SupplierInvoice = 'SUPPLIER_INVOICE';
+    case PurchaseOrder = 'PURCHASE_ORDER';
 
     public function label(): string
     {
@@ -18,6 +22,10 @@ enum TrashCategory: string
             self::AddressEntry => 'Adresses',
             self::MutualOrganization => 'Organismes mutuels',
             self::CashRegister => 'Caisses',
+            self::MedicineSupplier => 'Fournisseurs',
+            self::SupplierCatalog => 'Catalogues fournisseurs',
+            self::SupplierInvoice => 'Factures fournisseurs',
+            self::PurchaseOrder => 'Commandes fournisseurs (brouillons)',
         };
     }
 
@@ -29,6 +37,10 @@ enum TrashCategory: string
             self::AddressEntry => 'Adresse',
             self::MutualOrganization => 'Organisme mutuel',
             self::CashRegister => 'Caisse',
+            self::MedicineSupplier => 'Fournisseur',
+            self::SupplierCatalog => 'Catalogue fournisseur',
+            self::SupplierInvoice => 'Facture fournisseur',
+            self::PurchaseOrder => 'Commande fournisseur',
         };
     }
 
@@ -40,6 +52,10 @@ enum TrashCategory: string
             self::AddressEntry => 'map-pin',
             self::MutualOrganization => 'shield-check',
             self::CashRegister => 'wallet',
+            self::MedicineSupplier => 'building',
+            self::SupplierCatalog => 'file-text',
+            self::SupplierInvoice => 'money',
+            self::PurchaseOrder => 'truck',
         };
     }
 
@@ -51,6 +67,10 @@ enum TrashCategory: string
             self::AddressEntry => 'address_entries.restore',
             self::MutualOrganization => 'mutual_organizations.restore',
             self::CashRegister => 'cash_registers.restore',
+            self::MedicineSupplier => 'medicine_suppliers.restore',
+            self::SupplierCatalog => 'supplier_catalogs.restore',
+            self::SupplierInvoice => 'supplier_invoices.restore',
+            self::PurchaseOrder => 'purchase_orders.restore',
         };
     }
 

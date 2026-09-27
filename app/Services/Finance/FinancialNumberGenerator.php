@@ -31,6 +31,30 @@ class FinancialNumberGenerator
         return $this->next('pharmacy_delivery', 'BS');
     }
 
+    /** CDC §33.3 / ADR-090 — receivable left by an unsettled exit. */
+    public function patientDebt(): string
+    {
+        return $this->next('patient_debt', 'DT');
+    }
+
+    /** ADR-072 — Soins consumable slip handed to Pharmacy. */
+    public function careConsumableRequest(): string
+    {
+        return $this->next('care_consumable_request', 'DC');
+    }
+
+    /** ADR-097 — supplier purchase order (bon de commande). */
+    public function purchaseOrder(): string
+    {
+        return $this->next('purchase_order', 'BC');
+    }
+
+    /** ADR-097 — goods receipt against a purchase order (bon de réception). */
+    public function goodsReceipt(): string
+    {
+        return $this->next('goods_receipt', 'BR');
+    }
+
     private function next(string $code, string $marker): string
     {
         return DB::transaction(function () use ($code, $marker) {

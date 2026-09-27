@@ -194,7 +194,9 @@ class StaffFinancialFlowTest extends TestCase
         $this->assertNull($request->patient_amount);
         $this->assertNull($result->invoice);
         $this->assertStringContainsString('classifier', $result->billingWarning);
-        $this->assertTrue($episode->fresh()->orientations()->exists());
+        // ADR-177 — le besoin est gardé et le passage est ouvert aux services ;
+        // le parcours clinique ne dépend ni d'une orientation ni de la finance.
+        $this->assertNotNull($episode->fresh()->service_plan_finalized_at);
         $this->assertDatabaseCount('billable_items', 0);
         $this->assertSame('300000.00', $this->summary($employee)['available']);
     }

@@ -6,6 +6,7 @@ use App\Actions\Reception\CompleteEpisodeServicesAction;
 use App\Enums\ArrivalPaymentChoice;
 use App\Enums\CashSessionStatus;
 use App\Enums\EpisodeFinancialMode;
+use App\Enums\ReceptionNextStep;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreEpisodeServicesRequest;
 use App\Models\CashSession;
@@ -71,6 +72,8 @@ class EpisodeServiceController extends Controller
                 ],
             ],
             'billingCatalog' => $billingCatalog,
+            // ADR-177 — suggestion facultative, jamais une destination imposée.
+            'nextStepOptions' => ReceptionNextStep::options(),
             'pricingContext' => [
                 'category' => $tariffCategory,
                 'financial_mode' => $episode->financial_mode?->value,
@@ -98,7 +101,18 @@ class EpisodeServiceController extends Controller
                         : null,
             ],
             'paymentMethods' => $request->user()->can('payments.create')
-                ? PaymentMethod::query()->where('active', true)->orderBy('id')->get(['id', 'code', 'name'])
+                ? PaymentMethod::query()->where('active', true)->orderBy('id')->get(['id', 'code', 'name', 'category', 'affects_cash_balance', 'requires_reference'])
+                    ->map(fn (PaymentMethod $method) => [
+                        'id' => $method->id,
+                        'code' => $method->code,
+                        'name' => $method->name,
+                        'category' => $method->category->value,
+                        'category_label' => $method->category->label(),
+                        'category_icon' => $method->category->icon(),
+                        'category_position' => $method->category->position(),
+                        'affects_cash_balance' => $method->affects_cash_balance,
+                        'requires_reference' => $method->requires_reference,
+                    ])
                 : [],
             'openCashSessions' => $request->user()->can('payments.create')
                 ? CashSession::query()
@@ -133,9 +147,35 @@ class EpisodeServiceController extends Controller
             paymentMethodId: $request->integer('payment_method_id') ?: null,
             paymentReference: $request->validated('payment_reference'),
             cashRegisterUuid: $request->validated('cash_register_uuid'),
+            nextSteps: $request->validated('next_steps') ?? [],
         );
 
         $message = "Parcours du passage {$episode->episode_number} confirmé.";
+
+        // ADR-104 — un passage venu uniquement pour des médicaments n'a
+        // aucune file clinique à rejoindre : le ticket part à la Caisse,
+        // qui encaisse avant que la Pharmacie ne délivre (ADR-049). La
+        // Réception n'a donc rien à faire du dossier patient ici.
+        if ($result->pharmacyOnly) {
+            $ticket = $result->pharmacyInvoice;
+
+            if ($ticket === null) {
+                return redirect()->route('patients.show', $episode->patient)
+                    ->with('status', trim("Passage {$episode->episode_number} créé. {$result->billingWarning}"));
+            }
+
+            if ($request->user()->can('cash.view')) {
+                return redirect()->route('cash.index', ['pharmacy_reference' => $ticket->invoice_number])
+                    ->with('status', "Ticket {$ticket->invoice_number} transmis à la Caisse.");
+            }
+
+            return redirect()->route('patients.show', $episode->patient)
+                ->with('status', "Ticket Pharmacie {$ticket->invoice_number} créé — à régler à la Caisse.");
+        }
+
+        if ($result->pharmacyInvoice) {
+            $message .= " Ticket Pharmacie {$result->pharmacyInvoice->invoice_number} transmis à la Caisse.";
+        }
 
         if ($result->billingWarning) {
             return redirect()->route('patients.show', $episode->patient)

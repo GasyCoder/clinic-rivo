@@ -19,7 +19,9 @@ class CreateMedicineProductAction
     /** @param array<string, mixed> $data */
     public function execute(array $data, User $actor): Medicine
     {
-        return DB::transaction(function () use ($data, $actor): Medicine {
+        $catalogActor = CatalogActor::fromUser($actor);
+
+        return DB::transaction(function () use ($data, $catalogActor): Medicine {
             $catalog = $this->createCatalogItem->execute([
                 'code' => $data['code'],
                 'name' => $data['name'],
@@ -31,7 +33,7 @@ class CreateMedicineProductAction
                 'description' => $data['description'] ?? null,
                 'tariff_amount' => $data['sale_price'],
                 'tariff_reason' => $data['tariff_reason'],
-            ], CatalogActor::fromUser($actor));
+            ], $catalogActor);
             $categoryId = filled($data['medicine_category_uuid'] ?? null)
                 ? MedicineCategory::query()->where('uuid', $data['medicine_category_uuid'])->value('id')
                 : null;
@@ -46,8 +48,11 @@ class CreateMedicineProductAction
                 'minimum_stock' => (int) $data['minimum_stock'],
                 'prescription_required' => (bool) $data['prescription_required'],
                 'active' => true,
-                'created_by' => $actor->getKey(),
-                'updated_by' => $actor->getKey(),
+                'created_by' => $catalogActor->localUserId(),
+                'updated_by' => $catalogActor->localUserId(),
+                // ADR-189 — un médicament ajouté depuis le portail garde son auteur.
+                ...$catalogActor->externalAttribution('created'),
+                ...$catalogActor->externalAttribution('updated'),
             ]);
             $supplierIds = MedicineSupplier::query()
                 ->whereIn('uuid', $data['supplier_uuids'] ?? [])

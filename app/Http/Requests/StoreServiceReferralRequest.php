@@ -35,14 +35,13 @@ class StoreServiceReferralRequest extends FormRequest
     {
         return [
             'destination' => ['required', Rule::in(array_keys(self::PERMISSION_BY_DESTINATION))],
-            'reason' => ['required', 'string', 'max:3000'],
+            'reason' => ['nullable', 'string', 'max:3000'],
         ];
     }
 
     public function messages(): array
     {
         return [
-            'reason.required' => 'Indiquez le motif de cette demande.',
         ];
     }
 }

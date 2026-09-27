@@ -31,8 +31,10 @@ class ValidateInvoiceAction
                 ]);
             }
 
+            // Ramenée à zéro par la mutuelle, la prise en charge Personnel ou une
+            // remise (ADR-192) : réglée sans paiement, aucun reçu n'est fabriqué.
             $invoice->status = Money::toMinor($invoice->total_amount) === 0
-                && Money::toMinor($invoice->coverage_amount) > 0
+                && (Money::toMinor($invoice->coverage_amount) > 0 || Money::toMinor($invoice->discount_amount) > 0)
                     ? InvoiceStatus::Covered
                     : InvoiceStatus::Validated;
             $invoice->validated_by = $actor->id;

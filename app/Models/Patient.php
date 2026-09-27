@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
+use App\Enums\PatientAntecedentType;
 use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Enums\PatientType;
@@ -29,7 +30,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  */
 #[Fillable([
     'patient_number', 'patient_type', 'first_name', 'last_name', 'birth_date',
-    'birth_date_is_approximate', 'declared_age', 'declared_age_at',
+    'birth_date_is_approximate', 'birth_place', 'declared_age', 'declared_age_at',
     'sex', 'civility', 'identity_document_type', 'identity_document_number',
     'marital_status', 'children_count', 'profession', 'phone', 'email',
     'address', 'address_entry_id',
@@ -64,6 +65,24 @@ class Patient extends Model
         return $this->hasMany(Episode::class);
     }
 
+    /** Dossiers longitudinaux, distincts des passages administratifs. */
+    public function pregnancies(): HasMany
+    {
+        return $this->hasMany(Pregnancy::class)->latest('started_at')->latest('id');
+    }
+
+    /** ADR-144 — ce patient est un nouveau-né créé depuis le dossier Maternité de sa mère. */
+    public function newbornLink(): HasOne
+    {
+        return $this->hasOne(PatientNewbornLink::class);
+    }
+
+    /** ADR-144 — les enfants nés à la clinique dont ce patient est la mère. */
+    public function newbornChildren(): HasMany
+    {
+        return $this->hasMany(PatientNewbornLink::class, 'mother_patient_id')->orderBy('birth_rank');
+    }
+
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);
@@ -74,9 +93,26 @@ class Patient extends Model
         return $this->hasMany(PatientAntecedent::class);
     }
 
+    /** The patient's own history, as the DOSSIER MÉDICAL separates it. */
+    public function personalAntecedents(): HasMany
+    {
+        return $this->antecedents()->where('type', PatientAntecedentType::Personal->value);
+    }
+
+    public function familialAntecedents(): HasMany
+    {
+        return $this->antecedents()->where('type', PatientAntecedentType::Familial->value);
+    }
+
     public function allergies(): HasMany
     {
         return $this->hasMany(PatientAllergy::class);
+    }
+
+    /** Treatments explicitly confirmed in the permanent medical record. */
+    public function treatments(): HasMany
+    {
+        return $this->hasMany(PatientTreatment::class);
     }
 
     public function staffLinks(): HasMany
@@ -109,9 +145,11 @@ class Patient extends Model
     public function isForceDeleteProtected(): bool
     {
         return $this->episodes()->exists()
+            || $this->pregnancies()->exists()
             || $this->invoices()->exists()
             || $this->antecedents()->exists()
             || $this->allergies()->exists()
+            || $this->treatments()->exists()
             || $this->staffLinks()->exists()
             || $this->mutualCoverages()->exists();
     }

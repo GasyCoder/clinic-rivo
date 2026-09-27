@@ -8,6 +8,8 @@ use App\Http\Requests\Administration\AllocateStaffBlockCreditRequest;
 use App\Models\Employee;
 use App\Models\StaffBlockCreditMovement;
 use App\Services\Finance\StaffBlockCreditLedger;
+use App\Services\Settings\AppSettings;
+use App\Support\Authorization\RemoteActorAttribution;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -20,6 +22,7 @@ class StaffBlockCreditController extends Controller
         $search = trim((string) $request->query('q', ''));
         $selectedUuid = trim((string) $request->query('employee', ''));
         $employees = Employee::withTrashed()
+            ->with('jobTitle')
             ->when($search !== '', fn ($query) => $query->where(function ($nested) use ($search) {
                 $nested->where('employee_number', 'like', "%{$search}%")
                     ->orWhere('first_name', 'like', "%{$search}%")
@@ -35,12 +38,13 @@ class StaffBlockCreditController extends Controller
                 'first_name' => $employee->first_name,
                 'last_name' => $employee->last_name,
                 'profession' => $employee->profession,
+                'job_title' => $employee->jobTitle?->label ?? $employee->profession,
                 'active' => $employee->active && ! $employee->trashed(),
                 'credit' => $ledger->summary($employee),
             ]);
 
         $selected = $selectedUuid !== ''
-            ? Employee::withTrashed()->where('uuid', $selectedUuid)->first()
+            ? Employee::withTrashed()->with('jobTitle')->where('uuid', $selectedUuid)->first()
             : null;
         $movements = $selected
             ? StaffBlockCreditMovement::query()
@@ -60,7 +64,7 @@ class StaffBlockCreditController extends Controller
                     'episode_number' => $movement->episode?->episode_number,
                     'billable_item_uuid' => $movement->billableItem?->uuid,
                     'billable_item_description' => $movement->billableItem?->description,
-                    'created_by' => $movement->creator?->name,
+                    'created_by' => RemoteActorAttribution::name($movement->creator?->name, $movement->external_created_by_name),
                     'created_at' => $movement->created_at?->toIso8601String(),
                 ])
             : null;
@@ -73,6 +77,7 @@ class StaffBlockCreditController extends Controller
                 'first_name' => $selected->first_name,
                 'last_name' => $selected->last_name,
                 'profession' => $selected->profession,
+                'job_title' => $selected->jobTitle?->label ?? $selected->profession,
                 'active' => $selected->active && ! $selected->trashed(),
                 'credit' => $ledger->summary($selected),
             ] : null,
@@ -94,6 +99,6 @@ class StaffBlockCreditController extends Controller
             $request->user(),
         );
 
-        return back()->with('status', "Crédit Bloc alloué. Nouveau solde : {$movement->balance_after} Ar.");
+        return back()->with('status', 'Crédit Bloc alloué. Nouveau solde : '.app(AppSettings::class)->formatMoney($movement->balance_after).'.');
     }
 }

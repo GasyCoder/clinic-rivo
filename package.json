@@ -4,7 +4,9 @@
     "type": "module",
     "scripts": {
         "build": "vite build",
-        "dev": "vite"
+        "dev": "vite",
+        "test:js": "node --test tests/JavaScript/*.test.js",
+        "test:permissions": "node --test tests/JavaScript/permissionWorkspace.test.js"
     },
     "devDependencies": {
         "@headlessui/tailwindcss": "^0.2.2",
@@ -21,16 +23,40 @@
         "@laravel/multiplex": "^0.4.1"
     },
     "dependencies": {
+        "@fontsource/dancing-script": "^5.3.0",
         "@headlessui/vue": "^1.7.23",
         "@inertiajs/vite": "^3.6.1",
         "@inertiajs/vue3": "^3.6.1",
+        "@internationalized/date": "^3.12.4",
         "@popperjs/core": "^2.11.8",
+        "@tiptap/extension-color": "^2.27.3",
+        "@tiptap/extension-font-family": "^2.27.3",
+        "@tiptap/extension-highlight": "^2.27.3",
+        "@tiptap/extension-image": "^2.27.3",
+        "@tiptap/extension-table": "^2.27.3",
+        "@tiptap/extension-table-cell": "^2.27.3",
+        "@tiptap/extension-table-header": "^2.27.3",
+        "@tiptap/extension-table-row": "^2.27.3",
+        "@tiptap/extension-text-align": "^2.27.3",
+        "@tiptap/extension-text-style": "^2.27.3",
+        "@tiptap/extension-underline": "^2.27.3",
+        "@tiptap/pm": "^2.27.3",
+        "@tiptap/starter-kit": "^2.27.3",
+        "@tiptap/vue-3": "^2.27.3",
         "@vitejs/plugin-vue": "^6.0.8",
         "@vueuse/core": "^13.1.0",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
+        "jszip": "^3.10.1",
+        "lucide-vue-next": "^0.577.0",
+        "mammoth": "^1.12.3",
+        "pdfjs-dist": "^5.6.205",
         "pinia": "^3.0.4",
         "qr-scanner": "^1.4.2",
         "qrcode": "^1.5.4",
+        "reka-ui": "^2.10.4",
         "simplebar-vue": "^2.4.2",
+        "tailwind-merge": "^3.7.0",
         "vue": "^3.5.41"
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\PatientAntecedentType;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\SoftDeletable;
@@ -15,10 +16,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * never overwritten, only soft-deleted with a reason if recorded in error,
  * so the clinical history stays fully traceable (ADR-010).
  */
-#[Fillable(['patient_id', 'description', 'recorded_by'])]
+#[Fillable(['patient_id', 'type', 'description', 'recorded_by'])]
 class PatientAntecedent extends Model
 {
     use Auditable, HasUuid, SoftDeletable;
+
+    protected function casts(): array
+    {
+        return [
+            'type' => PatientAntecedentType::class,
+        ];
+    }
 
     public function patient(): BelongsTo
     {

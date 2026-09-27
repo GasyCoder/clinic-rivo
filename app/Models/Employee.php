@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\EmployeeRemunerationType;
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
 use App\Enums\PatientCivility;
@@ -21,14 +22,26 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * record. Only this administrative subset may be exposed to Reception.
  */
 #[Fillable([
-    'employee_number', 'user_id', 'civility', 'first_name', 'last_name',
-    'sex', 'birth_date', 'identity_document_type', 'identity_document_number',
-    'marital_status', 'children_count', 'profession', 'phone', 'email',
-    'address', 'address_entry_id', 'active',
+    'employee_number', 'user_id', 'department_id', 'job_title_id', 'civility',
+    'first_name', 'last_name', 'sex', 'birth_date', 'hire_date', 'birth_place',
+    'identity_document_type', 'identity_document_number',
+    'identity_document_issued_on', 'identity_document_issued_at',
+    'marital_status', 'children_count', 'diploma', 'education_level',
+    'children_details', 'badge', 'blouse', 'profession', 'phone', 'email',
+    'address', 'address_entry_id', 'observation', 'active',
+    'photo_path', 'photo_updated_at',
+    // ADR-206 — rémunération déclarée et compte bancaire (droits employees.payroll.*).
+    'remuneration_type', 'remuneration_amount', 'bank_account_number', 'bank_account_holder',
 ])]
 class Employee extends Model
 {
     use Auditable, HasUuid, SoftDeletable;
+
+    /** ADR-190 — ses adresses email professionnelles, ouvertes ou non. */
+    public function professionalMailboxes(): HasMany
+    {
+        return $this->hasMany(ProfessionalMailbox::class);
+    }
 
     protected function casts(): array
     {
@@ -36,10 +49,17 @@ class Employee extends Model
             'civility' => PatientCivility::class,
             'sex' => PatientSex::class,
             'birth_date' => 'date',
+            'hire_date' => 'date',
             'identity_document_type' => IdentityDocumentType::class,
+            'identity_document_issued_on' => 'date',
             'marital_status' => MaritalStatus::class,
             'children_count' => 'integer',
             'active' => 'boolean',
+            'photo_updated_at' => 'datetime',
+            'remuneration_type' => EmployeeRemunerationType::class,
+            'remuneration_amount' => 'decimal:2',
+            // ADR-197 — « aucun accès nécessaire », décidé par le Super Admin.
+            'access_waived_at' => 'datetime',
         ];
     }
 
@@ -51,6 +71,46 @@ class Employee extends Model
     public function addressEntry(): BelongsTo
     {
         return $this->belongsTo(AddressEntry::class);
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(HrReferenceValue::class, 'department_id');
+    }
+
+    public function jobTitle(): BelongsTo
+    {
+        return $this->belongsTo(HrReferenceValue::class, 'job_title_id');
+    }
+
+    public function contracts(): HasMany
+    {
+        return $this->hasMany(EmploymentContract::class);
+    }
+
+    public function attendanceRecords(): HasMany
+    {
+        return $this->hasMany(AttendanceRecord::class);
+    }
+
+    public function leaveRequests(): HasMany
+    {
+        return $this->hasMany(LeaveRequest::class);
+    }
+
+    public function interimLeaveRequests(): HasMany
+    {
+        return $this->hasMany(LeaveRequest::class, 'interim_employee_id');
+    }
+
+    public function planningShifts(): HasMany
+    {
+        return $this->hasMany(PlanningShift::class);
+    }
+
+    public function hrDocuments(): HasMany
+    {
+        return $this->hasMany(HrDocument::class);
     }
 
     public function patientLinks(): HasMany
@@ -73,6 +133,12 @@ class Employee extends Model
         return $this->hasMany(StaffBlockCreditMovement::class)->latest('id');
     }
 
+    /** ADR-194 — la photo d'identité 4 × 4, sur le disque privé. */
+    public function hasPhoto(): bool
+    {
+        return filled($this->photo_path);
+    }
+
     public function isAvailableForPatientLink(): bool
     {
         return $this->active && ! $this->trashed();
@@ -82,7 +148,13 @@ class Employee extends Model
     {
         return $this->patientLinks()->exists()
             || $this->episodeStaffCoverages()->exists()
-            || $this->staffBlockCreditMovements()->exists();
+            || $this->staffBlockCreditMovements()->exists()
+            || $this->contracts()->withTrashed()->exists()
+            || $this->attendanceRecords()->exists()
+            || $this->leaveRequests()->exists()
+            || $this->interimLeaveRequests()->exists()
+            || $this->planningShifts()->exists()
+            || $this->hrDocuments()->withTrashed()->exists();
     }
 
     protected function auditModule(): ?string

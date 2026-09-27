@@ -2,10 +2,11 @@
 import { computed } from 'vue';
 import { Head, Link, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from '@/Components/UI/Button.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import { ArrowLeft, Printer } from 'lucide-vue-next';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
+import { doctorName } from '@/utilities/doctorName';
 
 defineOptions({ layout: AppLayout });
 
@@ -14,6 +15,8 @@ const props = defineProps({
     episode: Object,
     patient: Object,
     prescription: Object,
+    /** ADR-162 — une ordonnance du séjour ramène au séjour. */
+    backHref: { type: String, default: null },
 });
 
 const page = usePage();
@@ -29,6 +32,17 @@ const birthLabel = computed(() => (props.patient.birth_date && !props.patient.bi
     : patientAge.value));
 
 /** Reads like "500 mg, 3 fois par jour, pendant 7 jours", the way a prescriber actually writes posology. */
+/**
+ * ADR-205 — la sage-femme signe sous son titre, jamais sous « Dr ». Sans titre
+ * servi, la feuille reste celle d'un médecin.
+ */
+const prescriberLine = computed(() => {
+    const name = props.prescription.prescribed_by || 'N/R';
+
+    return props.prescription.prescriber_title ? `${props.prescription.prescriber_title} ${name}` : doctorName(name);
+});
+const signatureLabel = computed(() => (props.prescription.prescriber_title ? 'Signature et cachet du prescripteur' : 'Signature et cachet du médecin'));
+
 const posologyLine = (line) => {
     const parts = [line.dosage, line.frequency].filter(Boolean).join(', ');
 
@@ -45,13 +59,13 @@ const printDocument = () => window.print();
 
     <div class="rx-page mx-auto w-full max-w-3xl space-y-3">
         <div class="rx-actions flex flex-wrap items-center justify-between gap-3">
-            <Button :as="Link" :href="`/medicine/orientations/${orientation.uuid}/ordonnance`" size="rg" variant="white-outline">
-                <Icon class="text-lg" name="arrow-left" />
-                <span class="ms-2">Retour à l’ordonnance</span>
+            <Button :as="Link" :href="backHref ?? `/medicine/orientations/${orientation.uuid}/ordonnance`" size="rg" variant="outline">
+                <ArrowLeft class="h-4 w-4" />
+                <span>Retour à l’ordonnance</span>
             </Button>
             <Button size="rg" variant="primary" type="button" @click="printDocument">
-                <Icon class="text-lg" name="printer" />
-                <span class="ms-2">Imprimer</span>
+                <Printer class="h-4 w-4" />
+                <span>Imprimer</span>
             </Button>
         </div>
 
@@ -70,7 +84,7 @@ const printDocument = () => window.print();
             </header>
 
             <section class="rx-prescriber-row">
-                <p><strong>Dr {{ prescription.prescribed_by || 'N/R' }}</strong></p>
+                <p><strong>{{ prescriberLine }}</strong></p>
                 <p>Fait à {{ siteName }}, le {{ formatDateTime(prescription.prescribed_at) }}</p>
             </section>
 
@@ -99,7 +113,7 @@ const printDocument = () => window.print();
 
             <section class="rx-signature">
                 <div class="rx-signature-box">
-                    <p class="rx-signature-label">Signature et cachet du médecin</p>
+                    <p class="rx-signature-label">{{ signatureLabel }}</p>
                     <div class="rx-signature-line" />
                 </div>
             </section>

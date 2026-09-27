@@ -12,12 +12,12 @@ use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
-use App\Exceptions\InvalidEpisodeOrientationTransitionException;
 use App\Models\AuditLog;
 use App\Models\EpisodeOrientation;
 use App\Models\Patient;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class EpisodeOrientationFlowTest extends TestCase
@@ -66,9 +66,13 @@ class EpisodeOrientationFlowTest extends TestCase
         $actor = User::factory()->create();
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
         $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $actor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $actor);
         $care = $episode->orientations()->sole();
 
-        $this->expectException(InvalidEpisodeOrientationTransitionException::class);
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Prenez d’abord ce patient en charge.');
 
         $this->app->make(CompleteCareAndOrientToMedicineAction::class)
             ->execute($care, $actor);
@@ -80,6 +84,9 @@ class EpisodeOrientationFlowTest extends TestCase
         $this->actingAs($actor);
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
         $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $actor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $actor);
         $care = $episode->orientations()->sole();
 
         $this->app->make(AcceptCareOrientationAction::class)->execute($care, $actor);

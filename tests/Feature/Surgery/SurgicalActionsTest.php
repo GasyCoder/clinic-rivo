@@ -3,7 +3,7 @@
 namespace Tests\Feature\Surgery;
 
 use App\Actions\Surgery\AssignSurgicalTeamMemberAction;
-use App\Actions\Surgery\CreateAnesthesiaRecordAction;
+use App\Actions\Surgery\CompleteSurgicalCaseAction;
 use App\Actions\Surgery\CreateSurgicalInterventionAction;
 use App\Actions\Surgery\CreateSurgicalReportAction;
 use App\Actions\Surgery\CreateSurgicalRequestAction;
@@ -20,20 +20,37 @@ use App\Actions\Surgery\ValidateAnesthesiaRecordAction;
 use App\Actions\Surgery\ValidatePreoperativeAssessmentAction;
 use App\Actions\Surgery\ValidateSurgicalReportAction;
 use App\Enums\SurgicalCarePhase;
+use App\Enums\SurgicalChecklistPhase;
 use App\Enums\SurgicalRequestStatus;
 use App\Enums\SurgicalTeamFunction;
 use App\Models\AuditLog;
 use App\Models\Episode;
 use App\Models\Patient;
+use App\Models\ProfessionalProfile;
+use App\Models\Role;
 use App\Models\SurgicalConsumable;
 use App\Models\SurgicalTeamMember;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
+use Tests\Feature\Surgery\Concerns\BuildsSurgicalCases;
 use Tests\TestCase;
 
 class SurgicalActionsTest extends TestCase
 {
-    use RefreshDatabase;
+    use BuildsSurgicalCases, RefreshDatabase;
+
+    /** ADR-168 — seul un compte au profil Chirurgien se programme comme chirurgien. */
+    private function surgeon(): User
+    {
+        $role = Role::query()->firstOrCreate(['code' => 'SURGERY'], ['name' => 'Chirurgie']);
+        $profile = ProfessionalProfile::query()->firstOrCreate(
+            ['code' => 'SURGEON'],
+            ['role_id' => $role->id, 'name' => 'Chirurgien / Chirurgienne', 'active' => true],
+        );
+
+        return User::factory()->create(['role_id' => $role->id, 'professional_profile_id' => $profile->id]);
+    }
 
     private function makeEpisode(): Episode
     {
@@ -86,7 +103,7 @@ class SurgicalActionsTest extends TestCase
 
     public function test_full_workflow_through_actions_reaches_discharged_and_locks_the_report(): void
     {
-        $doctor = User::factory()->create();
+        $doctor = $this->surgeon();
         $this->actingAs($doctor);
         $episode = $this->makeEpisode();
 
@@ -97,11 +114,19 @@ class SurgicalActionsTest extends TestCase
         $this->app->make(UpdateSurgicalRequestAction::class)->execute($request, ['preoperative_notes' => 'ASA I']);
         $this->app->make(ValidatePreoperativeAssessmentAction::class)->execute($request, $doctor);
 
-        $anesthesia = $this->app->make(CreateAnesthesiaRecordAction::class)->execute($request, ['notes' => 'AG standard']);
-        $this->app->make(ValidateAnesthesiaRecordAction::class)->execute($anesthesia);
+        // ADR-170 — l'incision exige un anesthésiste affecté, une autorisation
+        // prononcée et les deux premiers temps de la checklist confirmés.
+        $this->grant($doctor, ['anesthesia.create', 'anesthesia.update', 'anesthesia.validate']);
+        $anesthesia = $this->anesthesiaCleared($request->fresh(), $doctor);
+        $this->completeChecklist($request->fresh(), SurgicalChecklistPhase::SignIn, $doctor, $doctor);
+        $this->completeChecklist($request->fresh(), SurgicalChecklistPhase::TimeOut, $doctor, $doctor);
 
-        $intervention = $this->app->make(CreateSurgicalInterventionAction::class)->execute($request, []);
+        $intervention = $this->app->make(CreateSurgicalInterventionAction::class)
+            ->execute($request->fresh(), [], $doctor->fresh());
         $this->assertSame(SurgicalRequestStatus::InProgress, $request->fresh()->status);
+        $intervention->update(['ended_at' => now()]);
+
+        $this->app->make(ValidateAnesthesiaRecordAction::class)->execute($anesthesia->fresh(), $doctor->fresh());
 
         $this->app->make(RecordSurgicalConsumableAction::class)->execute($request, 'Compresses stériles', 10, 'unités');
         $this->app->make(RecordSurgicalComplicationAction::class)->execute($request, 'Saignement mineur maîtrisé');
@@ -110,13 +135,17 @@ class SurgicalActionsTest extends TestCase
         $report = $this->app->make(CreateSurgicalReportAction::class)->execute($request, 'Intervention sans incident.');
         $this->app->make(ValidateSurgicalReportAction::class)->execute($report);
 
-        $this->assertSame(SurgicalRequestStatus::Completed, $request->fresh()->status);
+        // ADR-170 — valider le compte rendu ne clôt plus le dossier : il reste
+        // au bloc tant que le SIGN OUT et la sortie du bloc manquent.
+        $this->assertSame(SurgicalRequestStatus::InProgress, $request->fresh()->status);
         $this->assertNotNull($report->fresh()->validated_at);
 
-        // ValidateSurgicalReportAction completes the request through
-        // $report->surgicalRequest — a separately loaded instance — so
-        // $request's in-memory status is now stale; re-fetch before the
-        // next transition, exactly as a fresh HTTP request would.
+        $this->completeChecklist($request->fresh(), SurgicalChecklistPhase::SignOut, $doctor, $doctor);
+        $request->blockExit()->create(['recorded_by' => $doctor->id, 'left_at' => now()]);
+        $this->app->make(CompleteSurgicalCaseAction::class)->execute($request->fresh(), $doctor->fresh());
+
+        $this->assertSame(SurgicalRequestStatus::Completed, $request->fresh()->status);
+
         $request = $request->fresh();
         $this->app->make(DischargeSurgicalRequestAction::class)->execute($request, $doctor, 'RAS');
         $this->assertSame(SurgicalRequestStatus::Discharged, $request->fresh()->status);
@@ -127,9 +156,54 @@ class SurgicalActionsTest extends TestCase
         $this->assertNotNull($intervention->id);
     }
 
+    public function test_validating_a_report_before_the_intervention_leaves_nothing_half_validated(): void
+    {
+        // Avant : le compte rendu était enregistré « validé », puis la clôture de
+        // l'intervention échouait (erreur 500) — un compte rendu que plus personne
+        // ne pouvait corriger, sur un dossier que plus personne ne pouvait clore.
+        $doctor = $this->surgeon();
+        $this->actingAs($doctor);
+        $request = $this->app->make(CreateSurgicalRequestAction::class)->execute($this->makeEpisode(), ['procedure_name' => 'Appendicectomie']);
+        $this->app->make(ScheduleSurgicalRequestAction::class)->execute($request, $doctor, '2026-09-01 08:00:00');
+        $report = $this->app->make(CreateSurgicalReportAction::class)->execute($request, 'Rédigé trop tôt.');
+
+        try {
+            $this->app->make(ValidateSurgicalReportAction::class)->execute($report);
+            $this->fail('La validation aurait dû être refusée.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('report', $exception->errors());
+        }
+
+        $this->assertNull($report->fresh()->validated_at);
+        $this->assertSame(SurgicalRequestStatus::Scheduled, $request->fresh()->status);
+    }
+
+    public function test_a_validated_report_is_not_validated_twice(): void
+    {
+        $doctor = $this->surgeon();
+        $this->actingAs($doctor);
+        $request = $this->app->make(CreateSurgicalRequestAction::class)->execute($this->makeEpisode(), ['procedure_name' => 'Appendicectomie']);
+        $this->app->make(ScheduleSurgicalRequestAction::class)->execute($request, $doctor, '2026-09-01 08:00:00');
+        $this->app->make(UpdateSurgicalRequestAction::class)->execute($request, ['preoperative_notes' => 'ASA I']);
+        $this->app->make(ValidatePreoperativeAssessmentAction::class)->execute($request, $doctor);
+        $this->grant($doctor, ['anesthesia.create', 'anesthesia.update', 'anesthesia.validate']);
+        $this->anesthesiaCleared($request->fresh(), $doctor);
+        $this->completeChecklist($request->fresh(), SurgicalChecklistPhase::SignIn, $doctor, $doctor);
+        $this->completeChecklist($request->fresh(), SurgicalChecklistPhase::TimeOut, $doctor, $doctor);
+        $this->app->make(CreateSurgicalInterventionAction::class)->execute($request->fresh(), [], $doctor->fresh());
+        $report = $this->app->make(CreateSurgicalReportAction::class)->execute($request, 'Sans incident.');
+        $validated = $this->app->make(ValidateSurgicalReportAction::class)->execute($report);
+
+        // ADR-170 — le dossier reste au bloc : la clôture est un geste à part.
+        $this->assertSame(SurgicalRequestStatus::InProgress, $validated->surgicalRequest->status);
+
+        $this->expectException(ValidationException::class);
+        $this->app->make(ValidateSurgicalReportAction::class)->execute($report);
+    }
+
     public function test_remove_team_member_action_deletes_and_audits_the_removal(): void
     {
-        $doctor = User::factory()->create();
+        $doctor = $this->surgeon();
         $this->actingAs($doctor);
         $episode = $this->makeEpisode();
         $request = $this->app->make(CreateSurgicalRequestAction::class)->execute($episode, ['procedure_name' => 'Appendicectomie']);

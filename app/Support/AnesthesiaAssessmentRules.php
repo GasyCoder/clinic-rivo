@@ -234,11 +234,27 @@ final class AnesthesiaAssessmentRules
     /** @return array<int, string> */
     private static function medicalConditions(): array
     {
+        return array_keys(self::medicalConditionLabels());
+    }
+
+    /**
+     * Les libellés français des antécédents cochables — ceux que l'écran de
+     * consultation pré-anesthésique affiche, servis ici pour que le dossier
+     * imprimé (ADR-172) n'en recopie pas une seconde liste.
+     *
+     * @return array<string, string>
+     */
+    public static function medicalConditionLabels(): array
+    {
         return [
-            'HYPERTENSION', 'DIABETES', 'JAUNDICE', 'CONJUNCTIVITIS',
-            'RHINITIS', 'ASTHMA', 'HEADACHE', 'SEIZURE', 'FEVER', 'VERTIGO',
-            'EPIGASTRIC_PAIN', 'NAUSEA_VOMITING', 'COUGH', 'ACUTE_PAIN',
-            'CHRONIC_PAIN', 'ABDOMINAL_PAIN', 'CHEST_PAIN', 'LUMBAR_PAIN',
+            'HYPERTENSION' => 'HTA', 'DIABETES' => 'Diabète', 'JAUNDICE' => 'Ictère',
+            'CONJUNCTIVITIS' => 'Conjonctivite', 'RHINITIS' => 'Rhinite', 'ASTHMA' => 'Asthme',
+            'HEADACHE' => 'Céphalée', 'SEIZURE' => 'Convulsion', 'FEVER' => 'Fièvre',
+            'VERTIGO' => 'Vertige', 'EPIGASTRIC_PAIN' => 'Épigastralgie',
+            'NAUSEA_VOMITING' => 'Nausée / vomissement', 'COUGH' => 'Toux',
+            'ACUTE_PAIN' => 'Douleur aiguë', 'CHRONIC_PAIN' => 'Douleur chronique',
+            'ABDOMINAL_PAIN' => 'Douleur abdominale', 'CHEST_PAIN' => 'Douleur thoracique',
+            'LUMBAR_PAIN' => 'Douleur lombaire',
         ];
     }
 }

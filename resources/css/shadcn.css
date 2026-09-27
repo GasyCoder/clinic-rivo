@@ -1,0 +1,149 @@
+/*
+ * RIVO's gradual shadcn-vue layer.
+ *
+ * These semantic tokens are opt-in: existing DashWind screens keep their
+ * current palette while migrated screens use background/card/muted/etc.
+ */
+@layer base {
+    :root {
+        --background: 216 33% 97%;
+        --foreground: 214 39% 23%;
+        --card: 0 0% 100%;
+        --card-foreground: 214 39% 23%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 214 39% 23%;
+        --primary: 197 60% 39%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 218 43% 96%;
+        --secondary-foreground: 214 39% 23%;
+        --muted: 218 43% 96%;
+        --muted-foreground: 217 20% 48%;
+        --accent: 197 65% 94%;
+        --accent-foreground: 198 58% 30%;
+        --destructive: 4 78% 59%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 217 36% 90%;
+        --input: 217 36% 88%;
+        --ring: 197 60% 39%;
+        --radius: 0.75rem;
+
+        /* ADR-191 — réglages « Avancé » : hauteur des champs et boutons, arrondis.
+           Les valeurs par défaut sont celles d'avant ; <html data-*> les change. */
+        --control-h: 2.5rem;
+        --control-h-sm: 2.25rem;
+        --control-h-lg: 2.75rem;
+        --radius-scale: 1;
+    }
+
+    .dark {
+        --background: 216 39% 9%;
+        --foreground: 216 33% 96%;
+        --card: 215 35% 12%;
+        --card-foreground: 216 33% 96%;
+        --popover: 215 35% 12%;
+        --popover-foreground: 216 33% 96%;
+        --primary: 193 57% 56%;
+        --primary-foreground: 215 40% 10%;
+        --secondary: 215 27% 18%;
+        --secondary-foreground: 216 33% 96%;
+        --muted: 215 27% 18%;
+        --muted-foreground: 215 18% 66%;
+        --accent: 197 42% 19%;
+        --accent-foreground: 194 65% 76%;
+        --destructive: 4 63% 45%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 215 24% 21%;
+        --input: 215 24% 24%;
+        --ring: 193 57% 56%;
+    }
+}
+
+@keyframes rivo-dialog-in {
+    from { opacity: 0; transform: translate(-50%, -48%) scale(0.97); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/*
+ * Un menu ou un panneau ancré s'ouvre directement à sa place : un fondu bref,
+ * aucun déplacement. `rivo-dialog-in` recentre une fenêtre (translate -50 %) :
+ * appliqué à un menu, il le faisait glisser d'une demi-largeur vers la gauche
+ * puis sauter à sa place à la fin de l'animation.
+ */
+@keyframes rivo-popover-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Un panneau latéral (`Sheet`) glisse depuis son bord. */
+@keyframes rivo-sheet-in-right {
+    from { opacity: 0.6; transform: translateX(100%); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes rivo-sheet-in-left {
+    from { opacity: 0.6; transform: translateX(-100%); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes rivo-overlay-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* ADR-195 — la barre fine qui court au-dessus d'une liste en cours de relecture. */
+@keyframes webmail-progress {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(300%); }
+}
+
+/* L'icône d'un bouton « Actualiser » : un tour, que RefreshIcon arrête en fin de tour. */
+@keyframes rivo-refresh-turn {
+    to { transform: rotate(360deg); }
+}
+
+/*
+ * ADR-191 — densité, arrondis et animations, posés en attributs sur <html>
+ * (site, puis ce que chacun choisit dans « Mon profil »). Les sélecteurs ne
+ * visent pas <html> seul : un aperçu peut les poser sur un bloc de la page.
+ */
+[data-density="compact"] {
+    --control-h: 2.25rem;
+    --control-h-sm: 2rem;
+    --control-h-lg: 2.5rem;
+}
+
+[data-density="comfortable"] {
+    --control-h: 2.75rem;
+    --control-h-sm: 2.5rem;
+    --control-h-lg: 3rem;
+}
+
+[data-radius="square"] {
+    --radius-scale: 0.35;
+}
+
+[data-radius="round"] {
+    --radius-scale: 1.6;
+}
+
+[data-motion="reduce"],
+[data-motion="reduce"] *,
+[data-motion="reduce"] *::before,
+[data-motion="reduce"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    [data-motion="system"],
+    [data-motion="system"] *,
+    [data-motion="system"] *::before,
+    [data-motion="system"] *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

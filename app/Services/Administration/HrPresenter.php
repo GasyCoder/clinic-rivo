@@ -1,0 +1,275 @@
+<?php
+
+namespace App\Services\Administration;
+
+use App\Enums\HrReferenceType;
+use App\Enums\PlanningShiftKind;
+use App\Models\AttendanceRecord;
+use App\Models\Employee;
+use App\Models\EmploymentContract;
+use App\Models\HrDocument;
+use App\Models\HrReferenceValue;
+use App\Models\LeaveRequest;
+use App\Models\PlanningShift;
+use App\Support\Authorization\RemoteActorAttribution;
+use App\Support\Hr\Seniority;
+
+class HrPresenter
+{
+    /** @return array<string, mixed> */
+    public function employeeOption(Employee $employee): array
+    {
+        return [
+            'uuid' => $employee->uuid,
+            'employee_number' => $employee->employee_number,
+            'name' => $this->employeeName($employee),
+            'department' => $employee->department?->label,
+            'department_uuid' => $employee->department?->uuid,
+            'job_title' => $employee->jobTitle?->label ?? $employee->profession,
+            'hire_date' => $employee->hire_date?->toDateString(),
+            'active' => $employee->active,
+            // ADR-194 — la photo 4 × 4 se lit par un contrôleur qui revérifie
+            // le droit ; `v` change l'adresse quand la photo change.
+            'photo_url' => $employee->photo_path
+                ? route('administration.employees.photo', ['employee' => $employee->uuid, 'v' => $employee->photo_updated_at?->timestamp])
+                : null,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function employee(Employee $employee, bool $includePrivate = true): array
+    {
+        return [
+            ...$this->employeeOption($employee),
+            'civility' => $employee->civility?->value,
+            'first_name' => $employee->first_name,
+            'last_name' => $employee->last_name,
+            'sex' => $employee->sex->value,
+            'birth_date' => $employee->birth_date?->toDateString(),
+            'hire_date' => $employee->hire_date?->toDateString(),
+            'birth_place' => $employee->birth_place,
+            'department_uuid' => $employee->department?->uuid,
+            'job_title_uuid' => $employee->jobTitle?->uuid,
+            'identity_document_type' => $includePrivate ? $employee->identity_document_type?->value : null,
+            'identity_document_number' => $includePrivate ? $employee->identity_document_number : null,
+            'identity_document_issued_on' => $includePrivate ? $employee->identity_document_issued_on?->toDateString() : null,
+            'identity_document_issued_at' => $includePrivate ? $employee->identity_document_issued_at : null,
+            'marital_status' => $employee->marital_status?->value,
+            'children_count' => $employee->children_count,
+            'diploma' => $employee->diploma,
+            'education_level' => $employee->education_level,
+            'children_details' => $includePrivate ? $employee->children_details : null,
+            'badge' => $employee->badge,
+            'blouse' => $employee->blouse,
+            'profession' => $employee->profession,
+            'phone' => $employee->phone,
+            'email' => $employee->email,
+            'address' => $employee->addressEntry?->label ?? $employee->address,
+            'address_entry_uuid' => $employee->addressEntry?->uuid,
+            'address_available' => $employee->addressEntry
+                ? $employee->addressEntry->active && ! $employee->addressEntry->trashed()
+                : true,
+            'observation' => $employee->observation,
+            // ADR-206 — l'ancienneté, calculée depuis la date d'entrée, jamais saisie.
+            'seniority' => Seniority::of($employee->hire_date),
+            // ADR-194 — servi seulement quand la liste l'a calculé (withExists).
+            'is_intern' => (bool) ($employee->getAttributes()['has_current_internship'] ?? false),
+            // ADR-168 — servi seulement quand la relation est chargée : la liste
+            // paginée ne paie pas une requête par ligne pour un champ de fiche.
+            'user_uuid' => $employee->relationLoaded('user') ? $employee->user?->uuid : null,
+            'user_account' => $employee->relationLoaded('user') && $employee->user ? [
+                'uuid' => $employee->user->uuid,
+                'name' => $employee->user->name,
+                'active' => $employee->user->active && ! $employee->user->deactivated_at,
+            ] : null,
+            'archived' => $employee->trashed(),
+            'deleted_at' => $employee->deleted_at?->toIso8601String(),
+            'delete_reason' => $employee->delete_reason,
+            'created_at' => $employee->created_at?->toIso8601String(),
+            'updated_at' => $employee->updated_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * ADR-206 — la rémunération déclarée et le compte bancaire. Servis à part, et
+     * seulement à qui détient `employees.payroll.view` : jamais dans `employee()`,
+     * que lisent la liste, l'export et d'autres écrans.
+     *
+     * @return array<string, mixed>
+     */
+    public function payroll(Employee $employee): array
+    {
+        return [
+            'remuneration_type' => $employee->remuneration_type?->value,
+            'remuneration_label' => $employee->remuneration_type?->label(),
+            'remuneration_amount' => $employee->remuneration_amount,
+            'bank_account_number' => $employee->bank_account_number,
+            'bank_account_holder' => $employee->bank_account_holder,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function contract(EmploymentContract $contract): array
+    {
+        return [
+            'uuid' => $contract->uuid,
+            'employee' => $this->employeeOption($contract->employee),
+            'contract_type_uuid' => $contract->contractType?->uuid,
+            'contract_type' => $contract->contractType?->label,
+            'reference_number' => $contract->reference_number,
+            'signed_on' => $contract->signed_on?->toDateString(),
+            'starts_on' => $contract->starts_on?->toDateString(),
+            'trial_ends_on' => $contract->trial_ends_on?->toDateString(),
+            'ends_on' => $contract->ends_on?->toDateString(),
+            // Jours avant la fin, tant qu'elle n'est pas passée : la liste
+            // signale ce que l'accueil RH compte dans « finissent sous 30 jours ».
+            'ends_in_days' => $contract->ends_on && ! $contract->ends_on->isBefore(today())
+                ? (int) today()->diffInDays($contract->ends_on)
+                : null,
+            // L'état réel du contrat, lu sur ses dates : « actif » pour tout
+            // contrat non archivé faisait passer un contrat terminé pour en cours.
+            'state' => match (true) {
+                $contract->trashed() => 'archived',
+                $contract->starts_on && $contract->starts_on->isAfter(today()) => 'future',
+                $contract->ends_on && $contract->ends_on->isBefore(today()) => 'ended',
+                default => 'current',
+            },
+            'observation' => $contract->observation,
+            // ADR-194 — le stage, quand le type est un contrat de stage.
+            'internship' => $contract->isInternship() ? [
+                'field_uuid' => $contract->internshipField?->uuid,
+                'field' => $contract->internshipField?->label,
+                'school' => $contract->internship_school,
+                'level' => $contract->internship_level,
+                'supervisor' => $contract->internshipSupervisor
+                    ? $this->employeeOption($contract->internshipSupervisor)
+                    : null,
+            ] : null,
+            'archived' => $contract->trashed(),
+            'delete_reason' => $contract->delete_reason,
+            'created_at' => $contract->created_at?->toIso8601String(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function attendance(AttendanceRecord $record): array
+    {
+        return [
+            'uuid' => $record->uuid,
+            'employee' => $this->employeeOption($record->employee),
+            'work_date' => $record->work_date?->toDateString(),
+            'started_at' => $record->started_at?->toIso8601String(),
+            'ended_at' => $record->ended_at?->toIso8601String(),
+            'minutes' => $record->ended_at
+                ? max(0, (int) $record->started_at->diffInMinutes($record->ended_at))
+                : null,
+            'observation' => $record->observation,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function leave(LeaveRequest $leave): array
+    {
+        return [
+            'uuid' => $leave->uuid,
+            'employee' => $this->employeeOption($leave->employee),
+            'interim_employee' => $leave->interimEmployee
+                ? $this->employeeOption($leave->interimEmployee)
+                : null,
+            'leave_type_uuid' => $leave->leaveType?->uuid,
+            'leave_type' => $leave->leaveType?->label,
+            'leave_address' => $leave->leave_address,
+            'emergency_phone' => $leave->emergency_phone,
+            'days_requested' => $leave->days_requested,
+            'remaining_days_snapshot' => $leave->remaining_days_snapshot,
+            'projected_remaining_days_snapshot' => $leave->projected_remaining_days_snapshot,
+            'annual_quota_snapshot' => $leave->annual_quota_snapshot,
+            'day_count_method_snapshot' => $leave->day_count_method_snapshot,
+            'consumes_balance_snapshot' => $leave->consumes_balance_snapshot,
+            'requires_approval_snapshot' => $leave->requires_approval_snapshot,
+            'reason' => $leave->reason,
+            'requested_on' => $leave->requested_on?->toDateString(),
+            'starts_on' => $leave->starts_on?->toDateString(),
+            'returns_on' => $leave->returns_on?->toDateString(),
+            'status' => $leave->status->value,
+            'status_label' => $leave->status->label(),
+            'decided_at' => $leave->decided_at?->toIso8601String(),
+            'decision_reason' => $leave->decision_reason,
+            'decided_by' => RemoteActorAttribution::name($leave->decidedBy?->name, $leave->external_decided_by_name),
+            'cancelled_at' => $leave->cancelled_at?->toIso8601String(),
+            'cancel_reason' => $leave->cancel_reason,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function planning(PlanningShift $shift): array
+    {
+        return [
+            'uuid' => $shift->uuid,
+            'employee' => $this->employeeOption($shift->employee),
+            'department_uuid' => $shift->department?->uuid,
+            'department' => $shift->department?->label,
+            // ADR-194 — service (planning du personnel) ou garde.
+            'kind' => ($shift->kind ?? PlanningShiftKind::Shift)->value,
+            'kind_label' => ($shift->kind ?? PlanningShiftKind::Shift)->label(),
+            'title' => $shift->title,
+            'starts_at' => $shift->starts_at?->toIso8601String(),
+            'ends_at' => $shift->ends_at?->toIso8601String(),
+            'observation' => $shift->observation,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function document(HrDocument $document): array
+    {
+        return [
+            'uuid' => $document->uuid,
+            'category' => $document->category->value,
+            'category_label' => $document->category->label(),
+            'title' => $document->title,
+            'original_name' => $document->original_name,
+            'mime_type' => $document->mime_type,
+            'size' => $document->size,
+            'issued_on' => $document->issued_on?->toDateString(),
+            'notes' => $document->notes,
+            'attestation_type' => $document->attestationType?->label,
+            'employment_contract_uuid' => $document->employmentContract?->uuid,
+            'leave_request_uuid' => $document->leaveRequest?->uuid,
+            'archived' => $document->trashed(),
+            'delete_reason' => $document->delete_reason,
+            'created_at' => $document->created_at?->toIso8601String(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function reference(HrReferenceValue $reference): array
+    {
+        return [
+            'uuid' => $reference->uuid,
+            'type' => $reference->type->value,
+            'type_label' => $reference->type->label(),
+            'code' => $reference->code,
+            'label' => $reference->label,
+            'active' => $reference->active,
+            'position' => $reference->position,
+            'metadata' => $reference->metadata,
+            // ADR-194 — les départements où cette fonction existe (vide : partout).
+            'departments' => $reference->type === HrReferenceType::JobTitle && $reference->relationLoaded('departments')
+                ? $reference->departments->map(fn (HrReferenceValue $department) => [
+                    'uuid' => $department->uuid,
+                    'label' => $department->label,
+                    'archived' => $department->trashed(),
+                ])->values()->all()
+                : [],
+            'internship' => $reference->isInternshipContractType(),
+            'archived' => $reference->trashed(),
+            'delete_reason' => $reference->delete_reason,
+        ];
+    }
+
+    private function employeeName(Employee $employee): string
+    {
+        return collect([$employee->last_name, $employee->first_name])
+            ->filter()->join(' ');
+    }
+}

@@ -4,10 +4,12 @@ namespace Tests\Feature\Care;
 
 use App\Actions\Care\AcceptCareOrientationAction;
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Enums\AllergenCategory;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\AllergenReference;
@@ -30,6 +32,36 @@ use Tests\TestCase;
 class CareRecordFlowTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_the_transmission_notes_are_rich_text_sanitised_and_an_empty_editor_is_an_absence(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse, ReceptionRoutingMode::CareThenMedicine);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'diagnostic_note' => '<p><br></p>',
+            'transmission_reason' => '<p>Surveiller la <strong>tension</strong></p><script>alert(1)</script><ul><li>Recontrôle</li></ul>',
+        ])->assertSessionHasNoErrors();
+
+        $record = CareRecord::query()->sole();
+
+        $this->assertNull($record->diagnostic_note, 'Un éditeur vidé n’est pas une note.');
+        $this->assertStringContainsString('<strong>tension</strong>', $record->transmission_reason);
+        $this->assertStringContainsString('<li>Recontrôle</li>', $record->transmission_reason);
+        $this->assertStringNotContainsString('script', $record->transmission_reason);
+        $this->assertStringNotContainsString('script', (string) $record->transmission_reason_html);
+    }
+
+    public function test_an_old_plain_text_transmission_keeps_its_lines_when_read(): void
+    {
+        $record = new CareRecord(['transmission_reason' => "Ligne 1\nLigne 2 & suite"]);
+
+        $this->assertSame('Ligne 1<br>Ligne 2 &amp; suite', $record->transmission_reason_html);
+        $this->assertNull((new CareRecord(['transmission_reason' => null]))->transmission_reason_html);
+    }
 
     public function test_nurse_records_vitals_context_and_append_only_performed_procedures(): void
     {
@@ -56,6 +88,7 @@ class CareRecordFlowTest extends TestCase
             'weight_kg' => '70',
             'allergy_note' => 'Pénicilline signalée',
             'smoker' => false,
+            'alcohol' => true,
             'diagnostic_note' => 'Diagnostic communiqué par le médecin',
             'transmission_reason' => 'Contrôler la température.',
             'procedures' => [[
@@ -77,6 +110,7 @@ class CareRecordFlowTest extends TestCase
         $this->assertTrue($record->known_diabetes);
         $this->assertSame('Type 2, sous metformine', $record->diabetes_note);
         $this->assertFalse($record->smoker);
+        $this->assertTrue($record->alcohol);
         $this->assertSame($nurse->id, $record->created_by);
         $this->assertDatabaseHas('care_record_procedures', [
             'care_record_id' => $record->id,
@@ -134,6 +168,99 @@ class CareRecordFlowTest extends TestCase
                 ->has('careRecord.procedures', 1)
                 ->where('careRecord.procedures.0.name', 'Injection IM')
             );
+    }
+
+    /**
+     * Trois états distincts, pas deux : un patient à qui on n'a pas posé la
+     * question n'est pas un patient qui a répondu « non ». Omettre la clé
+     * laisse donc `null`, jamais `false`.
+     */
+    /**
+     * Décision du 2026-09-15 (amende l'ADR-085) : une erreur de saisie doit
+     * pouvoir être rectifiée après le transfert vers Médecine, et par tout
+     * compte Soins autorisé — celui qui a pris le patient en charge peut
+     * avoir fini son service.
+     */
+    public function test_the_sheet_stays_correctable_after_the_transfer_to_medicine(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse, ReceptionRoutingMode::CareThenMedicine);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'temperature_celsius' => '32.00',
+        ]);
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record-and-complete", []);
+
+        $this->assertSame(
+            EpisodeOrientationStatus::Completed,
+            $orientation->fresh()->status,
+            'le passage est bien transféré',
+        );
+
+        // Un autre compte Soins, qui n'a jamais pris ce patient en charge.
+        $other = $this->userWithPermissions([
+            'care.view', 'care.update', 'vitals.view', 'vitals.update',
+        ]);
+
+        $this->actingAs($other)->put("/care/orientations/{$orientation->uuid}/record", [
+            'temperature_celsius' => '36.20',
+        ]);
+
+        $this->assertSame('36.20', CareRecord::query()->sole()->temperature_celsius);
+        // La correction reste tracée avec l'ancienne valeur.
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'update',
+            'entity_type' => CareRecord::class,
+            'user_id' => $other->id,
+        ]);
+    }
+
+    public function test_a_transferred_patient_is_never_transferred_a_second_time(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse, ReceptionRoutingMode::CareThenMedicine);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", ['temperature_celsius' => '37.00']);
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record-and-complete", []);
+
+        $medicineBefore = $orientation->episode->orientations()
+            ->where('destination_module', 'MEDICINE')->count();
+
+        $this->actingAs($nurse)
+            ->put("/care/orientations/{$orientation->uuid}/record-and-complete", [])
+            ->assertSessionHasErrors();
+
+        $this->assertSame(
+            $medicineBefore,
+            $orientation->episode->orientations()->where('destination_module', 'MEDICINE')->count(),
+            'aucune seconde orientation Médecine',
+        );
+    }
+
+    public function test_alcohol_and_tobacco_keep_not_asked_distinct_from_no(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse, ReceptionRoutingMode::CareThenMedicine);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'height_cm' => '175',
+            'weight_kg' => '70',
+            'smoker' => false,
+        ]);
+
+        $record = CareRecord::query()->sole();
+
+        $this->assertFalse($record->smoker, 'Tabac renseigné à Non');
+        $this->assertNull($record->alcohol, 'Alcool non posé : jamais déduit comme Non');
     }
 
     public function test_diabetes_note_is_rejected_unless_known_diabetes_is_yes(): void
@@ -499,6 +626,9 @@ class CareRecordFlowTest extends TestCase
         $patient = $this->patient();
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($patient);
         $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
         $orientation = $episode->orientations()->sole();
 
         $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
@@ -659,6 +789,9 @@ class CareRecordFlowTest extends TestCase
         ]);
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
         $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
         $orientation = $episode->orientations()->sole();
         $this->app->make(AcceptCareOrientationAction::class)->execute($orientation, $nurse);
 
@@ -733,6 +866,9 @@ class CareRecordFlowTest extends TestCase
             'catalog_item_uuid' => $procedure->uuid,
             'quantity' => 1,
         ]], $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
 
         $careOrientation = $episode->orientations()
             ->where('destination_module', CatalogModule::Care->value)
@@ -771,6 +907,9 @@ class CareRecordFlowTest extends TestCase
         ]);
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
         $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
         $orientation = $episode->orientations()->sole();
         $this->app->make(AcceptCareOrientationAction::class)->execute($orientation, $nurse);
         $this->assertSame('IN_CARE', Episode::find($episode->id)->administrative_status->value);
@@ -1198,6 +1337,9 @@ class CareRecordFlowTest extends TestCase
             'catalog_item_uuid' => $procedure->uuid,
             'quantity' => 1,
         ]], $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
         $orientation = $episode->orientations()->sole();
         $this->app->make(AcceptCareOrientationAction::class)->execute($orientation, $nurse);
 

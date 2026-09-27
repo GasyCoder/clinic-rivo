@@ -62,6 +62,16 @@ return [
     */
 
     'brand' => env('RIVO_BRAND', 'Clinique Saint Georges'),
+    // La devise de l'établissement, sous la marque sur la page de connexion
+    // (ADR-184). Un site la remplace depuis le portail ; RIVO_TAGLINE vide n'en
+    // affiche aucune pour les sites qui n'ont rien réglé.
+    'tagline' => env('RIVO_TAGLINE', 'Ny fahasalamana no loharanon-karena'),
+    // ADR-184 — une application clinique n'a rien à montrer aux moteurs de
+    // recherche : masquée par défaut (robots.txt, balise et en-tête « noindex »).
+    // Réglable par site depuis le portail.
+    'search_engines' => [
+        'hidden' => (bool) env('RIVO_HIDE_FROM_SEARCH_ENGINES', true),
+    ],
     'auth_cover_url' => env('RIVO_AUTH_COVER_URL') ?: '/images/brand/clinic-saint-georges-cover.jpg',
 
     /*
@@ -210,6 +220,91 @@ return [
     | token per clinic. These values are secrets and must never be committed.
     |
     */
+
+    /*
+     * ADR-190 — adresses email professionnelles.
+     *
+     * Le domaine est celui de la clinique : le même sur les trois sites et le
+     * portail. L'hébergeur (API cPanel) n'est lu que par le portail : son jeton
+     * donne accès à tout l'hébergement, il ne se pose jamais sur un site clinique.
+     */
+    'professional_email' => [
+        'domain' => env('RIVO_PROFESSIONAL_EMAIL_DOMAIN', ''),
+        'hosting' => [
+            // ex. https://abyssin.o2switch.net:2083
+            'url' => env('RIVO_MAIL_HOSTING_URL'),
+            'user' => env('RIVO_MAIL_HOSTING_USER'),
+            // Un jeton API de préférence ; à défaut (outil absent de l'offre o2switch),
+            // le mot de passe du compte cPanel. Le jeton l'emporte s'il est renseigné.
+            'token' => env('RIVO_MAIL_HOSTING_TOKEN'),
+            'password' => env('RIVO_MAIL_HOSTING_PASSWORD'),
+            // Taille de chaque boîte créée, en Mo (réglage technique, modifiable).
+            'quota_mb' => (int) env('RIVO_MAIL_HOSTING_QUOTA_MB', 1024),
+            'timeout' => (int) env('RIVO_MAIL_HOSTING_TIMEOUT', 15),
+            // Mode mot de passe : minutes pendant lesquelles une session cPanel est
+            // réutilisée (la connexion est l'étape lente). 0 = une session par opération.
+            'session_minutes' => (int) env('RIVO_MAIL_HOSTING_SESSION_MINUTES', 10),
+        ],
+    ],
+
+    /*
+     * ADR-195 — la messagerie : la boîte pro de l'employé chez l'hébergeur, lue en
+     * IMAP et envoyée en SMTP. Aucun secret ici : le mot de passe de la boîte est
+     * saisi par son titulaire et ne vit que dans sa session. Sans hôte réglé, celui
+     * de l'hébergement (RIVO_MAIL_HOSTING_URL) sert pour les deux.
+     */
+    'webmail' => [
+        'imap' => [
+            'host' => env('RIVO_WEBMAIL_IMAP_HOST') ?: parse_url((string) env('RIVO_MAIL_HOSTING_URL'), PHP_URL_HOST),
+            'port' => (int) env('RIVO_WEBMAIL_IMAP_PORT', 993),
+            // ssl (993), tls (STARTTLS, 143) ou none (serveur de test local seulement).
+            'encryption' => env('RIVO_WEBMAIL_IMAP_ENCRYPTION', 'ssl'),
+            'validate_cert' => (bool) env('RIVO_WEBMAIL_VALIDATE_CERT', true),
+        ],
+        'smtp' => [
+            'host' => env('RIVO_WEBMAIL_SMTP_HOST') ?: parse_url((string) env('RIVO_MAIL_HOSTING_URL'), PHP_URL_HOST),
+            // 465 : TLS dès la connexion — deux allers-retours de moins que 587 (STARTTLS),
+            // et o2switch accepte les deux. `tls` = STARTTLS, `ssl` = TLS implicite.
+            'port' => (int) env('RIVO_WEBMAIL_SMTP_PORT', 465),
+            'encryption' => env('RIVO_WEBMAIL_SMTP_ENCRYPTION', 'ssl'),
+        ],
+        // Portail seulement : la boîte du Super Admin, ouverte sans saisie. Son mot de passe
+        // vit dans le .env du portail, comme l'accès cPanel (ADR-190) — jamais en base.
+        'portal' => [
+            'address' => env('RIVO_WEBMAIL_PORTAL_ADDRESS'),
+            'password' => env('RIVO_WEBMAIL_PORTAL_PASSWORD'),
+            'name' => env('RIVO_WEBMAIL_PORTAL_NAME'),
+        ],
+        'timeout' => (int) env('RIVO_WEBMAIL_TIMEOUT', 20),
+        // La connexion au serveur de messagerie gardée ouverte entre les clics : un petit
+        // processus par boîte ouverte, qui se ferme seul après `idle_minutes` sans usage.
+        // Seul le premier clic paie la connexion (chiffrement, identification). Sans
+        // processus possible sur le serveur, RIVO se connecte à chaque clic, comme avant.
+        'keep_alive' => [
+            'enabled' => (bool) env('RIVO_WEBMAIL_KEEP_ALIVE', true),
+            'idle_minutes' => (int) env('RIVO_WEBMAIL_KEEP_ALIVE_MINUTES', 10),
+            // Le PHP en ligne de commande qui lance ce processus (sous PHP-FPM, PHP_BINARY
+            // désigne php-fpm) : déduit s'il est vide.
+            'php' => env('RIVO_WEBMAIL_KEEP_ALIVE_PHP'),
+            // Le dossier de ses prises (sockets Unix, 108 caractères au plus) : déduit s'il est vide.
+            'path' => env('RIVO_WEBMAIL_KEEP_ALIVE_PATH'),
+            // Le temps laissé au processus pour démarrer, en secondes.
+            'start_timeout' => (float) env('RIVO_WEBMAIL_KEEP_ALIVE_START_TIMEOUT', 5),
+        ],
+        'per_page' => 25,
+        // Pièces jointes d'un message envoyé : par fichier et au total, en Mo.
+        'attachment_max_mb' => (int) env('RIVO_WEBMAIL_ATTACHMENT_MAX_MB', 10),
+        'attachments_total_mb' => (int) env('RIVO_WEBMAIL_ATTACHMENTS_TOTAL_MB', 20),
+    ],
+
+    /*
+     * ADR-202 — la première connexion d'un employé : il tape son adresse, RIVO le
+     * salue et lui demande de choisir son mot de passe. Ouverte ce nombre de jours
+     * après l'envoi de l'accès au RH ; le RH peut la rouvrir.
+     */
+    'account_activation' => [
+        'days' => (int) env('RIVO_ACCOUNT_ACTIVATION_DAYS', 14),
+    ],
 
     'site_api' => [
         'token' => env('RIVO_SITE_API_TOKEN'),

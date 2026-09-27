@@ -7,9 +7,18 @@ use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
 use App\Models\CatalogItem;
 use App\Models\Consultation;
+use App\Models\Episode;
 use App\Models\EpisodeOrientation;
+use App\Models\HospitalStay;
 use App\Models\ImagingRequest;
+use App\Models\MaternityRecord;
 use App\Models\User;
+use App\Services\Billing\ClinicalActBiller;
+use App\Services\Billing\ParaclinicalBillingRelease;
+use App\Services\Billing\PlannedServiceBilling;
+use App\Support\Hospitalization\StayOrderContext;
+use App\Support\Maternity\MaternityOrderContext;
+use App\Support\ParaclinicalRequestGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -22,6 +31,12 @@ use Illuminate\Validation\ValidationException;
  */
 class CreateImagingRequestAction
 {
+    public function __construct(
+        private readonly ClinicalActBiller $biller,
+        private readonly PlannedServiceBilling $plannedBilling,
+        private readonly ResolveConsultationStepAction $resolveStep,
+    ) {}
+
     /**
      * @param  array<int, array{catalog_item_uuid: string}>  $items
      */
@@ -45,42 +60,130 @@ class CreateImagingRequestAction
                 ]);
             }
 
-            $episode = $medicineOrientation->episode;
-            $catalogUuids = collect($items)->pluck('catalog_item_uuid')->unique();
-            $catalogItems = CatalogItem::query()
-                ->whereIn('uuid', $catalogUuids)
-                ->where('type', CatalogItemType::Service->value)
-                ->where('module', CatalogModule::Imaging->value)
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('uuid');
+            $imagingRequest = $this->write(
+                $medicineOrientation->episode,
+                $lockedConsultation,
+                null,
+                null,
+                $medicineOrientation,
+                $items,
+                $notes,
+                $actor,
+            );
 
-            if ($catalogItems->count() !== $catalogUuids->count()) {
-                throw ValidationException::withMessages([
-                    'items' => 'Un examen sélectionné n’est plus disponible.',
-                ]);
-            }
-
-            $imagingRequest = ImagingRequest::query()->create([
-                'episode_id' => $episode->getKey(),
-                'consultation_id' => $lockedConsultation->getKey(),
-                'source_orientation_id' => $medicineOrientation->getKey(),
-                'requested_by' => $actor->getKey(),
-                'notes' => $notes,
-                'requested_at' => now(),
-            ]);
-
-            foreach ($items as $item) {
-                $catalogItem = $catalogItems->get($item['catalog_item_uuid']);
-
-                $imagingRequest->items()->create([
-                    'catalog_item_id' => $catalogItem->getKey(),
-                    'catalog_item_code_snapshot' => $catalogItem->code,
-                    'catalog_item_name_snapshot' => $catalogItem->name,
-                ]);
-            }
+            // ADR-105 — la demande transmise résout l'étape Paraclinique.
+            $this->resolveStep->completeParaclinicalFromRequest($lockedConsultation, $actor);
 
             return $imagingRequest->fresh(['items']);
         });
+    }
+
+    /**
+     * ADR-162 — la même demande, écrite depuis le séjour. Aucune consultation
+     * n'est ouverte ; le compte rendu se saisit comme pour toute demande.
+     *
+     * @param  array<int, array{catalog_item_uuid: string}>  $items
+     */
+    public function executeForStay(HospitalStay $stay, array $items, ?string $notes, User $actor): ImagingRequest
+    {
+        return DB::transaction(function () use ($stay, $items, $notes, $actor): ImagingRequest {
+            $context = StayOrderContext::lock($stay, 'imaging_request');
+
+            return $this->write($context->episode, null, $context->stay, null, $context->orientation, $items, $notes, $actor);
+        });
+    }
+
+    /**
+     * ADR-204 — la même demande, écrite depuis une prise en charge Maternité
+     * (échographie obstétricale, morphologique…). Le compte rendu se saisit
+     * comme pour toute demande et reste la seule source de son résultat.
+     *
+     * @param  array<int, array{catalog_item_uuid: string}>  $items
+     */
+    public function executeForMaternity(EpisodeOrientation $orientation, array $items, ?string $notes, User $actor): ImagingRequest
+    {
+        return DB::transaction(function () use ($orientation, $items, $notes, $actor): ImagingRequest {
+            $context = MaternityOrderContext::lock($orientation, 'imaging_request');
+
+            return $this->write($context->episode, null, null, $context->record, $context->orientation, $items, $notes, $actor);
+        });
+    }
+
+    /** @param  array<int, array{catalog_item_uuid: string}>  $items */
+    private function write(
+        Episode $episode,
+        ?Consultation $consultation,
+        ?HospitalStay $stay,
+        ?MaternityRecord $maternityRecord,
+        EpisodeOrientation $source,
+        array $items,
+        ?string $notes,
+        User $actor,
+    ): ImagingRequest {
+        $catalogUuids = collect($items)->pluck('catalog_item_uuid')->unique();
+        $catalogItems = CatalogItem::query()
+            ->whereIn('uuid', $catalogUuids)
+            ->where('type', CatalogItemType::Service->value)
+            ->where('module', CatalogModule::Imaging->value)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('uuid');
+
+        if ($catalogItems->count() !== $catalogUuids->count()) {
+            throw ValidationException::withMessages([
+                'items' => 'Un examen sélectionné n’est plus disponible.',
+            ]);
+        }
+
+        // Sous le verrou déjà posé sur la consultation : deux envois
+        // simultanés du même examen ne peuvent pas passer tous les deux.
+        ParaclinicalRequestGuard::ensureNoActiveDuplicate(
+            $consultation ?? $stay ?? $maternityRecord,
+            $catalogItems,
+            'imagingRequests',
+            'imaging_request',
+        );
+
+        $imagingRequest = ImagingRequest::query()->create([
+            'episode_id' => $episode->getKey(),
+            'consultation_id' => $consultation?->getKey(),
+            'hospital_stay_id' => $stay?->getKey(),
+            'maternity_record_id' => $maternityRecord?->getKey(),
+            'source_orientation_id' => $source->getKey(),
+            'requested_by' => $actor->getKey(),
+            'notes' => $notes,
+            'requested_at' => now(),
+        ]);
+
+        foreach ($items as $item) {
+            $catalogItem = $catalogItems->get($item['catalog_item_uuid']);
+
+            $line = $imagingRequest->items()->create([
+                'catalog_item_id' => $catalogItem->getKey(),
+                'catalog_item_code_snapshot' => $catalogItem->code,
+                'catalog_item_name_snapshot' => $catalogItem->name,
+            ]);
+
+            // ADR-105 — l'ECG ou l'échographie rejoint le compte du
+            // patient dès sa demande, comme à la Réception (ADR-068).
+            // ADR-109 — si la Réception a déjà planifié et facturé cet
+            // examen à l'arrivée (ADR-068), la demande du médecin rattache
+            // cette prestation au lieu d'en créer une seconde : le patient
+            // ne paie pas deux fois la même échographie.
+            $billable = $this->plannedBilling->unconsumedFor($episode, $catalogItem)
+                ?? $this->biller->bill(
+                    $episode,
+                    $catalogItem,
+                    ParaclinicalBillingRelease::ownKey($line),
+                    $actor,
+                    $line,
+                );
+
+            if ($billable) {
+                $line->update(['billable_item_id' => $billable->getKey()]);
+            }
+        }
+
+        return $imagingRequest->fresh(['items']);
     }
 }

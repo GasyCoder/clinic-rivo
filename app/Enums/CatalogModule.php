@@ -15,13 +15,14 @@ enum CatalogModule: string
     // Laboratoire, aucun workspace dédié n'existe : la demande et le
     // résultat restent portés par Médecine (voir ImagingRequest).
     case Imaging = 'IMAGING';
-    // Referral-only destinations (ADR pending): Médecine may orient a
-    // patient here, but no dedicated workspace exists yet — see
-    // CreateServiceReferralAction.
+    // Specialized workspaces that can receive an Episode orientation.
     case Maternity = 'MATERNITY';
     case Hospitalization = 'HOSPITALIZATION';
     case Transfer = 'TRANSFER';
     case Pediatrics = 'PEDIATRICS';
+    // No dedicated workspace yet: prestations only, provisioned like Imaging.
+    case Ophthalmology = 'OPHTHALMOLOGY';
+    case FamilyPlanning = 'FAMILY_PLANNING';
 
     public function label(): string
     {
@@ -38,6 +39,8 @@ enum CatalogModule: string
             self::Transfer => 'Transfert',
             self::Pediatrics => 'Pédiatrie',
             self::Imaging => 'Imagerie',
+            self::Ophthalmology => 'Ophtalmologie',
+            self::FamilyPlanning => 'Planning familial',
         };
     }
 }

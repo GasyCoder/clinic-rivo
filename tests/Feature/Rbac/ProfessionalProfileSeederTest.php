@@ -81,6 +81,20 @@ class ProfessionalProfileSeederTest extends TestCase
         $this->assertFalse($registeredNurse->fresh()->hasPermissionTo('anesthesia.validate'));
     }
 
+    public function test_midwife_recommends_maternity_without_changing_the_nurse_role_baseline(): void
+    {
+        $this->seedProfiles();
+        $midwife = ProfessionalProfile::query()->where('code', 'MIDWIFE')->firstOrFail();
+        $recommendations = $midwife->recommendedPermissions->pluck('name');
+
+        $this->assertContains('maternity.view', $recommendations);
+        $this->assertContains('maternity.delivery.manage', $recommendations);
+        $this->assertNotContains('care.view', $recommendations);
+        $this->assertNotContains('surgery.intervention.create', $recommendations);
+        $this->assertTrue(Role::query()->where('code', 'NURSE')->firstOrFail()->permissions->contains('name', 'care.view'));
+        $this->assertFalse(Role::query()->where('code', 'NURSE')->firstOrFail()->permissions->contains('name', 'maternity.view'));
+    }
+
     public function test_legacy_guard_accounts_are_moved_without_losing_their_individual_access(): void
     {
         $this->seed([RoleSeeder::class, PermissionSeeder::class]);

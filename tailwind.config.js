@@ -17,12 +17,23 @@ export default {
         padding: '.5rem',
       },
       fontFamily: {
-        'body': ["Roboto", "sans-serif"],
-        'heading': ["Nunito", "sans-serif"],
+        'body': ['var(--rivo-font-body, Roboto)', 'sans-serif'],
+        'heading': ['var(--rivo-font-heading, Nunito)', 'sans-serif'],
         'nioicon': ["Nioicon"]
       },
       fontSize: {
         'xxs':'11px',
+      },
+      // ADR-191 — l'arrondi réglé par site : chaque arrondi est multiplié par
+      // --radius-scale (1 par défaut, donc identique à Tailwind).
+      borderRadius: {
+        sm: 'calc(0.125rem * var(--radius-scale, 1))',
+        DEFAULT: 'calc(0.25rem * var(--radius-scale, 1))',
+        md: 'calc(0.375rem * var(--radius-scale, 1))',
+        lg: 'calc(0.5rem * var(--radius-scale, 1))',
+        xl: 'calc(0.75rem * var(--radius-scale, 1))',
+        '2xl': 'calc(1rem * var(--radius-scale, 1))',
+        '3xl': 'calc(1.5rem * var(--radius-scale, 1))',
       },
       lineHeight:{
         'tighter' : '1.1',
@@ -36,7 +47,22 @@ export default {
         'relaxed': '0.2em'
       },
       colors: {
+        border: 'hsl(var(--border) / <alpha-value>)',
+        input: 'hsl(var(--input) / <alpha-value>)',
+        ring: 'hsl(var(--ring) / <alpha-value>)',
+        background: 'hsl(var(--background) / <alpha-value>)',
+        foreground: 'hsl(var(--foreground) / <alpha-value>)',
+        card: {
+          DEFAULT: 'hsl(var(--card) / <alpha-value>)',
+          foreground: 'hsl(var(--card-foreground) / <alpha-value>)',
+        },
+        popover: {
+          DEFAULT: 'hsl(var(--popover) / <alpha-value>)',
+          foreground: 'hsl(var(--popover-foreground) / <alpha-value>)',
+        },
         primary:{
+          DEFAULT: 'hsl(var(--primary) / <alpha-value>)',
+          foreground: 'hsl(var(--primary-foreground) / <alpha-value>)',
           50: '#f1f9fc',
           100: '#e1f3f8',
           200: '#bee6ef',
@@ -48,6 +74,22 @@ export default {
           800: '#274b73',
           900: '#233d60',
           950: '#162740',
+        },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary) / <alpha-value>)',
+          foreground: 'hsl(var(--secondary-foreground) / <alpha-value>)',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted) / <alpha-value>)',
+          foreground: 'hsl(var(--muted-foreground) / <alpha-value>)',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent) / <alpha-value>)',
+          foreground: 'hsl(var(--accent-foreground) / <alpha-value>)',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive) / <alpha-value>)',
+          foreground: 'hsl(var(--destructive-foreground) / <alpha-value>)',
         },
         green:{
           50: '#e9fcf7',
@@ -153,5 +195,15 @@ export default {
     require('@tailwindcss/forms'),
     require('@tailwindcss/typography'),
     require('@headlessui/tailwindcss'),
+    // Requêtes de conteneur : `cq` fait d'un bloc un conteneur, `cq-2xl:` / `cq-4xl:` / `cq-6xl:`
+    // s'appliquent selon SA largeur, pas celle de l'écran — une carte à côté d'un menu latéral
+    // est bien plus étroite que la fenêtre (paramètres de l'application, ADR-191). Le sélecteur
+    // `.cq &` les fait l'emporter sur `sm:`/`md:`, que Tailwind écrit après elles dans la feuille.
+    require('tailwindcss/plugin')(({ addUtilities, addVariant }) => {
+      addUtilities({ '.cq': { 'container-type': 'inline-size' } });
+      for (const [name, width] of Object.entries({ '2xl': '42rem', '4xl': '56rem', '6xl': '72rem' })) {
+        addVariant(`cq-${name}`, `@container (min-width: ${width}) { .cq & }`);
+      }
+    }),
   ],
 }

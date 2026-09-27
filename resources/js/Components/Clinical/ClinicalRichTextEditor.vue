@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { Bold, CircleX, Italic, List, ListOrdered, Underline } from 'lucide-vue-next';
 
 defineOptions({ inheritAttrs: false });
 
@@ -9,18 +10,38 @@ const props = defineProps({
     placeholder: { type: String, default: '' },
     maxLength: { type: Number, default: 3000 },
     id: { type: String, default: undefined },
+    /** Tailwind min-height for the writing area, e.g. 'min-h-36'. */
+    minHeightClass: { type: String, default: 'min-h-44' },
+    toolbarLabel: { type: String, default: 'Mise en forme de l’interrogatoire' },
+    /**
+     * Sans barre d'outils ni compteur : l'écran qui assemble plusieurs zones
+     * (les colonnes d'une feuille d'échographie) porte une seule barre
+     * commune plutôt que d'en répéter une par zone.
+     */
+    bare: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['update:modelValue']);
 const editor = ref(null);
 
-const containsMarkup = (value) => /<(?:p|div|br|strong|b|em|i|u|mark|span|ul|ol|li)\b/i.test(value);
+const containsMarkup = (value) => /<(?:p|div|br|hr|strong|b|em|i|u|mark|span|ul|ol|li)\b/i.test(value);
 const decodePlainHtml = (value) => {
     const container = document.createElement('div');
     container.innerHTML = value;
 
     return container.textContent ?? '';
 };
+// Un texte sans balise (repris du dossier, ancienne saisie) garde ses
+// retours à la ligne : chaque ligne devient un paragraphe, sinon un résumé de
+// plusieurs lignes s'afficherait collé en une seule phrase.
+const escapeHtml = (value) => value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+const plainToParagraphs = (value) => decodePlainHtml(value)
+    .split(/\r?\n/)
+    .map((line) => (line.trim() === '' ? '<p><br></p>' : `<p>${escapeHtml(line)}</p>`))
+    .join('');
 const plainLength = computed(() => {
     if (typeof document === 'undefined') return 0;
     const container = document.createElement('div');
@@ -38,7 +59,7 @@ const syncEditor = () => {
     if (containsMarkup(props.modelValue)) {
         editor.value.innerHTML = props.modelValue;
     } else {
-        editor.value.textContent = decodePlainHtml(props.modelValue);
+        editor.value.innerHTML = props.modelValue ? plainToParagraphs(props.modelValue) : '';
     }
 };
 
@@ -70,17 +91,17 @@ onMounted(syncEditor);
 </script>
 
 <template>
-    <div :class="['overflow-hidden rounded border bg-white transition-shadow dark:bg-gray-950', disabled ? 'border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-1000' : 'border-gray-200 focus-within:border-primary-500 focus-within:ring-2 focus-within:ring-primary-100 dark:border-gray-800 dark:focus-within:border-primary-500']">
-        <div class="flex flex-wrap items-center gap-1 border-b border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-800 dark:bg-gray-1000" role="toolbar" aria-label="Mise en forme de l’interrogatoire">
-            <button type="button" class="editor-tool font-bold" title="Gras" aria-label="Gras" :disabled="disabled" @mousedown.prevent @click="command('bold')">G</button>
-            <button type="button" class="editor-tool italic" title="Italique" aria-label="Italique" :disabled="disabled" @mousedown.prevent @click="command('italic')">I</button>
-            <button type="button" class="editor-tool underline" title="Souligné" aria-label="Souligné" :disabled="disabled" @mousedown.prevent @click="command('underline')">S</button>
-            <button type="button" class="editor-tool" title="Surligner" aria-label="Surligner" :disabled="disabled" @mousedown.prevent @click="highlight"><span class="border-b-4 border-yellow-300 px-0.5">A</span></button>
-            <span class="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-800" aria-hidden="true" />
-            <button type="button" class="editor-tool-wide" title="Liste à puces" :disabled="disabled" @mousedown.prevent @click="command('insertUnorderedList')"><span class="text-base leading-none">•</span> Liste</button>
-            <button type="button" class="editor-tool-wide" title="Liste numérotée" :disabled="disabled" @mousedown.prevent @click="command('insertOrderedList')"><span class="font-mono">1.</span> Liste</button>
-            <span class="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-800" aria-hidden="true" />
-            <button type="button" class="editor-tool-wide text-slate-500" title="Effacer la mise en forme" :disabled="disabled" @mousedown.prevent @click="command('removeFormat')">Effacer le format</button>
+    <div :class="['overflow-hidden rounded border bg-card transition-shadow', disabled ? 'border-border bg-muted/35' : 'border-border focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/25']">
+        <div v-if="!bare" class="flex flex-wrap items-center gap-1 border-b border-border bg-muted/35 px-2 py-1.5" role="toolbar" :aria-label="toolbarLabel">
+            <button type="button" class="editor-tool" title="Gras" aria-label="Gras" :disabled="disabled" @mousedown.prevent @click="command('bold')"><Bold class="h-4 w-4" aria-hidden="true" /></button>
+            <button type="button" class="editor-tool" title="Italique" aria-label="Italique" :disabled="disabled" @mousedown.prevent @click="command('italic')"><Italic class="h-4 w-4" aria-hidden="true" /></button>
+            <button type="button" class="editor-tool" title="Souligné" aria-label="Souligné" :disabled="disabled" @mousedown.prevent @click="command('underline')"><Underline class="h-4 w-4" aria-hidden="true" /></button>
+            <button type="button" class="editor-tool" title="Surligner" aria-label="Surligner" :disabled="disabled" @mousedown.prevent @click="highlight"><span class="border-b-4 border-yellow-300 px-0.5 font-bold">A</span></button>
+            <span class="mx-1 h-5 w-px bg-muted" aria-hidden="true" />
+            <button type="button" class="editor-tool-wide" title="Liste à puces" :disabled="disabled" @mousedown.prevent @click="command('insertUnorderedList')"><List class="h-4 w-4" aria-hidden="true" /> Liste</button>
+            <button type="button" class="editor-tool-wide" title="Liste numérotée" :disabled="disabled" @mousedown.prevent @click="command('insertOrderedList')"><ListOrdered class="h-4 w-4" aria-hidden="true" /> Liste</button>
+            <span class="mx-1 h-5 w-px bg-muted" aria-hidden="true" />
+            <button type="button" class="editor-tool-wide text-muted-foreground" title="Effacer la mise en forme" :disabled="disabled" @mousedown.prevent @click="command('removeFormat')"><CircleX class="h-4 w-4" aria-hidden="true" />Effacer le format</button>
         </div>
 
         <div
@@ -92,12 +113,12 @@ onMounted(syncEditor);
             :aria-disabled="disabled"
             :contenteditable="disabled ? 'false' : 'true'"
             :data-placeholder="placeholder"
-            class="clinical-editor min-h-44 px-4 py-3 text-sm leading-6 text-slate-700 outline-none dark:text-slate-100"
+            :class="['clinical-editor px-4 py-3 text-sm leading-6 text-foreground outline-none', minHeightClass]"
             @input="updateValue"
             @paste="pastePlainText"
         />
 
-        <div class="flex justify-end border-t border-gray-100 px-3 py-1.5 text-[11px] tabular-nums text-slate-400 dark:border-gray-900">
+        <div v-if="!bare" class="flex justify-end border-t border-border px-3 py-1.5 text-[11px] tabular-nums text-muted-foreground">
             {{ plainLength.toLocaleString('fr-FR') }} / {{ maxLength.toLocaleString('fr-FR') }} caractères
         </div>
     </div>
@@ -130,6 +151,8 @@ onMounted(syncEditor);
 .clinical-editor :deep(ul) { list-style: disc; margin-block: 0.35rem; padding-inline-start: 1.5rem; }
 .clinical-editor :deep(ol) { list-style: decimal; margin-block: 0.35rem; padding-inline-start: 1.5rem; }
 .clinical-editor :deep(mark) { background: rgb(254 240 138); color: inherit; }
+/* Saut de colonne d'une feuille de la clinique (ADR-108). */
+.clinical-editor :deep(hr) { border: 0; border-top: 2px dashed rgb(148 163 184); margin-block: 0.75rem; }
 
 :global(.dark) .editor-tool,
 :global(.dark) .editor-tool-wide { color: rgb(203 213 225); }

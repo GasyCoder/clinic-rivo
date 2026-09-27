@@ -54,7 +54,7 @@ class DiagnosticCatalogTest extends TestCase
             'notes' => 'À confirmer par imagerie.',
             'name' => 'Libellé falsifié',
             'code' => 'FAUX',
-        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/diagnostic");
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
 
         $diagnosis = $orientation->consultation->diagnoses()->sole();
         $this->assertSame('HYPOTHESIS', $diagnosis->type->value);
@@ -84,7 +84,7 @@ class DiagnosticCatalogTest extends TestCase
         $this->assertSame('Hypertension artérielle', $diagnosis->fresh()->description);
         $this->assertSame('I10', $diagnosis->catalog_code_snapshot);
 
-        $this->get("/medicine/orientations/{$orientation->uuid}/diagnostic")
+        $this->get("/medicine/orientations/{$orientation->uuid}/examen")
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('consultation.diagnoses.0.description', 'Hypertension artérielle')

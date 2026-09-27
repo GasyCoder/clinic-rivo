@@ -41,6 +41,8 @@ class UpdateCatalogItemAction
             ]);
         }
 
+        $this->assertReceptionRouteMatchesModule($selectable, $route, $data['module'] ?? $item->module->value);
+
         $isCareService = $item->type === CatalogItemType::Service
             && ($data['module'] ?? null) === CatalogModule::Care->value;
         $requiresAllergyCheck = (bool) ($data['care_requires_allergy_check'] ?? false);
@@ -78,5 +80,35 @@ class UpdateCatalogItemAction
         ])->save();
 
         return $item->fresh(['currentTariff']);
+    }
+
+    private function assertReceptionRouteMatchesModule(
+        bool $selectable,
+        ?ReceptionRoutingMode $route,
+        mixed $module,
+    ): void {
+        if (! $selectable || $route === null) {
+            return;
+        }
+
+        $expectedModule = $route->directDestination();
+
+        if ($expectedModule !== null && $module !== $expectedModule->value) {
+            throw ValidationException::withMessages([
+                'reception_routing_mode' => "Le parcours {$route->label()} est réservé au module {$expectedModule->label()}.",
+            ]);
+        }
+
+        if ($module === CatalogModule::Laboratory->value && $route !== ReceptionRoutingMode::LaboratoryDirect) {
+            throw ValidationException::withMessages([
+                'reception_routing_mode' => 'Une analyse proposée à la Réception doit être routée directement vers le Laboratoire.',
+            ]);
+        }
+
+        if ($module === CatalogModule::Maternity->value && $route !== ReceptionRoutingMode::MaternityDirect) {
+            throw ValidationException::withMessages([
+                'reception_routing_mode' => 'Un acte Maternité proposé à la Réception doit être routé directement vers la Maternité.',
+            ]);
+        }
     }
 }

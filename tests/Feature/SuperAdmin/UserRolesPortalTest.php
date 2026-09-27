@@ -59,7 +59,7 @@ class UserRolesPortalTest extends TestCase
         ]);
 
         $this->actingAs($this->superAdmin)
-            ->get('/super-admin/workspaces/roles?status=active')
+            ->get('/super-admin/workspaces/users?status=active')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('SuperAdmin/Users/Index')
@@ -84,7 +84,7 @@ class UserRolesPortalTest extends TestCase
             ], 200),
         ]);
 
-        $this->actingAs($this->superAdmin)->post('/super-admin/workspaces/roles', [
+        $this->actingAs($this->superAdmin)->post('/super-admin/workspaces/users', [
             'site_code' => 'M',
             'name' => 'Andry',
             'email' => 'andry@m.test',
@@ -99,13 +99,43 @@ class UserRolesPortalTest extends TestCase
             && $request['name'] === 'Andry');
 
         $this->actingAs($this->superAdmin)
-            ->post('/super-admin/workspaces/roles/M/22222222-2222-4222-8222-222222222222/deactivate', [
+            ->post('/super-admin/workspaces/users/M/22222222-2222-4222-8222-222222222222/deactivate', [
                 'reason' => 'Fin de mission',
             ])->assertRedirect()->assertSessionHas('status');
 
         Http::assertSent(fn ($request) => $request->method() === 'POST'
             && str_contains($request->url(), '/deactivate')
             && $request['reason'] === 'Fin de mission');
+    }
+
+    public function test_profile_sync_choice_and_manual_overrides_are_forwarded_to_the_selected_site(): void
+    {
+        Http::fake([
+            'https://m.test/api/v1/super-admin/users/22222222-2222-4222-8222-222222222222' => Http::response([
+                'message' => 'Compte mis à jour.',
+                'data' => ['uuid' => '22222222-2222-4222-8222-222222222222', 'name' => 'Soa'],
+            ], 200),
+        ]);
+
+        $this->actingAs($this->superAdmin)
+            ->put('/super-admin/workspaces/users/M/22222222-2222-4222-8222-222222222222', [
+                'name' => 'Soa',
+                'email' => 'soa@m.test',
+                'role_id' => 8,
+                'professional_profile_id' => 12,
+                'sync_profile_permissions' => true,
+                'permission_overrides' => [
+                    ['permission_id' => 44, 'effect' => 'deny'],
+                ],
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('status');
+
+        Http::assertSent(fn ($request) => $request->method() === 'PUT'
+            && $request->url() === 'https://m.test/api/v1/super-admin/users/22222222-2222-4222-8222-222222222222'
+            && $request['professional_profile_id'] === 12
+            && $request['sync_profile_permissions'] === true
+            && $request['permission_overrides'] === [['permission_id' => 44, 'effect' => 'deny']]);
     }
 
     public function test_force_delete_is_sent_only_to_the_selected_site(): void
@@ -117,7 +147,7 @@ class UserRolesPortalTest extends TestCase
         ]);
 
         $this->actingAs($this->superAdmin)
-            ->delete('/super-admin/workspaces/roles/M/33333333-3333-4333-8333-333333333333')
+            ->delete('/super-admin/workspaces/users/M/33333333-3333-4333-8333-333333333333')
             ->assertRedirect()
             ->assertSessionHas('status');
 
@@ -133,7 +163,7 @@ class UserRolesPortalTest extends TestCase
             ], 200),
         ]);
 
-        $this->actingAs($this->superAdmin)->post('/super-admin/workspaces/roles/bulk/force-delete', [
+        $this->actingAs($this->superAdmin)->post('/super-admin/workspaces/users/bulk/force-delete', [
             'site_code' => 'M',
             'uuids' => ['33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444'],
         ])->assertRedirect()->assertSessionHas('status');

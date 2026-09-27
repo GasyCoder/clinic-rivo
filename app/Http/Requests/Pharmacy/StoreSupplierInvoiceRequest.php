@@ -1,0 +1,38 @@
+<?php
+
+namespace App\Http\Requests\Pharmacy;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class StoreSupplierInvoiceRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->can('supplier_invoices.create') === true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'invoice_number' => ['required', 'string', 'max:100'],
+            'invoice_date' => ['required', 'date'],
+            // ADR-175 — l'échéance est une date du fournisseur : facultative.
+            'due_date' => ['nullable', 'date', 'after_or_equal:invoice_date'],
+            'purchase_order_uuid' => ['nullable', 'uuid', 'exists:purchase_orders,uuid'],
+            'goods_receipt_uuid' => ['nullable', 'uuid', 'exists:goods_receipts,uuid'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,xlsx', 'max:10240'],
+            // ADR-098 amended: an invoice is first a financial document. Its
+            // lines are optional — the detail belongs to the reception, which
+            // already recorded what physically arrived. Without lines, the
+            // total is what the supplier billed and must be given.
+            'total_amount' => ['required_without:lines', 'nullable', 'numeric', 'gt:0', 'max:999999999999.99', 'decimal:0,2'],
+            'lines' => ['nullable', 'array'],
+            'lines.*.medicine_uuid' => ['required', 'uuid', 'exists:medicines,uuid'],
+            'lines.*.description' => ['required', 'string', 'max:255'],
+            'lines.*.quantity' => ['required', 'integer', 'min:1'],
+            'lines.*.unit_price' => ['required', 'numeric', 'gt:0', 'max:999999999999.99', 'decimal:0,2'],
+        ];
+    }
+}

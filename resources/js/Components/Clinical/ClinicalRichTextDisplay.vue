@@ -13,5 +13,6 @@ defineProps({
 .clinical-rich-text :deep(p) { margin-block: 0.2rem; }
 .clinical-rich-text :deep(ul) { list-style: disc; margin-block: 0.35rem; padding-inline-start: 1.5rem; }
 .clinical-rich-text :deep(ol) { list-style: decimal; margin-block: 0.35rem; padding-inline-start: 1.5rem; }
+.clinical-rich-text :deep(hr) { display: none; }
 .clinical-rich-text :deep(mark) { background: rgb(254 240 138); color: rgb(51 65 85); padding-inline: 0.1rem; }
 </style>

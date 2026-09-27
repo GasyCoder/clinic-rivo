@@ -7,6 +7,7 @@ use App\Actions\Patient\RecordPatientAntecedentAction;
 use App\Actions\Patient\UpdatePatientAction;
 use App\Enums\BillableItemStatus;
 use App\Enums\CashSessionStatus;
+use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
@@ -18,12 +19,28 @@ use App\Http\Requests\UpdatePatientRequest;
 use App\Models\AddressEntry;
 use App\Models\BillableItem;
 use App\Models\CashSession;
+use App\Models\MaternityRecord;
 use App\Models\Patient;
+use App\Models\PatientDiscount;
+use App\Models\PatientNewbornLink;
+use App\Models\PatientStaffLink;
 use App\Models\PaymentMethod;
+use App\Models\User;
+use App\Services\Audit\Auditor;
 use App\Services\Billing\BillableCatalogDirectory;
+use App\Services\Patient\PatientDirectory;
+use App\Services\Patient\PatientServiceNeeds;
+use App\Services\Patient\PatientVipClassifier;
+use App\Services\Settings\AppSettings;
+use App\Services\Spreadsheet\ExcelWorkbook;
+use App\Support\EpisodePathwayTimeline;
 use App\Support\Money;
+use App\Support\NewbornFiche;
+use App\Support\Reception\MotherNewborns;
+use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -34,17 +51,27 @@ use Inertia\Response;
  */
 class PatientController extends Controller
 {
+    /** Au-delà, l'export est refusé : PhpSpreadsheet garde tout en mémoire. */
+    private const EXPORT_LIMIT = 20000;
+
     public function index(Request $request): Response
     {
-        $search = trim((string) $request->query('q', ''));
-        $type = in_array($request->query('type'), array_column(PatientType::cases(), 'value'), true)
-            ? $request->query('type')
-            : null;
-        $emergency = in_array($request->query('emergency'), ['active', 'none'], true)
-            ? $request->query('emergency')
-            : null;
+        $directory = PatientDirectory::fromRequest($request);
+        $search = $directory->search;
+        $type = $directory->type;
+        $emergency = $directory->emergency;
+        $need = $directory->need;
+        $needs = $directory->needs;
+        $status = $directory->status;
 
-        $patients = Patient::query()
+        // Les filtres que les compteurs respectent : chaque compteur annonce ce
+        // que donnerait un clic sur sa case, les autres filtres inchangés
+        // (ADR-119, ADR-120, ADR-133).
+        $statusScope = fn ($query, ?string $value) => $directory->statusScope($query, $value);
+        $needScope = fn ($query, ?array $value) => $directory->needScope($query, $value);
+        $filtered = fn (bool $withSegment = true) => $directory->filtered($withSegment);
+
+        $patients = $filtered()
             ->select([
                 'id', 'uuid', 'patient_number', 'patient_type', 'first_name',
                 'last_name', 'birth_date', 'birth_date_is_approximate',
@@ -54,38 +81,169 @@ class PatientController extends Controller
                 'episodes as active_emergency_episodes_count' => fn ($query) => $query
                     ->where('priority', EpisodePriority::Emergency->value)
                     ->where('status', EpisodeStatus::Open->value),
+                // A patient with an OPEN episode is currently being handled
+                // somewhere in the clinic — the directory's most actionable
+                // signal after the emergency flag, and the reason a record is
+                // usually looked up at all.
+                'episodes as open_episodes_count' => fn ($query) => $query
+                    ->where('status', EpisodeStatus::Open->value),
+                // Le passage dont la partie clinique est finie : Médecine a
+                // clôturé, il n'attend plus que la Réception. Sans cette
+                // distinction, le répertoire affichait « Passage en cours »
+                // à un médecin qui venait justement de conclure — deux écrans
+                // qui semblaient se contredire.
+                'episodes as settlement_episodes_count' => fn ($query) => $query
+                    ->where('status', EpisodeStatus::Open->value)
+                    ->where('administrative_status', EpisodeAdministrativeStatus::PendingSettlement->value),
+                'episodes as episodes_count' => fn ($query) => $query
+                    ->where('status', '!=', EpisodeStatus::Cancelled->value),
             ])
-            ->when($search !== '', function ($query) use ($search) {
-                $query->where(function ($q) use ($search) {
-                    $q->where('patient_number', 'like', "%{$search}%")
-                        ->orWhere('first_name', 'like', "%{$search}%")
-                        ->orWhere('last_name', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%");
-                });
-            })
-            ->when($type, fn ($query) => $query->where('patient_type', $type))
-            ->when($emergency === 'active', fn ($query) => $query->whereHas('episodes', fn ($episode) => $episode
-                ->where('priority', EpisodePriority::Emergency->value)
-                ->where('status', EpisodeStatus::Open->value)))
-            ->when($emergency === 'none', fn ($query) => $query->whereDoesntHave('episodes', fn ($episode) => $episode
-                ->where('priority', EpisodePriority::Emergency->value)
-                ->where('status', EpisodeStatus::Open->value)))
-            ->orderByDesc('id')
+            ->withMax(
+                ['episodes as last_visit_at' => fn ($query) => $query
+                    ->where('status', '!=', EpisodeStatus::Cancelled->value)],
+                'started_at',
+            )
+            ->tap(fn ($query) => $needScope($statusScope($query, $status), $need))
+            ->tap(fn ($query) => $directory->ordered($query))
             ->paginate(20)
             ->withQueryString();
 
-        $patients->getCollection()->each(
-            fn (Patient $patient) => $this->appendAdministrativePresentation($patient),
-        );
+        // ADR-146 — un bébé accueilli est un patient comme un autre, mais sa ligne dit de qui il est
+        // l'enfant : sans cela, « Bébé 1 de RAKOTO » et sa mère se lisent comme deux dossiers sans rapport.
+        // Les deux repères disent la filiation d'une ligne du répertoire : `newborns.view` les gouverne
+        // (ADR-146 amendement), et deux requêtes de moins pour qui ne les reçoit pas.
+        $showFiliation = $request->user()->can('newborns.view');
+        $origins = $showFiliation ? $this->newbornOrigins($patients->getCollection()) : [];
+        // … et combien de bébés sont nés d'elle ici : la Réception le cherche à chaque arrivée d'un
+        // nouveau-né, et sans ce repère elle devrait ouvrir chaque dossier pour le savoir.
+        $children = $showFiliation ? $this->newbornChildrenCounts($patients->getCollection()) : [];
+
+        $patients->getCollection()->each(function (Patient $patient) use ($needs, $directory, $origins, $children) {
+            $patient->setAttribute('newborn_of', $origins[$patient->getKey()] ?? null);
+            $patient->setAttribute('newborn_children', $children[$patient->getKey()] ?? 0);
+            $this->appendAdministrativePresentation($patient);
+            $patient->setAttribute('needs', $needs->forPatient($patient->getKey()));
+            $patient->setAttribute('is_vip', $directory->vip->isVip($patient->getKey()));
+
+            // withMax() returns the driver's raw datetime string, which
+            // differs between MySQL and SQLite; normalise it once here so
+            // the frontend always parses the same shape.
+            $lastVisit = $patient->getAttribute('last_visit_at');
+            $patient->setAttribute(
+                'last_visit_at',
+                $lastVisit ? Carbon::parse($lastVisit)->toIso8601String() : null,
+            );
+        });
 
         return Inertia::render('Patients/Index', [
             'patients' => $patients,
             'search' => $search,
-            'filters' => ['type' => $type, 'emergency' => $emergency],
+            'filters' => [
+                'type' => $type,
+                'emergency' => $emergency,
+                'need' => $need === null ? null : PatientServiceNeeds::key($need),
+                'status' => $status,
+                'segment' => $directory->segment,
+                'letter' => $directory->letter,
+                'sort' => $directory->sort,
+            ],
+            // Chaque compteur est ce que donnerait un clic : les autres filtres
+            // restent appliqués, le sien seul est levé.
+            'needs' => ['facets' => $needs->facets($statusScope($filtered(), $status))],
+            'segments' => [
+                'status' => [
+                    'all' => $needScope($filtered(), $need)->count(),
+                    'open' => $needScope($statusScope($filtered(), 'open'), $need)->count(),
+                    'settlement' => $needScope($statusScope($filtered(), 'settlement'), $need)->count(),
+                    'none' => $needScope($statusScope($filtered(), 'none'), $need)->count(),
+                ],
+                // ADR-133 — patients normaux / VIP : chaque case compte ce que
+                // donnerait un clic, la catégorie seule étant levée.
+                'category' => [
+                    'all' => $needScope($statusScope($filtered(false), $status), $need)->count(),
+                    'vip' => $needScope($statusScope($directory->segmentScope($filtered(false), 'vip'), $status), $need)->count(),
+                    'normal' => $needScope($statusScope($directory->segmentScope($filtered(false), 'normal'), $status), $need)->count(),
+                ],
+            ],
+            'vip' => [
+                'configured' => $directory->vip->isConfigured(),
+                'rule' => $directory->vip->rule(),
+            ],
+            'summary' => $this->directorySummary(),
         ]);
     }
 
-    public function show(Request $request, Patient $patient, BillableCatalogDirectory $catalog): Response
+    /**
+     * Le répertoire en Excel (ADR-133) : les mêmes filtres que l'écran, tous les
+     * dossiers correspondants et non la seule page affichée. Une liste de
+     * patients est une donnée personnelle : `patients.export`, et chaque export
+     * est audité avec ses filtres et son nombre de lignes.
+     */
+    public function export(Request $request, ExcelWorkbook $workbook, Auditor $auditor)
+    {
+        $directory = PatientDirectory::fromRequest($request);
+        $query = $directory->query();
+
+        if ((clone $query)->count() > self::EXPORT_LIMIT) {
+            return back()->withErrors(['export' => 'Plus de '.number_format(self::EXPORT_LIMIT, 0, ',', ' ').' dossiers correspondent : affinez les filtres avant d’exporter.']);
+        }
+
+        $rows = $directory->ordered($query)
+            ->with('addressEntry:id,label')
+            ->withCount(['episodes as episodes_total' => fn ($episodes) => $episodes
+                ->where('status', '!=', EpisodeStatus::Cancelled->value)])
+            ->withMax(['episodes as last_visit_at' => fn ($episodes) => $episodes
+                ->where('status', '!=', EpisodeStatus::Cancelled->value)], 'started_at')
+            ->get();
+
+        $vip = $directory->vip;
+        $sexLabels = ['M' => 'Homme', 'F' => 'Femme'];
+
+        $auditor->record(
+            'patient.export',
+            newValues: [
+                'rows' => $rows->count(),
+                'filters' => array_filter([
+                    'q' => $directory->search ?: null,
+                    'type' => $directory->type,
+                    'emergency' => $directory->emergency,
+                    'need' => $directory->need === null ? null : PatientServiceNeeds::key($directory->need),
+                    'status' => $directory->status,
+                    'segment' => $directory->segment === 'all' ? null : $directory->segment,
+                    'letter' => $directory->letter,
+                    'sort' => $directory->sort,
+                ]),
+            ],
+            module: 'reception',
+        );
+
+        return $workbook->download(
+            'patients-'.now()->format('Y-m-d'),
+            'Patients',
+            ['N° patient', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Âge', 'Téléphone', 'Adresse', 'Catégorie', 'Passages', 'Dernier passage'],
+            $rows->map(function (Patient $patient) use ($vip, $sexLabels): array {
+                $lastVisit = $patient->getAttribute('last_visit_at');
+                $age = $patient->birth_date?->age ?? $patient->declared_age;
+
+                return [
+                    $patient->patient_number,
+                    $patient->last_name,
+                    $patient->first_name,
+                    $sexLabels[$patient->sex?->value ?? ''] ?? '',
+                    // Une date approximative n'est pas une date de naissance.
+                    $patient->birth_date && ! $patient->birth_date_is_approximate ? $patient->birth_date->format('d/m/Y') : '',
+                    $age === null || $age === '' ? '' : (int) $age,
+                    $patient->phone,
+                    $patient->addressEntry?->label ?? $patient->address,
+                    $vip->isVip($patient->getKey()) ? 'VIP' : 'Normal',
+                    (int) $patient->getAttribute('episodes_total'),
+                    $lastVisit ? Carbon::parse($lastVisit)->format('d/m/Y') : '',
+                ];
+            })->all(),
+        );
+    }
+
+    public function show(Request $request, Patient $patient, BillableCatalogDirectory $catalog, EpisodePathwayTimeline $timeline): Response
     {
         // Care record data (constants, allergy snapshot, acts performed) is
         // gated behind care.view, matching CareController's own capability
@@ -129,6 +287,11 @@ class PatientController extends Controller
         }
 
         $this->appendAdministrativePresentation($patient);
+
+        // ADR-117 : le même parcours que celui du détail du passage, servi
+        // ici pour chaque passage du dossier — la frise ne recompose rien.
+        $pathways = $timeline->forEpisodes($patient->episodes, $request->user());
+        $patient->episodes->each(fn ($episode) => $episode->setAttribute('pathway', $pathways[$episode->getKey()] ?? []));
 
         $account = null;
         $paymentMethods = [];
@@ -259,7 +422,18 @@ class PatientController extends Controller
             $paymentMethods = PaymentMethod::query()
                 ->where('active', true)
                 ->orderBy('id')
-                ->get(['id', 'code', 'name']);
+                ->get(['id', 'code', 'name', 'category', 'affects_cash_balance', 'requires_reference'])
+                ->map(fn (PaymentMethod $method) => [
+                    'id' => $method->id,
+                    'code' => $method->code,
+                    'name' => $method->name,
+                    'category' => $method->category->value,
+                    'category_label' => $method->category->label(),
+                    'category_icon' => $method->category->icon(),
+                    'category_position' => $method->category->position(),
+                    'affects_cash_balance' => $method->affects_cash_balance,
+                    'requires_reference' => $method->requires_reference,
+                ]);
         }
 
         if ($request->user()->can('payments.create') || $request->user()->can('payments.cancel')) {
@@ -294,11 +468,166 @@ class PatientController extends Controller
 
         return Inertia::render('Patients/Show', [
             'patient' => $patient,
+            'family' => $this->newbornFamily($patient, $request->user()),
             'account' => $account,
             'paymentMethods' => $paymentMethods,
             'openCashSessions' => $openCashSessions,
             'billingCatalog' => $billingCatalog,
+            // ADR-192 — ses remises : servies seulement à qui peut les voir.
+            'discounts' => $request->user()->can('discounts.view') ? $this->discountsFor($patient) : null,
         ]);
+    }
+
+    /**
+     * ADR-192 — la remise propre à ce patient (en vigueur et passées), et celles
+     * que son statut lui ouvre sur ce site (VIP, personnel), telles que la Caisse
+     * les lira.
+     *
+     * @return array<string, mixed>
+     */
+    private function discountsFor(Patient $patient): array
+    {
+        $settings = app(AppSettings::class);
+        $status = [];
+
+        $vip = PatientVipClassifier::current();
+
+        if (($rule = $vip->discount()) !== null && $vip->isVip($patient->id)) {
+            $status[] = ['source' => 'VIP', 'label' => 'Patient VIP', 'describe' => $rule['type']->describe($rule['value'])];
+        }
+
+        if (($rule = $settings->staffDiscount()) !== null
+            && PatientStaffLink::query()->active()->where('patient_id', $patient->id)
+                ->whereHas('employee', fn ($query) => $query->where('active', true))->exists()) {
+            $status[] = ['source' => 'STAFF', 'label' => 'Personnel de la clinique', 'describe' => $rule['type']->describe($rule['value'])];
+        }
+
+        $items = PatientDiscount::query()
+            ->where('patient_id', $patient->id)
+            ->with(['creator:id,name', 'canceller:id,name'])
+            ->latest('id')
+            ->limit(30)
+            ->get()
+            ->map(fn (PatientDiscount $discount) => [
+                'uuid' => $discount->uuid,
+                'discount_type' => $discount->discount_type->value,
+                'describe' => $discount->discount_type->describe((string) $discount->discount_value),
+                'reason' => $discount->reason,
+                'valid_from' => $discount->valid_from->toDateString(),
+                'valid_until' => $discount->valid_until?->toDateString(),
+                'in_force' => $discount->isInForce(),
+                'created_by' => $discount->creator?->name,
+                'cancelled_at' => $discount->cancelled_at?->toIso8601String(),
+                'cancel_reason' => $discount->cancel_reason,
+            ])
+            ->all();
+
+        return ['status' => $status, 'items' => $items];
+    }
+
+    /**
+     * ADR-144 — le lien d'un nouveau-né avec sa mère, dans les deux sens.
+     *
+     * Un patient né à la clinique dit de qui il est le bébé ; sa mère liste ses enfants. Rien de
+     * clinique ne passe : ni grossesse, ni accouchement — seulement qui est relié à qui.
+     *
+     * @return array{mother: ?array<string, mixed>, children: list<array<string, mixed>>}
+     */
+    /**
+     * De quelle mère chaque patient de la page est le nouveau-né (ADR-146).
+     *
+     * Une requête pour toute la page : le répertoire est paginé, et une lecture par ligne ferait
+     * dépendre son temps du nombre de patients affichés.
+     *
+     * @param  Collection<int, Patient>  $patients
+     * @return array<int, array<string, mixed>>
+     */
+    private function newbornOrigins($patients): array
+    {
+        return PatientNewbornLink::query()
+            ->whereIn('patient_id', $patients->modelKeys())
+            ->with('mother:id,uuid,patient_number,first_name,last_name')
+            ->get()
+            ->filter(fn (PatientNewbornLink $link) => $link->mother !== null)
+            ->mapWithKeys(fn (PatientNewbornLink $link) => [$link->patient_id => [
+                'uuid' => $link->mother->uuid,
+                'patient_number' => $link->mother->patient_number,
+                'name' => trim("{$link->mother->last_name} {$link->mother->first_name}"),
+                'birth_rank' => $link->birth_rank,
+            ]])
+            ->all();
+    }
+
+    /**
+     * La famille d'un patient : de qui il est le nouveau-né, et quels bébés sont nés de lui ici (ADR-146).
+     *
+     * Les bébés sont lus sur les fiches du dossier Maternité, jamais sur les seuls dossiers patients :
+     * depuis l'ADR-146 un bébé ne devient patient qu'à l'accueil, et le dossier de sa mère doit le montrer
+     * dès l'accouchement — sans quoi il n'apparaîtrait nulle part avant sa première consultation.
+     *
+     * @return array<string, mixed>
+     */
+    /**
+     * Combien de nouveau-nés sont nés de chaque patiente de la page (ADR-146).
+     *
+     * Les fiches du dossier Maternité, jamais les seuls dossiers patients : un bébé qui n'a pas encore
+     * été accueilli est né ici tout autant. Une requête pour toute la page, comme les autres repères du
+     * répertoire — une lecture par ligne ferait dépendre son temps du nombre de patients affichés.
+     *
+     * @param  Collection<int, Patient>  $patients
+     * @return array<int, int>
+     */
+    private function newbornChildrenCounts($patients): array
+    {
+        return MaternityRecord::query()
+            ->whereHas('episode', fn ($query) => $query->whereIn('patient_id', $patients->modelKeys()))
+            ->with('episode:id,patient_id')
+            ->get()
+            ->groupBy(fn (MaternityRecord $record) => $record->episode?->patient_id)
+            ->map(fn ($records) => $records->sum(
+                fn (MaternityRecord $record) => collect($record->newborn_data['newborns'] ?? [])
+                    ->filter(fn ($newborn) => is_array($newborn) && NewbornFiche::isFilled($newborn))
+                    ->count(),
+            ))
+            ->filter()
+            ->all();
+    }
+
+    private function newbornFamily(Patient $patient, User $user): array
+    {
+        $asNewborn = $patient->newbornLink()->with('mother:id,uuid,patient_number,first_name,last_name')->first();
+
+        // ADR-146 (amendement) — deux droits, parce que deux choses sont en jeu. `newborns.view` montre
+        // l'enfant : son nom, son rang, sa naissance — rien de clinique. `newborns.medical_record.view`
+        // ouvre son dossier, où se lisent son poids, son Apgar et le mode d'accouchement. La Réception
+        // reçoit le premier d'office ; le second reste une décision du Super Administrateur (ADR-064).
+        $canListChildren = $user->can('newborns.view');
+        $canReadRecord = $user->can('newborns.medical_record.view');
+
+        return [
+            'mother' => $canListChildren && $asNewborn?->mother ? [
+                'uuid' => $asNewborn->mother->uuid,
+                'patient_number' => $asNewborn->mother->patient_number,
+                'name' => trim("{$asNewborn->mother->last_name} {$asNewborn->mother->first_name}"),
+                'birth_rank' => $asNewborn->birth_rank,
+                'medical_record_url' => "/patients/{$asNewborn->mother->uuid}/dossier-medical",
+            ] : null,
+            'children' => ! $canListChildren ? [] : collect(MotherNewborns::for($patient))
+                ->map(fn (array $baby) => [
+                    'uuid' => $baby['patient']['uuid'] ?? null,
+                    'patient_number' => $baby['patient']['patient_number'] ?? null,
+                    'name' => $baby['name'],
+                    'birth_rank' => $baby['rank'],
+                    'born_at' => $baby['born_at'],
+                    'is_patient' => $baby['patient'] !== null,
+                    'medical_record_url' => $baby['patient']
+                        ? "/patients/{$baby['patient']['uuid']}/dossier-medical"
+                        : ($canReadRecord && $baby['episode_uuid']
+                            ? "/passages/{$baby['episode_uuid']}/nouveau-nes/{$baby['newborn_uuid']}/dossier-medical"
+                            : null),
+                ])
+                ->all(),
+        ];
     }
 
     public function edit(Request $request, Patient $patient): Response
@@ -431,9 +760,16 @@ class PatientController extends Controller
         Patient $patient,
         RecordPatientAntecedentAction $action,
     ): RedirectResponse {
-        $action->execute($patient, $request->validated('description'));
+        $antecedent = $action->execute(
+            $patient,
+            $request->validated('description'),
+            $request->antecedentType(),
+        );
 
-        return back()->with('status', 'Antécédent ajouté au dossier patient.');
+        return back()->with(
+            'status',
+            "{$antecedent->type->label()} ajouté au dossier patient.",
+        );
     }
 
     public function destroy(
@@ -465,5 +801,31 @@ class PatientController extends Controller
         $patient->setAttribute('patient_type_label', $patient->patient_type->label());
 
         return $patient;
+    }
+
+    /**
+     * Site-wide counters shown above the directory. They are deliberately
+     * unfiltered: they describe the whole record base so the operator can
+     * read the current situation at a glance, then use them as shortcuts
+     * into the very filters the list already supports.
+     *
+     * @return array<string, int>
+     */
+    private function directorySummary(): array
+    {
+        $emergency = fn ($episode) => $episode
+            ->where('priority', EpisodePriority::Emergency->value)
+            ->where('status', EpisodeStatus::Open->value);
+
+        return [
+            'total' => Patient::query()->count(),
+            'emergency' => Patient::query()->whereHas('episodes', $emergency)->count(),
+            'in_progress' => Patient::query()
+                ->whereHas('episodes', fn ($episode) => $episode->where('status', EpisodeStatus::Open->value))
+                ->count(),
+            'created_this_month' => Patient::query()
+                ->where('created_at', '>=', now()->startOfMonth())
+                ->count(),
+        ];
     }
 }

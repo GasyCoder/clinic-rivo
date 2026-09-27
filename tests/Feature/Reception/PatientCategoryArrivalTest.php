@@ -57,6 +57,185 @@ class PatientCategoryArrivalTest extends TestCase
         $this->assertSame("{$patient->patient_number}-01", $episode->episode_number);
     }
 
+    /**
+     * ADR-177 — plus de mode « Nouveau-né » à la Réception : un bébé né ailleurs
+     * est un nouveau patient ordinaire. La civilité « Enfant » porte seule le
+     * profil enfant, et le parent reste le contact du passage (ADR-034).
+     */
+    public function test_a_baby_born_elsewhere_is_registered_as_an_ordinary_new_patient(): void
+    {
+        $actor = $this->receptionist(['patients.create', 'episodes.create']);
+
+        $response = $this->actingAs($actor)->post('/reception/patients', [
+            'patient_type' => PatientType::Standard->value,
+            'civility' => 'GIRL',
+            'first_name' => 'Faly',
+            'last_name' => 'Rakoto',
+            'birth_date' => now()->subDays(8)->toDateString(),
+            'sex' => 'F',
+            'emergency_contact_name' => 'Vola Rakoto',
+            'emergency_contact_phone' => '0340000000',
+            'emergency_contact_relationship' => 'Mère',
+            'emergency_contact_email' => 'vola@example.test',
+        ]);
+
+        $patient = Patient::query()->sole();
+        $episode = Episode::query()->sole();
+
+        $response->assertRedirect(route('reception.passages.services.show', $episode));
+        $this->assertSame('Faly', $patient->first_name);
+        $this->assertSame('Rakoto', $patient->last_name);
+        $this->assertNull($patient->phone);
+        $this->assertNull($patient->email);
+        $this->assertNull($patient->profession);
+        $this->assertNull($patient->marital_status);
+        $this->assertNull($patient->children_count);
+        // Un patient ordinaire : aucun lien vers une mère n'est inventé.
+        $this->assertDatabaseCount('patient_newborn_links', 0);
+        $this->assertSame('Vola Rakoto', $episode->emergency_contact_name);
+        $this->assertSame('0340000000', $episode->emergency_contact_phone);
+        $this->assertSame('Mère', $episode->emergency_contact_relationship);
+        $this->assertSame('vola@example.test', $episode->emergency_contact_email);
+    }
+
+    /** L'ancien marqueur « nouveau-né né ailleurs » n'ouvre plus aucun mode : il est simplement ignoré. */
+    public function test_the_former_external_newborn_marker_opens_no_third_mode(): void
+    {
+        $actor = $this->receptionist(['patients.create', 'episodes.create']);
+
+        $this->actingAs($actor)->post('/reception/patients', [
+            'registration_context' => 'EXTERNAL_NEWBORN',
+            'patient_type' => PatientType::Standard->value,
+            'first_name' => 'Faly',
+            'last_name' => 'Rakoto',
+            'birth_date' => now()->subDays(8)->toDateString(),
+            'sex' => 'F',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertDatabaseCount('patients', 1);
+        $this->assertDatabaseCount('patient_newborn_links', 0);
+    }
+
+    public function test_a_child_arrival_keeps_the_childs_identity_and_the_parents_passage_contact(): void
+    {
+        $actor = $this->receptionist(['patients.create', 'episodes.create']);
+
+        $response = $this->actingAs($actor)->post('/reception/patients', [
+            'patient_type' => PatientType::Standard->value,
+            'civility' => 'GIRL',
+            'first_name' => 'Soa',
+            'last_name' => 'Rakoto',
+            'birth_date' => now()->subYears(8)->toDateString(),
+            'sex' => 'F',
+            'emergency_contact_name' => 'Vola Rakoto',
+            'emergency_contact_phone' => '0340000000',
+            'emergency_contact_relationship' => 'Mère',
+        ]);
+
+        $patient = Patient::query()->sole();
+        $episode = Episode::query()->sole();
+
+        $response->assertRedirect(route('reception.passages.services.show', $episode));
+        $this->assertSame('GIRL', $patient->civility->value);
+        $this->assertSame('F', $patient->sex->value);
+        $this->assertNull($patient->phone);
+        $this->assertNull($patient->email);
+        $this->assertNull($patient->profession);
+        $this->assertNull($patient->identity_document_type);
+        $this->assertNull($patient->marital_status);
+        $this->assertNull($patient->children_count);
+        $this->assertSame('Vola Rakoto', $episode->emergency_contact_name);
+        $this->assertSame('0340000000', $episode->emergency_contact_phone);
+        $this->assertSame('Mère', $episode->emergency_contact_relationship);
+    }
+
+    public function test_a_child_arrival_rejects_adult_administrative_fields(): void
+    {
+        $actor = $this->receptionist(['patients.create', 'episodes.create']);
+
+        $response = $this->actingAs($actor)->post('/reception/patients', [
+            'patient_type' => PatientType::Standard->value,
+            'civility' => 'BOY',
+            'first_name' => 'Faly',
+            'last_name' => 'Rakoto',
+            'birth_date' => now()->subYears(10)->toDateString(),
+            'sex' => 'M',
+            'phone' => '0340000000',
+            'email' => 'child@example.test',
+            'profession' => 'Élève',
+            'marital_status' => 'SINGLE',
+            'children_count' => 0,
+            'identity_document_type' => 'PASSPORT',
+            'identity_document_number' => 'P-1234',
+        ]);
+
+        $response->assertSessionHasErrors([
+            'phone', 'email', 'profession', 'marital_status', 'children_count',
+            'identity_document_type', 'identity_document_number',
+        ]);
+        $this->assertDatabaseCount('patients', 0);
+        $this->assertDatabaseCount('episodes', 0);
+    }
+
+    /**
+     * Une adresse absente du référentiel ne doit pas bloquer une arrivée :
+     * la Réception la saisit à la main et l'entrée est créée puis rattachée.
+     * Le référentiel reste sans doublon — un libellé déjà connu est réutilisé.
+     */
+    public function test_a_manually_typed_address_reuses_an_existing_entry_instead_of_duplicating_it(): void
+    {
+        $actor = $this->receptionist([
+            'patients.create', 'episodes.create', 'address_entries.view', 'address_entries.create',
+        ]);
+        $existing = AddressEntry::query()->create(['label' => 'Quartier Anosibe', 'active' => true]);
+
+        $this->actingAs($actor)->post('/reception/patients', [
+            ...$this->standardPatient(),
+            'new_address_label' => '  quartier  anosibe  ',
+        ]);
+
+        $patient = Patient::query()->sole();
+
+        $this->assertSame(1, AddressEntry::query()->count());
+        $this->assertSame($existing->id, $patient->address_entry_id);
+    }
+
+    /** Les deux champs sont exclusifs : en recevoir deux serait ambigu. */
+    public function test_an_arrival_cannot_send_both_an_existing_and_a_new_address(): void
+    {
+        $actor = $this->receptionist([
+            'patients.create', 'episodes.create', 'address_entries.view', 'address_entries.create',
+        ]);
+        $existing = AddressEntry::query()->create(['label' => 'Ambondromamy Centre', 'active' => true]);
+
+        $response = $this->actingAs($actor)->post('/reception/patients', [
+            ...$this->standardPatient(),
+            'address_entry_uuid' => $existing->uuid,
+            'new_address_label' => 'Quartier Anosibe',
+        ]);
+
+        $response->assertSessionHasErrors('new_address_label');
+        $this->assertSame(0, Patient::query()->count());
+        $this->assertSame(1, AddressEntry::query()->count());
+    }
+
+    /** Enrichir le référentiel reste soumis à `address_entries.create`. */
+    public function test_a_manual_address_is_refused_without_the_permission_to_create_one(): void
+    {
+        $actor = $this->receptionist([
+            'patients.create', 'episodes.create', 'address_entries.view',
+        ]);
+
+        $response = $this->actingAs($actor)->post('/reception/patients', [
+            ...$this->standardPatient(),
+            'new_address_label' => 'Quartier Anosibe',
+        ]);
+
+        $response->assertForbidden();
+        $this->assertSame(0, Patient::query()->count());
+        $this->assertSame(0, AddressEntry::query()->count());
+    }
+
     public function test_mutual_arrival_creates_the_coverage_and_at_most_five_private_files(): void
     {
         Storage::fake('local');
@@ -330,7 +509,10 @@ class PatientCategoryArrivalTest extends TestCase
             'couverture Personnel doit être calculée par RH / Finance',
         ));
         $this->assertDatabaseCount('episode_service_requests', 1);
-        $this->assertDatabaseCount('episode_orientations', 1);
+        // ADR-177 — le besoin est gardé et le passage est ouvert à tous les
+        // services autorisés : aucune orientation n'est déduite de la prestation.
+        $this->assertDatabaseCount('episode_orientations', 0);
+        $this->assertNotNull($episode->fresh()->service_plan_finalized_at);
         $this->assertDatabaseCount('invoices', 0);
         $this->assertDatabaseCount('payments', 0);
 

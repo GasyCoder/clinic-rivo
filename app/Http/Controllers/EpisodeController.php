@@ -2,10 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\EpisodeStatus;
+use App\Enums\ReceptionNextStep;
 use App\Models\BillableItem;
 use App\Models\Episode;
+use App\Models\EpisodeReceptionNextStep;
+use App\Models\Patient;
+use App\Models\PatientNewbornLink;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
+use App\Support\Documents\MaternitySheetSection;
+use App\Support\Documents\MedicalRecordSheet;
+use App\Support\EpisodePathwayTimeline;
 use App\Support\Money;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -19,7 +28,7 @@ use Inertia\Response;
  */
 class EpisodeController extends Controller
 {
-    public function show(Request $request, Episode $episode, ClinicalRichTextSanitizer $richText): Response
+    public function show(Request $request, Episode $episode, ClinicalRichTextSanitizer $richText, EpisodePathwayTimeline $pathway, MaternitySheetSection $maternity): Response
     {
         $user = $request->user();
         $canViewCare = $user->can('care.view');
@@ -31,7 +40,6 @@ class EpisodeController extends Controller
 
         $episode->load([
             'patient:id,uuid,patient_number,first_name,last_name',
-            'orientations' => fn ($query) => $query->orderBy('oriented_at'),
             ...($canViewCare ? [
                 'careRecord',
                 'careRecord.procedures' => fn ($query) => $query
@@ -113,16 +121,15 @@ class EpisodeController extends Controller
                     'first_name' => $episode->patient->first_name,
                     'last_name' => $episode->patient->last_name,
                 ],
-                'orientations' => $episode->orientations->map(fn ($orientation) => [
-                    'uuid' => $orientation->uuid,
-                    'destination_module' => $orientation->destination_module->value,
-                    'destination_module_label' => $orientation->destination_module->label(),
-                    'status' => $orientation->status->value,
-                    'status_label' => $orientation->status->label(),
-                    'oriented_at' => $orientation->oriented_at,
-                    'accepted_at' => $orientation->accepted_at,
-                    'completed_at' => $orientation->completed_at,
-                ])->values(),
+                // ADR-177 — la prochaine étape suggérée par la Réception :
+                // indicative, jamais une restriction ni une orientation.
+                'next_steps' => $episode->receptionNextSteps()->get()
+                    ->map(fn (EpisodeReceptionNextStep $step) => $step->module->value)
+                    ->pipe(fn ($values) => array_values(array_intersect(ReceptionNextStep::values(), $values->all()))),
+                // ADR-117 : le parcours complet — Réception, services, Pharmacie,
+                // Caisse, sortie — composé une seule fois, et le même que celui
+                // que le dossier du patient résume en frise.
+                'pathway' => $pathway->forEpisode($episode, $user),
                 'care_record' => $canViewCare && $episode->careRecord ? [
                     ...($canViewVitals ? [
                         'blood_group' => $episode->careRecord->blood_group,
@@ -136,11 +143,16 @@ class EpisodeController extends Controller
                         'weight_kg' => $episode->careRecord->weight_kg,
                         'bmi' => $episode->careRecord->bmi,
                         'smoker' => $episode->careRecord->smoker,
+                        'alcohol' => $episode->careRecord->alcohol,
                     ] : []),
                     'allergy_snapshot' => $episode->careRecord->allergy_snapshot ?? [],
+                    // Des constantes se lisent avec leur date : l'heure seule ne dit pas le jour.
+                    'updated_at' => $episode->careRecord->updated_at,
                     'no_procedure_reason' => $episode->careRecord->no_procedure_reason,
                     'diagnostic_note' => $episode->careRecord->diagnostic_note,
                     'transmission_reason' => $episode->careRecord->transmission_reason,
+                    'diagnostic_note_html' => $episode->careRecord->diagnostic_note_html,
+                    'transmission_reason_html' => $episode->careRecord->transmission_reason_html,
                     'procedures' => $episode->careRecord->procedures->map(fn ($procedure) => [
                         'uuid' => $procedure->uuid,
                         'name' => $procedure->procedure_name,
@@ -208,6 +220,8 @@ class EpisodeController extends Controller
                 ] : null,
             ],
             'billing' => $billing,
+            // ADR-144 : les bébés du dossier Maternité de ce passage, et l'accès à leur dossier patient.
+            'maternityBabies' => $maternity->forPassage($episode, $user),
             'capabilities' => [
                 'can_view_care' => $canViewCare,
                 'can_view_vitals' => $canViewVitals,
@@ -215,7 +229,51 @@ class EpisodeController extends Controller
                 'can_view_diagnoses' => $canViewDiagnoses,
                 'can_view_prescriptions' => $canViewPrescriptions,
                 'can_view_billing' => $canViewBilling,
+                'can_view_treatment_journal' => $user->can('treatment_journal.view'),
+                'can_update_next_steps' => $episode->status === EpisodeStatus::Open && $user->can('episodes.update'),
             ],
+            'nextStepOptions' => ReceptionNextStep::options(),
         ]);
+    }
+
+    /**
+     * ADR-116 — le « DOSSIER MÉDICAL » de la clinique, imprimé depuis ce qui
+     * est déjà consigné dans le passage. Gardé par la même permission que
+     * la page « Détail du passage » elle-même : les sections plus sensibles
+     * (constantes, antécédents) restent gouvernées à l'intérieur par leur
+     * propre permission (`vitals.view`, `patients.medical_history.view`).
+     */
+    public function printMedicalRecord(Request $request, Episode $episode, MedicalRecordSheet $sheet): Response
+    {
+        return Inertia::render('Medicine/MedicalRecordPrint', $sheet->present($episode, $request->user()));
+    }
+
+    /** ADR-145 — le même dossier médical, pour un patient qui n'a peut-être encore aucun passage. */
+    public function printPatientMedicalRecord(Request $request, Patient $patient, MedicalRecordSheet $sheet): Response
+    {
+        return Inertia::render('Medicine/MedicalRecordPrint', $sheet->presentForPatient($patient, $request->user()));
+    }
+
+    /**
+     * ADR-146 — le dossier médical d'un bébé qui n'est pas encore patient, lu depuis sa fiche chez sa mère.
+     *
+     * S'il est devenu patient entre-temps, on va à son dossier patient : il n'y a qu'un dossier par bébé, et
+     * un lien ancien ne doit pas montrer une version périmée.
+     */
+    public function printNewbornMedicalRecord(Request $request, Episode $episode, string $newbornUuid, MedicalRecordSheet $sheet): Response|RedirectResponse
+    {
+        $record = $episode->maternityRecord()->firstOrFail();
+
+        $link = PatientNewbornLink::query()
+            ->where('maternity_record_id', $record->getKey())
+            ->where('newborn_uuid', $newbornUuid)
+            ->with('patient:id,uuid')
+            ->first();
+
+        if ($link?->patient) {
+            return redirect("/patients/{$link->patient->uuid}/dossier-medical");
+        }
+
+        return Inertia::render('Medicine/MedicalRecordPrint', $sheet->presentForNewborn($episode, $record, $newbornUuid, $request->user()));
     }
 }

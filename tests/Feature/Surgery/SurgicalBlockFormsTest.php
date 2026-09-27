@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Surgery;
 
+use App\Actions\Surgery\CompleteSurgicalCaseAction;
 use App\Actions\Surgery\CreateAnesthesiaRecordAction;
 use App\Actions\Surgery\CreateSurgicalInterventionAction;
 use App\Actions\Surgery\CreateSurgicalReportAction;
@@ -15,6 +16,8 @@ use App\Actions\Surgery\UpdateSurgicalReportAction;
 use App\Actions\Surgery\UpdateSurgicalRequestAction;
 use App\Actions\Surgery\ValidateAnesthesiaRecordAction;
 use App\Actions\Surgery\ValidateSurgicalReportAction;
+use App\Enums\AnesthesiaClearanceStatus;
+use App\Enums\SurgicalChecklistPhase;
 use App\Enums\SurgicalRequestStatus;
 use App\Enums\SurgicalTreatmentCategory;
 use App\Enums\SurgicalTreatmentPhase;
@@ -30,11 +33,12 @@ use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia;
+use Tests\Feature\Surgery\Concerns\BuildsSurgicalCases;
 use Tests\TestCase;
 
 class SurgicalBlockFormsTest extends TestCase
 {
-    use RefreshDatabase;
+    use BuildsSurgicalCases, RefreshDatabase;
 
     protected function setUp(): void
     {
@@ -77,11 +81,30 @@ class SurgicalBlockFormsTest extends TestCase
         ]);
     }
 
+    /**
+     * ADR-170 — démarrer une intervention exige désormais un anesthésiste
+     * affecté, une autorisation prononcée et les deux premiers temps de la
+     * checklist confirmés. Ce helper les met en place ; chaque test qui
+     * vérifie un blocage les retire explicitement.
+     */
     private function startIntervention(SurgicalRequest $request, User $actor): void
     {
         $request->schedule($actor, now()->addDay()->toDateTimeString());
         $request->validatePreoperative($actor);
-        $this->app->make(CreateSurgicalInterventionAction::class)->execute($request->fresh(), []);
+        $this->readyForIncision($request->fresh(), $actor);
+        $this->app->make(CreateSurgicalInterventionAction::class)->execute($request->fresh(), [], $actor);
+    }
+
+    private function readyForIncision(SurgicalRequest $request, User $actor): void
+    {
+        $this->grant($actor, ['anesthesia.create', 'anesthesia.update', 'anesthesia.validate']);
+
+        if ($request->anesthesiaRecord === null) {
+            $this->anesthesiaCleared($request, $actor);
+        }
+
+        $this->completeChecklist($request, SurgicalChecklistPhase::SignIn, $actor, $actor);
+        $this->completeChecklist($request, SurgicalChecklistPhase::TimeOut, $actor, $actor);
     }
 
     public function test_entry_form_is_structured_and_audited(): void
@@ -180,7 +203,19 @@ class SurgicalBlockFormsTest extends TestCase
         $request->validatePreoperative($actor);
 
         $anesthesia = $this->app->make(CreateAnesthesiaRecordAction::class)->execute($request, ['notes' => 'Initial']);
-        $this->app->make(ValidateAnesthesiaRecordAction::class)->execute($anesthesia);
+        $anesthesia->update([
+            'assessment_validated_by' => $actor->id,
+            'assessment_validated_at' => now(),
+            'clearance_status' => AnesthesiaClearanceStatus::Cleared,
+            'clearance_decided_by' => $actor->id,
+            'clearance_decided_at' => now(),
+        ]);
+        $this->readyForIncision($request->fresh(), $actor);
+
+        // ADR-170 — la fiche d'anesthésie ne se ferme qu'une fois au bloc :
+        // avant l'incision, la conduite peropératoire reste à consigner.
+        $this->app->make(CreateSurgicalInterventionAction::class)->execute($request->fresh(), [], $actor->fresh());
+        $this->app->make(ValidateAnesthesiaRecordAction::class)->execute($anesthesia->fresh(), $actor->fresh());
 
         try {
             $this->app->make(UpdateAnesthesiaRecordAction::class)->execute($anesthesia->fresh(), ['notes' => 'Altération']);
@@ -189,7 +224,6 @@ class SurgicalBlockFormsTest extends TestCase
             $this->assertSame('Initial', $anesthesia->fresh()->notes);
         }
 
-        $this->app->make(CreateSurgicalInterventionAction::class)->execute($request->fresh(), []);
         $report = $this->app->make(CreateSurgicalReportAction::class)->execute($request, 'Compte rendu initial');
         $this->app->make(ValidateSurgicalReportAction::class)->execute($report);
 
@@ -199,6 +233,13 @@ class SurgicalBlockFormsTest extends TestCase
         } catch (ValidationException) {
             $this->assertSame('Compte rendu initial', $report->fresh()->content);
         }
+
+        // Le dossier n'est pas clos par la validation du compte rendu
+        // (ADR-170) : l'intervention reste corrigeable tant qu'on est au bloc.
+        $request->fresh()->intervention->update(['ended_at' => now()]);
+        $this->completeChecklist($request->fresh(), SurgicalChecklistPhase::SignOut, $actor, $actor);
+        $request->blockExit()->create(['recorded_by' => $actor->id, 'left_at' => now()]);
+        $this->app->make(CompleteSurgicalCaseAction::class)->execute($request->fresh(), $actor->fresh());
 
         $this->expectException(ValidationException::class);
         $this->app->make(UpdateSurgicalInterventionAction::class)->execute(

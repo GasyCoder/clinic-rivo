@@ -41,7 +41,10 @@ class CashController extends Controller
                 return $this->renderWorkspace($request, null);
             }
 
-            return Inertia::render('Cash/Index', ['registers' => []]);
+            return Inertia::render('Cash/Index', [
+                'registers' => [],
+                'pharmacyReference' => $this->pharmacyReferenceQuery($request),
+            ]);
         }
 
         // Each register locks its own active_key slot (CashSession::activeKeyFor),
@@ -55,6 +58,11 @@ class CashController extends Controller
             ->keyBy('cash_register_id');
 
         return Inertia::render('Cash/Index', [
+            // ADR-104 — arrivée depuis la Réception avec un ticket
+            // Pharmacie : le choix du poste ne doit pas perdre la référence
+            // en route, sinon l'agent doit la ressaisir juste après l'avoir
+            // vue à l'écran précédent.
+            'pharmacyReference' => $this->pharmacyReferenceQuery($request),
             'registers' => $registers->map(function (CashRegister $register) use ($openSessions, $request) {
                 $session = $openSessions->get($register->id);
 
@@ -172,7 +180,7 @@ class CashController extends Controller
                 ->get([
                     'id', 'uuid', 'patient_id', 'episode_id', 'invoice_number',
                     'customer_type', 'customer_name', 'customer_phone', 'source_module',
-                    'status', 'total_amount', 'paid_amount', 'balance_amount',
+                    'status', 'discount_amount', 'total_amount', 'paid_amount', 'balance_amount',
                     'created_at', 'validated_at',
                 ])
             : collect();
@@ -181,11 +189,28 @@ class CashController extends Controller
             fn (Invoice $invoice): int => Money::toMinor($invoice->balance_amount),
         );
 
+        // A named desk may accept only part of the site's tenders. No
+        // configured tender means no restriction, so the filter only applies
+        // when the desk actually has a list.
+        $acceptedMethodIds = $cashRegister?->acceptedPaymentMethodIds() ?? [];
+
         $paymentMethods = $request->user()->can('payments.create')
             ? PaymentMethod::query()
                 ->where('active', true)
+                ->when($acceptedMethodIds !== [], fn ($query) => $query->whereIn('id', $acceptedMethodIds))
                 ->orderBy('id')
-                ->get(['id', 'code', 'name'])
+                ->get(['id', 'code', 'name', 'category', 'affects_cash_balance', 'requires_reference'])
+                ->map(fn (PaymentMethod $method) => [
+                    'id' => $method->id,
+                    'code' => $method->code,
+                    'name' => $method->name,
+                    'category' => $method->category->value,
+                    'category_label' => $method->category->label(),
+                    'category_icon' => $method->category->icon(),
+                    'category_position' => $method->category->position(),
+                    'affects_cash_balance' => $method->affects_cash_balance,
+                    'requires_reference' => $method->requires_reference,
+                ])
             : collect();
 
         $recentSessions = CashSession::query()
@@ -214,6 +239,14 @@ class CashController extends Controller
         ]);
     }
 
+    /** La référence de ticket demandée par l'URL, bornée comme à la lecture. */
+    private function pharmacyReferenceQuery(Request $request): ?string
+    {
+        $reference = trim((string) $request->query('pharmacy_reference', ''));
+
+        return $reference !== '' && mb_strlen($reference) <= 100 ? $reference : null;
+    }
+
     /** @return array{reference: string, found: bool, matches: mixed}|null */
     private function pharmacyLookup(Request $request): ?array
     {
@@ -234,6 +267,15 @@ class CashController extends Controller
         $normalized = mb_strtoupper($reference);
         $matchesQuery = Invoice::query()
             ->where('source_module', 'PHARMACY');
+
+        // A settled ticket is no longer a ticket to control: it became a
+        // payment, and lives in the Paiements tab (filterable by Pharmacie).
+        // So the idle list only holds what is still to collect. An explicit
+        // lookup ignores this: finding a ticket to verify it is already paid
+        // is precisely what the QR control is for (ADR-050).
+        if ($normalized === '') {
+            $matchesQuery->where('balance_amount', '>', 0);
+        }
 
         if ($normalized !== '') {
             $pattern = "%{$normalized}%";
@@ -263,7 +305,7 @@ class CashController extends Controller
             ->get([
                 'id', 'uuid', 'patient_id', 'episode_id', 'invoice_number',
                 'customer_type', 'customer_name', 'customer_phone', 'source_module',
-                'status', 'total_amount', 'paid_amount', 'balance_amount',
+                'status', 'discount_amount', 'total_amount', 'paid_amount', 'balance_amount',
                 'created_at', 'validated_at',
             ]);
 

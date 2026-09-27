@@ -15,7 +15,7 @@ class SurgicalTeamMemberController extends Controller
 {
     public function store(StoreSurgicalTeamMemberRequest $request, SurgicalRequest $surgicalRequest, AssignSurgicalTeamMemberAction $action): RedirectResponse
     {
-        $user = User::query()->findOrFail($request->validated('user_id'));
+        $user = User::query()->with('professionalProfile')->findOrFail($request->validated('user_id'));
 
         $action->execute($surgicalRequest, $user, SurgicalTeamFunction::from($request->validated('function')));
 

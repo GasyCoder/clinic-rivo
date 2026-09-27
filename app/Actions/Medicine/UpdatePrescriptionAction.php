@@ -93,6 +93,9 @@ class UpdatePrescriptionAction
                     'earliest_expiration_at' => $stockSnapshot['earliest_expiration']
                         ?? $line->earliest_expiration_at,
                     'dosage' => $data['dosage'] ?? null,
+                    // Absente du payload : la voie déjà consignée est
+                    // conservée plutôt qu'effacée (ADR-074).
+                    'route' => array_key_exists('route', $data) ? $data['route'] : $line->route,
                     'frequency' => $data['frequency'] ?? null,
                     'duration' => $data['duration'] ?? null,
                     'instructions' => $data['instructions'] ?? null,

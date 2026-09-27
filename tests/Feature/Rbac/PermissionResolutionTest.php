@@ -19,7 +19,8 @@ class PermissionResolutionTest extends TestCase
 
     private function permission(string $name): Permission
     {
-        return Permission::query()->create(['name' => $name, 'label' => $name]);
+        // Une migration peut déjà avoir enregistré le nom (ADR-184 : settings.*).
+        return Permission::query()->firstOrCreate(['name' => $name], ['label' => $name]);
     }
 
     public function test_user_without_role_has_no_permissions(): void

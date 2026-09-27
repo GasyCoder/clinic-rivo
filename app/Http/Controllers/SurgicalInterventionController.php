@@ -14,7 +14,7 @@ class SurgicalInterventionController extends Controller
 {
     public function store(StoreSurgicalInterventionRequest $request, SurgicalRequest $surgicalRequest, CreateSurgicalInterventionAction $action): RedirectResponse
     {
-        $action->execute($surgicalRequest, $request->validated());
+        $action->execute($surgicalRequest, $request->validated(), $request->user());
 
         return back()->with('status', 'Intervention démarrée.');
     }

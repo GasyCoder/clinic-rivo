@@ -4,6 +4,8 @@ namespace App\Services\Episode;
 
 use App\Models\Episode;
 use App\Models\Patient;
+use App\Services\Settings\AppSettings;
+use App\Support\Numbering\PatientNumberFormat;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -16,6 +18,12 @@ use InvalidArgumentException;
  */
 class EpisodeNumberGenerator
 {
+    /**
+     * ADR-191 — séparateur et nombre de chiffres du rang réglés pour le site
+     * (par défaut « -01 »). Un numéro qui existerait déjà est sauté.
+     */
+    public function __construct(private readonly ?AppSettings $settings = null) {}
+
     public function next(Patient $patient): string
     {
         return DB::transaction(function () use ($patient): string {
@@ -47,11 +55,18 @@ class EpisodeNumberGenerator
 
             $sequence = max((int) $row->next_number, $minimumNext);
 
+            $format = ($this->settings ?? app(AppSettings::class))->patientNumbering();
+            $candidate = $format->episode($lockedPatient->patient_number, $sequence);
+
+            while (Episode::query()->where('episode_number', $candidate)->exists()) {
+                $candidate = $format->episode($lockedPatient->patient_number, ++$sequence);
+            }
+
             DB::table('episode_number_sequences')
                 ->where('id', $row->id)
                 ->update(['next_number' => $sequence + 1]);
 
-            return sprintf('%s-%02d', $lockedPatient->patient_number, $sequence);
+            return $candidate;
         });
     }
 
@@ -62,13 +77,15 @@ class EpisodeNumberGenerator
      */
     public function sequenceFromNumber(Patient $patient, string $episodeNumber): int
     {
-        $prefix = $patient->patient_number.'-';
+        // Le séparateur est réglé par site (ADR-191) : tout séparateur permis est accepté.
+        $prefix = $patient->patient_number;
+        $separator = substr($episodeNumber, strlen($prefix), 1);
 
-        if (! str_starts_with($episodeNumber, $prefix)) {
+        if (! str_starts_with($episodeNumber, $prefix) || ! in_array($separator, PatientNumberFormat::SEPARATORS, true)) {
             throw new InvalidArgumentException('Le numéro de passage ne correspond pas au patient.');
         }
 
-        $suffix = substr($episodeNumber, strlen($prefix));
+        $suffix = substr($episodeNumber, strlen($prefix) + 1);
 
         if ($suffix === '' || ! ctype_digit($suffix) || (int) $suffix < 1) {
             throw new InvalidArgumentException('Le numéro de passage ne contient aucun ordinal valide.');

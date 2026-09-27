@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { ArrowRight, CircleAlert } from 'lucide-vue-next';
 
 const props = defineProps({
     errors: { type: Object, default: () => ({}) },
@@ -20,7 +20,7 @@ const entries = computed(() => Object.entries(props.errors).filter(([, message])
         class="rounded-md border border-red-200 bg-red-50 p-3 text-red-800 shadow-sm dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"
     >
         <div class="flex items-start gap-2">
-            <Icon name="alert-circle" class="mt-0.5 shrink-0" />
+            <CircleAlert class="mt-0.5 h-4 w-4 shrink-0" />
             <div class="min-w-0 flex-1">
                 <p class="text-sm font-bold">Corrigez {{ entries.length > 1 ? 'les champs signalés' : 'le champ signalé' }}</p>
                 <div class="mt-1.5 space-y-1">
@@ -33,7 +33,7 @@ const entries = computed(() => Object.entries(props.errors).filter(([, message])
                     >
                         <span class="font-bold">{{ index + 1 }}.</span>
                         <span class="flex-1">{{ message }}</span>
-                        <Icon name="arrow-right" class="mt-0.5 shrink-0" />
+                        <ArrowRight class="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     </button>
                 </div>
             </div>

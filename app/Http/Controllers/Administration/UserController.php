@@ -6,13 +6,16 @@ use App\Actions\User\ActivateUserAction;
 use App\Actions\User\CreateUserAction;
 use App\Actions\User\DeactivateUserAction;
 use App\Actions\User\UpdateUserAction;
+use App\Enums\AccountKind;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\DeactivateUserRequest;
 use App\Http\Requests\Administration\StoreUserRequest;
 use App\Http\Requests\Administration\UpdateUserRequest;
 use App\Models\Permission;
+use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Administration\EmployeeAccountLinker;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -20,19 +23,21 @@ use Inertia\Response;
 
 class UserController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request, EmployeeAccountLinker $employeeLinker): Response
     {
         $search = trim((string) $request->query('q', ''));
         $status = in_array($request->query('status'), ['active', 'inactive', 'all'], true)
             ? $request->query('status')
             : 'active';
         $roleCode = trim((string) $request->query('role', ''));
+        $sourceProfileNames = ProfessionalProfile::query()->pluck('name', 'id');
 
         $users = User::query()
             ->with([
                 'role:id,code,name',
                 'professionalProfile:id,role_id,code,name',
                 'permissions:id,name',
+                'employee' => fn ($query) => $query->withTrashed()->with(['jobTitle:id,label', 'department:id,label']),
             ])
             ->whereHas('role', fn ($role) => $role->where('code', '!=', 'SUPER_ADMIN'))
             ->when($search !== '', function ($query) use ($search) {
@@ -66,11 +71,17 @@ class UserController extends Controller
                 'last_login_at' => $user->last_login_at,
                 'deactivated_at' => $user->deactivated_at,
                 'deactivation_reason' => $user->deactivation_reason,
+                // ADR-188 — personnel clinique (relié à sa fiche) ou externe.
+                'account_kind' => ($user->employee ? AccountKind::Staff : AccountKind::External)->value,
+                'employee' => EmployeeAccountLinker::summary($user->employee),
                 'is_current' => $request->user()->is($user),
                 'permission_overrides' => $user->permissions->map(fn (Permission $permission) => [
                     'permission_id' => $permission->id,
                     'name' => $permission->name,
                     'effect' => $permission->pivot->effect,
+                    'source' => $permission->pivot->source,
+                    'source_profile_id' => $permission->pivot->source_profile_id,
+                    'source_profile_name' => $sourceProfileNames->get($permission->pivot->source_profile_id),
                 ])->values(),
             ]);
 
@@ -117,6 +128,9 @@ class UserController extends Controller
             'users' => $users,
             'roles' => $roles,
             'permissionCatalog' => $permissions,
+            'employees' => $request->user()->can('users.create') || $request->user()->can('users.update')
+                ? $employeeLinker->linkableEmployees()
+                : [],
             'filters' => [
                 'q' => $search,
                 'status' => $status,

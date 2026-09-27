@@ -38,8 +38,7 @@ class AcceptMedicineOrientationAction
             // the EpisodeOrientation's technical routing note (e.g.
             // "Orientation vers Médecine selon le parcours planifié."), not
             // a clinical motif — the doctor must enter the real one.
-            $initialReason = $locked->episode->serviceRequests->pluck('designation')->filter()->join(' · ')
-                ?: 'Motif à préciser';
+            $initialReason = self::initialReasonFor($locked);
 
             Consultation::query()->firstOrCreate(
                 ['episode_orientation_id' => $locked->getKey()],
@@ -53,5 +52,18 @@ class AcceptMedicineOrientationAction
 
             return $locked->fresh(['episode.patient', 'consultation']);
         });
+    }
+
+    /**
+     * Le motif que la prise en charge inscrit d'office : les désignations demandées à
+     * l'arrivée. Partagé avec la remise en file (ADR-127), qui s'en sert pour savoir
+     * si le médecin a touché à quoi que ce soit.
+     */
+    public static function initialReasonFor(EpisodeOrientation $orientation): string
+    {
+        $orientation->loadMissing('episode.serviceRequests');
+
+        return $orientation->episode->serviceRequests->pluck('designation')->filter()->join(' · ')
+            ?: 'Motif à préciser';
     }
 }

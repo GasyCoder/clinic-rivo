@@ -54,7 +54,10 @@ class PrepareDispenseInvoiceAction
             $invoice = $this->validateInvoice->execute($invoice, $actor);
             $dispense->update([
                 'invoice_id' => $invoice->getKey(),
-                'status' => $invoice->status === InvoiceStatus::Covered
+                // ADR-162 — un patient au lit reçoit son traitement sans
+                // attendre que la famille passe à la Caisse. La facture existe
+                // et se règle ensuite ; seule la Caisse encaisse (ADR-012).
+                'status' => $invoice->status === InvoiceStatus::Covered || $dispense->isWardDispense()
                     ? PharmacyDispenseStatus::Ready
                     : PharmacyDispenseStatus::AwaitingPayment,
             ]);
@@ -83,7 +86,7 @@ class PrepareDispenseInvoiceAction
             $item = $this->recordBillableItem->execute($dispense->episode, [
                 'catalog_item_uuid' => $line->medicine->catalogItem->uuid,
                 'quantity' => $line->quantity_requested,
-                'payment_required_before_fulfillment' => true,
+                'payment_required_before_fulfillment' => ! $dispense->isWardDispense(),
             ], $actor, $line);
             $line->update(['billable_item_id' => $item->getKey()]);
             $items->push($item);

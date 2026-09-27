@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\SuperAdmin;
 
+use App\Enums\AccountKind;
 use App\Http\Controllers\Controller;
+use App\Services\StaffAccess\StaffAccessWatcher;
 use App\Services\SuperAdmin\PortalSiteApiClient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,6 +26,8 @@ class UserController extends Controller
         return Inertia::render('SuperAdmin/Users/Index', [
             'sites' => $client->usersForAllSites($request->user(), array_filter($filters)),
             'filters' => $filters,
+            // ADR-199 — l'onglet « Accès du personnel » dit combien attendent, sans relire les sites.
+            'staffAccessPending' => $request->user()->can('staff_access.view') ? array_sum(StaffAccessWatcher::pendingCounts()) : null,
         ]);
     }
 
@@ -142,9 +146,14 @@ class UserController extends Controller
             'password' => ['nullable', 'string', 'min:12', 'confirmed'],
             'role_id' => ['required', 'integer'],
             'professional_profile_id' => ['nullable', 'integer'],
+            'sync_profile_permissions' => ['sometimes', 'boolean'],
             'permission_overrides' => ['nullable', 'array'],
             'permission_overrides.*.permission_id' => ['required_with:permission_overrides', 'integer'],
             'permission_overrides.*.effect' => ['required_with:permission_overrides', Rule::in(['allow', 'deny'])],
+            // ADR-188 — la fiche Employé vit dans la base du site : le site
+            // vérifie qu'elle existe, qu'elle est libre et en poste.
+            'account_kind' => ['sometimes', Rule::enum(AccountKind::class)],
+            'employee_uuid' => ['nullable', 'uuid'],
         ];
     }
 

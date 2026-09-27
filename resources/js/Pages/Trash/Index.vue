@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { reactive, ref } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -129,11 +130,11 @@ const formatDateTime = (value) => value
                     </label>
                     <label class="block">
                         <span class="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">Du</span>
-                        <input v-model="filterValues.deleted_from" name="deleted_from" type="date" class="h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                        <DatePicker v-model="filterValues.deleted_from" name="deleted_from" />
                     </label>
                     <label class="block">
                         <span class="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">Au</span>
-                        <input v-model="filterValues.deleted_to" name="deleted_to" type="date" class="h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                        <DatePicker v-model="filterValues.deleted_to" name="deleted_to" />
                     </label>
                     <div class="flex h-10 items-center gap-2">
                         <Button size="rg" type="submit" :disabled="filtersProcessing"><Icon :class="{ 'animate-spin': filtersProcessing }" :name="filtersProcessing ? 'loader' : 'filter'" /><span class="ms-2">{{ filtersProcessing ? 'Actualisation…' : 'Filtrer' }}</span></Button>

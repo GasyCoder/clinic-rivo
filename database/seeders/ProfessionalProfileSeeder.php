@@ -27,7 +27,17 @@ class ProfessionalProfileSeeder extends Seeder
             'MIDWIFE' => [
                 'name' => 'Sage-femme',
                 'description' => 'Soins infirmiers et activité de maternité selon les droits du compte.',
-                'permissions' => [],
+                'permissions' => [
+                    'maternity.view', 'maternity.create', 'maternity.update', 'maternity.complete',
+                    'maternity.prenatal.manage', 'maternity.labor.manage',
+                    'maternity.delivery.manage', 'maternity.newborn.manage',
+                    'maternity.procedures.manage',
+                    // ADR-177 — le bébé né ici devient patient depuis la Maternité.
+                    'newborns.patient.create',
+                    // ADR-205 — la sage-femme prescrit (CDC §9 et §15) : recommandé, jamais accordé d'office.
+                    'prescriptions.view', 'prescriptions.create', 'prescriptions.cancel',
+                    'medicines.view', 'stock.availability.view',
+                ],
             ],
             'ANESTHETIST' => [
                 'name' => 'Anesthésiste',
@@ -36,6 +46,25 @@ class ProfessionalProfileSeeder extends Seeder
                     'anesthesia.view', 'anesthesia.create',
                     'anesthesia.update', 'anesthesia.validate',
                 ],
+            ],
+        ],
+        // ADR-168 — aucune permission recommandée : le socle SURGERY fait foi.
+        // SURGEON est le seul profil proposé comme chirurgien à la programmation.
+        'SURGERY' => [
+            'SURGEON' => [
+                'name' => 'Chirurgien / Chirurgienne',
+                'description' => 'Opère ; seul profil proposé comme chirurgien à la programmation du bloc.',
+                'permissions' => [],
+            ],
+            'OR_NURSE' => [
+                'name' => 'Infirmier / Infirmière de bloc',
+                'description' => 'Instrumentation et assistance au bloc opératoire.',
+                'permissions' => [],
+            ],
+            'SURGICAL_PARAMEDICAL' => [
+                'name' => 'Paramédical du bloc',
+                'description' => 'Personnel paramédical rattaché au bloc opératoire.',
+                'permissions' => [],
             ],
         ],
         'SUPPORT' => [
@@ -157,7 +186,13 @@ class ProfessionalProfileSeeder extends Seeder
         $legacyRole->permissions()->detach();
 
         if (! $legacyRole->users()->exists()) {
-            $legacyRole->delete();
+            // `Role` est devenu Soft Delete pour l'archivage administratif
+            // (ADR-100). Ce rôle-ci n'est pas archivé par quelqu'un : il est
+            // obsolète par décision (ADR-033). Le laisser en corbeille
+            // occuperait son code et proposerait de le restaurer, alors
+            // qu'il ne doit jamais revenir — d'où le retrait physique,
+            // exactement le comportement d'avant.
+            $legacyRole->forceDelete();
         }
     }
 }

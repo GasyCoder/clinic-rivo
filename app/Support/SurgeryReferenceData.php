@@ -11,6 +11,7 @@ final class SurgeryReferenceData
             ['code' => 'SURG-ADENOME-PROSTATE', 'name' => 'Adénome prostatique'],
             ['code' => 'SURG-APPENDICITE', 'name' => 'Appendicite'],
             ['code' => 'SURG-BLESSURE-BALLE', 'name' => 'Blessure par balle'],
+            ['code' => 'SURG-CERCLAGE', 'name' => 'Cerclage'],
             ['code' => 'SURG-CURETAGE-UTERUS', 'name' => 'Curetage chirurgical de l’utérus'],
             ['code' => 'SURG-CYSTOSTOMIE', 'name' => 'Cystostomie'],
             ['code' => 'SURG-FIBROME-UTERIN', 'name' => 'Fibrome utérin'],
@@ -27,11 +28,29 @@ final class SurgeryReferenceData
             ['code' => 'SURG-LIPOME', 'name' => 'Lipome'],
             ['code' => 'SURG-LITHIASE-VESICALE', 'name' => 'Lithiase vésicale'],
             ['code' => 'SURG-CESARIENNE', 'name' => 'Opération césarienne'],
+            ['code' => 'SURG-PLACENTA-PRAEVIA', 'name' => 'Placenta praevia'],
             ['code' => 'SURG-PYOSALPINX', 'name' => 'Pyosalpinx'],
             ['code' => 'SURG-REFECTION-PLAIES', 'name' => 'Réfection des plaies'],
+            ['code' => 'SURG-RUPTURE-UTERINE', 'name' => 'Rupture utérine'],
             ['code' => 'SURG-SPLENECTOMIE', 'name' => 'Splénectomie'],
             ['code' => 'SURG-TRAUMA-ZEBU', 'name' => 'Traumatisme par encornement de zébu'],
             ['code' => 'SURG-EVACUATION', 'name' => 'Évacuation'],
+            // Récapitulatif « Revenus » de la clinique (2026-09-20) : onze actes
+            // qu'elle pratique et que le référentiel ne portait pas. Repris tels
+            // qu'elle les nomme, orthographe corrigée seulement là où le
+            // document reprenait un acte déjà présent (« Lypome », « Curtage »,
+            // « Hystérecomie », « Placenta pravia »).
+            ['code' => 'SURG-ABCES', 'name' => 'Abcès'],
+            ['code' => 'SURG-ECTOPIE-TESTICULAIRE', 'name' => 'Ectopie testiculaire'],
+            ['code' => 'SURG-FURONCLES', 'name' => 'Furoncles'],
+            ['code' => 'SURG-HERNIE-INGUINALE', 'name' => 'Hernie inguinale'],
+            ['code' => 'SURG-HERNIE-INGUINO-SCROTALE', 'name' => 'Hernie inguino-scrotale'],
+            ['code' => 'SURG-INVAGINATION-INTESTINALE', 'name' => 'Invagination intestinale'],
+            ['code' => 'SURG-KYSTE-SOUS-CUTANE', 'name' => 'Kyste sous-cutané'],
+            ['code' => 'SURG-PLAIE-LINEAIRE', 'name' => 'Plaie linéaire'],
+            ['code' => 'SURG-TORSION-CORDON', 'name' => 'Torsion du cordon'],
+            ['code' => 'SURG-VOLVULUS-INTESTINAL', 'name' => 'Volvulus intestinal'],
+            ['code' => 'SURG-CYSTOSTOMIE-DERIVATION', 'name' => 'Cystostomie de dérivation'],
             ['code' => 'SURG-OTHER', 'name' => 'Autres'],
         ];
     }

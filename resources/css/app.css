@@ -18,3 +18,10 @@
 @import "../dashwind/assets/css/custom/font-faces.css";
 
 @import "../dashwind/assets/css/app.css";
+@import "./shadcn.css";
+
+/* Une sélection vide conserve le duo historique Roboto / Nunito. */
+html[data-font-family="roboto"] { --rivo-font-body: Roboto; --rivo-font-heading: Roboto; }
+html[data-font-family="nunito"] { --rivo-font-body: Nunito; --rivo-font-heading: Nunito; }
+html[data-font-family="system"] { --rivo-font-body: system-ui; --rivo-font-heading: system-ui; }
+html[data-font-family="arial"] { --rivo-font-body: Arial; --rivo-font-heading: Arial; }

@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\CatalogTariffCategory;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
 use App\Models\User;
@@ -20,7 +21,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
      * Provisional local data used to validate the Reception billing workflow.
      * Amounts are MGA and must be confirmed by the clinic before production.
      *
-     * @var array<int, array{code: string, name: string, module: CatalogModule, unit: string, amount: ?int, description: string, reception_selectable: bool, routing_mode: ?ReceptionRoutingMode, billable?: bool, care_requires_allergy_check?: bool, care_recommends_vitals?: bool, clinician_orderable?: bool}>
+     * @var array<int, array{code: string, name: string, module: CatalogModule, unit: string, amount: ?int, mutual_amount?: ?int, description: string, reception_selectable: bool, routing_mode: ?ReceptionRoutingMode, billable?: bool, care_requires_allergy_check?: bool, care_recommends_vitals?: bool, clinician_orderable?: bool}>
      */
     private const SERVICES = [
         [
@@ -101,6 +102,28 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'soin',
             'amount' => 20000,
             'description' => 'Prise en charge et pansement d’une plaie complexe.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::CareOnly,
+            'clinician_orderable' => true,
+        ],
+        [
+            'code' => 'PANSEMENT-S-INT',
+            'name' => 'Pansement simple interne',
+            'module' => CatalogModule::Care,
+            'unit' => 'soin',
+            'amount' => null,
+            'description' => 'Nettoyage et pansement d’une plaie simple interne, distincte de la variante externe.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::CareOnly,
+            'clinician_orderable' => true,
+        ],
+        [
+            'code' => 'PANSEMENT-C-INT',
+            'name' => 'Pansement chirurgical interne',
+            'module' => CatalogModule::Care,
+            'unit' => 'soin',
+            'amount' => null,
+            'description' => 'Prise en charge et pansement d’une plaie chirurgicale interne, distincte de la variante externe.',
             'reception_selectable' => true,
             'routing_mode' => ReceptionRoutingMode::CareOnly,
             'clinician_orderable' => true,
@@ -290,8 +313,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'analyse',
             'amount' => 15000,
             'description' => 'Analyse hématologique de type NFS.',
-            'reception_selectable' => false,
-            'routing_mode' => null,
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::LaboratoryDirect,
         ],
         [
             'code' => 'LAB-GLYC',
@@ -300,8 +323,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'analyse',
             'amount' => 10000,
             'description' => 'Dosage du glucose sanguin.',
-            'reception_selectable' => false,
-            'routing_mode' => null,
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::LaboratoryDirect,
         ],
         [
             'code' => 'LAB-GROUP-RH',
@@ -310,8 +333,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'analyse',
             'amount' => 15000,
             'description' => 'Détermination du groupe sanguin et du facteur rhésus.',
-            'reception_selectable' => false,
-            'routing_mode' => null,
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::LaboratoryDirect,
         ],
         [
             'code' => 'LAB-TDR-PALU',
@@ -320,8 +343,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'analyse',
             'amount' => 10000,
             'description' => 'Test de diagnostic rapide du paludisme.',
-            'reception_selectable' => false,
-            'routing_mode' => null,
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::LaboratoryDirect,
         ],
         [
             'code' => 'CONSULT-CHIR',
@@ -343,6 +366,175 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'reception_selectable' => false,
             'routing_mode' => null,
         ],
+        [
+            'code' => 'MAT-CONSULT-PRENATAL', 'name' => 'Consultation prénatale',
+            'module' => CatalogModule::Maternity, 'unit' => 'consultation', 'amount' => null,
+            'description' => 'Première consultation de suivi prénatal.', 'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::MaternityDirect, 'clinician_orderable' => true,
+        ],
+        [
+            'code' => 'MAT-CONSULT-PRENATAL-SUIVI', 'name' => 'Consultation prénatale de suivi',
+            'module' => CatalogModule::Maternity, 'unit' => 'consultation', 'amount' => null,
+            'description' => 'Consultation de suivi prénatal ultérieure, distincte de la première consultation.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::MaternityDirect, 'clinician_orderable' => true,
+        ],
+        [
+            'code' => 'MAT-DELIVERY-SIMPLE', 'name' => 'Accouchement simple',
+            'module' => CatalogModule::Maternity, 'unit' => 'accouchement', 'amount' => null,
+            'description' => 'Prise en charge d’un accouchement simple.', 'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-DELIVERY-TWIN', 'name' => 'Accouchement gémellaire',
+            'module' => CatalogModule::Maternity, 'unit' => 'accouchement', 'amount' => null,
+            'description' => 'Prise en charge d’un accouchement gémellaire.', 'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-CESAREAN-SIMPLE', 'name' => 'Opération Césarienne Simple',
+            'module' => CatalogModule::Maternity, 'unit' => 'orientation', 'amount' => null,
+            'description' => 'Référence de décision Maternité ; l’intervention est exclusivement réalisée dans Chirurgie.',
+            'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-CESAREAN-TWIN', 'name' => 'Opération Césarienne Gémellaire',
+            'module' => CatalogModule::Maternity, 'unit' => 'orientation', 'amount' => null,
+            'description' => 'Référence de décision Maternité ; l’intervention est exclusivement réalisée dans Chirurgie.',
+            'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-IUD-INSERT', 'name' => 'Insertion DIU',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Insertion d’un dispositif intra-utérin.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-IUD-REMOVE', 'name' => 'Retrait DIU',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Retrait d’un dispositif intra-utérin.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-IMPLANON-INSERT', 'name' => 'Insertion Implanon',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Insertion d’un implant contraceptif.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-IMPLANON-REMOVE', 'name' => 'Retrait Implanon',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Retrait d’un implant contraceptif.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-UMBILICAL-DRESSING', 'name' => 'Pansement ombilical',
+            'module' => CatalogModule::Maternity, 'unit' => 'soin', 'amount' => null,
+            'description' => 'Soin et pansement ombilical du nouveau-né.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-BABY-WEIGHT', 'name' => 'Pèse bébé',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Mesure et traçabilité du poids du bébé.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-BABY-CARE', 'name' => 'Soins bébé',
+            'module' => CatalogModule::Maternity, 'unit' => 'soin', 'amount' => null,
+            'description' => 'Soins courants réalisés au nouveau-né.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-DOPPLER', 'name' => 'Utilisation Echo Doppler',
+            'module' => CatalogModule::Maternity, 'unit' => 'examen', 'amount' => null,
+            'description' => 'Surveillance Doppler en maternité.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-PHOTOTHERAPY', 'name' => 'Utilisation Photothérapie',
+            'module' => CatalogModule::Maternity, 'unit' => 'séance', 'amount' => null,
+            'description' => 'Séance de photothérapie du nouveau-né.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        // ADR-136 — actes de la liste Maternité transmise par le propriétaire.
+        // Les descriptions restent neutres : le CDC ne définit aucun de ces actes,
+        // et « Nursie » n'a pas encore reçu sa définition.
+        [
+            'code' => 'MAT-BABY-ASPIRATOR', 'name' => 'Utilisation Aspirateur bébé',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Utilisation de l’aspirateur pour bébé.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-IEC', 'name' => 'IEC',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Information, Éducation, Communication.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-NURSIE', 'name' => 'Nursie',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Acte « Nursie » — définition à préciser par la Maternité.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-OTHER', 'name' => 'Autres',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Autre acte de maternité, à préciser.', 'reception_selectable' => false,
+            'routing_mode' => null, 'billable' => false,
+        ],
+        [
+            // ADR-136 : « Syana Press / Dépôt Provera » figure dans la liste des
+            // actes Maternité du propriétaire. Il quitte le module Planning
+            // familial, qui n'a aucun espace de travail, sans changer de code :
+            // le code est l'identité stable (ADR-024).
+            'code' => 'FP-INJECTABLE', 'name' => 'Contraceptif injectable (Sayana Press / Depo-Provera)',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Administration d’un contraceptif injectable trimestriel.',
+            'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'FP-PILPLAN', 'name' => 'Pilplan',
+            'module' => CatalogModule::FamilyPlanning, 'unit' => 'boîte', 'amount' => null,
+            'description' => 'Délivrance de contraceptif oral Pilplan.',
+            'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'OPHT-CONSULT', 'name' => 'Consultation ophtalmologique',
+            'module' => CatalogModule::Ophthalmology, 'unit' => 'consultation', 'amount' => null,
+            'description' => 'Consultation d’ophtalmologie.',
+            'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'OPHT-LUNETTE-T1', 'name' => 'Lunette Type 1',
+            'module' => CatalogModule::Ophthalmology, 'unit' => 'paire', 'amount' => null,
+            'description' => 'Monture et verres correcteurs, type 1.',
+            'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'OPHT-LUNETTE-T2', 'name' => 'Lunette Type 2',
+            'module' => CatalogModule::Ophthalmology, 'unit' => 'paire', 'amount' => null,
+            'description' => 'Monture et verres correcteurs, type 2.',
+            'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'OPHT-LUNETTE-T3', 'name' => 'Lunette Type 3',
+            'module' => CatalogModule::Ophthalmology, 'unit' => 'paire', 'amount' => null,
+            'description' => 'Monture et verres correcteurs, type 3.',
+            'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'OPHT-LUNETTE-T4', 'name' => 'Lunette Type 4',
+            'module' => CatalogModule::Ophthalmology, 'unit' => 'paire', 'amount' => null,
+            'description' => 'Monture et verres correcteurs, type 4.',
+            'reception_selectable' => false, 'routing_mode' => null,
+        ],
+    ];
+
+    /**
+     * Real tariffs confirmed by the owner from the physical "Prestations et
+     * Tarifs" price sheet (Clinique Saint Georges). Every other surgical
+     * procedure intentionally keeps amount => null: its price on the sheet
+     * was either illegible, ambiguous (handwritten correction), or simply
+     * not yet transcribed — the clinic confirms it later via the UI.
+     *
+     * @var array<string, array{amount: ?int, mutual_amount: ?int}>
+     */
+    private const SURGICAL_TARIFFS = [
+        'SURG-CESARIENNE' => ['amount' => 650000, 'mutual_amount' => 800000],
+        'SURG-CERCLAGE' => ['amount' => 300000, 'mutual_amount' => null],
+        'SURG-LAPAROTOMIE' => ['amount' => 900000, 'mutual_amount' => null],
+        'SURG-TRAUMA-ZEBU' => ['amount' => 800000, 'mutual_amount' => null],
+        'SURG-BLESSURE-BALLE' => ['amount' => 400000, 'mutual_amount' => null],
     ];
 
     public function run(): void
@@ -387,51 +579,39 @@ class ClinicalServiceCatalogSeeder extends Seeder
                         $this->applyLegacyCareLabel($existing, $service);
                         $this->applyInitialReceptionRouteIfUnset($existing, $service);
                         $this->applyAcceptedRoutingCorrection($existing, $service, $actor);
+                        $this->applyAcceptedModuleCorrection($existing, $service, $actor);
                         $this->applyClinicianOrderableIfUnset($existing, $service, $actor);
 
-                        if ($existing->currentTariff()->exists()) {
-                            $preserved++;
-
-                            continue;
-                        }
-
-                        if ($service['amount'] === null) {
-                            $withoutTariff++;
-
-                            continue;
-                        }
-
-                        $this->createTariff($existing, $service['amount'], $actor);
-                        $tariffsCreated++;
-
-                        continue;
-                    }
-
-                    $item = CatalogItem::query()->create([
-                        'code' => $service['code'],
-                        'name' => $service['name'],
-                        'type' => CatalogItemType::Service->value,
-                        'module' => $service['module']->value,
-                        'unit' => $service['unit'],
-                        'billable' => $service['billable'] ?? true,
-                        'stockable' => false,
-                        'reception_selectable' => $service['reception_selectable'],
-                        'reception_routing_mode' => $service['routing_mode'],
-                        'care_requires_allergy_check' => $service['care_requires_allergy_check'] ?? false,
-                        'care_recommends_vitals' => $service['care_recommends_vitals'] ?? false,
-                        'clinician_orderable' => $service['clinician_orderable'] ?? false,
-                        'description' => $service['description'],
-                        'created_by' => $actor->id,
-                        'updated_by' => $actor->id,
-                    ]);
-                    $created++;
-
-                    if ($service['amount'] === null) {
-                        $withoutTariff++;
+                        $item = $existing;
                     } else {
-                        $this->createTariff($item, $service['amount'], $actor);
-                        $tariffsCreated++;
+                        $item = CatalogItem::query()->create([
+                            'code' => $service['code'],
+                            'name' => $service['name'],
+                            'type' => CatalogItemType::Service->value,
+                            'module' => $service['module']->value,
+                            'unit' => $service['unit'],
+                            'billable' => $service['billable'] ?? true,
+                            'stockable' => false,
+                            'reception_selectable' => $service['reception_selectable'],
+                            'reception_routing_mode' => $service['routing_mode'],
+                            'care_requires_allergy_check' => $service['care_requires_allergy_check'] ?? false,
+                            'care_recommends_vitals' => $service['care_recommends_vitals'] ?? false,
+                            'clinician_orderable' => $service['clinician_orderable'] ?? false,
+                            'description' => $service['description'],
+                            'created_by' => $actor->id,
+                            'updated_by' => $actor->id,
+                        ]);
+                        $created++;
                     }
+
+                    $this->syncTariff(
+                        $item, CatalogTariffCategory::Standard, $service['amount'], $actor,
+                        $preserved, $withoutTariff, $tariffsCreated,
+                    );
+                    $this->syncTariff(
+                        $item, CatalogTariffCategory::Mutual, $service['mutual_amount'] ?? null, $actor,
+                        $preserved, $withoutTariff, $tariffsCreated,
+                    );
                 }
             });
         } finally {
@@ -455,19 +635,30 @@ class ClinicalServiceCatalogSeeder extends Seeder
     /** @return array<int, array<string, mixed>> */
     private static function services(): array
     {
-        $surgicalProcedures = array_map(fn (array $procedure): array => [
-            'code' => $procedure['code'],
-            'name' => $procedure['name'],
-            'module' => CatalogModule::Surgery,
-            'unit' => 'intervention',
-            'amount' => null,
-            'description' => $procedure['code'] === 'SURG-OTHER'
-                ? 'Autre intervention chirurgicale, à préciser obligatoirement dans le dossier.'
-                : 'Intervention chirurgicale issue du référentiel validé par la clinique.',
-            'reception_selectable' => false,
-            'routing_mode' => null,
-            'billable' => $procedure['code'] !== 'SURG-OTHER',
-        ], SurgeryReferenceData::procedures());
+        $surgicalProcedures = array_map(function (array $procedure): array {
+            $tariff = self::SURGICAL_TARIFFS[$procedure['code']] ?? ['amount' => null, 'mutual_amount' => null];
+
+            return [
+                'code' => $procedure['code'],
+                'name' => $procedure['name'],
+                'module' => CatalogModule::Surgery,
+                'unit' => 'intervention',
+                'amount' => $tariff['amount'],
+                'mutual_amount' => $tariff['mutual_amount'],
+                'description' => $procedure['code'] === 'SURG-OTHER'
+                    ? 'Autre intervention chirurgicale, à préciser obligatoirement dans le dossier.'
+                    : 'Intervention chirurgicale issue du référentiel validé par la clinique.',
+                // ADR-159 — l'acte du bloc peut être la raison de la venue :
+                // la Réception l'inscrit alors à l'arrivée. Deux exceptions,
+                // qui ne sont pas des oublis : « Autres » n'a ni prix ni nom,
+                // et la césarienne passe par la Maternité (ADR-067/068).
+                'reception_selectable' => ! in_array($procedure['code'], ['SURG-OTHER', 'SURG-CESARIENNE'], true),
+                'routing_mode' => in_array($procedure['code'], ['SURG-OTHER', 'SURG-CESARIENNE'], true)
+                    ? null
+                    : ReceptionRoutingMode::SurgeryDirect,
+                'billable' => $procedure['code'] !== 'SURG-OTHER',
+            ];
+        }, SurgeryReferenceData::procedures());
 
         return [...self::SERVICES, ...$surgicalProcedures];
     }
@@ -502,7 +693,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
 
         if (! $actor) {
             throw new RuntimeException(
-                'Aucun compte actif ne peut créer le référentiel et ses tarifs. '.
+                'Aucun compte actif ne possède les permissions requises pour provisionner le référentiel '.
+                '(catalog.items.create, catalog.items.update, catalog.tariffs.create). '.
                 'Définissez RIVO_CATALOG_SEED_ACTOR avec l’UUID ou l’email du compte actif à enregistrer comme auteur du provisioning.',
             );
         }
@@ -517,11 +709,25 @@ class ClinicalServiceCatalogSeeder extends Seeder
                 'Le compte configuré comme auteur du provisioning doit être actif et posséder un rôle local.',
             );
         }
+
+        $missingPermissions = collect([
+            'catalog.items.create',
+            'catalog.items.update',
+            'catalog.tariffs.create',
+        ])->reject(fn (string $permission): bool => $actor->hasPermissionTo($permission));
+
+        if ($missingPermissions->isNotEmpty()) {
+            throw new RuntimeException(
+                'Le compte configuré par RIVO_CATALOG_SEED_ACTOR n’est pas autorisé à provisionner le catalogue. '.
+                'Permissions manquantes : '.$missingPermissions->implode(', ').'.',
+            );
+        }
     }
 
     private function canSeedCatalog(User $actor): bool
     {
         return $actor->hasPermissionTo('catalog.items.create')
+            && $actor->hasPermissionTo('catalog.items.update')
             && $actor->hasPermissionTo('catalog.tariffs.create');
     }
 
@@ -551,6 +757,9 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'PANSEMENT-C' => 'Pansement complexe',
             'INJECTION-IM' => 'Injection intramusculaire',
             'PERFUSION' => 'Pose de perfusion',
+            // ADR-136 : les noms de la liste Maternité du propriétaire.
+            'MAT-DOPPLER' => 'Doppler',
+            'MAT-PHOTOTHERAPY' => 'Photothérapie',
         ];
 
         if (($legacyLabels[$item->code] ?? null) !== $item->name) {
@@ -605,6 +814,30 @@ class ClinicalServiceCatalogSeeder extends Seeder
     }
 
     /**
+     * ADR-136 : l'injectable contraceptif est passé du Planning familial à la
+     * Maternité. Seule cette ligne précise est déplacée, et seulement si elle
+     * est encore dans le module d'origine : un module choisi depuis par un
+     * administrateur n'est jamais écrasé.
+     *
+     * @param  array{code: string, module: CatalogModule}  $service
+     */
+    private function applyAcceptedModuleCorrection(CatalogItem $item, array $service, User $actor): void
+    {
+        if ($service['code'] !== 'FP-INJECTABLE'
+            || $service['module'] !== CatalogModule::Maternity
+            || $item->module !== CatalogModule::FamilyPlanning) {
+            return;
+        }
+
+        $item->forceFill([
+            'module' => CatalogModule::Maternity,
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::MaternityDirect,
+            'updated_by' => $actor->id,
+        ])->save();
+    }
+
+    /**
      * ADR-055: clinician_orderable is a deliberate, explicit flag — never
      * deduced from the name/code. Backfill only an item still at its unset
      * default (false); never flip one already true back off. Like the
@@ -625,9 +858,44 @@ class ClinicalServiceCatalogSeeder extends Seeder
         ])->save();
     }
 
-    private function createTariff(CatalogItem $item, int $amount, User $actor): void
-    {
+    /**
+     * ADR-031: STANDARD and MUTUAL are independent price lists. Each is
+     * synced separately so an existing STANDARD tariff is never touched by
+     * this same pass over the MUTUAL category, and vice versa.
+     */
+    private function syncTariff(
+        CatalogItem $item,
+        CatalogTariffCategory $category,
+        ?int $amount,
+        User $actor,
+        int &$preserved,
+        int &$withoutTariff,
+        int &$tariffsCreated,
+    ): void {
+        if ($item->currentTariffFor($category)->exists()) {
+            $preserved++;
+
+            return;
+        }
+
+        if ($amount === null) {
+            $withoutTariff++;
+
+            return;
+        }
+
+        $this->createTariff($item, $amount, $actor, $category);
+        $tariffsCreated++;
+    }
+
+    private function createTariff(
+        CatalogItem $item,
+        int $amount,
+        User $actor,
+        CatalogTariffCategory $category = CatalogTariffCategory::Standard,
+    ): void {
         $item->tariffs()->create([
+            'tariff_category' => $category->value,
             'amount' => Money::normalize($amount),
             'currency' => 'MGA',
             'effective_from' => now(),

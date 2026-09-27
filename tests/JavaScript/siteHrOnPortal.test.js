@@ -1,0 +1,207 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { HR_SITE_BASE, mapHrPath } from '../../resources/js/utilities/hrPath.js';
+
+/**
+ * ADR-187 — les écrans RH du site sont aussi ceux du portail. Ils écrivent
+ * leurs adresses telles qu'elles sont sur le site ; `hrUrl` les ramène à la
+ * base où l'écran est ouvert.
+ */
+const HR_DIRS = ['Employees', 'Contracts', 'Attendance', 'Leave', 'Planning', 'Reports', 'Settings', 'Documents', 'StaffBlockCredits'];
+const hrPages = () => [
+    'resources/js/Pages/Administration/Index.vue',
+    ...HR_DIRS.flatMap((dir) => fs.readdirSync(`resources/js/Pages/Administration/${dir}`)
+        .filter((file) => file.endsWith('.vue'))
+        .map((file) => path.join('resources/js/Pages/Administration', dir, file))),
+];
+
+test('a site path is brought to the base where the screen is open', () => {
+    assert.equal(mapHrPath('/administration/employees/e-1', '/super-admin/sites/A/rh'), '/super-admin/sites/A/rh/employees/e-1');
+    assert.equal(mapHrPath('/administration', '/super-admin/sites/A/rh'), '/super-admin/sites/A/rh');
+    assert.equal(mapHrPath('/administration/leave?status=PENDING', '/super-admin/sites/A/rh'), '/super-admin/sites/A/rh/leave?status=PENDING');
+    assert.equal(mapHrPath('/administration/employees', HR_SITE_BASE), '/administration/employees', 'sur le site, rien ne change');
+    assert.equal(mapHrPath('/administration-generale', '/super-admin/sites/A/rh'), '/administration-generale', 'un préfixe n’est pas une rubrique');
+    assert.equal(mapHrPath('/patients/p-1', '/super-admin/sites/A/rh'), '/patients/p-1');
+});
+
+test('no HR screen writes a site path the portal could not follow', () => {
+    for (const file of hrPages()) {
+        const source = fs.readFileSync(file, 'utf8');
+        const bare = source.match(/(?<!hrUrl\()['"`]\/administration[^'"`]*['"`]/g) ?? [];
+
+        assert.deepEqual(bare, [], `${file} écrit une adresse RH sans hrUrl()`);
+
+        if (source.includes("hrUrl(")) {
+            assert.match(source, /import \{[^}]*\bhrUrl\b[^}]*\} from '@\/utilities\/hrUrl'/, `${file} utilise hrUrl sans l’importer`);
+        }
+    }
+});
+
+test('printed HR pages name the site whose staff they describe', () => {
+    for (const file of hrPages().filter((file) => file.endsWith('Print.vue'))) {
+        assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /props\.site\?\.name/, `${file} affiche le nom du portail au lieu de celui du site`);
+    }
+});
+
+test('the portal shows the HR navigation of the site, from the one list of HR sections', () => {
+    const layout = fs.readFileSync('resources/js/Layouts/AppLayout.vue', 'utf8');
+    const bar = fs.readFileSync('resources/js/Components/Administration/HrPortalBar.vue', 'utf8');
+
+    assert.match(layout, /<HrPortalBar v-if="page\.props\.hrContext" \/>/);
+    const sections = fs.readFileSync('resources/js/utilities/hrSections.js', 'utf8');
+
+    assert.match(bar, /hrSections\(base\.value, can\)/);
+    assert.match(sections, /CLINIC_WORKSPACES\.find\(\(workspace\) => workspace\.key === 'hr'\)/, 'mêmes rubriques que le menu RH du site');
+    assert.match(sections, /can\(section\.permission\)/, 'chaque rubrique garde son droit');
+    assert.match(bar, /print:hidden/);
+});
+
+test('the HR figures open the lists of the chosen site on the portal', () => {
+    const figures = fs.readFileSync('resources/js/Components/Administration/HrFigures.vue', 'utf8');
+    const portal = fs.readFileSync('resources/js/Pages/SuperAdmin/HumanResources/Index.vue', 'utf8');
+
+    assert.match(figures, /mapHrPath\(href, props\.base\)/);
+    assert.match(portal, /:href="figureUrl\(column, site\.site\.code\)"/, 'le comparatif ouvre la liste sur le bon site');
+    assert.doesNotMatch(portal, /en lecture seule/);
+});
+
+/**
+ * Demande du propriétaire (2026-09-26) : plus de données en double. L'accueil RH
+ * d'un site n'existe qu'une fois — l'écran du site, relayé — et la page RH du
+ * portail ne le recopie plus : ses onglets y mènent.
+ */
+test('the portal HR page compares the sites and never copies a site HR home', () => {
+    const portal = fs.readFileSync('resources/js/Pages/SuperAdmin/HumanResources/Index.vue', 'utf8');
+
+    assert.doesNotMatch(portal, /HrAreaBoard|selectedSite|router\.replace/, 'aucune copie de l’accueil d’un site');
+    assert.match(portal, /:href="site\.status === 'UNCONFIGURED' \? undefined : hrBase\(site\.site\.code\)"/, 'chaque onglet ouvre l’accueil RH du site');
+    assert.match(portal, /aria-current="page"><LayoutGrid class="h-4 w-4" \/>Tous les sites/);
+});
+
+test('the department headcount lives on the site HR home, seen by HR and by the portal', () => {
+    const home = fs.readFileSync('resources/js/Pages/Administration/Index.vue', 'utf8');
+    const card = fs.readFileSync('resources/js/Components/Administration/HrDepartmentHeadcount.vue', 'utf8');
+
+    assert.match(home, /<HrDepartmentHeadcount :departments="departments"/);
+    assert.match(card, /hrUrl\(`\/administration\/employees\?q=\$\{encodeURIComponent\(department\.label\)\}`\)/, 'un département ouvre ses employés, sur le site ou au portail');
+});
+
+test('the HR figures and sections are written once', () => {
+    const figures = fs.readFileSync('resources/js/Components/Administration/HrFigures.vue', 'utf8');
+
+    assert.match(figures, /from '@\/utilities\/hrFigures'/);
+    assert.doesNotMatch(figures, /Congés à décider/, 'les libellés vivent dans hrFigures.js');
+});
+
+/** Demande du propriétaire : des compteurs plus compacts et plus lisibles. */
+test('the HR figures are one compact block in two groups, each label whole', async () => {
+    const figures = fs.readFileSync('resources/js/Components/Administration/HrFigures.vue', 'utf8');
+    const { HR_FIGURES } = await import('../../resources/js/utilities/hrFigures.js');
+
+    assert.match(figures, /label: 'À traiter'/);
+    assert.match(figures, /label: 'Effectif du jour'/);
+    assert.match(figures, /lg:grid-cols-\[3fr_5fr\]/, 'les deux groupes côte à côte, pas deux rangées inégales');
+    assert.match(figures, /:title="item\.label"/, 'la phrase complète reste au survol');
+    assert.doesNotMatch(figures, /truncate text-xs/, 'un libellé de tuile ne se tronque pas');
+
+    for (const figure of HR_FIGURES) {
+        assert.ok(figure.tile && figure.tile.length <= 24, `${figure.key} : libellé de tuile court et présent`);
+    }
+});
+
+/** Demande du propriétaire : « Que voulez-vous faire ? » en shadcn, cartes avec bordure et ombre. */
+test('the HR home lists its sections as shadcn cards, from the one list of HR sections', () => {
+    // ADR-194 — la grille est partagée par l'accueil RH du site et la page RH du portail.
+    const page = fs.readFileSync('resources/js/Pages/Administration/Index.vue', 'utf8');
+    const home = fs.readFileSync('resources/js/Components/Administration/HrAreaBoard.vue', 'utf8');
+
+    assert.doesNotMatch(page + home, /Components\/UI\/(Icon|Button)\.vue|class="[^"]*\bni ni-|slate-800|gray-200/, 'plus de DashWind ni de couleurs codées en dur');
+    assert.match(page, /<HrAreaBoard :summary="visibleSummary" :base="hrContext\(\)\?\.base \?\? HR_SITE_BASE" \/>/, 'mêmes rubriques, adresses et droits que le menu RH');
+    assert.match(home, /hrSections\(props\.base, can\)/);
+    // Les thèmes sont partagés avec la barre RH du portail (hrSections.js).
+    const sections = fs.readFileSync('resources/js/utilities/hrSections.js', 'utf8');
+    assert.match(home, /const GROUPS = HR_SECTION_GROUPS;/);
+    for (const group of ['Personnel', 'Temps de travail', 'Pilotage']) {
+        assert.match(sections, new RegExp(`label: '${group}'`));
+    }
+    assert.match(home, /rounded-xl border bg-card p-3\.5 shadow-sm/);
+    assert.match(home, /'border-border hover:-translate-y-0\.5 hover:border-primary\/40 hover:shadow-md/);
+    assert.match(home, /v-if="area\.count > 0"/, 'une pastille seulement quand une décision attend');
+});
+
+test('the employee list offers the Excel template and is written in shadcn', () => {
+    const source = fs.readFileSync('resources/js/Pages/Administration/Employees/Index.vue', 'utf8');
+    const explorer = fs.readFileSync('resources/js/Components/UI/ExplorerView.vue', 'utf8');
+
+    // Le modèle à remplir, à côté de l'import qu'il prépare, et sous le même droit.
+    assert.match(source, /hrUrl\('\/administration\/employees\/import-template'\)/, 'le bouton « Modèle Excel » a disparu');
+    assert.match(source, /can\('employees\.import'\) && \{ key: 'template'/, 'le modèle doit suivre le droit d’import');
+
+    // Les compteurs sont des filtres : un état « pressé » lisible au clavier.
+    assert.match(source, /aria-pressed="statusFilter === card\.value"/);
+    assert.match(source, /grid grid-cols-2 gap-1\.5 rounded-xl border border-border bg-card p-1\.5/, 'les quatre compteurs restent dans un seul bandeau compact');
+    assert.match(source, /flex min-h-14 items-center gap-2\.5/, 'une tuile de compteur reste basse');
+    assert.doesNotMatch(source, /card\.bar|h-1\.5 flex-1 overflow-hidden/, 'les longues jauges ne doivent plus gonfler les compteurs');
+
+    // L'annuaire est d'abord une liste dense, avec une vraie alternative en cartes.
+    assert.match(source, /default-view="list"/);
+    assert.match(source, /grid-label="Cartes"/);
+    assert.match(source, /grid-class="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"/);
+    assert.doesNotMatch(source, /ExplorerTile/, 'les grandes icônes vides ne sont pas adaptées à un dossier employé');
+    assert.match(source, /<article[\s\S]*<EmployeePhoto[\s\S]*Fonction[\s\S]*Département[\s\S]*Aucun contact renseigné/, 'une carte employé rassemble les informations utiles');
+    assert.match(explorer, /gridLabel: \{ type: String, default: 'Grandes icônes' \}/, 'le composant partagé garde son libellé historique par défaut');
+    assert.match(explorer, /<div v-if="view === 'grid'" :class="gridClass">/, 'chaque annuaire peut adapter la densité de ses cartes');
+
+    // Aucun reliquat DashWind (ADR-099).
+    assert.doesNotMatch(source, /Components\/UI\/(Icon|Button|Avatar)\.vue/);
+    assert.doesNotMatch(source, /\bni ni-|\bnk-|\b(?:bg|text|border)-(?:gray|slate)-\d/);
+});
+
+test('the employee form and its pages are written in shadcn and keep their HR addresses', () => {
+    const form = fs.readFileSync('resources/js/Pages/Administration/Employees/EmployeeForm.vue', 'utf8');
+    const create = fs.readFileSync('resources/js/Pages/Administration/Employees/Create.vue', 'utf8');
+    const edit = fs.readFileSync('resources/js/Pages/Administration/Employees/Edit.vue', 'utf8');
+    const photo = fs.readFileSync('resources/js/Components/Administration/EmployeePhotoField.vue', 'utf8');
+
+    assert.match(create, /form\.post\(hrUrl\('\/administration\/employees'\)\)/);
+    // ADR-194 — une photo part en multipart : un POST qui annonce PUT ; sans photo, un PUT.
+    assert.match(edit, /const url = hrUrl\(`\/administration\/employees\/\$\{props\.employee\.uuid\}`\)/);
+    assert.match(edit, /\.post\(url, \{ forceFormData: true \}\)/);
+    assert.match(edit, /\.put\(url\)/);
+
+    for (const source of [form, create, edit]) {
+        assert.doesNotMatch(source, /Components\/UI\/(Icon|Button|Input|CheckBox|Avatar)\.vue/);
+        assert.doesNotMatch(source, /\bni ni-|\bnk-|\b(?:bg|text|border)-(?:gray|slate)-\d|<select\b|<textarea\b/);
+    }
+
+    // Un référentiel archivé reste lisible, jamais choisissable.
+    assert.match(form, /disabled: !item\.available/);
+    assert.match(fs.readFileSync('resources/js/Components/Shadcn/Select.vue', 'utf8'), /:disabled="Boolean\(option\.disabled\)"/);
+    // Le résumé des erreurs mène au champ, à son étape.
+    assert.match(form, /@select="focusField"/);
+
+    // La création garde le parcours guidé sans empiler des rappels identiques.
+    assert.match(create, /<HrPageHeader\s+compact/);
+    assert.match(form, /class="scroll-mt-3 space-y-3"/);
+    assert.match(form, /class="h-0\.5 bg-muted" role="progressbar"/);
+    assert.doesNotMatch(form, /Étape \{\{ currentStep \}\} sur \{\{ steps\.length \}\}/, 'la navigation nomme déjà l’étape active');
+    assert.match(form, /<EmployeePhotoField[\s\S]*v-if="currentKey === 'identity'"[\s\S]*triggerless/, 'l’étape Identité garde le recadrage sans afficher deux sélecteurs photo');
+    assert.match(form, /<Card v-else class="flex flex-col gap-3 p-3/, 'le résumé d’identité revient aux étapes suivantes');
+    assert.match(form, /lg:grid-cols-\[220px_minmax\(0,1fr\)\]/, 'la photo ne prend plus une colonne surdimensionnée');
+    assert.match(form, /sticky bottom-2[^"]*p-2/, 'les actions restent accessibles dans une barre basse et compacte');
+    assert.match(photo, /triggerless: \{ type: Boolean, default: false \}/);
+    assert.match(photo, /<div v-if="!triggerless" class="flex items-center gap-3">/);
+});
+
+test('Départements et Fonctions sont deux modules RH, servis aussi au portail (ADR-188)', () => {
+    const gateway = fs.readFileSync('app/Services/SuperAdmin/SiteHrGateway.php', 'utf8');
+    const menu = fs.readFileSync('resources/js/utilities/clinicWorkspaces.js', 'utf8');
+    const page = fs.readFileSync('resources/js/Pages/Administration/HrStructure/Index.vue', 'utf8');
+
+    assert.match(gateway, /'Administration\/HrStructure\/'/, 'le portail accepte l’écran');
+    assert.match(menu, /code: 'hr-departments'.*permission: 'hr_settings\.view'/);
+    assert.match(menu, /code: 'hr-job-titles'.*permission: 'hr_settings\.view'/);
+    assert.doesNotMatch(page, /Components\/UI\/(Icon|Button)\.vue|\bni ni-|\b(?:bg|text|border)-(?:gray|slate)-\d/);
+});

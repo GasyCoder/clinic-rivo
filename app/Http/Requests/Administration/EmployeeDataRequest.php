@@ -1,0 +1,290 @@
+<?php
+
+namespace App\Http\Requests\Administration;
+
+use App\Enums\EmployeeRemunerationType;
+use App\Enums\HrReferenceType;
+use App\Enums\IdentityDocumentType;
+use App\Enums\MaritalStatus;
+use App\Enums\PatientSex;
+use App\Models\Employee;
+use App\Support\Hr\EmployeePayroll;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Enum;
+use Illuminate\Validation\Validator;
+
+abstract class EmployeeDataRequest extends FormRequest
+{
+    protected function prepareForValidation(): void
+    {
+        $normalized = [];
+
+        foreach ([
+            'employee_number', 'first_name', 'last_name',
+            'identity_document_number', 'phone',
+            'new_address_label', 'birth_place',
+            'identity_document_issued_at', 'diploma', 'education_level',
+            'children_details', 'badge', 'blouse', 'observation',
+        ] as $field) {
+            if (! $this->exists($field)) {
+                continue;
+            }
+
+            $value = $this->input($field);
+
+            if (! is_string($value)) {
+                continue;
+            }
+
+            $value = str($value)->squish()->toString();
+            $normalized[$field] = $value === '' ? null : $value;
+        }
+
+        // ADR-206 — le compte bancaire s'écrit en majuscules, sans espaces doublés ;
+        // un montant saisi « 150 000,50 » se lit 150000.50.
+        if (is_string($this->input('bank_account_holder'))) {
+            $holder = str($this->input('bank_account_holder'))->squish()->toString();
+            $normalized['bank_account_holder'] = $holder === '' ? null : $holder;
+        }
+
+        if (is_string($this->input('bank_account_number'))) {
+            $number = str($this->input('bank_account_number'))->squish()->upper()->toString();
+            $normalized['bank_account_number'] = $number === '' ? null : $number;
+        }
+
+        if (is_string($this->input('remuneration_amount'))) {
+            $amount = preg_replace('/[\s\x{00A0}\x{202F}]+/u', '', $this->input('remuneration_amount'));
+            $normalized['remuneration_amount'] = $amount === '' ? null : str_replace(',', '.', $amount);
+        }
+
+        if ($normalized !== []) {
+            $this->merge($normalized);
+        }
+    }
+
+    /**
+     * ADR-206 — rémunération déclarée et compte bancaire. Sans le droit, ces
+     * champs sont refusés en clair plutôt qu'ignorés.
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    protected function payrollRules(): array
+    {
+        if (! $this->user()?->can('employees.payroll.update')) {
+            return array_fill_keys(EmployeePayroll::FIELDS, ['prohibited']);
+        }
+
+        return [
+            'remuneration_type' => ['nullable', new Enum(EmployeeRemunerationType::class)],
+            'remuneration_amount' => [
+                'nullable',
+                Rule::requiredIf(fn () => EmployeeRemunerationType::tryFrom((string) $this->input('remuneration_type'))?->hasAmount() ?? false),
+                'numeric', 'min:0', 'max:999999999.99', 'decimal:0,2',
+            ],
+            'bank_account_number' => ['nullable', 'string', 'max:50', 'regex:/^[A-Z0-9][A-Z0-9 -]*$/'],
+            'bank_account_holder' => ['nullable', 'required_with:bank_account_number', 'string', 'max:150'],
+        ];
+    }
+
+    /** @return array<string, array<int, mixed>> */
+    protected function employeeRules(?Employee $employee = null): array
+    {
+        return [
+            'employee_number' => [
+                // ADR-191 — à la création, un matricule laissé vide reçoit le prochain du modèle du site.
+                $employee === null ? 'nullable' : 'required',
+                'string',
+                'max:255',
+                Rule::unique('employees', 'employee_number')->ignore($employee),
+            ],
+            'department_uuid' => [
+                'nullable',
+                'uuid',
+                Rule::exists('hr_reference_values', 'uuid')->where(
+                    function ($query) use ($employee): void {
+                        $query->where('type', HrReferenceType::Department->value)
+                            ->where(function ($available) use ($employee): void {
+                                $available->where(function ($active): void {
+                                    $active->where('active', true)->whereNull('deleted_at');
+                                });
+
+                                if ($employee?->department_id) {
+                                    $available->orWhere('id', $employee->department_id);
+                                }
+                            });
+                    },
+                ),
+            ],
+            'job_title_uuid' => [
+                'nullable',
+                'uuid',
+                Rule::exists('hr_reference_values', 'uuid')->where(
+                    function ($query) use ($employee): void {
+                        $query->where('type', HrReferenceType::JobTitle->value)
+                            ->where(function ($available) use ($employee): void {
+                                $available->where(function ($active): void {
+                                    $active->where('active', true)->whereNull('deleted_at');
+                                });
+
+                                if ($employee?->job_title_id) {
+                                    $available->orWhere('id', $employee->job_title_id);
+                                }
+                            });
+                    },
+                ),
+            ],
+            'first_name' => ['nullable', 'string', 'max:255'],
+            'last_name' => ['required', 'string', 'max:255'],
+            'sex' => ['required', new Enum(PatientSex::class)],
+            'birth_date' => ['nullable', 'date', 'before_or_equal:today'],
+            'hire_date' => ['nullable', 'date'],
+            'birth_place' => ['nullable', 'string', 'max:255'],
+            'identity_document_type' => [
+                'nullable',
+                'required_with:identity_document_number',
+                new Enum(IdentityDocumentType::class),
+            ],
+            'identity_document_number' => [
+                'nullable',
+                'required_with:identity_document_type',
+                'string',
+                'max:100',
+            ],
+            'identity_document_issued_on' => ['nullable', 'date', 'before_or_equal:today'],
+            'identity_document_issued_at' => ['nullable', 'string', 'max:255'],
+            'marital_status' => ['nullable', new Enum(MaritalStatus::class)],
+            'children_count' => ['nullable', 'integer', 'min:0', 'max:65535'],
+            'diploma' => ['nullable', 'string', 'max:255'],
+            'education_level' => ['nullable', 'string', 'max:255'],
+            'children_details' => ['nullable', 'string', 'max:5000'],
+            'badge' => ['nullable', 'string', 'max:255'],
+            'blouse' => ['nullable', 'string', 'max:255'],
+            'phone' => ['nullable', 'string', 'max:50'],
+            // ADR-190 : l'email d'un employé est son adresse professionnelle, posée par sa
+            // création ; il ne se saisit ni à la création, ni à la modification, ni à l'import.
+            'email' => ['prohibited'],
+            'address_entry_uuid' => [
+                'nullable',
+                'uuid',
+                Rule::exists('address_entries', 'uuid')->where(
+                    function ($query) use ($employee): void {
+                        $query->where(function ($available): void {
+                            $available->where('active', true)->whereNull('deleted_at');
+                        });
+
+                        // An employee already linked to an archived address
+                        // keeps that historical reference until RH explicitly
+                        // chooses another active address.
+                        if ($employee?->address_entry_id) {
+                            $query->orWhere('id', $employee->address_entry_id);
+                        }
+                    },
+                ),
+            ],
+            'new_address_label' => ['nullable', 'string', 'max:255'],
+            'observation' => ['nullable', 'string', 'max:5000'],
+            'active' => ['required', 'boolean'],
+            // ADR-188 — le compte de connexion se relie depuis « Utilisateurs »,
+            // à la création du compte, plus depuis la fiche : refusé en clair
+            // plutôt qu'ignoré, pour qu'un ancien client le sache.
+            'user_uuid' => ['prohibited'],
+            // ADR-194 — photo d'identité 4 × 4, recadrée et réencodée par le serveur.
+            'photo' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:5120', 'dimensions:min_width=120,min_height=120'],
+            'remove_photo' => ['sometimes', 'boolean'],
+            ...$this->payrollRules(),
+        ];
+    }
+
+    /** @return array<int, callable(Validator): void> */
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            if ($this->filled('address_entry_uuid') && $this->filled('new_address_label')) {
+                $validator->errors()->add(
+                    'new_address_label',
+                    'Choisissez une adresse existante ou ajoutez-en une nouvelle, pas les deux.',
+                );
+            }
+        }];
+    }
+
+    protected function addressPermissionsAreValid(): bool
+    {
+        $user = $this->user();
+
+        if (! $user) {
+            return false;
+        }
+
+        if ($this->filled('address_entry_uuid') && ! $user->can('address_entries.view')) {
+            return false;
+        }
+
+        if ($this->filled('new_address_label') && ! $user->can('address_entries.create')) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public function attributes(): array
+    {
+        return [
+            'employee_number' => 'matricule',
+            'first_name' => 'prénom',
+            'department_uuid' => 'département',
+            'job_title_uuid' => 'fonction',
+            'last_name' => 'nom',
+            'sex' => 'sexe',
+            'birth_date' => 'date de naissance',
+            'hire_date' => 'date d’entrée',
+            'birth_place' => 'lieu de naissance',
+            'identity_document_type' => 'type de pièce d’identité',
+            'identity_document_number' => 'numéro de pièce d’identité',
+            'identity_document_issued_on' => 'date de délivrance de la pièce',
+            'identity_document_issued_at' => 'lieu de délivrance de la pièce',
+            'marital_status' => 'situation matrimoniale',
+            'children_count' => 'nombre d’enfants',
+            'diploma' => 'diplôme',
+            'education_level' => 'niveau',
+            'children_details' => 'détails des enfants',
+            'badge' => 'badge',
+            'blouse' => 'blouse',
+            'phone' => 'téléphone',
+            'email' => 'adresse email',
+            'address_entry_uuid' => 'adresse',
+            'new_address_label' => 'nouvelle adresse',
+            'observation' => 'observation',
+            'active' => 'état actif',
+            'user_uuid' => 'compte de connexion',
+            'photo' => 'photo d’identité',
+            'remove_photo' => 'retrait de la photo',
+            'remuneration_type' => 'type de rémunération',
+            'remuneration_amount' => 'montant',
+            'bank_account_number' => 'numéro de compte bancaire',
+            'bank_account_holder' => 'titulaire du compte',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'employee_number.unique' => 'Ce matricule est déjà utilisé, y compris par un dossier archivé.',
+            'user_uuid.prohibited' => 'Le compte de connexion se relie depuis « Utilisateurs », à la création ou à la modification du compte.',
+            'email.prohibited' => 'L’email d’un employé est son adresse professionnelle : elle se demande depuis sa fiche, une fois l’employé enregistré.',
+            'photo.image' => 'La photo doit être une image (JPEG, PNG ou WebP).',
+            'photo.mimes' => 'La photo doit être une image JPEG, PNG ou WebP.',
+            'photo.max' => 'La photo ne doit pas dépasser 5 Mo.',
+            'photo.dimensions' => 'La photo est trop petite : 120 × 120 pixels au minimum.',
+            'remuneration_amount.required' => 'Indiquez le montant du salaire ou de l’indemnité.',
+            'remuneration_amount.decimal' => 'Le montant a au plus deux décimales.',
+            'bank_account_number.regex' => 'Le numéro de compte ne contient que des chiffres, des lettres, des espaces et des tirets.',
+            'bank_account_holder.required_with' => 'Indiquez le nom du titulaire du compte, tel qu’il figure à la banque.',
+            ...array_fill_keys(
+                array_map(fn (string $field) => "{$field}.prohibited", EmployeePayroll::FIELDS),
+                'Modifier la rémunération ou le compte bancaire demande le droit « employees.payroll.update ».',
+            ),
+        ];
+    }
+}

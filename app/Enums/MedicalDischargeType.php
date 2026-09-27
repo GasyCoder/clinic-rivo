@@ -30,4 +30,19 @@ enum MedicalDischargeType: string
             self::Deceased => EpisodeMedicalStatus::Deceased,
         };
     }
+
+    /**
+     * ADR-203 — les types proposés en consultation.
+     *
+     * Le transfert se décide par la conduite « Référence / Transfert » (module
+     * Transferts, ADR-114) : le proposer aussi ici le faisait choisir deux fois,
+     * avec deux suites différentes. Le cas reste lisible sur les sorties déjà
+     * prononcées.
+     *
+     * @return list<self>
+     */
+    public static function forConsultation(): array
+    {
+        return array_values(array_filter(self::cases(), fn (self $type): bool => $type !== self::Transfer));
+    }
 }

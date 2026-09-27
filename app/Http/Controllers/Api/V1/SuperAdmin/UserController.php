@@ -10,12 +10,14 @@ use App\Actions\User\ForceDeleteUserAction;
 use App\Actions\User\UpdateUserAction;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
-use App\Models\Permission;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Administration\EmployeeAccountLinker;
+use App\Services\Authorization\RbacPresenter;
 use App\Services\Catalog\CatalogActor;
 use App\Support\SecurePassword;
+use App\Support\Users\AccountKindRules;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,18 +28,27 @@ use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
+    public function __construct(
+        private readonly RbacPresenter $presenter,
+        private readonly EmployeeAccountLinker $employeeLinker,
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
-        $this->authorizeActor($request, 'users.view');
+        $actor = $this->authorizeActor($request, 'users.view');
 
         $search = trim((string) $request->query('search', ''));
         $status = in_array($request->query('status'), ['active', 'inactive', 'all'], true)
             ? $request->query('status')
             : 'active';
         $roleCode = trim((string) $request->query('role', ''));
+        $sourceProfileNames = ProfessionalProfile::query()->pluck('name', 'id');
 
         $userModels = User::query()
-            ->with(['role:id,code,name', 'professionalProfile:id,role_id,code,name', 'permissions:id,name'])
+            ->with([
+                'role:id,code,name', 'professionalProfile:id,role_id,code,name', 'permissions:id,name',
+                'employee' => fn ($query) => $query->withTrashed()->with(['jobTitle:id,label', 'department:id,label']),
+            ])
             ->whereHas('role', fn ($role) => $role->where('code', '!=', 'SUPER_ADMIN'))
             ->when($search !== '', fn ($query) => $query->where(
                 fn ($nested) => $nested->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"),
@@ -56,7 +67,7 @@ class UserController extends Controller
             ->distinct()
             ->pluck('user_id');
 
-        $users = $userModels->map(fn (User $user) => $this->serializeUser($user, $auditedUserIds));
+        $users = $userModels->map(fn (User $user) => $this->serializeUser($user, $auditedUserIds, $sourceProfileNames));
 
         $roles = Role::query()
             ->with([
@@ -71,18 +82,19 @@ class UserController extends Controller
             ->get()
             ->map(fn (Role $role) => $this->serializeRole($role));
 
-        $permissions = Permission::query()->orderBy('name')->get()->map(fn (Permission $permission) => [
-            'id' => $permission->id,
-            'name' => $permission->name,
-            'label' => $permission->label,
-            'module' => str($permission->name)->before('.')->toString(),
-        ]);
+        $permissions = $this->presenter->permissionCatalog();
+
+        // ADR-188 — les fiches Employé qu'un compte peut relier, pour l'assistant.
+        $employees = $actor->can('users.create') || $actor->can('users.update')
+            ? $this->employeeLinker->linkableEmployees()
+            : [];
 
         return response()->json([
             'data' => [
                 'users' => $users,
                 'roles' => $roles,
                 'permission_catalog' => $permissions,
+                'employees' => $employees,
             ],
             'meta' => [
                 'site' => ['code' => config('rivo.site.code'), 'name' => config('rivo.site.name')],
@@ -98,7 +110,11 @@ class UserController extends Controller
         $user = $action->execute($validated, $actor);
 
         return response()->json([
-            'message' => "Compte de {$user->name} créé.",
+            // No password means an invitation: it leaves through the queue,
+            // so the portal says so instead of implying the email is already out.
+            'message' => blank($validated['password'] ?? null)
+                ? "Compte de {$user->name} créé. L’invitation par e-mail part en file d’attente."
+                : "Compte de {$user->name} créé.",
             'data' => $this->serializeUser($user),
         ], 201);
     }
@@ -241,13 +257,18 @@ class UserController extends Controller
     private function validated(Request $request, ?int $ignoreUserId = null): array
     {
         return $request->validate([
+            // ADR-188 — personnel clinique (une fiche Employé) ou externe.
+            ...AccountKindRules::rules(creating: $ignoreUserId === null),
             'name' => ['required', 'string', 'max:255'],
             'email' => [
                 'required', 'string', 'email', 'max:255',
                 Rule::unique('users', 'email')->ignore($ignoreUserId),
             ],
             'password' => ['nullable', 'confirmed', SecurePassword::rule()],
-            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')],
+            // Un rôle archivé (ADR-100) reste une ligne : `exists` le trouverait
+            // et le compte se retrouverait sans socle, `User::role()` ne
+            // renvoyant plus un rôle archivé.
+            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')->whereNull('deleted_at')],
             'professional_profile_id' => [
                 Rule::requiredIf(fn () => ProfessionalProfile::query()
                     ->active()
@@ -261,64 +282,34 @@ class UserController extends Controller
                         ->where('active', true),
                 ),
             ],
+            'sync_profile_permissions' => ['sometimes', 'boolean'],
             'permission_overrides' => ['sometimes', 'array'],
             'permission_overrides.*.permission_id' => ['required', 'integer', 'distinct', Rule::exists('permissions', 'id')],
             'permission_overrides.*.effect' => ['required', Rule::in(['allow', 'deny'])],
-        ]);
+        ], AccountKindRules::messages());
     }
 
-    /** @return array<string, mixed> */
-    /** @param Collection<int, int>|null $auditedUserIds */
-    private function serializeUser(User $user, ?Collection $auditedUserIds = null): array
-    {
-        return [
-            'uuid' => $user->uuid,
-            'name' => $user->name,
-            'email' => $user->email,
-            'role' => $user->role ? [
-                'id' => $user->role->id,
-                'code' => $user->role->code,
-                'name' => $user->role->name,
-            ] : null,
-            'professional_profile' => $user->professionalProfile ? [
-                'id' => $user->professionalProfile->id,
-                'code' => $user->professionalProfile->code,
-                'name' => $user->professionalProfile->name,
-            ] : null,
-            'active' => $user->isActive(),
-            'last_login_at' => $user->last_login_at?->toIso8601String(),
-            'deactivated_at' => $user->deactivated_at?->toIso8601String(),
-            'deactivation_reason' => $user->deactivation_reason,
-            // ADR-062: a UI hint only — ForceDeleteUserAction re-verifies
-            // this authoritatively regardless of what the client sends back.
-            'deletable' => $user->last_login_at === null
-                && ! ($auditedUserIds?->contains($user->id) ?? AuditLog::query()->where('user_id', $user->id)->exists()),
-            'permission_overrides' => $user->permissions->map(fn (Permission $permission) => [
-                'permission_id' => $permission->id,
-                'name' => $permission->name,
-                'effect' => $permission->pivot->effect,
-            ])->values(),
-        ];
+    /**
+     * Sérialisation partagée avec l'endpoint Rôles (RbacPresenter) : deux
+     * écrans décrivent les mêmes comptes, ils ne doivent pas les décrire
+     * différemment.
+     *
+     * @param  Collection<int, int>|null  $auditedUserIds
+     * @param  Collection<int, string>|null  $sourceProfileNames
+     * @return array<string, mixed>
+     */
+    private function serializeUser(
+        User $user,
+        ?Collection $auditedUserIds = null,
+        ?Collection $sourceProfileNames = null,
+    ): array {
+        return $this->presenter->user($user, $auditedUserIds, $sourceProfileNames);
     }
 
     /** @return array<string, mixed> */
     private function serializeRole(Role $role): array
     {
-        return [
-            'id' => $role->id,
-            'code' => $role->code,
-            'name' => $role->name,
-            'permissions' => $role->permissions->pluck('name')->sort()->values(),
-            'profiles' => $role->professionalProfiles->map(fn (ProfessionalProfile $profile) => [
-                'id' => $profile->id,
-                'code' => $profile->code,
-                'name' => $profile->name,
-                'description' => $profile->description,
-                'recommended_permissions' => $profile->recommendedPermissions
-                    ->map(fn (Permission $permission) => ['id' => $permission->id, 'name' => $permission->name])
-                    ->values(),
-            ])->values(),
-        ];
+        return $this->presenter->role($role);
     }
 
     private function authorizeActor(Request $request, string $permission): CatalogActor

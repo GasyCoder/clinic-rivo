@@ -9,9 +9,18 @@ use App\Enums\ConsultationDecision;
 use App\Enums\EpisodeOrientationStatus;
 use App\Models\CatalogItem;
 use App\Models\Consultation;
+use App\Models\Episode;
 use App\Models\EpisodeOrientation;
+use App\Models\HospitalStay;
 use App\Models\LabRequest;
+use App\Models\MaternityRecord;
 use App\Models\User;
+use App\Services\Billing\ClinicalActBiller;
+use App\Services\Billing\ParaclinicalBillingRelease;
+use App\Services\Billing\PlannedServiceBilling;
+use App\Support\Hospitalization\StayOrderContext;
+use App\Support\Maternity\MaternityOrderContext;
+use App\Support\ParaclinicalRequestGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -26,6 +35,9 @@ class CreateLabRequestAction
 {
     public function __construct(
         private readonly CreateEpisodeOrientationAction $createOrientation,
+        private readonly ClinicalActBiller $biller,
+        private readonly PlannedServiceBilling $plannedBilling,
+        private readonly ResolveConsultationStepAction $resolveStep,
     ) {}
 
     /**
@@ -51,53 +63,177 @@ class CreateLabRequestAction
                 ]);
             }
 
-            $episode = $medicineOrientation->episode;
-            $catalogUuids = collect($items)->pluck('catalog_item_uuid')->unique();
-            $catalogItems = CatalogItem::query()
-                ->whereIn('uuid', $catalogUuids)
-                ->where('type', CatalogItemType::Service->value)
-                ->where('module', CatalogModule::Laboratory->value)
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('uuid');
-
-            if ($catalogItems->count() !== $catalogUuids->count()) {
-                throw ValidationException::withMessages([
-                    'items' => 'Une analyse sélectionnée n’est plus disponible.',
-                ]);
-            }
-
-            $labOrientation = $this->createOrientation->execute(
-                $episode,
+            $labRequest = $this->write(
+                $medicineOrientation->episode,
+                $lockedConsultation,
+                null,
+                null,
+                $medicineOrientation,
                 CatalogModule::Medicine,
-                CatalogModule::Laboratory,
-                $actor,
                 'Analyses demandées en consultation.',
+                $items,
+                $notes,
+                $actor,
             );
-
-            $labRequest = LabRequest::query()->create([
-                'episode_id' => $episode->getKey(),
-                'consultation_id' => $lockedConsultation->getKey(),
-                'source_orientation_id' => $medicineOrientation->getKey(),
-                'lab_orientation_id' => $labOrientation->getKey(),
-                'requested_by' => $actor->getKey(),
-                'notes' => $notes,
-                'requested_at' => now(),
-            ]);
-
-            foreach ($items as $item) {
-                $catalogItem = $catalogItems->get($item['catalog_item_uuid']);
-
-                $labRequest->items()->create([
-                    'catalog_item_id' => $catalogItem->getKey(),
-                    'catalog_item_code_snapshot' => $catalogItem->code,
-                    'catalog_item_name_snapshot' => $catalogItem->name,
-                ]);
-            }
 
             $lockedConsultation->update(['decision' => ConsultationDecision::LaboratoryTests]);
 
+            // ADR-105 — la demande transmise EST la résolution de l'étape :
+            // le médecin n'a plus rien à y faire, et lui demander de la
+            // « valider » ensuite bloquait la clôture sur un clic sans
+            // objet. Amende la règle « jamais en effet de bord » de
+            // l'ADR-076, qui visait une saisie en cours, pas un ordre déjà
+            // parti à un autre service.
+            $this->resolveStep->completeParaclinicalFromRequest($lockedConsultation, $actor);
+
             return $labRequest->fresh(['items']);
         });
+    }
+
+    /**
+     * ADR-162 — la même demande, écrite depuis le séjour : le patient est au
+     * lit, aucune consultation n'est ouverte ni fabriquée. Facturation,
+     * doublons et orientation vers le Laboratoire sont ceux d'une demande de
+     * consultation.
+     *
+     * @param  array<int, array{catalog_item_uuid: string}>  $items
+     */
+    public function executeForStay(HospitalStay $stay, array $items, ?string $notes, User $actor): LabRequest
+    {
+        return DB::transaction(function () use ($stay, $items, $notes, $actor): LabRequest {
+            $context = StayOrderContext::lock($stay, 'lab_request');
+
+            return $this->write(
+                $context->episode,
+                null,
+                $context->stay,
+                null,
+                $context->orientation,
+                CatalogModule::Hospitalization,
+                'Analyses demandées pendant l’hospitalisation.',
+                $items,
+                $notes,
+                $actor,
+            );
+        });
+    }
+
+    /**
+     * ADR-204 — la même demande, écrite depuis une prise en charge Maternité.
+     * Elle se rattache au dossier Maternité (`maternity_record_id`), jamais à
+     * une consultation Médecine qui n'existe pas. Le Laboratoire reste la
+     * source de vérité de ses résultats : rien n'est recopié dans le dossier.
+     *
+     * @param  array<int, array{catalog_item_uuid: string}>  $items
+     */
+    public function executeForMaternity(EpisodeOrientation $orientation, array $items, ?string $notes, User $actor): LabRequest
+    {
+        return DB::transaction(function () use ($orientation, $items, $notes, $actor): LabRequest {
+            $context = MaternityOrderContext::lock($orientation, 'lab_request');
+
+            return $this->write(
+                $context->episode,
+                null,
+                null,
+                $context->record,
+                $context->orientation,
+                CatalogModule::Maternity,
+                'Analyses demandées en Maternité.',
+                $items,
+                $notes,
+                $actor,
+            );
+        });
+    }
+
+    /** @param  array<int, array{catalog_item_uuid: string}>  $items */
+    private function write(
+        Episode $episode,
+        ?Consultation $consultation,
+        ?HospitalStay $stay,
+        ?MaternityRecord $maternityRecord,
+        EpisodeOrientation $source,
+        CatalogModule $sourceModule,
+        string $orientationReason,
+        array $items,
+        ?string $notes,
+        User $actor,
+    ): LabRequest {
+        $catalogUuids = collect($items)->pluck('catalog_item_uuid')->unique();
+        $catalogItems = CatalogItem::query()
+            ->whereIn('uuid', $catalogUuids)
+            ->where('type', CatalogItemType::Service->value)
+            ->where('module', CatalogModule::Laboratory->value)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('uuid');
+
+        if ($catalogItems->count() !== $catalogUuids->count()) {
+            throw ValidationException::withMessages([
+                'items' => 'Une analyse sélectionnée n’est plus disponible.',
+            ]);
+        }
+
+        // Sous le verrou déjà posé sur la consultation : deux envois
+        // simultanés du même examen ne peuvent pas passer tous les deux.
+        ParaclinicalRequestGuard::ensureNoActiveDuplicate(
+            $consultation ?? $stay ?? $maternityRecord,
+            $catalogItems,
+            'labRequests',
+            'lab_request',
+        );
+
+        $labOrientation = $this->createOrientation->execute(
+            $episode,
+            $sourceModule,
+            CatalogModule::Laboratory,
+            $actor,
+            $orientationReason,
+        );
+
+        $labRequest = LabRequest::query()->create([
+            'episode_id' => $episode->getKey(),
+            'consultation_id' => $consultation?->getKey(),
+            'hospital_stay_id' => $stay?->getKey(),
+            'maternity_record_id' => $maternityRecord?->getKey(),
+            'source_orientation_id' => $source->getKey(),
+            'lab_orientation_id' => $labOrientation->getKey(),
+            'requested_by' => $actor->getKey(),
+            'notes' => $notes,
+            'requested_at' => now(),
+        ]);
+
+        foreach ($items as $item) {
+            $catalogItem = $catalogItems->get($item['catalog_item_uuid']);
+
+            $line = $labRequest->items()->create([
+                'catalog_item_id' => $catalogItem->getKey(),
+                'catalog_item_code_snapshot' => $catalogItem->code,
+                'catalog_item_name_snapshot' => $catalogItem->name,
+            ]);
+
+            // ADR-105 — l'analyse rejoint le compte du patient dès sa
+            // demande, comme lorsque la Réception la sélectionne à
+            // l'arrivée (ADR-068). Un échec de facturation ne bloque
+            // jamais la demande : elle est déjà partie au Laboratoire.
+            // ADR-109 — si la Réception a déjà planifié et facturé cet
+            // examen à l'arrivée (ADR-068), la demande du médecin rattache
+            // cette prestation au lieu d'en créer une seconde : le patient
+            // ne paie pas deux fois la même échographie.
+            $billable = $this->plannedBilling->unconsumedFor($episode, $catalogItem)
+                ?? $this->biller->bill(
+                    $episode,
+                    $catalogItem,
+                    ParaclinicalBillingRelease::ownKey($line),
+                    $actor,
+                    $line,
+                );
+
+            if ($billable) {
+                $line->update(['billable_item_id' => $billable->getKey()]);
+            }
+        }
+
+        return $labRequest->fresh(['items']);
     }
 }

@@ -2,16 +2,39 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import QRCode from 'qrcode';
+import {
+    ArrowLeft,
+    Banknote,
+    Building2,
+    Check,
+    ChevronRight,
+    CircleAlert,
+    Clock,
+    CreditCard,
+    FileText,
+    Lock,
+    Printer,
+    ShieldCheck,
+    Smartphone,
+    UserRound,
+    UserRoundPlus,
+    Wallet,
+} from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from '@/Components/UI/Button.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Select from '@/Components/Shadcn/Select.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import Input from '@/Components/UI/Input.vue';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
 import { formatPatientName } from '@/utilities/patient';
+import { usePermissions } from '@/composables/usePermissions';
 
 defineOptions({ layout: AppLayout });
+
+const { can } = usePermissions();
 
 const props = defineProps({
     invoice: Object,
@@ -45,16 +68,33 @@ const customerReference = computed(() => props.invoice.patient?.patient_number
     ? `Patient ${props.invoice.patient.patient_number}`
     : (props.invoice.source_module === 'PHARMACY' ? 'Vente directe Pharmacie' : 'Client externe'));
 const returnHref = computed(() => {
-    if (props.returnToPharmacy) return '/pharmacy?tab=dispenses';
+    if (props.returnToPharmacy) return '/pharmacy/dispenses';
     return props.returnToCash || !props.invoice.patient ? '/cash' : `/patients/${props.invoice.patient.uuid}`;
 });
 const returnLabel = computed(() => {
-    if (props.returnToPharmacy) return 'Retour aux demandes';
+    if (props.returnToPharmacy) return 'Retour aux ordonnances';
     return props.returnToCash || !props.invoice.patient ? 'Retour à la caisse' : 'Retour au patient';
 });
 const isPharmacyInvoice = computed(() => props.invoice.source_module === 'PHARMACY');
 const isPayable = computed(() => ['VALIDATED', 'PARTIALLY_PAID'].includes(props.invoice.status)
     && Number(props.invoice.balance_amount) > 0);
+
+// Arriving on a payable invoice is a single decision — pay now (cash
+// register required) or pay later (print an unpaid document) — never both
+// paths shown at once. `null` means the decision hasn't been made yet; the
+// document buttons stay hidden until either branch resolves, so "choose
+// facture/ticket" is always a *consequence* of a choice, never a competing
+// option sitting next to it.
+const paymentChoice = ref(null);
+const canPayNow = computed(() => props.capabilities.can_pay && props.openCashSessions.length > 0);
+// The gated pay-now/pay-later choice only exists for the normal invoice
+// screen — a Pharmacy ticketOnly view never renders that decision panel at
+// all, so it must never be the thing blocking its own print button.
+const documentsUnlocked = computed(() => props.ticketOnly || !isPayable.value || paymentChoice.value === 'later');
+const justSettled = computed(() => paymentChoice.value === 'now' && !isPayable.value);
+const chooseNow = () => { if (canPayNow.value) paymentChoice.value = 'now'; };
+const chooseLater = () => { paymentChoice.value = 'later'; };
+const changeChoice = () => { paymentChoice.value = null; };
 
 const paymentForm = useForm({
     invoice_uuid: props.invoice.uuid,
@@ -64,11 +104,97 @@ const paymentForm = useForm({
     notes: '',
     cash_register_uuid: props.openCashSessions.length === 1 ? props.openCashSessions[0].register_uuid ?? '' : '',
 });
+const selectedMethod = computed(() => props.paymentMethods
+    .find((method) => method.id === paymentForm.payment_method_id) ?? null);
+// Grouped by category: "mobile money" is never one tender in Madagascar —
+// MVola, Orange Money and Airtel Money are reconciled separately, so the
+// cashier picks the operator under a shared heading.
+// A named desk may accept only part of the site's tenders (an empty list
+// means no restriction). The refusal itself lives in RecordPaymentAction —
+// this only spares the cashier a rejected attempt.
+const activeSession = computed(() => props.openCashSessions.find(
+    (session) => session.register_uuid === paymentForm.cash_register_uuid,
+) ?? (props.openCashSessions.length === 1 ? props.openCashSessions[0] : null));
+const acceptedMethods = computed(() => {
+    const accepted = activeSession.value?.accepted_payment_method_ids ?? [];
+
+    return accepted.length === 0
+        ? props.paymentMethods
+        : props.paymentMethods.filter((method) => accepted.includes(method.id));
+});
+const methodGroups = computed(() => {
+    const groups = new Map();
+
+    acceptedMethods.value.forEach((method) => {
+        const key = method.category ?? 'OTHER';
+        const group = groups.get(key) ?? {
+            key,
+            label: method.category_label ?? 'Autre',
+            icon: method.category_icon ?? 'card-view',
+            position: method.category_position ?? 99,
+            methods: [],
+        };
+        group.methods.push(method);
+        groups.set(key, group);
+    });
+
+    return Array.from(groups.values()).sort((left, right) => left.position - right.position);
+});
+const referenceLabel = computed(() => ({
+    CHECK: 'N° du chèque',
+    BANK_TRANSFER: 'Référence du virement',
+    MOBILE_MONEY_ORANGE: 'N° de transaction Orange Money',
+    MOBILE_MONEY_MVOLA: 'N° de transaction MVola',
+    MOBILE_MONEY_AIRTEL: 'N° de transaction Airtel Money',
+}[selectedMethod.value?.code] ?? 'Référence'));
+const fillExactAmount = () => { paymentForm.amount = props.invoice.balance_amount; };
+
+// Le champ de référence n'apparaît que pour les modes qui en exigent une, et
+// il vit dans la colonne de droite alors que le mode se choisit à gauche :
+// il est facile de ne pas le voir apparaître. Le bouton reflète donc ce
+// manque, au lieu de laisser une bulle native du navigateur être le seul
+// signal — et `RecordPaymentAction` refuse de toute façon côté serveur.
+const referenceMissing = computed(() => Boolean(selectedMethod.value?.requires_reference)
+    && String(paymentForm.reference ?? '').trim() === '');
+/* ------------------------------------------------------------------ *
+ * Argent remis / à rendre — une aide au comptoir, jamais une donnée.
+ *
+ * Aucun de ces montants n'est envoyé au serveur : le paiement enregistré
+ * reste le montant réellement encaissé (ADR-012). Ce que le patient tend
+ * et ce qu'on lui rend sont deux gestes physiques du guichet, pas des
+ * écritures — les consigner laisserait croire à un mouvement de caisse
+ * supplémentaire qui n'existe pas.
+ *
+ * Même contrat que l'espace Caisse, afin qu'un même geste se fasse de la
+ * même façon aux deux endroits.
+ * ------------------------------------------------------------------ */
+const tenderedAmount = ref('');
+const ARIARY_NOTES = [500, 1000, 2000, 5000, 10000, 20000];
+// Uniquement les tenders qui font circuler des espèces : on ne rend jamais
+// la monnaie sur un Mobile Money ou un virement.
+const isCashTender = computed(() => Boolean(selectedMethod.value?.affects_cash_balance));
+const amountDue = computed(() => Number(paymentForm.amount) || 0);
+const tenderedValue = computed(() => Number(tenderedAmount.value) || 0);
+const changeDue = computed(() => Math.max(0, tenderedValue.value - amountDue.value));
+// Borné aux espèces : `selectMethod` remet déjà le comptage à zéro en
+// changeant de mode, mais un bouton désactivé sans bloc visible à
+// l'écran serait indéchiffrable pour le caissier.
+const tenderedIsShort = computed(() => isCashTender.value
+    && tenderedAmount.value !== ''
+    && tenderedValue.value < amountDue.value);
+const addTendered = (note) => { tenderedAmount.value = String(tenderedValue.value + note); };
+const setExactTender = () => { tenderedAmount.value = amountDue.value ? String(amountDue.value) : ''; };
+const resetTender = () => { tenderedAmount.value = ''; };
+// Changer de mode remet le comptage à zéro : un montant tendu en espèces
+// n'a aucun sens une fois passé sur un virement.
+const selectMethod = (id) => { paymentForm.payment_method_id = id; resetTender(); };
+
 const submitPayment = () => paymentForm.post(`/invoices/${props.invoice.uuid}/payments`, {
     preserveScroll: true,
     onSuccess: () => {
         paymentForm.reset('reference', 'notes', 'payment_method_id');
         paymentForm.amount = props.invoice.balance_amount;
+        resetTender();
     },
 });
 const qrCodeDataUrl = ref('');
@@ -84,6 +210,23 @@ const invoiceStatusLabel = computed(() => ({
     COVERED: 'Prise en charge',
     CANCELLED: 'Annulée',
 })[props.invoice.status] ?? props.invoice.status);
+
+// PaymentMethodCategory::icon() renvoie des noms nioicon, encore consommés
+// tels quels par l'écran Caisse. La correspondance vit donc ici, le temps
+// que cet écran migre lui aussi.
+const CATEGORY_ICONS = {
+    coins: Banknote,
+    mobile: Smartphone,
+    building: Building2,
+    'shield-check': ShieldCheck,
+    'card-view': CreditCard,
+};
+const categoryIcon = (name) => CATEGORY_ICONS[name] ?? CreditCard;
+
+const cashRegisterOptions = computed(() => props.openCashSessions.map((session) => ({
+    value: session.register_uuid ?? '',
+    label: session.register_name ?? session.session_number,
+})));
 
 const invoiceStatusBadgeClass = computed(() => ({
     DRAFT: 'border-gray-300 bg-gray-100 text-slate-600 dark:border-gray-700 dark:bg-gray-800 dark:text-slate-300',
@@ -172,77 +315,293 @@ onBeforeUnmount(() => {
 
     <div class="invoice-page w-full space-y-4 rounded-2xl bg-gradient-to-b from-gray-100/70 to-transparent p-3 dark:from-gray-900/30 sm:p-5">
 
-        <div v-if="!closeAfterPrint" class="invoice-actions sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm dark:border-gray-800 dark:bg-gray-950/90">
-            <Button :as="Link" :href="returnHref" size="rg" variant="white-outline">
-                <Icon class="text-lg" name="arrow-left" />
-                <span class="ms-2">{{ returnLabel }}</span>
-            </Button>
-            <div class="flex flex-wrap items-center justify-end gap-2">
-                <Button v-if="!ticketOnly" size="rg" title="Imprimer la facture B5 ou choisir Enregistrer au format PDF" variant="white-outline" type="button" @click="printDocument('invoice')">
-                    <Icon class="text-lg" name="file-text" />
-                    <span class="ms-2">Facture B5 / PDF</span>
+        <div v-if="!closeAfterPrint" class="invoice-actions sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/90 px-4 py-3 shadow-sm backdrop-blur-sm">
+            <div class="flex min-w-0 items-center gap-3">
+                <Button :as="Link" :href="returnHref" variant="outline">
+                    <ArrowLeft class="h-4 w-4" />
+                    <span class="hidden sm:inline">{{ returnLabel }}</span>
                 </Button>
-                <Button size="rg" variant="primary" type="button" @click="printDocument('ticket')">
-                    <Icon class="text-lg" name="printer" />
-                    <span class="ms-2">Imprimer le ticket</span>
+                <div class="min-w-0 border-s border-border ps-3">
+                    <p class="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
+                        <span>{{ ticketOnly ? 'Ticket' : 'Facture' }}</span>
+                        <span class="font-mono">{{ invoice.invoice_number }}</span>
+                        <!-- Classe partagée avec le document imprimé (§ .invoice-status) :
+                             ses couleurs de statut restent celles du papier. -->
+                        <span :class="['rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', invoiceStatusBadgeClass]">{{ invoiceStatusLabel }}</span>
+                    </p>
+                    <p class="truncate text-xs text-muted-foreground">{{ customerName }}<template v-if="isPayable"> · reste à payer <strong class="text-foreground">{{ formatMoney(invoice.balance_amount) }}</strong></template></p>
+                </div>
+            </div>
+            <div v-if="documentsUnlocked" class="flex flex-wrap items-center justify-end gap-2">
+                <Button v-if="!ticketOnly" title="Imprimer la facture B5 ou choisir Enregistrer au format PDF" variant="outline" type="button" @click="printDocument('invoice')">
+                    <FileText class="h-4 w-4" />Facture B5 / PDF
+                </Button>
+                <Button type="button" @click="printDocument('ticket')">
+                    <Printer class="h-4 w-4" />Imprimer le ticket
                 </Button>
             </div>
+            <Badge v-else variant="warning"><Lock class="h-3.5 w-3.5" />Choisissez un mode de règlement pour débloquer l’impression</Badge>
         </div>
 
-        <div v-if="!closeAfterPrint && !ticketOnly && isPayable" class="invoice-actions overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
-            <div class="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
-                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"><Icon class="text-lg" name="wallet" /></span>
-                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Encaissement</h2><p class="text-xs text-slate-400">Reste à payer {{ formatMoney(invoice.balance_amount) }}</p></div>
+        <Card v-if="!closeAfterPrint && !ticketOnly && isPayable" class="invoice-actions overflow-hidden">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3.5">
+                <div class="flex items-center gap-3">
+                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><Wallet class="h-5 w-5" /></span>
+                    <div>
+                        <h2 class="text-base font-bold text-foreground">Règlement</h2>
+                        <p class="text-xs text-muted-foreground">{{ paymentChoice === null ? 'Comment ce passage est-il réglé ?' : 'Le document à remettre se choisit juste après.' }}</p>
+                    </div>
+                </div>
+                <div class="text-end">
+                    <p class="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Reste à payer</p>
+                    <p class="font-heading text-2xl font-bold text-foreground">{{ formatMoney(invoice.balance_amount) }}</p>
+                </div>
             </div>
 
-            <form v-if="capabilities.can_pay && openCashSessions.length > 0" class="grid gap-3 p-4 sm:grid-cols-4" @submit.prevent="submitPayment">
-                <div v-if="openCashSessions.length > 1">
-                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Caisse *</label>
-                    <select v-model="paymentForm.cash_register_uuid" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
-                        <option value="">Choisir…</option>
-                        <option v-for="session in openCashSessions" :key="session.uuid" :value="session.register_uuid">{{ session.register_name ?? session.session_number }}</option>
-                    </select>
-                    <FormError :message="paymentForm.errors.cash_register_uuid" />
-                </div>
-                <div>
-                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Mode de paiement *</label>
-                    <select v-model="paymentForm.payment_method_id" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
-                        <option value="">Choisir…</option>
-                        <option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option>
-                    </select>
-                    <FormError :message="paymentForm.errors.payment_method_id" />
-                </div>
-                <div>
-                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Montant *</label>
-                    <Input v-model="paymentForm.amount" type="number" min="0.01" :max="invoice.balance_amount" step="0.01" />
-                    <FormError :message="paymentForm.errors.amount" />
-                </div>
-                <div>
-                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Référence</label>
-                    <Input v-model="paymentForm.reference" placeholder="N° transaction, chèque…" />
-                    <FormError :message="paymentForm.errors.reference" />
-                </div>
-                <div class="flex items-end">
-                    <Button type="submit" size="rg" class="w-full justify-center" :disabled="paymentForm.processing || !paymentForm.payment_method_id || !paymentForm.amount"><Icon class="me-2 text-base" name="check" />{{ paymentForm.processing ? 'Encaissement…' : 'Encaisser' }}</Button>
-                </div>
-                <FormError class="sm:col-span-4" :message="paymentForm.errors.invoice_uuid" />
-                <FormError v-if="openCashSessions.length <= 1" class="sm:col-span-4" :message="paymentForm.errors.cash_register_uuid" />
-            </form>
-            <p v-else-if="!capabilities.can_pay" class="px-4 py-4 text-sm text-slate-400">Votre compte ne dispose pas du droit d’encaissement.</p>
-            <p v-else class="px-4 py-4 text-sm text-amber-700 dark:text-amber-300">Ouvrez la caisse pour encaisser cette facture.</p>
+            <!-- Étape 1 : la décision elle-même — maintenant ou plus tard, jamais les deux à la fois. -->
+            <div v-if="paymentChoice === null" class="grid gap-3 p-4 sm:grid-cols-2">
+                <button
+                    type="button"
+                    :disabled="!canPayNow"
+                    :class="[
+                        'flex items-start gap-3 rounded-xl border p-4 text-start transition',
+                        canPayNow ? 'border-border hover:border-primary/40 hover:bg-primary/5' : 'cursor-not-allowed border-border opacity-50',
+                    ]"
+                    @click="chooseNow"
+                >
+                    <span class="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"><Wallet class="h-5 w-5" /></span>
+                    <span class="min-w-0 flex-1">
+                        <span class="flex items-center justify-between gap-2">
+                            <span class="block text-base font-bold text-foreground">Payer maintenant</span>
+                            <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground" />
+                        </span>
+                        <span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Encaisser à la caisse, choisir le mode de paiement, puis remettre le document acquitté.</span>
+                        <span v-if="!capabilities.can_pay" class="mt-2 block text-xs font-semibold text-amber-700 dark:text-amber-300">Votre compte ne dispose pas du droit d’encaissement.</span>
+                        <span v-else-if="openCashSessions.length === 0" class="mt-2 block text-xs font-semibold text-amber-700 dark:text-amber-300">Ouvrez une caisse pour activer cette option.</span>
+                        <Badge v-else class="mt-2" variant="secondary">Encaisser {{ formatMoney(invoice.balance_amount) }}</Badge>
+                    </span>
+                </button>
+                <button
+                    type="button"
+                    class="flex items-start gap-3 rounded-xl border border-border p-4 text-start transition hover:border-primary/40 hover:bg-primary/5"
+                    @click="chooseLater"
+                >
+                    <span class="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground"><Clock class="h-5 w-5" /></span>
+                    <span class="min-w-0 flex-1">
+                        <span class="flex items-center justify-between gap-2">
+                            <span class="block text-base font-bold text-foreground">Payer plus tard</span>
+                            <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground" />
+                        </span>
+                        <span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Remettre une facture ou un ticket impayé ; le règlement se fera ultérieurement à la caisse.</span>
+                        <Badge class="mt-2" variant="outline">Aucun encaissement · aucun reçu</Badge>
+                    </span>
+                </button>
+            </div>
 
-            <div v-if="invoice.payments?.length" class="border-t border-gray-200 px-4 py-3 dark:border-gray-800">
-                <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Paiements enregistrés</p>
+            <!-- Étape 2a : l'encaissement réel. Deux colonnes — les modes à
+                 gauche, le montant et l'action à droite : la moitié droite
+                 restait vide, et le bouton se perdait sous une grille de
+                 quatre colonnes dont trois étaient souvent absentes. -->
+            <div v-else-if="paymentChoice === 'now'">
+                <div class="flex items-center justify-between gap-3 border-b border-border bg-muted/25 px-4 py-2.5">
+                    <Badge variant="secondary"><Wallet class="h-3.5 w-3.5" />Payer maintenant</Badge>
+                    <button type="button" class="text-xs font-semibold text-muted-foreground transition-colors hover:text-primary" @click="changeChoice">‹ Changer de choix</button>
+                </div>
+                <form class="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_420px]" @submit.prevent="submitPayment">
+                    <section class="min-w-0">
+                        <p class="mb-3 text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">Mode de paiement <span class="text-red-500">*</span></p>
+                        <div class="space-y-4">
+                            <div v-for="group in methodGroups" :key="group.key">
+                                <!-- Libellé + filet : une catégorie à une seule
+                                     carte ne ressemble plus à une ligne ratée,
+                                     le filet tient la largeur à sa place. -->
+                                <div class="mb-2 flex items-center gap-2">
+                                    <component :is="categoryIcon(group.icon)" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <span class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{{ group.label }}</span>
+                                    <span class="h-px flex-1 bg-border" aria-hidden="true" />
+                                </div>
+                                <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                                    <button
+                                        v-for="method in group.methods"
+                                        :key="method.id"
+                                        type="button"
+                                        :aria-pressed="paymentForm.payment_method_id === method.id"
+                                        :class="[
+                                            'flex h-14 w-full items-center gap-2.5 rounded-lg border px-3 text-start transition',
+                                            paymentForm.payment_method_id === method.id
+                                                ? 'border-primary bg-primary/5 ring-1 ring-ring/25'
+                                                : 'border-border hover:border-primary/40 hover:bg-accent',
+                                        ]"
+                                        @click="selectMethod(method.id)"
+                                    >
+                                        <span :class="['grid h-8 w-8 shrink-0 place-items-center rounded-full transition-colors', paymentForm.payment_method_id === method.id ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground']"><component :is="categoryIcon(group.icon)" class="h-4 w-4" /></span>
+                                        <span class="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{{ method.name }}</span>
+                                        <Check v-if="paymentForm.payment_method_id === method.id" class="h-4 w-4 shrink-0 text-primary" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <FormError :message="paymentForm.errors.payment_method_id" />
+                    </section>
+
+                    <aside class="space-y-3 self-start rounded-xl border border-border bg-muted/25 p-4">
+                        <div v-if="openCashSessions.length > 1">
+                            <label class="mb-1.5 block text-xs font-medium text-foreground" for="payment-cash-register">Caisse <span class="text-red-500">*</span></label>
+                            <Select
+                                id="payment-cash-register"
+                                v-model="paymentForm.cash_register_uuid"
+                                class="w-full"
+                                :options="cashRegisterOptions"
+                                placeholder="Choisir…"
+                            />
+                            <FormError :message="paymentForm.errors.cash_register_uuid" />
+                        </div>
+
+                        <div>
+                            <div class="mb-1.5 flex items-center justify-between gap-2">
+                                <label class="block text-xs font-medium text-foreground" for="payment-amount">Montant <span class="text-red-500">*</span></label>
+                                <button v-if="Number(paymentForm.amount) !== Number(invoice.balance_amount)" type="button" class="text-[11px] font-bold text-primary hover:underline" @click="fillExactAmount">Solde exact</button>
+                            </div>
+                            <div class="relative">
+                                <Input id="payment-amount" v-model="paymentForm.amount" class="h-12 pe-10 text-end font-heading text-xl font-bold" type="number" min="0.01" :max="invoice.balance_amount" step="0.01" />
+                                <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-sm font-bold text-muted-foreground">Ar</span>
+                            </div>
+                            <FormError :message="paymentForm.errors.amount" />
+                        </div>
+
+                        <div v-if="selectedMethod?.requires_reference" :class="['rounded-lg border p-3 transition-colors', referenceMissing ? 'border-amber-300 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/20' : 'border-border bg-card']">
+                            <label class="mb-1.5 block text-xs font-medium text-foreground" for="payment-reference">{{ referenceLabel }} <span class="text-red-500">*</span></label>
+                            <Input id="payment-reference" v-model="paymentForm.reference" placeholder="N° de transaction" required />
+                            <p v-if="referenceMissing" class="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                                <CircleAlert class="h-3.5 w-3.5 shrink-0" />{{ selectedMethod.name }} exige sa référence pour être rapproché.
+                            </p>
+                            <FormError :message="paymentForm.errors.reference" />
+                        </div>
+                        <p v-else class="text-xs leading-5 text-muted-foreground">Aucune référence à saisir : le numéro de paiement généré en fait office.<FormError :message="paymentForm.errors.reference" /></p>
+
+                        <!-- Espèces seulement : on ne rend rien sur un Mobile
+                             Money ni un virement. Ces deux montants ne sont
+                             jamais enregistrés (voir le script). -->
+                        <div v-if="isCashTender" class="rounded-lg border border-border bg-card p-3">
+                            <div class="mb-1.5 flex items-center justify-between gap-2">
+                                <label class="text-xs font-medium text-foreground" for="payment-tendered">Argent reçu du patient</label>
+                                <span class="flex items-center gap-2 text-[11px] font-bold">
+                                    <button type="button" class="text-primary hover:underline" @click="setExactTender">Compte juste</button>
+                                    <button v-if="tenderedAmount !== ''" type="button" class="text-muted-foreground hover:text-foreground" @click="resetTender">Effacer</button>
+                                </span>
+                            </div>
+                            <div class="relative">
+                                <Input id="payment-tendered" v-model="tenderedAmount" class="h-11 pe-10 text-end text-lg font-bold" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" />
+                                <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-sm font-bold text-muted-foreground">Ar</span>
+                            </div>
+                            <div class="mt-2 grid grid-cols-3 gap-1.5">
+                                <button v-for="note in ARIARY_NOTES" :key="note" type="button" class="rounded-md border border-border py-1.5 text-xs font-bold tabular-nums text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary" @click="addTendered(note)">+{{ note.toLocaleString('fr-FR') }}</button>
+                            </div>
+
+                            <p v-if="tenderedIsShort" class="mt-3 flex items-center gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+                                <CircleAlert class="h-4 w-4 shrink-0" />Il manque {{ formatMoney(amountDue - tenderedValue) }}
+                            </p>
+                            <div v-else-if="tenderedAmount !== ''" :class="['mt-3 flex items-center justify-between gap-3 rounded px-3 py-2.5', changeDue > 0 ? 'bg-emerald-50 dark:bg-emerald-950/25' : 'bg-muted']">
+                                <span :class="['text-[10px] font-bold uppercase tracking-[0.14em]', changeDue > 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-muted-foreground']">À rendre au patient</span>
+                                <span :class="['font-heading text-2xl font-bold tabular-nums', changeDue > 0 ? 'text-emerald-800 dark:text-emerald-200' : 'text-muted-foreground']">{{ formatMoney(changeDue) }}</span>
+                            </div>
+                        </div>
+
+                        <Button
+                            class="w-full"
+                            size="lg"
+                            type="submit"
+                            :disabled="paymentForm.processing || !paymentForm.payment_method_id || !paymentForm.amount || tenderedIsShort || referenceMissing"
+                            :title="referenceMissing ? `Saisissez ${referenceLabel} pour encaisser` : (tenderedIsShort ? 'L’argent reçu est inférieur au montant à encaisser' : undefined)"
+                        >
+                            <Check class="h-4 w-4" />{{ paymentForm.processing ? 'Encaissement…' : `Encaisser ${formatMoney(paymentForm.amount || 0)}` }}
+                        </Button>
+                        <FormError :message="paymentForm.errors.invoice_uuid" />
+                        <FormError v-if="openCashSessions.length <= 1" :message="paymentForm.errors.cash_register_uuid" />
+                    </aside>
+                </form>
+            </div>
+
+            <!-- Étape 2b : « plus tard » — confirme le choix et débloque l'impression ci-dessus. -->
+            <div v-else class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-start gap-3">
+                    <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground"><Clock class="h-4 w-4" /></span>
+                    <div><p class="text-sm font-bold text-foreground">Réglée plus tard</p><p class="text-xs text-muted-foreground">La facture reste impayée jusqu’à l’encaissement à la caisse. Choisissez le document à remettre ci-dessous.</p></div>
+                </div>
+                <button type="button" class="shrink-0 text-xs font-semibold text-muted-foreground transition-colors hover:text-primary" @click="changeChoice">‹ Changer de choix</button>
+            </div>
+
+            <div v-if="invoice.payments?.length" class="border-t border-border px-4 py-3">
+                <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Paiements enregistrés</p>
                 <ul class="space-y-1 text-xs">
-                    <li v-for="payment in invoice.payments" :key="payment.uuid" class="flex items-center justify-between gap-3 text-slate-600 dark:text-slate-300">
+                    <li v-for="payment in invoice.payments" :key="payment.uuid" class="flex items-center justify-between gap-3 text-muted-foreground">
                         <span>{{ formatDateTime(payment.paid_at) }} · {{ payment.method?.name }}<template v-if="payment.reference"> · {{ payment.reference }}</template></span>
-                        <span class="font-semibold text-slate-700 dark:text-white">{{ formatMoney(payment.amount) }}</span>
+                        <span class="font-semibold text-foreground">{{ formatMoney(payment.amount) }}</span>
                     </li>
                 </ul>
             </div>
+        </Card>
+
+        <!-- Document remis au patient — toujours une conséquence de la
+             décision de règlement ci-dessus, jamais affiché avant. -->
+        <Card v-if="!closeAfterPrint && !ticketOnly && documentsUnlocked" class="invoice-actions overflow-hidden">
+            <div class="flex items-center gap-3 border-b border-border px-4 py-3">
+                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground"><Printer class="h-4 w-4" /></span>
+                <div>
+                    <h2 class="text-sm font-bold text-foreground">Document à remettre</h2>
+                    <p class="text-xs text-muted-foreground">{{ justSettled ? 'Encaissement enregistré. Choisissez le document acquitté à remettre.' : 'Choisissez le format imprimé remis au patient.' }}</p>
+                </div>
+            </div>
+            <div class="grid gap-3 p-4 sm:grid-cols-2">
+                <button type="button" class="flex items-start gap-3 rounded-xl border border-border p-4 text-start transition hover:border-primary/40 hover:bg-primary/5" @click="printDocument('invoice')">
+                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground"><FileText class="h-5 w-5" /></span>
+                    <span>
+                        <span class="block text-sm font-bold text-foreground">Facture</span>
+                        <span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Format B5 ou enregistrement PDF. Document détaillé complet.</span>
+                    </span>
+                </button>
+                <button type="button" class="flex items-start gap-3 rounded-xl border border-border p-4 text-start transition hover:border-primary/40 hover:bg-primary/5" @click="printDocument('ticket')">
+                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><Printer class="h-5 w-5" /></span>
+                    <span>
+                        <span class="block text-sm font-bold text-foreground">Ticket</span>
+                        <span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Imprimante thermique 80 mm. Remise rapide au guichet.</span>
+                    </span>
+                </button>
+            </div>
+
+            <!-- Le document remis, le guichet enchaîne. Une rangée à part,
+                 en retrait : imprimer et quitter la page ne sont pas deux
+                 choix du même ordre, et les mettre côte à côte dans la
+                 grille ferait cliquer « Nouveau patient » à la place de
+                 « Ticket ». La Card qui les porte est déjà exclue du papier
+                 (`invoice-actions`). -->
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border bg-muted/25 px-4 py-3">
+                <span class="text-xs font-semibold text-muted-foreground">Et ensuite :</span>
+                <Button v-if="can('episodes.create')" :as="Link" href="/reception/patients" size="sm" variant="outline">
+                    <UserRoundPlus class="h-4 w-4" />Nouveau patient
+                </Button>
+                <Button v-if="can('cash.view')" :as="Link" href="/cash" size="sm" variant="outline">
+                    <Wallet class="h-4 w-4" />Caisse
+                </Button>
+                <Button v-if="invoice.patient" :as="Link" :href="`/patients/${invoice.patient.uuid}`" size="sm" variant="ghost">
+                    <UserRound class="h-4 w-4" />Dossier du patient
+                </Button>
+            </div>
+        </Card>
+
+        <!-- Les aperçus suivent le même verrou que l'impression : tant que le
+             mode de règlement n'est pas choisi, il n'y a pas de document à
+             remettre, donc rien à prévisualiser. `invoice-actions` le retire
+             aussi d'une impression déclenchée au clavier. -->
+        <div v-if="!documentsUnlocked" class="invoice-actions rounded-xl border border-dashed border-border bg-muted/25 px-6 py-10 text-center">
+            <span class="mx-auto grid h-11 w-11 place-items-center rounded-full bg-muted text-muted-foreground"><FileText class="h-5 w-5" /></span>
+            <p class="mt-3 text-sm font-bold text-foreground">Le document s’affichera après votre choix</p>
+            <p class="mx-auto mt-1 max-w-md text-xs leading-5 text-muted-foreground">
+                Choisissez « Payer maintenant » ou « Payer plus tard » ci-dessus : la facture et le ticket apparaîtront alors, prêts à imprimer.
+            </p>
         </div>
 
-        <div class="invoice-layout-scroll">
+        <div v-if="documentsUnlocked" class="invoice-layout-scroll">
             <div :class="['invoice-workspace', ticketOnly ? 'invoice-workspace-ticket-only' : '']">
                 <article v-if="!ticketOnly" class="invoice-document overflow-hidden rounded-xl border border-gray-200 bg-white shadow-md ring-1 ring-black/[0.03] dark:border-gray-900 dark:bg-gray-950">
                 <header class="invoice-brand-header border-b border-gray-200 bg-gradient-to-br from-primary-50/70 via-white to-white px-5 py-5 dark:border-gray-900 dark:from-gray-900/40 dark:via-gray-950 dark:to-gray-950 sm:px-6">
@@ -267,6 +626,10 @@ onBeforeUnmount(() => {
                                     <span>NIF : {{ legalDetails.nif || '—' }}</span>
                                     <span>STAT : {{ legalDetails.stat || '—' }}</span>
                                 </div>
+                                <!-- ADR-184 — le compte où régler, quand le site l'a renseigné. -->
+                                <p v-if="legalDetails.bank_account" class="mt-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                    Compte bancaire : <template v-if="legalDetails.bank_name">{{ legalDetails.bank_name }} · </template>{{ legalDetails.bank_account }}
+                                </p>
                             </div>
                         </div>
 
@@ -367,7 +730,7 @@ onBeforeUnmount(() => {
                 <aside class="invoice-ticket-panel overflow-hidden rounded-xl border border-gray-200 bg-white shadow-md dark:border-gray-900 dark:bg-gray-950">
                 <div class="ticket-panel-header flex items-center justify-between gap-3 border-b border-gray-200 bg-gradient-to-r from-primary-50/60 to-white px-3 py-2.5 dark:border-gray-900 dark:from-gray-900/40 dark:to-gray-950">
                     <div class="flex min-w-0 items-center gap-3">
-                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300"><Icon class="text-base" name="printer" /></span>
+                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300"><Printer class="h-4 w-4" /></span>
                         <div class="min-w-0"><h2 class="text-xs font-bold text-slate-700 dark:text-white">Aperçu ticket</h2><p class="text-[10px] text-slate-400">Imprimante thermique</p></div>
                     </div>
                     <span class="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[9px] font-bold text-slate-500 dark:border-gray-800 dark:bg-gray-900">80 mm</span>
@@ -445,12 +808,13 @@ onBeforeUnmount(() => {
 
 .invoice-workspace {
     display: grid;
-    grid-template-columns: minmax(760px, 900px) 360px;
+    /* 1fr, not a capped max: a fixed 900px document next to a 360px ticket
+       left a dead gap in the middle of wide screens. */
+    grid-template-columns: minmax(700px, 1fr) 360px;
     align-items: start;
-    justify-content: space-between;
     gap: 1.25rem;
     width: 100%;
-    min-width: 1140px;
+    min-width: 1100px;
     margin-inline: 0;
 }
 
@@ -462,8 +826,7 @@ onBeforeUnmount(() => {
 
 .invoice-document {
     width: 100%;
-    min-width: 760px;
-    max-width: 900px;
+    min-width: 700px;
 }
 
 .invoice-meta-grid {

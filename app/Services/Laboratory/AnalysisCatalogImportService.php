@@ -7,6 +7,8 @@ use App\Enums\CatalogModule;
 use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
 use App\Models\User;
+use App\Services\Catalog\CatalogActor;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -27,7 +29,7 @@ class AnalysisCatalogImportService
      * @param  array<int, array<string, mixed>>  $rows
      * @return array{created: int, updated: int}
      */
-    public function import(array $rows, User $actor): array
+    public function import(array $rows, User|CatalogActor $actor): array
     {
         if ($rows === []) {
             throw ValidationException::withMessages(['file' => 'Le fichier ne contient aucune ligne à importer.']);
@@ -60,53 +62,27 @@ class AnalysisCatalogImportService
         return DB::transaction(function () use ($normalized, $catalogItems, $actor): array {
             $counts = ['created' => 0, 'updated' => 0];
 
-            foreach (['PARENT', 'NORMAL', 'CHILD'] as $level) {
-                foreach ($normalized->where('level', $level) as $row) {
-                    $catalogItem = $catalogItems->get($row['catalog_item_code']);
-                    $parent = $row['level'] === 'CHILD'
-                        ? AnalysisCatalog::query()->where('code', $row['parent_code'])->first()
-                        : null;
+            $pending = $normalized->keyBy('code');
+            while ($pending->isNotEmpty()) {
+                $processed = collect();
 
-                    if ($row['level'] === 'CHILD' && ! $parent) {
-                        throw ValidationException::withMessages([
-                            'file' => "Ligne {$row['row_number']} : le parent {$row['parent_code']} est introuvable.",
-                        ]);
+                foreach ($pending as $row) {
+                    if ($row['parent_code'] !== '' && $pending->has($row['parent_code'])) {
+                        continue;
                     }
 
-                    $payload = [
-                        'catalog_item_uuid' => $catalogItem->uuid,
-                        'parent_uuid' => $parent?->uuid,
-                        'code' => $row['code'],
-                        'level' => $row['level'],
-                        'designation' => $row['designation'],
-                        'description' => $row['description'],
-                        'result_type' => $row['result_type'],
-                        'reference_general' => $row['reference_general'],
-                        'reference_male' => $row['reference_male'],
-                        'reference_female' => $row['reference_female'],
-                        'reference_child_male' => $row['reference_child_male'],
-                        'reference_child_female' => $row['reference_child_female'],
-                        'unit' => $row['unit'],
-                        'predefined_values' => $row['predefined_values'],
-                        'display_order' => $row['display_order'],
-                        'is_active' => $row['is_active'],
-                    ];
-
-                    $existing = AnalysisCatalog::withTrashed()->where('code', $row['code'])->first();
-                    if ($existing?->trashed()) {
-                        throw ValidationException::withMessages([
-                            'file' => "Ligne {$row['row_number']} : {$row['code']} est archivée et doit être restaurée avant import.",
-                        ]);
-                    }
-
-                    if ($existing) {
-                        $this->manager->update($existing, $payload, $actor);
-                        $counts['updated']++;
-                    } else {
-                        $this->manager->create($payload, $actor);
-                        $counts['created']++;
-                    }
+                    $this->persistRow($row, $catalogItems, $actor, $counts);
+                    $processed->push($row['code']);
                 }
+
+                if ($processed->isEmpty()) {
+                    $row = $pending->first();
+                    throw ValidationException::withMessages([
+                        'file' => "Ligne {$row['row_number']} : la hiérarchie contient un cycle ou un parent impossible à résoudre autour de {$row['code']}.",
+                    ]);
+                }
+
+                $pending = $pending->except($processed->all());
             }
 
             return $counts;
@@ -141,7 +117,11 @@ class AnalysisCatalogImportService
             'catalog_item_code' => ['required', 'string', 'max:60'],
             'code' => ['required', 'string', 'max:80'],
             'level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
-            'parent_code' => [Rule::requiredIf($values['level'] === 'CHILD'), 'nullable', 'string', 'max:80'],
+            'parent_code' => [
+                Rule::requiredIf($values['level'] === AnalysisCatalog::TERMINAL_LEVEL),
+                Rule::prohibitedIf($values['level'] === AnalysisCatalog::STANDALONE_LEVEL),
+                'nullable', 'string', 'max:80',
+            ],
             'designation' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
             'result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
@@ -163,6 +143,61 @@ class AnalysisCatalogImportService
         }
 
         return $values;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @param  Collection<string, CatalogItem>  $catalogItems
+     * @param  array{created: int, updated: int}  $counts
+     */
+    private function persistRow(array $row, $catalogItems, User|CatalogActor $actor, array &$counts): void
+    {
+        $catalogItem = $catalogItems->get($row['catalog_item_code']);
+        $parent = $row['parent_code'] !== ''
+            ? AnalysisCatalog::query()->where('code', $row['parent_code'])->first()
+            : null;
+
+        if ($row['parent_code'] !== '' && ! $parent) {
+            throw ValidationException::withMessages([
+                'file' => "Ligne {$row['row_number']} : le parent {$row['parent_code']} est introuvable.",
+            ]);
+        }
+
+        $payload = [
+            'catalog_item_uuid' => $catalogItem->uuid,
+            'parent_uuid' => $parent?->uuid,
+            'code' => $row['code'],
+            'level' => $row['level'],
+            'designation' => $row['designation'],
+            'description' => $row['description'],
+            'result_type' => $row['result_type'],
+            'reference_general' => $row['reference_general'],
+            'reference_male' => $row['reference_male'],
+            'reference_female' => $row['reference_female'],
+            'reference_child_male' => $row['reference_child_male'],
+            'reference_child_female' => $row['reference_child_female'],
+            'unit' => $row['unit'],
+            'predefined_values' => $row['predefined_values'],
+            'display_order' => $row['display_order'],
+            'is_active' => $row['is_active'],
+        ];
+
+        $existing = AnalysisCatalog::withTrashed()->where('code', $row['code'])->first();
+        if ($existing?->trashed()) {
+            throw ValidationException::withMessages([
+                'file' => "Ligne {$row['row_number']} : {$row['code']} est archivée et doit être restaurée avant import.",
+            ]);
+        }
+
+        if ($existing) {
+            $this->manager->update($existing, $payload, $actor);
+            $counts['updated']++;
+
+            return;
+        }
+
+        $this->manager->create($payload, $actor);
+        $counts['created']++;
     }
 
     private function nullable(mixed $value): ?string

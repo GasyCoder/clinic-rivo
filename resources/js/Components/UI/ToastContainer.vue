@@ -1,4 +1,5 @@
 <script setup>
+import { isAutosaveVisit } from '@/utilities/autosaveVisits';
 import { onBeforeUnmount, onMounted } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Icon from '@/Components/UI/Icon.vue';
@@ -28,6 +29,8 @@ onMounted(() => {
     // this one shared prop (see HandleInertiaRequests) — hooking the toast
     // here covers all of them without touching each form individually.
     stopSuccess = router.on('success', (event) => {
+        // Un enregistrement automatique parle par son statut, pas par un toast.
+        if (isAutosaveVisit()) return;
         const flash = event.detail.page.props.flash;
         const message = flash?.status;
         if (!message) return;
@@ -40,6 +43,7 @@ onMounted(() => {
     // failed form submission. Surface the actual reason (fields already show
     // their own inline error too) instead of a vague generic sentence.
     stopError = router.on('error', (event) => {
+        if (isAutosaveVisit()) return;
         const messages = [...new Set(Object.values(event.detail.errors ?? {}).filter(Boolean))];
 
         if (messages.length === 0) {

@@ -3,8 +3,9 @@
 namespace App\Http\Requests;
 
 use App\Enums\ArrivalPaymentChoice;
-use App\Enums\CatalogItemType;
 use App\Enums\EpisodeFinancialMode;
+use App\Enums\ReceptionCartKind;
+use App\Enums\ReceptionNextStep;
 use App\Enums\StaffCoveragePolicy;
 use App\Models\CatalogItem;
 use App\Models\Episode;
@@ -65,15 +66,19 @@ class StoreEpisodeServicesRequest extends FormRequest
         return [
             'defer_designation' => ['sometimes', 'boolean'],
             'catalog_lines' => ['nullable', 'array', 'max:50'],
+            // ADR-104 — le panier porte deux rayons ; une ligne sans `kind`
+            // est une prestation, comme avant.
+            'catalog_lines.*.kind' => ['sometimes', Rule::enum(ReceptionCartKind::class)],
+            // L'éligibilité propre à chaque rayon est vérifiée par
+            // `ReceptionEstimateService` et les Actions : recopier ici les
+            // garde-fous d'un seul rayon refuserait l'autre sans le dire.
             'catalog_lines.*.catalog_item_uuid' => [
                 'required',
                 'uuid',
                 'distinct',
                 Rule::exists('catalog_items', 'uuid')->where(fn ($query) => $query
                     ->whereNull('deleted_at')
-                    ->where('type', CatalogItemType::Service->value)
-                    ->where('billable', true)
-                    ->where('reception_selectable', true)),
+                    ->where('billable', true)),
             ],
             'catalog_lines.*.quantity' => [
                 'required',
@@ -82,6 +87,11 @@ class StoreEpisodeServicesRequest extends FormRequest
                 'max:9999.99',
                 'decimal:0,2',
             ],
+            // ADR-177 — la prochaine étape suggérée : facultative, plusieurs
+            // choix possibles, jamais une restriction. Aucune case cochée est
+            // une réponse valide ; il n'existe donc aucune règle « required ».
+            'next_steps' => ['sometimes', 'nullable', 'array', 'max:'.count(ReceptionNextStep::cases())],
+            'next_steps.*' => ['string', 'distinct', Rule::enum(ReceptionNextStep::class)],
             'payment_choice' => ['nullable', new Enum(ArrivalPaymentChoice::class)],
             'payment_method_id' => [
                 Rule::prohibitedIf($this->input('payment_choice') !== ArrivalPaymentChoice::Now->value),

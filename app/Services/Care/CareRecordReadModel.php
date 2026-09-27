@@ -44,6 +44,12 @@ class CareRecordReadModel
         ]);
 
         $canViewVitals = $viewer->can('vitals.view');
+        // `read_only` reste vrai : actes, allergies et transmission ne
+        // s'écrivent jamais depuis cette projection. Seules les constantes
+        // s'ouvrent, et seulement à qui possède `vitals.update` — la
+        // Chirurgie ne l'a pas (ADR-048) et garde donc exactement le
+        // comportement qu'elle avait. ADR-093.
+        $canCorrectVitals = $canViewVitals && $viewer->can('vitals.update');
         $canViewAllergies = $viewer->can('patients.medical_history.view');
         $patientAge = $this->patientAgeAtEpisode($record);
         $requestedCatalogUuids = $record->episode?->serviceRequests
@@ -54,6 +60,7 @@ class CareRecordReadModel
             'uuid' => $record->uuid,
             'read_only' => true,
             'can_view_vitals' => $canViewVitals,
+            'can_correct_vitals' => $canCorrectVitals,
             'can_view_allergies' => $canViewAllergies,
             ...($canViewVitals ? [
                 'blood_group' => $record->blood_group,
@@ -62,13 +69,14 @@ class CareRecordReadModel
                 'blood_pressure_assessment' => $this->bloodPressureAssessment->classify(
                     $record->blood_pressure_systolic,
                     $record->blood_pressure_diastolic,
+                    $patientAge,
                 ),
                 'heart_rate' => $record->heart_rate,
                 'heart_rate_assessment' => $this->heartRateAssessment->classify($record->heart_rate, $patientAge),
                 'spo2' => $record->spo2,
                 'spo2_assessment' => $this->oxygenSaturationAssessment->classify($record->spo2),
                 'temperature_celsius' => $record->temperature_celsius,
-                'temperature_assessment' => $this->temperatureAssessment->classify($record->temperature_celsius),
+                'temperature_assessment' => $this->temperatureAssessment->classify($record->temperature_celsius, $patientAge),
                 'known_diabetes' => $record->known_diabetes,
                 'diabetes_note' => $record->diabetes_note,
                 'height_cm' => $record->height_cm,
@@ -79,6 +87,7 @@ class CareRecordReadModel
                     $patientAge,
                 ),
                 'smoker' => $record->smoker,
+                'alcohol' => $record->alcohol,
             ] : []),
             ...($canViewAllergies ? [
                 'allergy_note' => $record->allergy_note,
@@ -87,6 +96,8 @@ class CareRecordReadModel
             'no_procedure_reason' => $record->no_procedure_reason,
             'diagnostic_note' => $record->diagnostic_note,
             'transmission_reason' => $record->transmission_reason,
+            'diagnostic_note_html' => $record->diagnostic_note_html,
+            'transmission_reason_html' => $record->transmission_reason_html,
             'created_by' => $record->creator?->name,
             'updated_by' => $record->updater?->name,
             'updated_at' => $record->updated_at,

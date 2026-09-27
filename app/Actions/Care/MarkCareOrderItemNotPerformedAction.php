@@ -3,9 +3,9 @@
 namespace App\Actions\Care;
 
 use App\Enums\CatalogModule;
-use App\Enums\EpisodeOrientationStatus;
 use App\Models\CareOrderItem;
 use App\Models\User;
+use App\Support\CareHandlerGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -26,10 +26,20 @@ class MarkCareOrderItemNotPerformedAction
 
             $orientation = $locked->careOrder->careOrientation;
 
-            if ($orientation->destination_module !== CatalogModule::Care
-                || $orientation->status !== EpisodeOrientationStatus::InProgress) {
+            if ($orientation->destination_module !== CatalogModule::Care) {
                 throw ValidationException::withMessages([
-                    'care_order_item' => 'Cette prise en charge Soins n’est plus active.',
+                    'care_order_item' => 'Cette orientation ne concerne pas le service Soins.',
+                ]);
+            }
+
+            // Corrigeable après le transfert, comme la fiche elle-même.
+            CareHandlerGuard::ensureEditable($orientation, 'care_order_item');
+
+            CareHandlerGuard::ensureWorkable($orientation, $actor, 'care_order_item');
+
+            if ($locked->isCancelled()) {
+                throw ValidationException::withMessages([
+                    'care_order_item' => 'Cet acte a été retiré par le médecin.',
                 ]);
             }
 

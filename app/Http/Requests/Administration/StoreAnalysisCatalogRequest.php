@@ -37,6 +37,7 @@ class StoreAnalysisCatalogRequest extends FormRequest
             'level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
             'designation' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
+            'exam_category' => ['nullable', 'string', 'max:100'],
             'result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
             'reference_general' => ['nullable', 'string', 'max:255'],
             'reference_male' => ['nullable', 'string', 'max:255'],
@@ -48,6 +49,54 @@ class StoreAnalysisCatalogRequest extends FormRequest
             'predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],
             'display_order' => ['required', 'integer', 'min:0', 'max:10000'],
             'is_active' => ['required', 'boolean'],
+            'is_bold' => ['sometimes', 'boolean'],
+            // Inline sub-analyses edited alongside their group (one level —
+            // a deeper nested group still goes through the normal parent
+            // picker). Uniqueness of children.*.code is left to
+            // AnalysisCatalogManager's own DB-level guard: a dynamic
+            // per-index "ignore self" unique rule isn't expressible here.
+            'children' => ['sometimes', 'array', 'max:60'],
+            'children.*.uuid' => ['nullable', 'uuid'],
+            'children.*.code' => ['required', 'string', 'max:80'],
+            'children.*.level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
+            'children.*.designation' => ['required', 'string', 'max:255'],
+            'children.*.description' => ['nullable', 'string', 'max:2000'],
+            'children.*.exam_category' => ['nullable', 'string', 'max:100'],
+            'children.*.result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
+            'children.*.reference_general' => ['nullable', 'string', 'max:255'],
+            'children.*.reference_male' => ['nullable', 'string', 'max:255'],
+            'children.*.reference_female' => ['nullable', 'string', 'max:255'],
+            'children.*.reference_child_male' => ['nullable', 'string', 'max:255'],
+            'children.*.reference_child_female' => ['nullable', 'string', 'max:255'],
+            'children.*.unit' => ['nullable', 'string', 'max:60'],
+            'children.*.predefined_values' => ['nullable', 'array', 'max:30'],
+            'children.*.predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],
+            'children.*.display_order' => ['nullable', 'integer', 'min:0', 'max:10000'],
+            'children.*.is_active' => ['sometimes', 'boolean'],
+            'children.*.is_bold' => ['sometimes', 'boolean'],
+            // A sub-analysis can itself be a group with its own sub-analyses
+            // (grandchildren) — the inline editor goes exactly one level
+            // deeper than children.*; a third level still goes through the
+            // normal parent picker as a separate entry.
+            'children.*.children' => ['sometimes', 'array', 'max:60'],
+            'children.*.children.*.uuid' => ['nullable', 'uuid'],
+            'children.*.children.*.code' => ['required', 'string', 'max:80'],
+            'children.*.children.*.level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
+            'children.*.children.*.designation' => ['required', 'string', 'max:255'],
+            'children.*.children.*.description' => ['nullable', 'string', 'max:2000'],
+            'children.*.children.*.exam_category' => ['nullable', 'string', 'max:100'],
+            'children.*.children.*.result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
+            'children.*.children.*.reference_general' => ['nullable', 'string', 'max:255'],
+            'children.*.children.*.reference_male' => ['nullable', 'string', 'max:255'],
+            'children.*.children.*.reference_female' => ['nullable', 'string', 'max:255'],
+            'children.*.children.*.reference_child_male' => ['nullable', 'string', 'max:255'],
+            'children.*.children.*.reference_child_female' => ['nullable', 'string', 'max:255'],
+            'children.*.children.*.unit' => ['nullable', 'string', 'max:60'],
+            'children.*.children.*.predefined_values' => ['nullable', 'array', 'max:30'],
+            'children.*.children.*.predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],
+            'children.*.children.*.display_order' => ['nullable', 'integer', 'min:0', 'max:10000'],
+            'children.*.children.*.is_active' => ['sometimes', 'boolean'],
+            'children.*.children.*.is_bold' => ['sometimes', 'boolean'],
         ];
     }
 

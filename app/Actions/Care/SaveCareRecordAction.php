@@ -10,12 +10,12 @@ use App\Enums\BillableItemStatus;
 use App\Enums\CareCompletionMode;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
-use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
 use App\Models\AllergenReference;
 use App\Models\CareOrderItem;
 use App\Models\CareRecord;
+use App\Models\CareRecordDraft;
 use App\Models\CatalogItem;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
@@ -23,7 +23,10 @@ use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\PatientAllergy;
 use App\Models\User;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
+use App\Support\CareHandlerGuard;
 use App\Support\CareWorkflow;
+use App\Support\VitalSignRules;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
@@ -38,14 +41,20 @@ class SaveCareRecordAction
         private readonly CareWorkflow $careWorkflow,
         private readonly RecordBillableItemAction $recordBillableItem,
         private readonly AttachBillableItemToUnpaidInvoiceAction $attachToUnpaidInvoice,
+        private readonly RequestCareConsumablesAction $requestConsumables,
+        private readonly ClinicalRichTextSanitizer $richText,
     ) {}
 
     /**
      * @param  array<string, mixed>  $data
      */
-    public function execute(EpisodeOrientation $orientation, array $data, User $actor): CareRecord
-    {
-        return DB::transaction(function () use ($orientation, $data, $actor): CareRecord {
+    public function execute(
+        EpisodeOrientation $orientation,
+        array $data,
+        User $actor,
+        ?CareCompletionMode $destination = null,
+    ): CareRecord {
+        return DB::transaction(function () use ($orientation, $data, $actor, $destination): CareRecord {
             $locked = EpisodeOrientation::query()
                 ->with(['episode.careRecord', 'episode.patient.allergies', 'episode.serviceRequests'])
                 ->lockForUpdate()
@@ -55,16 +64,35 @@ class SaveCareRecordAction
                 throw new InvalidArgumentException('Cette orientation ne concerne pas le service Soins.');
             }
 
-            if ($locked->status !== EpisodeOrientationStatus::InProgress
-                || $locked->episode->status !== EpisodeStatus::Open) {
+            // Corrigeable pendant ET après le transfert vers Médecine, par
+            // tout compte Soins autorisé (décision du 2026-09-15, amende
+            // l'ADR-085). Le passage doit rester ouvert : une fois clos par
+            // la sortie administrative (ADR-090), plus rien ne s'y écrit.
+            CareHandlerGuard::ensureEditable($locked, 'care_record');
+
+            if ($locked->episode->status !== EpisodeStatus::Open) {
                 throw ValidationException::withMessages([
-                    'care_record' => 'La fiche est modifiable uniquement pendant une prise en charge active aux Soins.',
+                    'care_record' => 'Ce passage est clos : la fiche n’est plus modifiable.',
                 ]);
             }
 
-            $this->guardWorkflowFields($locked->episode, $data);
+            // Terminer les soins reste un acte unique : une fiche déjà
+            // transférée se corrige, elle ne se re-transfère pas. Cette
+            // garde-là vit dans CompleteCareAndOrientToMedicineAction, qui
+            // conserve `ensureWorkable()` et refuse une orientation déjà
+            // terminée (ADR-085) — la dupliquer ici la ferait diverger.
+
+            $this->guardWorkflowFields($locked->episode, $data, $destination);
 
             $procedures = collect($data['procedures'] ?? []);
+            $consumables = collect($data['consumables'] ?? [])
+                ->filter(fn ($line) => filled($line['medicine_uuid'] ?? null))
+                ->values();
+
+            if ($consumables->isNotEmpty() && ! $actor->can('care_consumables.request')) {
+                throw new AuthorizationException('Vous ne pouvez pas déclarer de consommables aux Soins.');
+            }
+
             $attributes = $this->recordAttributes($data);
             $attributes = $this->appendAllergyAttributes(
                 $attributes,
@@ -76,6 +104,7 @@ class SaveCareRecordAction
 
             if ($locked->episode->careRecord === null
                 && $procedures->isEmpty()
+                && $consumables->isEmpty()
                 && collect($attributes)->every(fn ($value) => $value === null)) {
                 throw ValidationException::withMessages([
                     'care_record' => 'Renseignez au moins une information ou un acte réalisé.',
@@ -108,6 +137,29 @@ class SaveCareRecordAction
                     ->pluck('catalog_item_uuid'),
             );
 
+            // ADR-072 — the material used is part of the same gesture as the
+            // act: one submission, one save. Declaring it here is what
+            // notifies Pharmacy, so it can never be lost by finishing the
+            // visit before a second, separate button was pressed.
+            if ($consumables->isNotEmpty()) {
+                $this->requestConsumables->execute(
+                    $locked,
+                    [
+                        'lines' => $consumables->all(),
+                        'notes' => $data['consumable_notes'] ?? null,
+                    ],
+                    $actor,
+                    $record,
+                );
+            }
+
+            // The typing has become a real record: its draft has no reason
+            // to survive and must never be restored over saved data.
+            CareRecordDraft::query()
+                ->where('episode_orientation_id', $locked->getKey())
+                ->where('created_by', $actor->getKey())
+                ->delete();
+
             return $record->fresh(['procedures.performer', 'creator', 'updater']);
         });
     }
@@ -127,7 +179,7 @@ class SaveCareRecordAction
             'blood_pressure_systolic', 'blood_pressure_diastolic',
             'heart_rate', 'spo2',
             'temperature_celsius', 'known_diabetes', 'diabetes_note',
-            'height_cm', 'weight_kg', 'smoker',
+            'height_cm', 'weight_kg', 'smoker', 'alcohol',
         ];
 
         if (collect($vitalFields)->contains(fn (string $field) => array_key_exists($field, $data))) {
@@ -146,22 +198,23 @@ class SaveCareRecordAction
                 'diabetes_note' => $knownDiabetes === true ? $this->nullableText($data['diabetes_note'] ?? null) : null,
                 'height_cm' => $height,
                 'weight_kg' => $weight,
-                'bmi' => $this->calculateBmi($height, $weight),
+                'bmi' => VitalSignRules::bmi($height, $weight),
                 'smoker' => array_key_exists('smoker', $data) ? $data['smoker'] : null,
+                'alcohol' => array_key_exists('alcohol', $data) ? $data['alcohol'] : null,
             ];
         }
 
         return $attributes + (array_key_exists('allergy_note', $data) ? [
             'allergy_note' => $this->nullableText($data['allergy_note']),
         ] : []) + (array_key_exists('diagnostic_note', $data) ? [
-            'diagnostic_note' => $this->nullableText($data['diagnostic_note']),
+            'diagnostic_note' => $this->richNote($data['diagnostic_note']),
         ] : []) + (array_key_exists('transmission_reason', $data) ? [
-            'transmission_reason' => $this->nullableText($data['transmission_reason']),
+            'transmission_reason' => $this->richNote($data['transmission_reason']),
         ] : []);
     }
 
     /** @param array<string, mixed> $data */
-    private function guardWorkflowFields(Episode $episode, array $data): void
+    private function guardWorkflowFields(Episode $episode, array $data, ?CareCompletionMode $destination = null): void
     {
         foreach (['hospitalization_reason', 'hospitalized_at', 'discharged_at'] as $field) {
             if (filled($data[$field] ?? null)) {
@@ -171,7 +224,7 @@ class SaveCareRecordAction
             }
         }
 
-        if (! $this->careWorkflow->expectsMedicalTransmission($episode)
+        if (! $this->careWorkflow->expectsMedicalTransmission($episode, $destination)
             && (filled($data['diagnostic_note'] ?? null) || filled($data['transmission_reason'] ?? null))) {
             throw ValidationException::withMessages([
                 'transmission_reason' => 'Ce parcours se termine aux Soins et ne prévoit pas de transmission vers Médecine.',
@@ -381,6 +434,12 @@ class SaveCareRecordAction
                 ]);
             }
 
+            if ($careOrderItem?->isCancelled()) {
+                throw ValidationException::withMessages([
+                    "procedures.{$index}.care_order_item_uuid" => 'Cet acte a été retiré par le médecin.',
+                ]);
+            }
+
             if ($careOrderItem && (float) $procedure['quantity'] > (float) $careOrderItem->remainingQuantity()) {
                 throw ValidationException::withMessages([
                     "procedures.{$index}.quantity" => 'La quantité dépasse ce qui reste à réaliser pour cet acte demandé.',
@@ -482,15 +541,15 @@ class SaveCareRecordAction
         }
     }
 
-    private function calculateBmi(int|float|string|null $height, int|float|string|null $weight): ?string
+    /**
+     * Note de transmission en texte riche : assainie, et un éditeur vidé
+     * (`<p><br></p>`) redevient une absence, jamais une chaîne de balises.
+     */
+    private function richNote(mixed $value): ?string
     {
-        if ($height === null || $weight === null || (float) $height <= 0 || (float) $weight <= 0) {
-            return null;
-        }
+        $clean = $this->richText->sanitize((string) ($value ?? ''));
 
-        $heightInMeters = (float) $height / 100;
-
-        return number_format((float) $weight / ($heightInMeters ** 2), 2, '.', '');
+        return $this->richText->isBlank($clean) ? null : $clean;
     }
 
     private function nullableText(mixed $value): ?string

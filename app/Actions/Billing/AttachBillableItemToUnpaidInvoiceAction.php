@@ -6,6 +6,7 @@ use App\Enums\BillableItemStatus;
 use App\Enums\InvoiceStatus;
 use App\Models\BillableItem;
 use App\Models\Invoice;
+use App\Services\Billing\InvoiceDiscountTotals;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -92,6 +93,12 @@ class AttachBillableItemToUnpaidInvoiceAction
             $invoice->total_amount = Money::fromMinor($patientMinor);
             $invoice->balance_amount = Money::fromMinor($patientMinor);
             $invoice->save();
+
+            // ADR-192 — une remise déjà posée suit la nouvelle part patient : un
+            // pourcentage se recalcule, un montant reste plafonné à ce qui est dû.
+            if ($invoice->activeDiscount()->exists()) {
+                InvoiceDiscountTotals::refresh($invoice);
+            }
 
             return $invoice->refresh();
         });

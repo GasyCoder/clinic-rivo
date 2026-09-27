@@ -7,6 +7,7 @@ use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodePriority;
 use App\Enums\PatientType;
+use App\Enums\ReceptionNextStep;
 use App\Enums\ReceptionPatientStep;
 use App\Exceptions\DuplicatePatientException;
 use App\Http\Requests\StoreArrivalRequest;
@@ -18,6 +19,7 @@ use App\Models\Patient;
 use App\Models\VisitorVisit;
 use App\Services\Reception\ReceptionEstimateService;
 use App\Services\Reception\ReceptionFinancialPreviewService;
+use App\Support\Reception\PatientSearchPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -34,9 +36,19 @@ class ReceptionController extends Controller
 
     public function index(Request $request): Response
     {
+        // Les arrivées du jour, pas l'historique.
+        //
+        // Cette liste est un pense-bête d'accueil : « qui vient d'arriver ? ».
+        // Sans borne, elle affichait encore avant-hier, si bien qu'un passage
+        // vieux de trois jours se lisait comme une arrivée récente.
+        //
+        // Ce n'est qu'un filtre d'affichage : aucun passage n'est modifié ni
+        // supprimé. Un passage plus ancien reste entier dans le dossier du
+        // patient, dans « Sorties & règlements » et dans la recherche.
         $recentEpisodes = $request->user()->can('episodes.view')
             ? Episode::query()
                 ->with('patient:id,uuid,patient_number,first_name,last_name,deleted_at')
+                ->where('started_at', '>=', now()->subDay())
                 ->latest('started_at')
                 ->limit(8)
                 ->get([
@@ -180,6 +192,13 @@ class ReceptionController extends Controller
                 'service_plan_finalized_at', 'started_at',
             ]);
 
+        // Voir le rayon et le vendre sont le même geste ici : proposer une
+        // boîte qu'on ne pourra pas transmettre à la Caisse ne servirait
+        // qu'à faire échouer la confirmation après la saisie du dossier.
+        $canSellMedicines = $request->user()->can('medicines.view')
+            && $request->user()->can('stock.availability.view')
+            && $request->user()->can('pharmacy.counter_sales.create');
+
         $draft = $episode?->receptionJourneyDraft;
         $draftLines = $draft?->catalog_lines ?? [];
         $financialPreview = $episode?->financial_mode !== null && $draftLines !== []
@@ -202,6 +221,11 @@ class ReceptionController extends Controller
                 ? PartnerOrganization::query()->where('active', true)->orderBy('name')->get(['uuid', 'name'])
                 : [],
             'estimateCatalog' => $this->estimates->catalog(),
+            // ADR-104 — le second rayon du panier. Vide sans le droit de
+            // lecture : un écran qui listerait des médicaments qu'on n'a
+            // pas le droit de voir serait pire qu'un écran qui n'en
+            // propose aucun.
+            'pharmacyCatalog' => $canSellMedicines ? $this->estimates->pharmacyCatalog() : [],
             'resumeEpisode' => $episode ? [
                 'uuid' => $episode->uuid,
                 'episode_number' => $episode->episode_number,
@@ -228,6 +252,9 @@ class ReceptionController extends Controller
                     'partner_organization_uuid' => $episode->partnerCoverage->organization_uuid_snapshot,
                 ] : null,
             ] : null,
+            // ADR-177 — la prochaine étape suggérée : la liste vient du serveur,
+            // l'écran ne la recopie pas. Aucun choix n'est obligatoire.
+            'nextStepOptions' => ReceptionNextStep::options(),
             'receptionDraft' => $draft ? [
                 'catalog_lines' => $draftLines,
                 'designation_deferred' => $draft->designation_deferred,
@@ -236,12 +263,13 @@ class ReceptionController extends Controller
             'capabilities' => [
                 'can_create_patient' => $request->user()->can('patients.create'),
                 'can_update_patient' => $request->user()->can('patients.update'),
+                'can_create_address' => $request->user()->can('address_entries.create'),
                 'can_use_mutual' => $request->user()->can('mutual_organizations.view'),
                 'can_use_partner' => $request->user()->can('partner_organizations.view'),
                 'can_create_partner' => $request->user()->can('partner_organizations.create'),
                 'can_use_staff' => $request->user()->can('employees.patient_lookup'),
                 'can_link_staff' => $request->user()->can('patient_staff_links.create'),
-                'can_open_pharmacy_counter_sale' => $request->user()->can('pharmacy.counter_sales.create'),
+                'can_sell_medicines' => $canSellMedicines,
                 'can_manage_catalog' => $request->user()->can('catalog.items.view'),
                 'can_mark_emergency' => $episode !== null
                     && $episode->priority !== EpisodePriority::Emergency
@@ -279,6 +307,10 @@ class ReceptionController extends Controller
                 $estimated = $this->estimates->estimate($receptionDraft['catalog_lines']);
                 $receptionDraft['catalog_lines'] = collect($estimated['lines'])
                     ->map(fn (array $line) => [
+                        // ADR-104 — sans `kind`, une reprise de brouillon
+                        // relirait un médicament comme une prestation et le
+                        // routerait vers une file clinique.
+                        'kind' => $line['kind'],
                         'catalog_item_uuid' => $line['catalog_item_uuid'],
                         'quantity' => $line['quantity'],
                     ])
@@ -370,19 +402,6 @@ class ReceptionController extends Controller
     /** @return array<string, mixed> */
     private function patientSearchPayload(Patient $patient): array
     {
-        return [
-            'uuid' => $patient->uuid,
-            'patient_number' => $patient->patient_number,
-            'patient_type' => $patient->patient_type->value,
-            'first_name' => $patient->first_name,
-            'last_name' => $patient->last_name,
-            'birth_date' => $patient->birth_date?->toDateString(),
-            'birth_date_is_approximate' => $patient->birth_date_is_approximate,
-            'declared_age' => $patient->declared_age,
-            'age' => $patient->birth_date?->age ?? $patient->declared_age,
-            'sex' => $patient->sex->value,
-            'phone' => $patient->phone,
-            'email' => $patient->email,
-        ];
+        return PatientSearchPayload::make($patient);
     }
 }

@@ -3,13 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Services\SuperAdmin\PortalDirectory;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class SuperAdminController extends Controller
 {
-    public function site(Request $request, string $site, PortalDirectory $directory): Response
+    public function site(Request $request, string $site, PortalDirectory $directory): Response|RedirectResponse
     {
         $siteData = $directory->site($site);
         $requestedModule = mb_strtoupper((string) $request->query('module', 'OVERVIEW'));
@@ -17,15 +18,30 @@ class SuperAdminController extends Controller
 
         abort_unless($module, 404);
 
+        // ADR-187 / ADR-189 — un ancien lien vers la vitrine RH ou Pharmacie
+        // mène aux écrans du site.
+        if ($module['code'] === 'HR') {
+            return redirect()->route('super-admin.sites.hr', ['site' => $siteData['code']]);
+        }
+
+        if ($module['code'] === 'PHARMACY') {
+            return redirect()->route('super-admin.sites.pharmacy', ['site' => $siteData['code']]);
+        }
+
         return Inertia::render('SuperAdmin/Sites/Show', [
             'clinic' => $siteData,
             'selectedModule' => $module,
         ]);
     }
 
-    public function workspace(string $workspace, PortalDirectory $directory): Response
+    public function workspace(string $workspace, PortalDirectory $directory): Response|RedirectResponse
     {
         $code = mb_strtoupper($workspace);
+
+        // ADR-184 — les paramètres ont leur écran : un ancien lien y mène.
+        if ($code === 'SETTINGS') {
+            return redirect()->route('super-admin.settings.index');
+        }
         $permission = match ($code) {
             'FINANCE' => 'reports.financial.view',
             'HR' => 'employees.view',
@@ -34,7 +50,6 @@ class SuperAdminController extends Controller
             'TARIFFS' => 'catalog.items.view',
             'USERS' => 'users.view',
             'ROLES' => 'roles.view',
-            'SETTINGS' => 'settings.view',
             'AUDIT' => 'audit.view',
             default => abort(404),
         };

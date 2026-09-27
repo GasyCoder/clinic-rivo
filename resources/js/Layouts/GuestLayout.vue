@@ -1,26 +1,18 @@
 <script setup>
 import { useThemeSync } from '@/composables/useThemeSync';
-import Icon from '@/Components/UI/Icon.vue';
+import ThemeModeSwitcher from '@/Components/Layout/ThemeModeSwitcher.vue';
 import ToastContainer from '@/Components/UI/ToastContainer.vue';
 
-const { theme } = useThemeSync();
+useThemeSync();
 </script>
 
 <template>
-    <div class="nk-main">
+    <div class="flex min-h-screen flex-col">
         <ToastContainer />
-        <div class="nk-wrap flex flex-col min-h-screen">
-            <button
-                type="button"
-                class="fixed bottom-5 start-5 z-30 inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/35 bg-primary-950/55 text-white shadow-sm transition-colors duration-300 hover:bg-primary-950/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-                :title="theme.mode === 'dark' ? 'Mode clair' : 'Mode sombre'"
-                :aria-label="theme.mode === 'dark' ? 'Activer le mode clair' : 'Activer le mode sombre'"
-                @click="theme.updateMode"
-            >
-                <Icon :name="theme.mode === 'dark' ? 'sun' : 'moon'" class="text-lg leading-none" />
-            </button>
 
-            <slot />
-        </div>
+        <!-- Clair, Système (l'appareil) ou Sombre, avant même la connexion. -->
+        <ThemeModeSwitcher variant="floating" class="fixed bottom-5 start-5 z-30" />
+
+        <slot />
     </div>
 </template>

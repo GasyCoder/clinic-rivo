@@ -1,35 +1,77 @@
 <script setup>
+import { computed } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
+import { CalendarPlus, ShieldCheck, UserPlus } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import PageHeader from '@/Components/UI/PageHeader.vue';
+import HrFigures from '@/Components/Administration/HrFigures.vue';
+import HrAreaBoard from '@/Components/Administration/HrAreaBoard.vue';
+import HrDepartmentHeadcount from '@/Components/Administration/HrDepartmentHeadcount.vue';
 import { usePermissions } from '@/composables/usePermissions';
+import { HR_SITE_BASE } from '@/utilities/hrPath';
+import { hrContext, hrUrl } from '@/utilities/hrUrl';
 
 defineOptions({ layout: AppLayout });
 
+/**
+ * L'accueil RH d'un site (ADR-066), le même sur le site et sur le portail
+ * (ADR-187) : ce qui attend une décision, l'effectif, puis chaque rubrique.
+ * La grille des rubriques est partagée avec la page RH du portail (ADR-194).
+ */
+const props = defineProps({
+    summary: { type: Object, required: true },
+    siteName: String,
+    departments: { type: Array, default: () => [] },
+});
+
 const { can } = usePermissions();
 
-const areas = [
-    { title: 'Employés & RH', description: 'Crédit forfaitaire Bloc et registre des mouvements du personnel.', icon: 'users', permission: 'staff_block_credits.view', link: '/administration/staff-block-credits' },
-    { title: 'Caisses', description: 'Caisses nommées du site — une seule reste ouverte à la fois, la Réception choisit laquelle.', icon: 'wallet', permission: 'cash_registers.view', link: '/administration/cash-registers' },
-    { title: 'Diagnostics', description: 'Référentiel clinique utilisé par la recherche rapide des médecins.', icon: 'clipboard', permission: 'diagnostic_catalog.view', link: '/administration/diagnostics' },
-    { title: 'Analyses laboratoire', description: 'Paramètres, unités et valeurs de référence du catalogue Laboratoire.', icon: 'activity', permission: 'analysis_catalog.view', link: '/administration/analyses' },
-    { title: 'Contrats', description: 'Contrats et archivage administratif.', icon: 'file-docs', permission: 'contracts.view' },
-    { title: 'Présences & congés', description: 'Présences, absences et demandes de congé.', icon: 'calendar', permission: 'attendance.view' },
-    { title: 'Planning', description: 'Organisation des équipes et services.', icon: 'calender-date', permission: 'planning.view' },
-    { title: 'Rapports RH', description: 'Indicateurs et exports administratifs.', icon: 'reports', permission: 'hr_reports.view' },
-];
+// A figure the account may not open is hidden, exactly as on the portal.
+const visibleSummary = computed(() => ({
+    ...props.summary,
+    current_contracts: can('contracts.view') ? props.summary.current_contracts : null,
+    contracts_ending_soon: can('contracts.view') ? props.summary.contracts_ending_soon : null,
+    today_attendance: can('attendance.view') ? props.summary.today_attendance : null,
+    open_attendance: can('attendance.view') ? props.summary.open_attendance : null,
+    pending_leave: can('leave.view') ? props.summary.pending_leave : null,
+    on_leave_today: can('leave.view') ? props.summary.on_leave_today : null,
+    upcoming_shifts: can('planning.view') ? props.summary.upcoming_shifts : null,
+}));
 </script>
 
 <template>
-    <Head title="Administration" />
-    <div class="w-full space-y-5">
-        <header><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Gestion interne</p><h1 class="mt-1 font-heading text-2xl font-bold text-slate-700 dark:text-white">Ressources humaines</h1><p class="mt-1 text-sm text-slate-500">Employés, contrats, présences, congés et planning. Logistique et Gardiennage disposent de leurs propres espaces.</p></header>
-        <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <template v-for="area in areas" :key="area.title">
-                <Link v-if="can(area.permission) && area.link" :href="area.link" class="rounded-lg border border-gray-200 bg-white p-5 transition-colors hover:border-slate-300 dark:border-gray-900 dark:bg-gray-950 dark:hover:border-gray-700"><Icon class="text-xl text-slate-400" :name="area.icon" /><h2 class="mt-4 text-sm font-bold text-slate-700 dark:text-white">{{ area.title }}</h2><p class="mt-1 text-xs leading-5 text-slate-500">{{ area.description }}</p></Link>
-                <article v-else-if="can(area.permission)" class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950"><div class="flex items-start justify-between"><Icon class="text-xl text-slate-400" :name="area.icon" /><span class="rounded bg-gray-100 px-2 py-1 text-[10px] font-medium text-slate-400 dark:bg-gray-900">À construire</span></div><h2 class="mt-4 text-sm font-bold text-slate-700 dark:text-white">{{ area.title }}</h2><p class="mt-1 text-xs leading-5 text-slate-500">{{ area.description }}</p></article>
+    <Head title="Accueil RH" />
+
+    <div class="w-full space-y-6">
+        <PageHeader
+            eyebrow="Ressources humaines"
+            :title="`Accueil RH · ${siteName}`"
+            description="Le travail RH du site : ce qui attend une décision, l’effectif, puis chaque tâche en un clic."
+            icon="briefcase"
+            tone="primary"
+        >
+            <template #actions>
+                <Button v-if="can('leave.create')" :as="Link" :href="hrUrl('/administration/leave/create')" variant="outline">
+                    <CalendarPlus class="h-4 w-4" />Demande de congé
+                </Button>
+                <Button v-if="can('employees.create')" :as="Link" :href="hrUrl('/administration/employees/create')">
+                    <UserPlus class="h-4 w-4" />Nouvel employé
+                </Button>
             </template>
+        </PageHeader>
+
+        <section aria-labelledby="hr-figures-title">
+            <h2 id="hr-figures-title" class="mb-3 font-heading text-base font-bold text-foreground">Aujourd’hui</h2>
+            <HrFigures :summary="visibleSummary" linkable />
         </section>
-        <div class="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-900 dark:bg-gray-950"><Icon class="mt-0.5 text-lg text-slate-400" name="shield-check" /><p class="text-xs leading-5 text-slate-500">Le rôle Administration ne reçoit plus les droits de gestion des utilisateurs, rôles ou permissions. Une délégation éventuelle doit être individuelle, explicite et auditée.</p></div>
+
+        <HrAreaBoard :summary="visibleSummary" :base="hrContext()?.base ?? HR_SITE_BASE" />
+
+        <HrDepartmentHeadcount :departments="departments" :site-name="siteName" :can-create="can('employees.create')" />
+
+        <p class="flex items-start gap-2 px-1 text-xs text-muted-foreground">
+            <ShieldCheck class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />Les dossiers RH restent sur ce site. Le Super Administrateur les gère aussi depuis le portail, par l’API du site : mêmes règles, et chaque modification tracée à son nom. Aucune paie n’est calculée automatiquement.
+        </p>
     </div>
 </template>

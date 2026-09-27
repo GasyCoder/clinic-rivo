@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,7 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'heart_rate', 'spo2',
     'temperature_celsius', 'known_diabetes', 'diabetes_note',
     'height_cm', 'weight_kg', 'bmi',
-    'allergy_note', 'allergy_snapshot', 'smoker', 'no_procedure_reason',
+    'allergy_note', 'allergy_snapshot', 'smoker', 'alcohol', 'no_procedure_reason',
     'hospitalization_reason', 'hospitalized_at',
     'discharged_at', 'diagnostic_note', 'transmission_reason',
     'created_by', 'updated_by',
@@ -28,6 +29,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class CareRecord extends Model
 {
     use Auditable, HasUuid;
+
+    /** Les notes de transmission se lisent en HTML assaini ; la valeur brute sert l'éditeur. */
+    protected $appends = ['diagnostic_note_html', 'transmission_reason_html'];
+
+    public function getDiagnosticNoteHtmlAttribute(): ?string
+    {
+        return app(ClinicalRichTextSanitizer::class)->displayHtml($this->diagnostic_note);
+    }
+
+    public function getTransmissionReasonHtmlAttribute(): ?string
+    {
+        return app(ClinicalRichTextSanitizer::class)->displayHtml($this->transmission_reason);
+    }
 
     protected function casts(): array
     {
@@ -43,6 +57,7 @@ class CareRecord extends Model
             'bmi' => 'decimal:2',
             'allergy_snapshot' => 'array',
             'smoker' => 'boolean',
+            'alcohol' => 'boolean',
             'hospitalized_at' => 'datetime',
             'discharged_at' => 'datetime',
         ];

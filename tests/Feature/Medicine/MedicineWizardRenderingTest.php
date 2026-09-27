@@ -26,6 +26,75 @@ class MedicineWizardRenderingTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * Interrogatoire (« consultation ») and Examen clinique (« examen ») are
+     * now two real, separately-saved steps of the wizard — the 2026-09-12
+     * requirement that reversed the earlier merge. Both URLs render their
+     * own screen; neither redirects to the other.
+     */
+    public function test_the_examen_step_renders_its_own_screen_without_redirecting(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->normalMedicineConsultation($doctor);
+
+        $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/examen")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Medicine/Show')
+                ->where('current_step', 'examen')
+            );
+    }
+
+    public function test_saving_the_interview_never_touches_the_clinical_exam(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->normalMedicineConsultation($doctor);
+
+        $this->actingAs($doctor)
+            ->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
+                'clinical_exam' => '<p>Nuque souple, pas de déficit</p>',
+            ])
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/paraclinique");
+
+        $this->actingAs($doctor)
+            ->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+                'chief_complaint' => 'Douleur abdominale',
+                'reason' => '<p>Céphalées depuis trois jours</p>',
+                'current_treatments' => [],
+            ])
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
+
+        $this->assertSame(
+            ['<p>Céphalées depuis trois jours</p>', '<p>Nuque souple, pas de déficit</p>'],
+            [$orientation->consultation()->firstOrFail()->reason, $orientation->consultation()->firstOrFail()->clinical_exam],
+        );
+    }
+
+    public function test_saving_the_clinical_exam_never_touches_the_interview(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->normalMedicineConsultation($doctor);
+
+        $this->actingAs($doctor)
+            ->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+                'chief_complaint' => 'Douleur abdominale',
+                'reason' => '<p>Céphalées depuis trois jours</p>',
+                'current_treatments' => [],
+            ])
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
+
+        $this->actingAs($doctor)
+            ->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
+                'clinical_exam' => '<p>Nuque souple, pas de déficit</p>',
+            ])
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/paraclinique");
+
+        $consultation = $orientation->consultation()->firstOrFail();
+        $this->assertSame('<p>Céphalées depuis trois jours</p>', $consultation->reason);
+        $this->assertSame('<p>Nuque souple, pas de déficit</p>', $consultation->clinical_exam);
+    }
+
     public function test_paraclinique_step_exposes_lab_and_imaging_catalog_and_capabilities(): void
     {
         $doctor = $this->doctor();
@@ -57,7 +126,7 @@ class MedicineWizardRenderingTest extends TestCase
             'items' => [['catalog_item_uuid' => $ecg->uuid]],
             'notes' => 'Douleur thoracique',
             'continue_to_diagnosis' => true,
-        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/diagnostic");
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/ordonnance");
 
         $item = ImagingRequestItem::query()->sole();
         $this->assertSame($episode->id, $item->imagingRequest->episode_id);
@@ -98,13 +167,13 @@ class MedicineWizardRenderingTest extends TestCase
             );
     }
 
-    public function test_decision_step_exposes_all_referral_capabilities_and_surgery_catalog(): void
+    public function test_closure_step_exposes_all_referral_capabilities_and_surgery_catalog(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->normalMedicineConsultation($doctor);
 
         $this->actingAs($doctor)
-            ->get("/medicine/orientations/{$orientation->uuid}/decision")
+            ->get("/medicine/orientations/{$orientation->uuid}/cloture")
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Medicine/Show')
@@ -131,7 +200,7 @@ class MedicineWizardRenderingTest extends TestCase
         [, $orientation] = $this->normalMedicineConsultation($doctor);
 
         $this->actingAs($nurse)
-            ->get("/medicine/orientations/{$orientation->uuid}/decision")
+            ->get("/medicine/orientations/{$orientation->uuid}/cloture")
             ->assertForbidden();
     }
 
@@ -160,7 +229,7 @@ class MedicineWizardRenderingTest extends TestCase
         [, $orientation] = $this->normalMedicineConsultation($doctor);
 
         $this->actingAs($doctor)
-            ->get("/medicine/orientations/{$orientation->uuid}/decision")
+            ->get("/medicine/orientations/{$orientation->uuid}/cloture")
             ->assertInertia(fn ($page) => $page
                 ->where('capabilities.can_defer_decision', false)
                 ->where('pending_reasons', [])
@@ -172,7 +241,7 @@ class MedicineWizardRenderingTest extends TestCase
         ]);
 
         $this->actingAs($doctor)
-            ->get("/medicine/orientations/{$orientation->uuid}/decision")
+            ->get("/medicine/orientations/{$orientation->uuid}/cloture")
             ->assertInertia(fn ($page) => $page
                 ->where('capabilities.can_defer_decision', true)
                 ->where('pending_reasons.0', '1 analyse en attente de résultat')
@@ -184,7 +253,7 @@ class MedicineWizardRenderingTest extends TestCase
         ]);
 
         $this->actingAs($doctor)
-            ->get("/medicine/orientations/{$orientation->uuid}/decision")
+            ->get("/medicine/orientations/{$orientation->uuid}/cloture")
             ->assertInertia(fn ($page) => $page
                 ->where('capabilities.can_defer_decision', false)
                 ->where('pending_reasons', [])
@@ -197,10 +266,10 @@ class MedicineWizardRenderingTest extends TestCase
         [, $orientation] = $this->normalMedicineConsultation($doctor);
 
         $this->actingAs($doctor)
-            ->get('/medicine')
+            ->get('/medicine?view=in_progress')
             ->assertInertia(fn ($page) => $page
-                ->where('orientations.data.0.is_waiting_on_results', false)
-                ->where('orientations.data.0.pending_reasons', []));
+                ->where('passages.data.0.module.is_waiting_on_results', false)
+                ->where('passages.data.0.module.pending_reasons', []));
 
         $nfs = $this->labItem($doctor, 'NFS', 'NFS');
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/lab-requests", [
@@ -208,10 +277,10 @@ class MedicineWizardRenderingTest extends TestCase
         ]);
 
         $this->actingAs($doctor)
-            ->get('/medicine')
+            ->get('/medicine?view=in_progress')
             ->assertInertia(fn ($page) => $page
-                ->where('orientations.data.0.is_waiting_on_results', true)
-                ->where('orientations.data.0.pending_reasons.0', '1 analyse en attente de résultat'));
+                ->where('passages.data.0.module.is_waiting_on_results', true)
+                ->where('passages.data.0.module.pending_reasons.0', '1 analyse en attente de résultat'));
 
         $item = LabRequest::query()->sole()->items()->sole();
         $this->actingAs($this->labTechnician())->post("/laboratory/items/{$item->uuid}/result", [
@@ -219,10 +288,10 @@ class MedicineWizardRenderingTest extends TestCase
         ]);
 
         $this->actingAs($doctor)
-            ->get('/medicine')
+            ->get('/medicine?view=in_progress')
             ->assertInertia(fn ($page) => $page
-                ->where('orientations.data.0.is_waiting_on_results', false)
-                ->where('orientations.data.0.pending_reasons', []));
+                ->where('passages.data.0.module.is_waiting_on_results', false)
+                ->where('passages.data.0.module.pending_reasons', []));
     }
 
     public function test_dossier_source_module_reflects_the_real_arrival_pathway(): void
@@ -324,6 +393,9 @@ class MedicineWizardRenderingTest extends TestCase
             'catalog_item_uuid' => $consultationItem->uuid,
             'quantity' => 1,
         ]], $doctor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Medicine, $doctor);
         $medicineOrientation = $episode->orientations()
             ->where('destination_module', CatalogModule::Medicine->value)
             ->sole();

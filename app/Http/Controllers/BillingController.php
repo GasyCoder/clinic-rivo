@@ -42,14 +42,25 @@ class BillingController extends Controller
                 'can_view_receipts' => $request->user()->can('receipts.view'),
             ],
             'paymentMethods' => $canPay
-                ? PaymentMethod::query()->where('active', true)->orderBy('id')->get(['id', 'code', 'name'])
+                ? PaymentMethod::query()->where('active', true)->orderBy('id')->get(['id', 'code', 'name', 'category', 'affects_cash_balance', 'requires_reference'])
+                    ->map(fn (PaymentMethod $method) => [
+                        'id' => $method->id,
+                        'code' => $method->code,
+                        'name' => $method->name,
+                        'category' => $method->category->value,
+                        'category_label' => $method->category->label(),
+                        'category_icon' => $method->category->icon(),
+                        'category_position' => $method->category->position(),
+                        'affects_cash_balance' => $method->affects_cash_balance,
+                        'requires_reference' => $method->requires_reference,
+                    ])
                 : [],
             'openCashSessions' => $canPay
                 ? CashSession::query()
                     ->where('status', CashSessionStatus::Open->value)
                     ->where('opened_by', $request->user()->id)
                     ->whereNotNull('active_key')
-                    ->with('register:id,uuid,name')
+                    ->with(['register:id,uuid,name', 'register.acceptedPaymentMethods:id'])
                     ->get(['uuid', 'session_number', 'opened_at', 'cash_register_id'])
                     ->map(fn (CashSession $s) => [
                         'uuid' => $s->uuid,
@@ -57,6 +68,10 @@ class BillingController extends Controller
                         'opened_at' => $s->opened_at,
                         'register_uuid' => $s->register?->uuid,
                         'register_name' => $s->register?->name,
+                        // Empty means this desk accepts every active tender.
+                        'accepted_payment_method_ids' => $s->register
+                            ? $s->register->acceptedPaymentMethods->pluck('id')->all()
+                            : [],
                     ])
                 : [],
         ]);

@@ -3,30 +3,47 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Care\AcceptCareOrientationAction;
+use App\Actions\Care\CancelCareConsumableRequestAction;
 use App\Actions\Care\CompleteCareAndOrientToMedicineAction;
 use App\Actions\Care\MarkCareOrderItemNotPerformedAction;
+use App\Actions\Care\ReleaseCareOrientationAction;
 use App\Actions\Care\SaveAndCompleteCareAction;
 use App\Actions\Care\SaveCareRecordAction;
+use App\Actions\Care\TakeOverCareOrientationAction;
+use App\Actions\Episode\TakeChargeOfEpisodeAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
-use App\Enums\EpisodePriority;
+use App\Enums\EpisodeStatus;
+use App\Http\Requests\Care\CancelCareConsumableRequestRequest;
+use App\Http\Requests\Care\CompleteCareOrientationRequest;
+use App\Http\Requests\Care\SaveCareRecordDraftRequest;
+use App\Http\Requests\Care\TakeOverCareOrientationRequest;
 use App\Http\Requests\MarkCareOrderItemNotPerformedRequest;
 use App\Http\Requests\UpdateCareRecordRequest;
 use App\Models\AllergenReference;
+use App\Models\CareConsumableRequest;
 use App\Models\CareOrder;
 use App\Models\CareOrderItem;
+use App\Models\CareRecordDraft;
 use App\Models\CatalogItem;
 use App\Models\Diagnosis;
+use App\Models\Episode;
 use App\Models\EpisodeOrientation;
+use App\Services\Care\CareConsumableDirectory;
 use App\Services\Care\CareRecordReadModel;
+use App\Services\Episode\ActiveEpisodeBoard;
 use App\Support\BloodPressureAssessment;
 use App\Support\BmiAssessment;
+use App\Support\CareHandlerGuard;
+use App\Support\CareWorkflow;
 use App\Support\EpisodeQueuePresenter;
 use App\Support\HeartRateAssessment;
 use App\Support\OxygenSaturationAssessment;
 use App\Support\TemperatureAssessment;
+use App\Support\VitalSignAgeReference;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -34,114 +51,38 @@ use Inertia\Response;
 
 class CareController extends Controller
 {
-    public function index(Request $request, EpisodeQueuePresenter $presenter): Response
+    /**
+     * ADR-177 — les passages ouverts, tels que les Soins les voient.
+     *
+     * La page ne liste plus des orientations : tout passage accueilli est
+     * visible, avec ou sans suggestion de la Réception, et une suggestion
+     * « Médecine » ne le cache jamais aux Soins. Prendre en charge reste un
+     * geste (`takeCharge`) ; regarder ne crée rien.
+     */
+    public function index(Request $request, ActiveEpisodeBoard $board): Response
     {
-        $filter = in_array($request->query('filter'), ['active', 'oriented'], true)
-            ? (string) $request->query('filter')
-            : 'active';
+        $view = $board->normalizeView($request->query('view'));
         $search = trim((string) $request->query('q', ''));
-        $priority = in_array($request->query('priority'), ['emergency', 'normal'], true)
-            ? (string) $request->query('priority')
-            : null;
-
-        $baseQuery = EpisodeOrientation::query()
-            ->where('destination_module', CatalogModule::Care->value)
-            ->whereHas('episode', fn ($query) => $query->where('status', 'OPEN'));
-
-        $counts = [
-            'active' => (clone $baseQuery)->whereIn('status', [
-                EpisodeOrientationStatus::Pending->value,
-                EpisodeOrientationStatus::InProgress->value,
-            ])->count(),
-            'oriented' => (clone $baseQuery)
-                ->where('status', EpisodeOrientationStatus::Completed->value)
-                ->count(),
-        ];
-
-        $scopeToCurrentStatus = fn ($query) => $query->when(
-            $filter === 'oriented',
-            fn ($q) => $q->where('status', EpisodeOrientationStatus::Completed->value),
-            fn ($q) => $q->whereIn('status', [
-                EpisodeOrientationStatus::Pending->value,
-                EpisodeOrientationStatus::InProgress->value,
-            ]),
-        );
-        $priorityCounts = [
-            'all' => $scopeToCurrentStatus((clone $baseQuery))->count(),
-            'emergency' => $scopeToCurrentStatus((clone $baseQuery))
-                ->whereHas('episode', fn ($q) => $q->where('priority', EpisodePriority::Emergency->value))
-                ->count(),
-            'normal' => $scopeToCurrentStatus((clone $baseQuery))
-                ->whereHas('episode', fn ($q) => $q->where('priority', '!=', EpisodePriority::Emergency->value))
-                ->count(),
-        ];
-
-        $orientations = $baseQuery
-            ->with([
-                'episode.patient',
-                'episode.billableItems',
-                'episode.serviceRequests',
-                'acceptedBy:id,name',
-            ])
-            ->when(
-                $filter === 'oriented',
-                fn ($query) => $query->where('status', EpisodeOrientationStatus::Completed->value),
-                fn ($query) => $query->whereIn('status', [
-                    EpisodeOrientationStatus::Pending->value,
-                    EpisodeOrientationStatus::InProgress->value,
-                ]),
-            )
-            ->when($search !== '', function ($query) use ($search): void {
-                $query->whereHas('episode', function ($episodeQuery) use ($search): void {
-                    $episodeQuery->where('episode_number', 'like', "%{$search}%")
-                        ->orWhereHas('patient', function ($patientQuery) use ($search): void {
-                            $patientQuery->where('patient_number', 'like', "%{$search}%")
-                                ->orWhere('first_name', 'like', "%{$search}%")
-                                ->orWhere('last_name', 'like', "%{$search}%");
-                        });
-                });
-            })
-            ->when($priority === 'emergency', fn ($query) => $query
-                ->whereHas('episode', fn ($episodeQuery) => $episodeQuery
-                    ->where('priority', EpisodePriority::Emergency->value)))
-            ->when($priority === 'normal', fn ($query) => $query
-                ->whereHas('episode', fn ($episodeQuery) => $episodeQuery
-                    ->where('priority', '!=', EpisodePriority::Emergency->value)))
-            // Only a still fast-tracked Emergency (Médecine hasn't yet
-            // completed a first consultation for it) is pinned ahead of
-            // arrival order — matches EpisodeQueuePresenter::isQueueEligible
-            // below. Once eligible, first arrived is always first in the
-            // list, emergency or not.
-            ->orderByRaw(EpisodeQueuePresenter::PIN_UNSEEN_EMERGENCY_SQL)
-            // Oriented (completed) history reads best newest-first; the
-            // active/waiting queue must read oldest-first — first arrived,
-            // first served — to match the queue numbers below.
-            ->when(
-                $filter === 'oriented',
-                fn ($query) => $query->orderByDesc('completed_at'),
-                fn ($query) => $query->orderBy('oriented_at'),
-            )
-            ->paginate(20)
-            ->withQueryString();
-
-        // Queue numbers only make sense for people still waiting, never for
-        // the already-oriented history.
-        $queueNumbers = $filter === 'oriented'
-            ? []
-            : $presenter->assignQueueNumbers($orientations->getCollection());
-        $orientations->through(fn (EpisodeOrientation $orientation) => $presenter->present(
-            $orientation,
-            $queueNumbers[$orientation->getKey()] ?? null,
-        ));
 
         return Inertia::render('Care/Index', [
-            'orientations' => $orientations,
-            'counts' => $counts,
-            'priorityCounts' => $priorityCounts,
-            'filter' => $filter,
+            'passages' => $board->page(CatalogModule::Care, $view, $search, $request->user()),
+            'counts' => $board->counts(CatalogModule::Care),
+            'view' => $view,
             'search' => $search,
-            'priority' => $priority,
         ]);
+    }
+
+    /**
+     * ADR-177 — la vraie prise en charge aux Soins, depuis le tableau : une
+     * orientation qui attendait est acceptée, sinon elle est créée à l'instant.
+     */
+    public function takeCharge(Request $request, Episode $episode, TakeChargeOfEpisodeAction $action): RedirectResponse
+    {
+        $orientation = $action->execute($episode, CatalogModule::Care, $request->user());
+
+        return redirect()->route('care.orientations.show', $orientation)->with('status', $orientation->accepted_by === $request->user()->getKey()
+            ? 'Patient pris en charge aux Soins.'
+            : 'Ce patient est déjà pris en charge aux Soins par '.($orientation->acceptedBy?->name ?? 'un autre soignant').'.');
     }
 
     public function show(
@@ -154,6 +95,8 @@ class CareController extends Controller
         OxygenSaturationAssessment $oxygenSaturationAssessment,
         TemperatureAssessment $temperatureAssessment,
         CareRecordReadModel $careRecordReadModel,
+        CareConsumableDirectory $consumables,
+        CareWorkflow $careWorkflow,
     ): Response {
         $episodeOrientation->load([
             'episode.patient',
@@ -162,10 +105,13 @@ class CareController extends Controller
             'episode.careRecord.creator:id,name',
             'episode.careRecord.updater:id,name',
             'episode.careRecord.procedures.performer:id,name',
+            'episode.orientations',
             'acceptedBy:id,name',
+            'takenOverFrom:id,name',
         ]);
 
         abort_unless($episodeOrientation->destination_module === CatalogModule::Care, 404);
+        abort_unless($episodeOrientation->episode->patient, 404, 'Le dossier patient de ce passage est introuvable.');
 
         $record = $episodeOrientation->episode->careRecord;
         $patientAge = $this->patientAgeAtEpisode($episodeOrientation);
@@ -177,11 +123,23 @@ class CareController extends Controller
             $episodeOrientation->episode->patient->load('allergies');
         }
 
-        $canEdit = $episodeOrientation->status === EpisodeOrientationStatus::InProgress
+        // Terminer les soins et transférer vers Médecine restent réservés à
+        // la personne qui a pris le patient en charge (ADR-085).
+        $isHandler = CareHandlerGuard::isHandledBy($episodeOrientation, $request->user());
+        // Corriger la fiche, en revanche, reste possible après le transfert
+        // et pour tout compte Soins autorisé — décision du 2026-09-15, qui
+        // amende l'ADR-085 : une erreur de saisie doit pouvoir être
+        // rectifiée même quand le soignant a fini son service.
+        $canEdit = CareHandlerGuard::isEditable($episodeOrientation)
             && $request->user()->can($record ? 'care.update' : 'care.create');
         $canEditVitals = $canEdit
             && $request->user()->can($record ? 'vitals.update' : 'vitals.create');
         $canViewCareOrders = $request->user()->can('care_orders.view');
+        // ADR-072 — declaring a consumable is a write on the visit, so it
+        // follows the same "orientation still in progress" rule as any
+        // other Soins entry, on top of its own permission.
+        $canViewConsumables = $request->user()->can('care_consumables.view');
+        $canRequestConsumables = $canEdit && $request->user()->can('care_consumables.request');
 
         // Same fact CompleteCareAndOrientToMedicineAction::settleAdministrativelyIfPathwayComplete()
         // checks before settling — surfaced read-only so Vue can label the
@@ -203,6 +161,17 @@ class CareController extends Controller
         return Inertia::render('Care/Show', [
             'orientation' => $presenter->present($episodeOrientation),
             'hasActiveMedicineOrientation' => $hasActiveMedicineOrientation,
+            // ADR-166 — la règle même de l'action de fin des Soins : Médecine a
+            // déjà ce patient, donc ni « transmettre » ni « terminer aux Soins »
+            // n'a de choix à proposer.
+            'medicineAlreadyInvolved' => $careWorkflow->medicineAlreadyInvolved($episodeOrientation->episode),
+            'completionReason' => $episodeOrientation->completion_reason,
+            'completionOutcome' => $episodeOrientation->offPlanOutcome($episodeOrientation->episode->orientations),
+            'takeover' => $episodeOrientation->taken_over_at ? [
+                'at' => $episodeOrientation->taken_over_at,
+                'from' => $episodeOrientation->takenOverFrom?->name,
+                'reason' => $episodeOrientation->takeover_reason,
+            ] : null,
             'latestDiagnosis' => $latestDiagnosis ? [
                 'description' => $latestDiagnosis->description,
                 'doctor' => $latestDiagnosis->consultation->doctor?->name ?? $latestDiagnosis->recordedBy?->name,
@@ -210,10 +179,11 @@ class CareController extends Controller
             ] : null,
             'careRecord' => $careRecordReadModel->present($record, $request->user()),
             'bmiReference' => $canViewVitals ? $bmiAssessment->reference($patientAge) : null,
-            'bloodPressureReference' => $canViewVitals ? $bloodPressureAssessment->reference() : null,
+            'bloodPressureReference' => $canViewVitals ? $bloodPressureAssessment->reference($patientAge) : null,
             'heartRateReference' => $canViewVitals ? $heartRateAssessment->reference($patientAge) : null,
             'oxygenSaturationReference' => $canViewVitals ? $oxygenSaturationAssessment->reference() : null,
-            'temperatureReference' => $canViewVitals ? $temperatureAssessment->reference() : null,
+            'vitalPlausibility' => $canViewVitals ? VitalSignAgeReference::plausibility($patientAge) : null,
+            'temperatureReference' => $canViewVitals ? $temperatureAssessment->reference($patientAge) : null,
             'patientAllergies' => $canViewAllergies
                 ? $episodeOrientation->episode->patient->allergies->map(fn ($allergy) => [
                     'uuid' => $allergy->uuid,
@@ -240,9 +210,18 @@ class CareController extends Controller
             'procedureCatalog' => CatalogItem::query()
                 ->where('type', CatalogItemType::Service->value)
                 ->where('module', CatalogModule::Care->value)
+                // ADR-072 — the material usually consumed by the act, so the
+                // nurse gets a coherent pre-selection instead of hunting for
+                // it. Only exposed to an account that may actually declare
+                // material; it is a suggestion, never a commitment.
+                ->when($canRequestConsumables, fn ($query) => $query->with([
+                    'defaultConsumables.medicine' => fn ($medicine) => $medicine
+                        ->where('active', true)
+                        ->with('catalogItem:id,code,name,unit'),
+                ]))
                 ->orderBy('name')
                 ->get([
-                    'uuid', 'code', 'name', 'unit',
+                    'id', 'uuid', 'code', 'name', 'unit',
                     'care_requires_allergy_check', 'care_recommends_vitals',
                 ])
                 ->map(fn (CatalogItem $item) => [
@@ -252,11 +231,38 @@ class CareController extends Controller
                     'unit' => $item->unit,
                     'care_requires_allergy_check' => $item->care_requires_allergy_check,
                     'care_recommends_vitals' => $item->care_recommends_vitals,
+                    'default_consumables' => $canRequestConsumables
+                        ? $item->defaultConsumables
+                            ->filter(fn ($row) => $row->medicine && $row->medicine->catalogItem)
+                            ->map(fn ($row) => [
+                                'medicine_uuid' => $row->medicine->uuid,
+                                'code' => $row->medicine->catalogItem->code,
+                                'name' => $row->medicine->catalogItem->name,
+                                'unit' => $row->medicine->catalogItem->unit,
+                                'quantity' => $row->default_quantity,
+                            ])
+                            ->values()
+                        : [],
                 ]),
+            // Typing in progress, restored after a reload. Scoped to this
+            // account: a nurse never inherits another's unvalidated entry.
+            'careRecordDraft' => $canEdit
+                ? CareRecordDraft::query()
+                    ->where('episode_orientation_id', $episodeOrientation->getKey())
+                    ->where('created_by', $request->user()->getKey())
+                    ->first(['payload', 'updated_at'])
+                    ?->only(['payload', 'updated_at'])
+                : null,
+            'consumableCatalog' => $canRequestConsumables
+                ? $consumables->selectableConsumables()
+                : [],
+            'consumableRequests' => $canViewConsumables
+                ? $consumables->forOrientation($episodeOrientation->getKey())
+                : [],
             'careOrders' => $canViewCareOrders
                 ? CareOrder::query()
                     ->where('care_orientation_id', $episodeOrientation->getKey())
-                    ->with(['items.careRecordProcedures', 'requestedBy:id,name', 'consultation'])
+                    ->with(['items.careRecordProcedures', 'items.cancelledBy:id,name', 'requestedBy:id,name', 'consultation'])
                     ->latest('ordered_at')
                     ->get()
                     ->map(fn (CareOrder $careOrder) => [
@@ -279,6 +285,9 @@ class CareController extends Controller
                             'instructions' => $item->instructions,
                             'not_performed_at' => $item->not_performed_at,
                             'not_performed_reason' => $item->not_performed_reason,
+                            'cancelled_at' => $item->cancelled_at,
+                            'cancelled_by' => $item->cancelledBy?->name,
+                            'cancel_reason' => $item->cancel_reason,
                             'resolved' => $item->isResolved(),
                         ])->values(),
                     ])->values()
@@ -289,9 +298,21 @@ class CareController extends Controller
                 'can_manage_allergies' => $canManageAllergies,
                 'can_edit' => $canEdit,
                 'can_edit_vitals' => $canEditVitals,
-                'can_complete' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
+                'can_complete' => $isHandler
+                    && $request->user()->can('care.complete'),
+                'handled_by_other' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
+                    && ! $isHandler,
+                // ADR-167 — la reprise suit la même règle que l'action : une
+                // prise en charge en cours d'un collègue, sur un passage ouvert.
+                'can_take_over' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
+                    && ! $isHandler
+                    && $episodeOrientation->episode->status === EpisodeStatus::Open
                     && $request->user()->can('care.complete'),
                 'can_view_care_orders' => $canViewCareOrders,
+                'can_view_consumables' => $canViewConsumables,
+                'can_request_consumables' => $canRequestConsumables,
+                'can_cancel_consumables' => $canViewConsumables
+                    && $request->user()->can('care_consumables.cancel'),
             ],
         ]);
     }
@@ -301,7 +322,12 @@ class CareController extends Controller
         EpisodeOrientation $episodeOrientation,
         SaveCareRecordAction $action,
     ): RedirectResponse {
-        $action->execute($episodeOrientation, $request->validated(), $request->user());
+        $action->execute(
+            $episodeOrientation,
+            $request->safe()->except(['orient_to_medicine', 'care_outcome', 'care_outcome_reason']),
+            $request->user(),
+            $request->destination(),
+        );
 
         return redirect()->route('care.orientations.show', $episodeOrientation)
             ->with('status', 'Fiche de soins enregistrée.');
@@ -312,20 +338,15 @@ class CareController extends Controller
         EpisodeOrientation $episodeOrientation,
         SaveAndCompleteCareAction $action,
     ): RedirectResponse {
-        $orientToMedicine = $request->boolean('orient_to_medicine');
-        $action->execute(
+        $completed = $action->execute(
             $episodeOrientation,
-            $request->safe()->except('orient_to_medicine'),
+            $request->safe()->except(['orient_to_medicine', 'care_outcome', 'care_outcome_reason']),
             $request->user(),
-            $orientToMedicine,
+            $request->destination(),
+            $request->validated('care_outcome_reason'),
         );
 
-        return redirect()->route('care.index')->with(
-            'status',
-            $orientToMedicine
-                ? 'Actes enregistrés. Le patient est maintenant en attente en Médecine.'
-                : 'Actes enregistrés et prise en charge terminée.',
-        );
+        return redirect()->route('care.index')->with('status', $this->completionMessage($completed, saved: true));
     }
 
     public function markCareOrderItemNotPerformed(
@@ -340,6 +361,68 @@ class CareController extends Controller
             ->with('status', 'Acte marqué non réalisé.');
     }
 
+    /**
+     * Autosaved typing, so a reload never loses what the nurse entered.
+     * Returns no Inertia response: the browser calls this in the background
+     * and must not have its page re-rendered mid-typing.
+     */
+    public function saveDraft(
+        SaveCareRecordDraftRequest $request,
+        EpisodeOrientation $episodeOrientation,
+    ): JsonResponse {
+        abort_unless($episodeOrientation->destination_module === CatalogModule::Care, 404);
+        // Le brouillon suit la fiche : il reste possible après le transfert
+        // vers Médecine, et pour tout compte Soins autorisé (décision du
+        // 2026-09-15). Il reste rattaché à son auteur : sur un poste
+        // partagé, personne ne récupère la saisie d'un collègue (ADR-073).
+        abort_unless(CareHandlerGuard::isEditable($episodeOrientation), 409);
+
+        $draft = CareRecordDraft::query()->updateOrCreate(
+            [
+                'episode_orientation_id' => $episodeOrientation->getKey(),
+                'created_by' => $request->user()->getKey(),
+            ],
+            ['payload' => $request->draftPayload()],
+        );
+
+        return response()->json(['saved_at' => $draft->updated_at->toIso8601String()]);
+    }
+
+    /** The nurse explicitly discards their entry. */
+    public function discardDraft(
+        Request $request,
+        EpisodeOrientation $episodeOrientation,
+    ): RedirectResponse {
+        abort_unless($episodeOrientation->destination_module === CatalogModule::Care, 404);
+
+        CareRecordDraft::query()
+            ->where('episode_orientation_id', $episodeOrientation->getKey())
+            ->where('created_by', $request->user()->getKey())
+            ->delete();
+
+        return redirect()
+            ->route('care.orientations.show', $episodeOrientation)
+            ->with('status', 'Saisie en cours annulée.');
+    }
+
+    public function cancelConsumables(
+        CancelCareConsumableRequestRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CareConsumableRequest $careConsumableRequest,
+        CancelCareConsumableRequestAction $action,
+    ): RedirectResponse {
+        abort_unless(
+            $careConsumableRequest->care_orientation_id === $episodeOrientation->getKey(),
+            404,
+        );
+
+        $action->execute($careConsumableRequest, $request->validated('reason'), $request->user());
+
+        return redirect()
+            ->route('care.orientations.show', $episodeOrientation)
+            ->with('status', 'Demande de consommables annulée. La Pharmacie ne la verra plus dans sa file.');
+    }
+
     public function accept(
         Request $request,
         EpisodeOrientation $episodeOrientation,
@@ -351,24 +434,65 @@ class CareController extends Controller
             ->with('status', 'Patient pris en charge aux Soins.');
     }
 
-    public function complete(
+    /** ADR-167 : reprendre, avec un motif, un patient pris en charge par un collègue. */
+    public function takeOver(
+        TakeOverCareOrientationRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        TakeOverCareOrientationAction $action,
+    ): RedirectResponse {
+        $action->execute($episodeOrientation, $request->user(), (string) $request->validated('reason'));
+
+        return redirect()->route('care.orientations.show', $episodeOrientation)
+            ->with('status', 'Vous avez repris la prise en charge de ce patient.');
+    }
+
+    /** ADR-122 : remettre en file, à sa place, un patient pris en charge par erreur. */
+    public function release(
         Request $request,
+        EpisodeOrientation $episodeOrientation,
+        ReleaseCareOrientationAction $action,
+    ): RedirectResponse {
+        $action->execute($episodeOrientation, $request->user());
+
+        return redirect()->route('care.index')
+            ->with('status', 'Patient remis en file, à sa place.');
+    }
+
+    public function complete(
+        CompleteCareOrientationRequest $request,
         EpisodeOrientation $episodeOrientation,
         CompleteCareAndOrientToMedicineAction $action,
     ): RedirectResponse {
-        $completed = $action->execute($episodeOrientation, $request->user());
+        $completed = $action->execute(
+            $episodeOrientation,
+            $request->user(),
+            $request->destination(),
+            $request->validated('care_outcome_reason'),
+        );
 
-        $sentToMedicine = $completed->episode->orientations()
+        return back()->with('status', $this->completionMessage($completed, saved: false));
+    }
+
+    /**
+     * Ce que devient le patient, dit par ce qui a réellement été enregistré :
+     * une orientation Médecine active, ou la fin aux Soins.
+     */
+    private function completionMessage(EpisodeOrientation $completed, bool $saved): string
+    {
+        $prefix = $saved ? 'Actes enregistrés' : 'Soins terminés';
+
+        $waitingForDoctor = $completed->episode->orientations()
             ->where('destination_module', CatalogModule::Medicine->value)
+            ->whereIn('status', [EpisodeOrientationStatus::Pending->value, EpisodeOrientationStatus::InProgress->value])
             ->exists();
 
-        if ($sentToMedicine) {
-            return back()->with('status', 'Soins terminés. Le patient est maintenant en attente en Médecine.');
+        if ($waitingForDoctor) {
+            return $prefix.'. Le patient est maintenant en attente en Médecine.';
         }
 
-        return back()
-            ->with('status', 'Soins terminés. Aucune consultation médicale n’est prévue pour ce parcours.')
-            ->with('status_type', 'warning');
+        return $completed->completion_reason
+            ? $prefix.'. Le patient est terminé aux Soins, sans passer en Médecine.'
+            : $prefix.' et prise en charge terminée.';
     }
 
     public function completeAndOrient(

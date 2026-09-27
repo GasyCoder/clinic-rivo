@@ -2,7 +2,6 @@
 
 namespace App\Services\Pharmacy;
 
-use App\Enums\MedicineStockReservationStatus;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
 use Carbon\CarbonImmutable;
@@ -23,25 +22,22 @@ class MedicineStockOverviewService
                 'lots' => fn ($query) => $query
                     ->where('active', true)
                     ->with('supplier:id,uuid,code,name')
-                    ->withSum([
-                        'reservations as prescription_reserved_quantity' => fn ($reservationQuery) => $reservationQuery
-                            ->where('status', MedicineStockReservationStatus::Reserved->value),
-                    ], 'remaining_quantity')
-                    ->withSum([
-                        'counterReservations as counter_reserved_quantity' => fn ($reservationQuery) => $reservationQuery
-                            ->where('status', MedicineStockReservationStatus::Reserved->value),
-                    ], 'remaining_quantity')
+                    ->withReservedQuantity()
                     ->orderBy('expires_at')
                     ->orderBy('id'),
             ])
+            // ADR-176 — « jamais réceptionné » se lit sur les lots eux-mêmes,
+            // tous états confondus : un lot n'existe que parce qu'une entrée
+            // en stock l'a créé. Un produit entré au catalogue par une
+            // commande (ADR-098) n'en a donc aucun tant que rien n'est arrivé.
+            ->withCount('lots')
             ->orderBy('generic_name')
             ->orderBy('id')
             ->get()
             ->filter(fn (Medicine $medicine) => $medicine->catalogItem !== null)
             ->map(function (Medicine $medicine) use ($today, $expiryLimit): array {
                 $lots = $medicine->lots->map(function (MedicineLot $lot) use ($today, $expiryLimit): array {
-                    $reserved = (int) ($lot->prescription_reserved_quantity ?? 0)
-                        + (int) ($lot->counter_reserved_quantity ?? 0);
+                    $reserved = $lot->reservedQuantity();
                     $expired = $lot->expires_at->lt($today);
                     $available = $expired ? 0 : max(0, $lot->quantity_on_hand - $reserved);
                     $status = $expired
@@ -99,9 +95,16 @@ class MedicineStockOverviewService
                     'available_quantity' => $available,
                     'expired_quantity' => (int) $lots->where('status', 'EXPIRED')->sum('quantity_on_hand'),
                     'nearest_expiration' => $usableLots->where('available_quantity', '>', 0)->min('expires_at'),
-                    'status' => ! $medicine->active
-                        ? 'INACTIVE'
-                        : ($available === 0 ? 'OUT_OF_STOCK' : ($hasExpiring ? 'EXPIRING_SOON' : 'AVAILABLE')),
+                    'never_received' => $medicine->lots_count === 0,
+                    // Jamais réceptionné n'est pas une rupture : une rupture
+                    // dit « on le tient d'habitude et il n'y en a plus ».
+                    'status' => match (true) {
+                        ! $medicine->active => 'INACTIVE',
+                        $medicine->lots_count === 0 => 'NEVER_RECEIVED',
+                        $available === 0 => 'OUT_OF_STOCK',
+                        $hasExpiring => 'EXPIRING_SOON',
+                        default => 'AVAILABLE',
+                    },
                     'lots' => $lots->all(),
                 ];
             })
@@ -115,8 +118,18 @@ class MedicineStockOverviewService
                 'reserved_quantity' => (int) $medicines->sum('reserved_quantity'),
                 'available_quantity' => (int) $medicines->sum('available_quantity'),
                 'out_of_stock' => $medicines->where('status', 'OUT_OF_STOCK')->count(),
+                'never_received' => $medicines->where('status', 'NEVER_RECEIVED')->count(),
+                'stocked_medicines' => $medicines->where('status', '!=', 'NEVER_RECEIVED')->count(),
                 'expiring_soon' => $medicines->where('status', 'EXPIRING_SOON')->count(),
                 'expired_lots' => $medicines->sum(fn (array $medicine) => collect($medicine['lots'])->where('status', 'EXPIRED')->count()),
+                // ADR-098 — a product ordered from a supplier catalogue enters
+                // the referential without a selling price, which nobody had
+                // decided yet. Until it has one it cannot be sold or
+                // dispensed, and the screens must say so rather than let the
+                // counter look empty for no visible reason.
+                'without_sale_price' => $medicines
+                    ->filter(fn (array $medicine) => $medicine['active'] && blank($medicine['sale_price']))
+                    ->count(),
             ],
             'medicines' => $medicines->all(),
         ];

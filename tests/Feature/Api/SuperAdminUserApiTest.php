@@ -2,16 +2,23 @@
 
 namespace Tests\Feature\Api;
 
+use App\Jobs\SendUserInvitationJob;
 use App\Models\AuditLog;
 use App\Models\Permission;
+use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Notifications\AccountInvitationNotification;
 use Database\Seeders\PermissionSeeder;
+use Database\Seeders\ProfessionalProfileSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -58,6 +65,7 @@ class SuperAdminUserApiTest extends TestCase
             'password' => 'Correct-Horse-Battery-9!',
             'password_confirmation' => 'Correct-Horse-Battery-9!',
             'role_id' => $receptionRoleId,
+            'account_kind' => 'EXTERNAL',
             'permission_overrides' => [
                 ['permission_id' => $permissionId, 'effect' => 'deny'],
             ],
@@ -76,9 +84,107 @@ class SuperAdminUserApiTest extends TestCase
         ]);
     }
 
-    public function test_remote_super_admin_can_create_a_user_without_a_password_and_an_invitation_is_sent_instead(): void
+    public function test_remote_super_admin_can_replace_surgery_allows_with_denies_and_access_disappears(): void
     {
-        Notification::fake();
+        $role = Role::query()->where('code', 'RECEPTION')->firstOrFail();
+        $user = User::factory()->create([
+            'role_id' => $role->id,
+            'name' => 'User-Test',
+            'email' => 'user-test@example.test',
+        ]);
+        $surgeryPermissions = Permission::query()
+            ->where('name', 'like', 'surgery.%')
+            ->get();
+
+        $user->permissions()->attach($surgeryPermissions->pluck('id')->all(), [
+            'effect' => 'allow',
+            'source' => 'MANUAL',
+        ]);
+
+        $this->assertTrue($user->fresh()->can('surgery.view'));
+
+        $overrides = $surgeryPermissions
+            ->map(fn (Permission $permission) => [
+                'permission_id' => $permission->id,
+                'effect' => 'deny',
+            ])
+            ->values()
+            ->all();
+
+        $this->withHeaders($this->headers(
+            idempotencyKey: (string) Str::uuid(),
+            permissions: ['users.update', 'roles.assign', 'permissions.assign'],
+        ))->putJson("/api/v1/super-admin/users/{$user->uuid}", [
+            'name' => $user->name,
+            'email' => $user->email,
+            'role_id' => $role->id,
+            'permission_overrides' => $overrides,
+            'sync_profile_permissions' => false,
+        ])->assertOk();
+
+        $updated = User::query()->findOrFail($user->id);
+        $this->assertFalse($updated->can('surgery.view'));
+        $this->assertDatabaseHas('user_permissions', [
+            'user_id' => $updated->id,
+            'permission_id' => $surgeryPermissions->firstWhere('name', 'surgery.view')->id,
+            'effect' => 'deny',
+            'source' => 'MANUAL',
+        ]);
+
+        $this->actingAs($updated)
+            ->get('/surgery')
+            ->assertForbidden();
+
+        $this->actingAs($updated)
+            ->get('/')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('permissions', fn ($permissions) => ! collect($permissions)->contains('surgery.view')));
+    }
+
+    public function test_remote_super_admin_can_explicitly_apply_profile_recommendations_with_provenance(): void
+    {
+        $this->seed(ProfessionalProfileSeeder::class);
+        $profile = ProfessionalProfile::query()->where('code', 'MIDWIFE')->firstOrFail();
+        $maternityView = Permission::query()->where('name', 'maternity.view')->firstOrFail();
+
+        $response = $this->withHeaders($this->headers(
+            idempotencyKey: (string) Str::uuid(),
+            permissions: ['users.create', 'roles.assign', 'permissions.assign'],
+        ))->postJson('/api/v1/super-admin/users', [
+            'name' => 'Sage-femme distante',
+            'email' => 'midwife.remote@example.test',
+            'password' => 'Correct-Horse-Battery-9!',
+            'password_confirmation' => 'Correct-Horse-Battery-9!',
+            'role_id' => $profile->role_id,
+            'account_kind' => 'EXTERNAL',
+            'professional_profile_id' => $profile->id,
+            'sync_profile_permissions' => true,
+            'permission_overrides' => [],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.professional_profile.code', 'MIDWIFE')
+            ->assertJsonFragment([
+                'permission_id' => $maternityView->id,
+                'name' => 'maternity.view',
+                'effect' => 'allow',
+                'source' => 'PROFILE',
+                'source_profile_id' => $profile->id,
+                'source_profile_name' => 'Sage-femme',
+            ]);
+
+        $this->assertDatabaseHas('user_permissions', [
+            'user_id' => User::query()->where('email', 'midwife.remote@example.test')->value('id'),
+            'permission_id' => $maternityView->id,
+            'source' => 'PROFILE',
+            'source_profile_id' => $profile->id,
+        ]);
+    }
+
+    public function test_remote_super_admin_can_create_a_user_without_a_password_and_an_invitation_is_queued_instead(): void
+    {
+        Queue::fake();
         $receptionRoleId = Role::query()->where('code', 'RECEPTION')->value('id');
 
         $response = $this->withHeaders($this->headers(idempotencyKey: (string) Str::uuid(), permissions: ['users.create', 'roles.assign']))
@@ -86,15 +192,63 @@ class SuperAdminUserApiTest extends TestCase
                 'name' => 'Nirina Rasoa',
                 'email' => 'nirina@example.test',
                 'role_id' => $receptionRoleId,
+                'account_kind' => 'EXTERNAL',
             ]);
 
+        // The account exists whatever the mail server does: the email is a
+        // queued side effect, never part of the request that creates it.
         $response->assertCreated();
         $user = User::query()->where('email', 'nirina@example.test')->sole();
-        Notification::assertSentTo($user, ResetPassword::class);
+        Queue::assertPushed(SendUserInvitationJob::class, fn (SendUserInvitationJob $job) => $job->user->is($user));
         $this->assertDatabaseHas('audit_logs', [
-            'action' => 'user.invite.sent',
+            'action' => 'user.invite.queued',
             'entity_id' => $user->id,
         ]);
+    }
+
+    public function test_the_invitation_job_sends_a_welcome_email_to_an_active_account_only(): void
+    {
+        Notification::fake();
+        $receptionRoleId = Role::query()->where('code', 'RECEPTION')->value('id');
+        $active = User::factory()->create(['role_id' => $receptionRoleId]);
+        $inactive = User::factory()->create(['role_id' => $receptionRoleId, 'active' => false]);
+
+        (new SendUserInvitationJob($active))->handle();
+        (new SendUserInvitationJob($inactive))->handle();
+
+        // A welcome email, never Laravel's "Reset your password".
+        Notification::assertSentTo($active, AccountInvitationNotification::class, function (AccountInvitationNotification $notification) use ($active) {
+            $mail = $notification->toMail($active);
+
+            return str_contains($mail->subject, 'Bienvenue')
+                && str_contains($mail->render(), 'Définir mon mot de passe')
+                && str_contains($mail->render(), 'welcome=1');
+        });
+        Notification::assertNotSentTo($active, ResetPassword::class);
+        Notification::assertNotSentTo($inactive, AccountInvitationNotification::class);
+    }
+
+    public function test_an_invitation_link_activates_the_account_and_a_reset_token_cannot_pose_as_one(): void
+    {
+        $receptionRoleId = Role::query()->where('code', 'RECEPTION')->value('id');
+        $user = User::factory()->create(['role_id' => $receptionRoleId, 'email' => 'invite@example.test']);
+        $password = 'Nouveau-Mot-De-Passe-2026!';
+
+        // A "forgot password" token replayed through the welcome page is refused.
+        $resetToken = Password::broker()->createToken($user);
+        $this->post('/reset-password', [
+            'token' => $resetToken, 'email' => $user->email, 'welcome' => 1,
+            'password' => $password, 'password_confirmation' => $password,
+        ])->assertSessionHasErrors('email');
+
+        $invitationToken = Password::broker('invitations')->createToken($user);
+        $this->post('/reset-password', [
+            'token' => $invitationToken, 'email' => $user->email, 'welcome' => 1,
+            'password' => $password, 'password_confirmation' => $password,
+        ])->assertRedirect(route('login'));
+
+        $this->assertTrue(Hash::check($password, $user->fresh()->password));
+        $this->assertDatabaseHas('audit_logs', ['action' => 'user.invite.accepted', 'entity_id' => $user->id]);
     }
 
     public function test_remote_super_admin_can_deactivate_a_user_with_external_attribution(): void

@@ -22,6 +22,16 @@ use Illuminate\Support\Facades\DB;
 use LogicException;
 use RuntimeException;
 
+/**
+ * Médicaments, lots et prix **fictifs** pour essayer la Pharmacie, les
+ * ordonnances, l'hospitalisation et la Maternité en local (ADR-086, ADR-163).
+ *
+ * Appelé par `DevelopmentSeeder` après un `migrate:fresh --seed`, et refusé
+ * hors `local` / `testing`. Il ne crée que ce qui manque : un médicament déjà
+ * présent — modifié, archivé, entamé par des délivrances — n'est jamais
+ * retouché, si bien qu'on peut le relancer sans perdre une seule décision ni
+ * un seul mouvement réel. Pour repartir de zéro : `php artisan rivo:pharmacy-reset`.
+ */
 class DevelopmentMedicineStockSeeder extends Seeder
 {
     /** @var array<int, array{code: string, name: string, description: string}> */
@@ -34,6 +44,8 @@ class DevelopmentMedicineStockSeeder extends Seeder
         ['code' => 'DEV-OPHTA', 'name' => 'Ophtalmologie', 'description' => 'Catégorie fictive pour les essais locaux.'],
         ['code' => 'DEV-ANTISEP', 'name' => 'Antiseptiques', 'description' => 'Catégorie fictive pour les essais locaux.'],
         ['code' => 'DEV-CONS', 'name' => 'Solutés & consommables', 'description' => 'Catégorie fictive pour les essais locaux.'],
+        ['code' => 'DEV-CARDIO', 'name' => 'Cardiovasculaire', 'description' => 'Catégorie fictive pour les essais locaux.'],
+        ['code' => 'DEV-OBST', 'name' => 'Obstétrique & contraception', 'description' => 'Catégorie fictive pour les essais locaux.'],
     ];
 
     /** @var array<int, array<string, string>> */
@@ -89,6 +101,29 @@ class DevelopmentMedicineStockSeeder extends Seeder
         ['code' => 'DEV-CONSOMMABLE', 'name' => 'Compresses stériles', 'generic' => null, 'form' => MedicineForm::ParapharmacyConsumable, 'strength' => 'Paquet de 10', 'unit' => 'paquet', 'quantity' => 60, 'minimum' => 20, 'expiry_months' => 24, 'price' => 3000, 'prescription' => false, 'category' => 'DEV-CONS', 'supplier' => 'DEV-LOCAL', 'barcode' => '990000000016'],
         ['code' => 'DEV-NACL-500', 'name' => 'Chlorure de sodium 0,9 %', 'generic' => 'Chlorure de sodium', 'form' => MedicineForm::Injectable, 'strength' => '500 ml', 'unit' => 'poche', 'quantity' => 22, 'minimum' => 10, 'expiry_months' => 12, 'price' => 7500, 'prescription' => true, 'category' => 'DEV-CONS', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000017'],
         ['code' => 'DEV-EPUISE', 'name' => 'Gants d’examen — rupture démo', 'generic' => null, 'form' => MedicineForm::ParapharmacyConsumable, 'strength' => 'Taille M', 'unit' => 'boîte', 'quantity' => 0, 'minimum' => 10, 'expiry_months' => 18, 'price' => 25000, 'prescription' => false, 'category' => 'DEV-CONS', 'supplier' => 'DEV-LOCAL', 'barcode' => '990000000018'],
+        // ADR-163 (2026-09-21) — de quoi essayer l'hospitalisation, la
+        // Maternité et les Soins : injectables, solutés, produits de
+        // contraception et petit matériel. Noms et prix fictifs.
+        ['code' => 'DEV-PARA-INJ', 'name' => 'Paracétamol injectable 1 g', 'generic' => 'Paracétamol', 'form' => MedicineForm::Injectable, 'strength' => '1 g / 100 ml', 'unit' => 'flacon', 'quantity' => 40, 'minimum' => 10, 'expiry_months' => 14, 'price' => 4500, 'prescription' => true, 'category' => 'DEV-ANTALG', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000019'],
+        ['code' => 'DEV-TRAMADOL-50', 'name' => 'Tramadol 50 mg', 'generic' => 'Tramadol', 'form' => MedicineForm::Tablet, 'strength' => '50 mg', 'unit' => 'gélule', 'quantity' => 30, 'minimum' => 10, 'expiry_months' => 12, 'price' => 1200, 'prescription' => true, 'category' => 'DEV-ANTALG', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000020'],
+        ['code' => 'DEV-DICLO-INJ', 'name' => 'Diclofénac injectable 75 mg', 'generic' => 'Diclofénac', 'form' => MedicineForm::Injectable, 'strength' => '75 mg / 3 ml', 'unit' => 'ampoule', 'quantity' => 30, 'minimum' => 10, 'expiry_months' => 12, 'price' => 2500, 'prescription' => true, 'category' => 'DEV-ANTALG', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000021'],
+        ['code' => 'DEV-AMPI-1G', 'name' => 'Ampicilline 1 g injectable', 'generic' => 'Ampicilline', 'form' => MedicineForm::Injectable, 'strength' => '1 g', 'unit' => 'flacon', 'quantity' => 20, 'minimum' => 8, 'expiry_months' => 12, 'price' => 5000, 'prescription' => true, 'category' => 'DEV-ANTIINF', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000022'],
+        ['code' => 'DEV-GENTA-80', 'name' => 'Gentamicine 80 mg injectable', 'generic' => 'Gentamicine', 'form' => MedicineForm::Injectable, 'strength' => '80 mg / 2 ml', 'unit' => 'ampoule', 'quantity' => 25, 'minimum' => 10, 'expiry_months' => 12, 'price' => 2000, 'prescription' => true, 'category' => 'DEV-ANTIINF', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000023'],
+        ['code' => 'DEV-ARTESUNATE', 'name' => 'Artésunate 60 mg injectable', 'generic' => 'Artésunate', 'form' => MedicineForm::Injectable, 'strength' => '60 mg', 'unit' => 'flacon', 'quantity' => 20, 'minimum' => 10, 'expiry_months' => 12, 'price' => 12000, 'prescription' => true, 'category' => 'DEV-ANTIINF', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000024'],
+        ['code' => 'DEV-METOCLO-INJ', 'name' => 'Métoclopramide injectable 10 mg', 'generic' => 'Métoclopramide', 'form' => MedicineForm::Injectable, 'strength' => '10 mg / 2 ml', 'unit' => 'ampoule', 'quantity' => 30, 'minimum' => 10, 'expiry_months' => 12, 'price' => 1500, 'prescription' => true, 'category' => 'DEV-DIGEST', 'supplier' => 'DEV-DISTRIB', 'barcode' => '990000000025'],
+        ['code' => 'DEV-OMEP-INJ', 'name' => 'Oméprazole 40 mg injectable', 'generic' => 'Oméprazole', 'form' => MedicineForm::Injectable, 'strength' => '40 mg', 'unit' => 'flacon', 'quantity' => 15, 'minimum' => 5, 'expiry_months' => 12, 'price' => 6000, 'prescription' => true, 'category' => 'DEV-DIGEST', 'supplier' => 'DEV-DISTRIB', 'barcode' => '990000000026'],
+        ['code' => 'DEV-FUROS-INJ', 'name' => 'Furosémide 20 mg injectable', 'generic' => 'Furosémide', 'form' => MedicineForm::Injectable, 'strength' => '20 mg / 2 ml', 'unit' => 'ampoule', 'quantity' => 20, 'minimum' => 8, 'expiry_months' => 12, 'price' => 1500, 'prescription' => true, 'category' => 'DEV-CARDIO', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000027'],
+        ['code' => 'DEV-AMLO-5', 'name' => 'Amlodipine 5 mg', 'generic' => 'Amlodipine', 'form' => MedicineForm::Tablet, 'strength' => '5 mg', 'unit' => 'comprimé', 'quantity' => 60, 'minimum' => 20, 'expiry_months' => 18, 'price' => 600, 'prescription' => true, 'category' => 'DEV-CARDIO', 'supplier' => 'DEV-DISTRIB', 'barcode' => '990000000028'],
+        ['code' => 'DEV-DEXA-INJ', 'name' => 'Dexaméthasone 4 mg injectable', 'generic' => 'Dexaméthasone', 'form' => MedicineForm::Injectable, 'strength' => '4 mg / ml', 'unit' => 'ampoule', 'quantity' => 30, 'minimum' => 10, 'expiry_months' => 12, 'price' => 1500, 'prescription' => true, 'category' => 'DEV-RESP', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000029'],
+        ['code' => 'DEV-OXYTO-10', 'name' => 'Oxytocine 10 UI injectable', 'generic' => 'Oxytocine', 'form' => MedicineForm::Injectable, 'strength' => '10 UI / ml', 'unit' => 'ampoule', 'quantity' => 20, 'minimum' => 10, 'expiry_months' => 10, 'price' => 2500, 'prescription' => true, 'category' => 'DEV-OBST', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000030'],
+        ['code' => 'DEV-SAYANA', 'name' => 'Contraceptif injectable (Sayana Press)', 'generic' => 'Médroxyprogestérone', 'form' => MedicineForm::Injectable, 'strength' => '104 mg / 0,65 ml', 'unit' => 'dose', 'quantity' => 15, 'minimum' => 5, 'expiry_months' => 18, 'price' => 3000, 'prescription' => true, 'category' => 'DEV-OBST', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000031'],
+        ['code' => 'DEV-DIU-CU', 'name' => 'Dispositif intra-utérin au cuivre', 'generic' => null, 'form' => MedicineForm::Other, 'strength' => 'TCu 380A', 'unit' => 'unité', 'quantity' => 10, 'minimum' => 3, 'expiry_months' => 36, 'price' => 8000, 'prescription' => false, 'category' => 'DEV-OBST', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000032'],
+        ['code' => 'DEV-IMPLANT', 'name' => 'Implant contraceptif', 'generic' => 'Étonogestrel', 'form' => MedicineForm::Other, 'strength' => '68 mg', 'unit' => 'unité', 'quantity' => 8, 'minimum' => 3, 'expiry_months' => 36, 'price' => 15000, 'prescription' => true, 'category' => 'DEV-OBST', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000033'],
+        ['code' => 'DEV-RINGER-500', 'name' => 'Ringer lactate', 'generic' => 'Ringer lactate', 'form' => MedicineForm::Injectable, 'strength' => '500 ml', 'unit' => 'poche', 'quantity' => 30, 'minimum' => 10, 'expiry_months' => 18, 'price' => 8000, 'prescription' => true, 'category' => 'DEV-CONS', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000034'],
+        ['code' => 'DEV-G5-500', 'name' => 'Glucose 5 %', 'generic' => 'Glucose', 'form' => MedicineForm::Injectable, 'strength' => '500 ml', 'unit' => 'poche', 'quantity' => 30, 'minimum' => 10, 'expiry_months' => 18, 'price' => 7000, 'prescription' => true, 'category' => 'DEV-CONS', 'supplier' => 'DEV-CENTRALE', 'barcode' => '990000000035'],
+        ['code' => 'DEV-SERINGUE-5', 'name' => 'Seringue 5 ml', 'generic' => null, 'form' => MedicineForm::ParapharmacyConsumable, 'strength' => '5 ml', 'unit' => 'unité', 'quantity' => 200, 'minimum' => 50, 'expiry_months' => 36, 'price' => 300, 'prescription' => false, 'category' => 'DEV-CONS', 'supplier' => 'DEV-LOCAL', 'barcode' => '990000000036'],
+        ['code' => 'DEV-CATHETER-20', 'name' => 'Cathéter IV 20G', 'generic' => null, 'form' => MedicineForm::ParapharmacyConsumable, 'strength' => '20G', 'unit' => 'unité', 'quantity' => 80, 'minimum' => 20, 'expiry_months' => 36, 'price' => 1500, 'prescription' => false, 'category' => 'DEV-CONS', 'supplier' => 'DEV-LOCAL', 'barcode' => '990000000037'],
+        ['code' => 'DEV-PERFUSEUR', 'name' => 'Perfuseur', 'generic' => null, 'form' => MedicineForm::ParapharmacyConsumable, 'strength' => 'Standard', 'unit' => 'unité', 'quantity' => 60, 'minimum' => 20, 'expiry_months' => 36, 'price' => 1200, 'prescription' => false, 'category' => 'DEV-CONS', 'supplier' => 'DEV-LOCAL', 'barcode' => '990000000038'],
     ];
 
     public function run(): void
@@ -119,8 +154,18 @@ class DevelopmentMedicineStockSeeder extends Seeder
             $suppliers = $this->synchronizeSuppliers($actor);
 
             foreach (self::MEDICINES as $definition) {
-                $item = CatalogItem::query()->withTrashed()->firstOrNew(['code' => $definition['code']]);
-                $item->fill([
+                // Un médicament déjà présent n'est jamais retouché : ni sa fiche,
+                // ni son prix, ni son stock, ni son archivage. Relancer le
+                // seeder complète ce qui manque, il n'écrase aucune décision ni
+                // aucun mouvement réel (ADR-086, ADR-163).
+                if (CatalogItem::query()->withTrashed()->where('code', $definition['code'])->exists()) {
+                    $rows[] = [$definition['name'], '—', $definition['form']->label(), 'déjà présent', '—', '—'];
+
+                    continue;
+                }
+
+                $item = CatalogItem::query()->create([
+                    'code' => $definition['code'],
                     'name' => $definition['name'],
                     'type' => CatalogItemType::Medicine,
                     'module' => CatalogModule::Pharmacy,
@@ -132,18 +177,14 @@ class DevelopmentMedicineStockSeeder extends Seeder
                     'description' => 'Donnée et tarif fictifs réservés à la démonstration locale.',
                     'care_requires_allergy_check' => false,
                     'care_recommends_vitals' => false,
-                    'created_by' => $item->created_by ?? $actor->getKey(),
+                    'created_by' => $actor->getKey(),
                     'updated_by' => $actor->getKey(),
-                ])->save();
+                ]);
 
-                if ($item->trashed()) {
-                    $item->restore();
-                }
+                $this->createTariff($item, $actor, $definition['price']);
 
-                $this->synchronizeTariff($item, $actor, $definition['price']);
-
-                $medicine = Medicine::query()->withTrashed()->firstOrNew(['catalog_item_id' => $item->getKey()]);
-                $medicine->fill([
+                $medicine = Medicine::query()->create([
+                    'catalog_item_id' => $item->getKey(),
                     'medicine_category_id' => $categories[$definition['category']]->getKey(),
                     'generic_name' => $definition['generic'],
                     'form' => $definition['form'],
@@ -153,37 +194,33 @@ class DevelopmentMedicineStockSeeder extends Seeder
                     'minimum_stock' => $definition['minimum'],
                     'prescription_required' => $definition['prescription'],
                     'active' => true,
-                    'created_by' => $medicine->created_by ?? $actor->getKey(),
+                    'created_by' => $actor->getKey(),
                     'updated_by' => $actor->getKey(),
-                ])->save();
-
-                if ($medicine->trashed()) {
-                    $medicine->restore();
-                }
+                ]);
 
                 $supplier = $suppliers[$definition['supplier']];
-                $medicine->suppliers()->sync([$supplier->getKey()]);
+                $medicine->suppliers()->syncWithoutDetaching([$supplier->getKey()]);
 
                 $usableLot = null;
 
                 if ($definition['quantity'] > 0) {
-                    $usableLot = $this->synchronizeLot(
+                    $usableLot = $this->createLot(
                         $medicine,
                         $supplier,
                         $actor,
                         lotNumber: "{$definition['code']}-LOT-01",
-                        targetQuantity: $definition['quantity'],
+                        quantity: $definition['quantity'],
                         expiresAt: $today->addMonths($definition['expiry_months']),
                     );
                 }
 
                 if ($definition['code'] === 'DEV-PARA-500') {
-                    $this->synchronizeLot(
+                    $this->createLot(
                         $medicine,
                         $supplier,
                         $actor,
                         lotNumber: 'DEV-PARA-500-EXPIRED',
-                        targetQuantity: 7,
+                        quantity: 7,
                         expiresAt: $today->subMonth(),
                     );
                 }
@@ -216,19 +253,17 @@ class DevelopmentMedicineStockSeeder extends Seeder
         $categories = [];
 
         foreach (self::CATEGORIES as $definition) {
-            $category = MedicineCategory::query()->withTrashed()->firstOrNew(['code' => $definition['code']]);
-            $category->fill([
-                'name' => $definition['name'],
-                'description' => $definition['description'],
-                'created_by' => $category->created_by ?? $actor->getKey(),
-                'updated_by' => $actor->getKey(),
-            ])->save();
-
-            if ($category->trashed()) {
-                $category->restore();
-            }
-
-            $categories[$definition['code']] = $category;
+            // Une famille existante — renommée ou archivée par la Pharmacie —
+            // reste telle quelle.
+            $categories[$definition['code']] = MedicineCategory::query()->withTrashed()->firstOrCreate(
+                ['code' => $definition['code']],
+                [
+                    'name' => $definition['name'],
+                    'description' => $definition['description'],
+                    'created_by' => $actor->getKey(),
+                    'updated_by' => $actor->getKey(),
+                ],
+            );
         }
 
         return $categories;
@@ -240,46 +275,20 @@ class DevelopmentMedicineStockSeeder extends Seeder
         $suppliers = [];
 
         foreach (self::SUPPLIERS as $definition) {
-            $supplier = MedicineSupplier::query()->withTrashed()->firstOrNew(['code' => $definition['code']]);
-            $supplier->fill([
-                ...$definition,
-                'created_by' => $supplier->created_by ?? $actor->getKey(),
-                'updated_by' => $actor->getKey(),
-            ])->save();
-
-            if ($supplier->trashed()) {
-                $supplier->restore();
-            }
-
-            $suppliers[$definition['code']] = $supplier;
+            $suppliers[$definition['code']] = MedicineSupplier::query()->withTrashed()->firstOrCreate(
+                ['code' => $definition['code']],
+                [...$definition, 'created_by' => $actor->getKey(), 'updated_by' => $actor->getKey()],
+            );
         }
 
         return $suppliers;
     }
 
-    private function synchronizeTariff(CatalogItem $item, User $actor, int $amount): CatalogTariff
+    private function createTariff(CatalogItem $item, User $actor, int $amount): CatalogTariff
     {
-        $current = $item->tariffs()
-            ->where('tariff_category', CatalogTariffCategory::Standard->value)
-            ->where('active_key', 'CURRENT')
-            ->first();
-        $formattedAmount = number_format($amount, 2, '.', '');
-
-        if ($current && $current->amount === $formattedAmount) {
-            return $current;
-        }
-
-        if ($current) {
-            $current->forceFill([
-                'active_key' => null,
-                'effective_until' => now(),
-                'ended_by' => $actor->getKey(),
-            ])->save();
-        }
-
         return $item->tariffs()->create([
             'tariff_category' => CatalogTariffCategory::Standard,
-            'amount' => $formattedAmount,
+            'amount' => number_format($amount, 2, '.', ''),
             'currency' => 'MGA',
             'effective_from' => now(),
             'active_key' => 'CURRENT',
@@ -288,50 +297,39 @@ class DevelopmentMedicineStockSeeder extends Seeder
         ]);
     }
 
-    private function synchronizeLot(
+    private function createLot(
         Medicine $medicine,
         MedicineSupplier $supplier,
         User $actor,
         string $lotNumber,
-        int $targetQuantity,
+        int $quantity,
         CarbonImmutable $expiresAt,
     ): MedicineLot {
-        $lot = MedicineLot::query()->firstOrNew([
+        $lot = MedicineLot::query()->create([
             'medicine_id' => $medicine->getKey(),
             'lot_number' => $lotNumber,
-        ]);
-        $previousQuantity = $lot->exists ? $lot->quantity_on_hand : 0;
-        $lot->fill([
             'medicine_supplier_id' => $supplier->getKey(),
-            'received_at' => $lot->received_at ?? now()->subMonths(2),
+            'received_at' => now()->subMonths(2),
             'expires_at' => $expiresAt,
-            'quantity_on_hand' => $targetQuantity,
+            'quantity_on_hand' => $quantity,
             'active' => true,
-            'created_by' => $lot->created_by ?? $actor->getKey(),
+            'created_by' => $actor->getKey(),
             'updated_by' => $actor->getKey(),
-        ])->save();
+        ]);
 
-        $delta = $targetQuantity - $previousQuantity;
-
-        if ($delta !== 0) {
-            PharmacyStockMovement::query()->create([
-                'medicine_lot_id' => $lot->getKey(),
-                'medicine_supplier_id' => $supplier->getKey(),
-                'type' => $previousQuantity === 0
-                    ? PharmacyStockMovementType::Opening
-                    : PharmacyStockMovementType::Adjustment,
-                'quantity_delta' => $delta,
-                'balance_after' => $targetQuantity,
-                'source_key' => sprintf('DEV-SEED:%s:%s:%d', $lot->uuid, now()->format('YmdHisv'), $targetQuantity),
-                'origin' => $supplier->name,
-                'destination' => 'Stock Pharmacie — '.config('rivo.site.name'),
-                'reason' => $previousQuantity === 0
-                    ? 'Stock initial fictif de développement.'
-                    : 'Réinitialisation explicite du stock fictif de développement.',
-                'occurred_at' => now(),
-                'performed_by' => $actor->getKey(),
-            ]);
-        }
+        PharmacyStockMovement::query()->create([
+            'medicine_lot_id' => $lot->getKey(),
+            'medicine_supplier_id' => $supplier->getKey(),
+            'type' => PharmacyStockMovementType::Opening,
+            'quantity_delta' => $quantity,
+            'balance_after' => $quantity,
+            'source_key' => sprintf('DEV-SEED:%s', $lot->uuid),
+            'origin' => $supplier->name,
+            'destination' => 'Stock Pharmacie — '.config('rivo.site.name'),
+            'reason' => 'Stock initial fictif de développement.',
+            'occurred_at' => now(),
+            'performed_by' => $actor->getKey(),
+        ]);
 
         return $lot;
     }

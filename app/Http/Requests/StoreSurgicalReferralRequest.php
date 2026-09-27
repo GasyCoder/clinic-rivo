@@ -33,7 +33,7 @@ class StoreSurgicalReferralRequest extends FormRequest
                     ->where('module', CatalogModule::Surgery->value)
                     ->whereNull('deleted_at')),
             ],
-            'diagnostic' => ['required', 'string', 'max:2000'],
+            'diagnostic' => ['nullable', 'string', 'max:2000'],
             'indication' => ['nullable', 'string', 'max:2000'],
             'priority' => ['required', 'string', 'in:LOW,NORMAL,URGENT'],
             'notes' => ['nullable', 'string', 'max:2000'],
@@ -43,7 +43,6 @@ class StoreSurgicalReferralRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'diagnostic.required' => 'Indiquez le diagnostic motivant la demande.',
             'catalog_item_uuid.required' => 'Sélectionnez l’intervention envisagée.',
         ];
     }

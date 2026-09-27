@@ -2,13 +2,15 @@
 
 namespace App\Http\Requests;
 
-use App\Enums\CatalogItemType;
+use App\Services\Settings\AppSettings;
+use App\Support\Patients\PatientAgeRules;
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
 use App\Enums\MutualBeneficiaryType;
 use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Enums\PatientType;
+use App\Enums\ReceptionCartKind;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
@@ -84,8 +86,30 @@ class StoreArrivalRequest extends FormRequest
         $type = (string) $this->input('patient_type');
         $isStaff = $type === PatientType::Staff->value;
         $isMutual = $type === PatientType::Mutual->value;
+        // ADR-177 — plus de troisième mode « Nouveau-né » : un bébé né ailleurs
+        // est un nouveau patient, et la civilité « Enfant fille / garçon »
+        // porte le profil enfant (ADR-146, amendement du 2026-09-22).
+        // ADR-184 — l'âge aussi : un bébé ou un enfant, d'après les tranches
+        // réglées pour ce site, n'a pas de champs d'adulte.
+        $band = $isStaff ? null : PatientAgeRules::band(
+            $this->input('birth_date'),
+            $this->input('age'),
+            app(AppSettings::class)->ageBands(),
+        );
+        $isChild = in_array($this->input('civility'), [
+            PatientCivility::Girl->value,
+            PatientCivility::Boy->value,
+        ], true) || ($band?->isMinor() ?? false);
 
         $commonRule = fn (array $rules): array => [
+            Rule::prohibitedIf($isStaff),
+            ...$rules,
+        ];
+        $adultOnlyRule = fn (array $rules): array => [
+            Rule::prohibitedIf($isStaff || $isChild),
+            ...$rules,
+        ];
+        $civilityRule = fn (array $rules): array => [
             Rule::prohibitedIf($isStaff),
             ...$rules,
         ];
@@ -118,23 +142,23 @@ class StoreArrivalRequest extends FormRequest
                 'max:130',
             ]),
             'sex' => $commonRule([Rule::requiredIf(! $isStaff), 'nullable', new Enum(PatientSex::class)]),
-            'civility' => $commonRule(['nullable', new Enum(PatientCivility::class)]),
-            'identity_document_type' => $commonRule([
+            'civility' => $civilityRule(['nullable', new Enum(PatientCivility::class)]),
+            'identity_document_type' => $adultOnlyRule([
                 'nullable',
                 'required_with:identity_document_number',
                 new Enum(IdentityDocumentType::class),
             ]),
-            'identity_document_number' => $commonRule([
+            'identity_document_number' => $adultOnlyRule([
                 'nullable',
                 'required_with:identity_document_type',
                 'string',
                 'max:100',
             ]),
-            'marital_status' => $commonRule(['nullable', new Enum(MaritalStatus::class)]),
-            'children_count' => $commonRule(['nullable', 'integer', 'min:0', 'max:65535']),
-            'profession' => $commonRule(['nullable', 'string', 'max:255']),
-            'phone' => $commonRule(['nullable', 'string', 'max:50']),
-            'email' => $commonRule(['nullable', 'email', 'max:255']),
+            'marital_status' => $adultOnlyRule(['nullable', new Enum(MaritalStatus::class)]),
+            'children_count' => $adultOnlyRule(['nullable', 'integer', 'min:0', 'max:65535']),
+            'profession' => $adultOnlyRule(['nullable', 'string', 'max:255']),
+            'phone' => $adultOnlyRule(['nullable', 'string', 'max:50']),
+            'email' => $adultOnlyRule(['nullable', 'email', 'max:255']),
             'address_entry_uuid' => $commonRule([
                 'nullable',
                 'uuid',
@@ -205,16 +229,25 @@ class StoreArrivalRequest extends FormRequest
             // browser payload from the intentional empty list used by the
             // "besoin à préciser" path.
             'reception_draft.catalog_lines' => ['array', 'max:50'],
+            // ADR-104 — le panier porte deux rayons. Une ligne sans `kind`
+            // est une prestation : c'est ce que contenaient les brouillons
+            // antérieurs, et ne rien supposer d'autre évite de réinterpréter
+            // une sélection déjà enregistrée.
+            'reception_draft.catalog_lines.*.kind' => [
+                'sometimes', Rule::enum(ReceptionCartKind::class),
+            ],
+            // La forme est vérifiée ici, l'éligibilité par
+            // `ReceptionEstimateService` : les garde-fous d'un rayon
+            // dépendent de son `kind`, et les recopier en règle de
+            // validation les ferait diverger du résolveur qui chiffre
+            // réellement la ligne.
             'reception_draft.catalog_lines.*.catalog_item_uuid' => [
                 'required',
                 'uuid',
                 'distinct',
                 Rule::exists('catalog_items', 'uuid')->where(fn ($query) => $query
                     ->whereNull('deleted_at')
-                    ->where('type', CatalogItemType::Service->value)
-                    ->where('billable', true)
-                    ->where('reception_selectable', true)
-                    ->whereNotNull('reception_routing_mode')),
+                    ->where('billable', true)),
             ],
             'reception_draft.catalog_lines.*.quantity' => [
                 'required', 'numeric', 'gt:0', 'max:9999.99', 'decimal:0,2',
@@ -256,14 +289,14 @@ class StoreArrivalRequest extends FormRequest
                 if ($deferred && $lines !== []) {
                     $validator->errors()->add(
                         'reception_draft.catalog_lines',
-                        'Un besoin à préciser ne doit contenir aucune prestation sélectionnée.',
+                        'Un besoin à préciser ne doit contenir aucune ligne sélectionnée.',
                     );
                 }
 
                 if (! $deferred && $lines === []) {
                     $validator->errors()->add(
                         'reception_draft.catalog_lines',
-                        'Sélectionnez au moins une prestation avant de créer le passage.',
+                        'Sélectionnez au moins une prestation ou un médicament avant de créer le passage.',
                     );
                 }
             }
@@ -284,6 +317,22 @@ class StoreArrivalRequest extends FormRequest
                     'age',
                     'Saisissez la date de naissance ou l’âge, pas les deux.',
                 );
+
+                return;
+            }
+
+            // ADR-184 — l'âge et la civilité doivent se dire la même chose.
+            if ($this->input('patient_type') !== PatientType::Staff->value) {
+                $violations = PatientAgeRules::violations(
+                    $this->input('birth_date'),
+                    $this->input('age'),
+                    $this->input('civility'),
+                    app(AppSettings::class)->ageBands(),
+                );
+
+                foreach ($violations as $field => $message) {
+                    $validator->errors()->add($field, $message);
+                }
             }
         }];
     }

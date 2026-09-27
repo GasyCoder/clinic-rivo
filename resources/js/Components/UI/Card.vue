@@ -8,8 +8,8 @@ const props = defineProps({
 
 const compClass = computed(() => ({
     'border rounded-md': true,
-    'bg-white dark:bg-gray-950 border-gray-300 dark:border-gray-900': !props.variant,
-    'bg-primary-600 border-primary-600': props.variant === 'primary',
+    'bg-card border-border': !props.variant,
+    'bg-primary border-primary text-primary-foreground': props.variant === 'primary',
 }));
 </script>
 

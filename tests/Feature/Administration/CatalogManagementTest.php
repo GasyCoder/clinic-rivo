@@ -196,6 +196,25 @@ class CatalogManagementTest extends TestCase
         $this->assertDatabaseCount('catalog_items', 0);
     }
 
+    public function test_direct_reception_routes_must_match_the_catalog_module(): void
+    {
+        $actor = $this->catalogManager();
+
+        $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload([
+            'code' => 'LAB-INVALID-ROUTE',
+            'module' => CatalogModule::Laboratory->value,
+            'reception_routing_mode' => ReceptionRoutingMode::MedicineDirect->value,
+        ]))->assertSessionHasErrors('reception_routing_mode');
+
+        $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload([
+            'code' => 'MAT-INVALID-ROUTE',
+            'module' => CatalogModule::Medicine->value,
+            'reception_routing_mode' => ReceptionRoutingMode::MaternityDirect->value,
+        ]))->assertSessionHasErrors('reception_routing_mode');
+
+        $this->assertDatabaseCount('catalog_items', 0);
+    }
+
     public function test_tariff_change_closes_the_old_version_and_never_overwrites_it(): void
     {
         $actor = $this->catalogManager();

@@ -35,6 +35,6 @@ class SurgicalReportController extends Controller
 
         $action->execute($report);
 
-        return back()->with('status', 'Compte rendu opératoire validé — dossier clôturé.');
+        return back()->with('status', 'Compte rendu opératoire validé.');
     }
 }

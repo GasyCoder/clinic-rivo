@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\SurgicalChecklistPhase;
+use App\Enums\SurgicalRequestOrigin;
 use App\Enums\SurgicalRequestStatus;
 use App\Exceptions\InvalidSurgicalRequestTransitionException;
 use App\Models\Concerns\Auditable;
@@ -25,12 +27,13 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * migration for the flagged conflict with §11's generic critical-data rule.
  */
 #[Fillable([
-    'episode_id', 'catalog_item_id', 'requested_by', 'surgeon_id', 'status',
+    'episode_id', 'catalog_item_id', 'requested_by', 'surgeon_id', 'status', 'origin',
     'procedure_name', 'procedure_details', 'notes',
     'operating_room', 'preparation_notes', 'scheduled_at',
     'preoperative_notes', 'preoperative_assessed_by', 'preoperative_assessed_at',
     'preoperative_validated_by', 'preoperative_validated_at',
     'completed_at', 'discharged_by', 'discharged_at', 'discharge_notes', 'created_by',
+    'cancelled_at', 'cancelled_by', 'cancellation_reason',
 ])]
 class SurgicalRequest extends Model
 {
@@ -40,11 +43,13 @@ class SurgicalRequest extends Model
     {
         return [
             'status' => SurgicalRequestStatus::class,
+            'origin' => SurgicalRequestOrigin::class,
             'scheduled_at' => 'datetime',
             'preoperative_assessed_at' => 'datetime',
             'preoperative_validated_at' => 'datetime',
             'completed_at' => 'datetime',
             'discharged_at' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 
@@ -76,6 +81,12 @@ class SurgicalRequest extends Model
     public function preoperativeValidatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'preoperative_validated_by');
+    }
+
+    /** ADR-163 — qui a retiré la demande avant que le bloc la programme. */
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
     }
 
     public function dischargedBy(): BelongsTo
@@ -116,6 +127,17 @@ class SurgicalRequest extends Model
     public function careNotes(): HasMany
     {
         return $this->hasMany(SurgicalCareNote::class);
+    }
+
+    /** ADR-170 — les trois temps de la checklist de sécurité du bloc. */
+    public function safetyChecklists(): HasMany
+    {
+        return $this->hasMany(SurgicalSafetyChecklist::class);
+    }
+
+    public function safetyChecklist(SurgicalChecklistPhase $phase): ?SurgicalSafetyChecklist
+    {
+        return $this->safetyChecklists->firstWhere('phase', $phase);
     }
 
     public function blockEntry(): HasOne
@@ -215,8 +237,12 @@ class SurgicalRequest extends Model
     }
 
     /**
-     * IN_PROGRESS → COMPLETED. Called by ValidateSurgicalReportAction once
-     * the operative report is validated (surgery.report.validate).
+     * IN_PROGRESS → COMPLETED.
+     *
+     * ADR-170 : n'est plus un effet de bord de la validation du compte rendu.
+     * Clore le dossier est un acte à part, porté par `CompleteSurgicalCaseAction`,
+     * qui vérifie d'abord que le bloc a réellement fini — compte rendu validé,
+     * SIGN OUT confirmé, anesthésie terminée.
      */
     public function complete(): void
     {

@@ -3,12 +3,17 @@
 namespace App\Actions\Pharmacy;
 
 use App\Models\MedicineSupplier;
-use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 
+/**
+ * ADR-098 — reached from the clinic (a local account) and from the central
+ * portal through the site API (a remote Super Admin with no local account),
+ * hence a CatalogActor. The audit log records either identity.
+ */
 class CreateMedicineSupplierAction
 {
     /** @param array<string, mixed> $data */
-    public function execute(array $data, User $actor): MedicineSupplier
+    public function execute(array $data, CatalogActor $actor): MedicineSupplier
     {
         return MedicineSupplier::query()->create([
             'code' => mb_strtoupper(trim($data['code'])),
@@ -17,8 +22,8 @@ class CreateMedicineSupplierAction
             'phone' => filled($data['phone'] ?? null) ? trim($data['phone']) : null,
             'email' => filled($data['email'] ?? null) ? trim($data['email']) : null,
             'address' => filled($data['address'] ?? null) ? trim($data['address']) : null,
-            'created_by' => $actor->getKey(),
-            'updated_by' => $actor->getKey(),
+            'created_by' => $actor->localUserId(),
+            'updated_by' => $actor->localUserId(),
         ]);
     }
 }

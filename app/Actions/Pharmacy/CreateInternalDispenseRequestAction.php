@@ -12,7 +12,7 @@ class CreateInternalDispenseRequestAction
     public function execute(Prescription $prescription): ?PharmacyDispense
     {
         $prescription->loadMissing([
-            'consultation.episode.patient',
+            'episode.patient',
             'lines.medicine.catalogItem',
             'lines.stockReservations',
         ]);
@@ -23,13 +23,17 @@ class CreateInternalDispenseRequestAction
             return null;
         }
 
-        $episode = $prescription->consultation?->episode;
+        // ADR-162 — le passage se lit sur l'ordonnance : celle du séjour n'a
+        // pas de consultation.
+        $episode = $prescription->episode;
         $dispense = PharmacyDispense::query()->firstOrCreate(
             ['prescription_id' => $prescription->getKey()],
             [
                 'type' => PharmacyDispenseType::Internal,
                 'patient_id' => $episode?->patient_id,
                 'episode_id' => $episode?->getKey(),
+                // ADR-162 — délivrance au service : elle n'attendra pas le règlement.
+                'hospital_stay_id' => $prescription->hospital_stay_id,
                 'status' => PharmacyDispenseStatus::AwaitingInvoice,
                 'requested_at' => $prescription->prescribed_at ?? now(),
                 'requested_by' => $prescription->prescribed_by,

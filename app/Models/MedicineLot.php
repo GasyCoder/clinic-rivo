@@ -5,7 +5,9 @@ namespace App\Models;
 use App\Enums\MedicineStockReservationStatus;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -49,6 +51,43 @@ class MedicineLot extends Model
     {
         return $this->reservations()
             ->where('status', MedicineStockReservationStatus::Reserved->value);
+    }
+
+    /**
+     * ADR-098 — the single definition of what a lot still holds for others:
+     * quantities reserved for a prescription or for a pending dispense.
+     * Stock screens, the Medicine catalog and stock alerts all read it here
+     * instead of each summing reservations their own way.
+     */
+    public function scopeWithReservedQuantity(Builder $query): Builder
+    {
+        $stillReserved = fn ($reservations) => $reservations->where('status', MedicineStockReservationStatus::Reserved->value);
+
+        return $query
+            ->withSum(['reservations as prescription_reserved_quantity' => $stillReserved], 'remaining_quantity')
+            ->withSum(['counterReservations as counter_reserved_quantity' => $stillReserved], 'remaining_quantity');
+    }
+
+    /** Requires the lot to have been loaded through withReservedQuantity(). */
+    public function reservedQuantity(): int
+    {
+        return (int) ($this->prescription_reserved_quantity ?? 0) + (int) ($this->counter_reserved_quantity ?? 0);
+    }
+
+    /**
+     * What this lot can still serve: its physical quantity minus what is
+     * already held for someone else. Same single definition as
+     * `reservedQuantity()` (ADR-098), so no screen invents its own subtraction.
+     */
+    public function availableQuantity(): int
+    {
+        return max(0, $this->quantity_on_hand - $this->reservedQuantity());
+    }
+
+    /** An expired lot is never available, whatever it still physically holds (ADR-036). */
+    public function isUsableOn(CarbonImmutable $day): bool
+    {
+        return $this->active && $this->expires_at !== null && $this->expires_at->gte($day);
     }
 
     public function stockMovements(): HasMany

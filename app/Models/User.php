@@ -8,6 +8,7 @@ use App\Models\Concerns\HasUuid;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -44,6 +45,11 @@ class User extends Authenticatable
             'active' => 'boolean',
             'last_login_at' => 'datetime',
             'deactivated_at' => 'datetime',
+            // ADR-202 — première connexion : ouverte jusqu'à `activation_open_until`, faite à `activated_at`.
+            'activation_open_until' => 'datetime',
+            'activated_at' => 'datetime',
+            // ADR-191 — taille du texte, animations, contraste choisis dans « Mon profil ».
+            'ui_preferences' => 'array',
         ];
     }
 
@@ -109,7 +115,9 @@ class User extends Authenticatable
      */
     public function permissions(): BelongsToMany
     {
-        return $this->belongsToMany(Permission::class, 'user_permissions')->withPivot('effect');
+        return $this->belongsToMany(Permission::class, 'user_permissions')
+            ->withPivot('effect', 'source', 'source_profile_id')
+            ->withTimestamps();
     }
 
     public function hasRole(string $code): bool
@@ -120,6 +128,55 @@ class User extends Authenticatable
     public function isActive(): bool
     {
         return $this->active && $this->deactivated_at === null;
+    }
+
+    /**
+     * ADR-202 — le compte attend sa première connexion : personne n'a encore choisi
+     * son mot de passe, et le délai n'est pas passé. Seul ce cas ouvre, à la connexion,
+     * « Bonjour …, choisissez votre mot de passe » après la seule adresse email.
+     */
+    public function awaitsActivation(): bool
+    {
+        return $this->isActive()
+            && $this->activated_at === null
+            && $this->activation_open_until !== null
+            && $this->activation_open_until->isFuture();
+    }
+
+    /**
+     * ADR-202 — les comptes qui peuvent encore faire leur première connexion.
+     *
+     * @param  Builder<User>  $query
+     */
+    public function scopeAwaitingActivation(Builder $query): void
+    {
+        $this->constrainNeverActivated($query);
+        $query->where('activation_open_until', '>', now());
+    }
+
+    /**
+     * ADR-202 — les comptes qui ont laissé passer le délai sans se connecter : à rouvrir.
+     *
+     * @param  Builder<User>  $query
+     */
+    public function scopeActivationExpired(Builder $query): void
+    {
+        $this->constrainNeverActivated($query);
+        $query->where(fn (Builder $window) => $window->whereNull('activation_open_until')->orWhere('activation_open_until', '<=', now()));
+    }
+
+    /** @param  Builder<User>  $query */
+    private function constrainNeverActivated(Builder $query): void
+    {
+        $query->where('active', true)->whereNull('deactivated_at')->whereNull('activated_at')->whereNull('last_login_at');
+    }
+
+    /** La première connexion est faite : mot de passe choisi, ou première connexion réussie. */
+    public function markActivated(): void
+    {
+        if ($this->activated_at === null || $this->activation_open_until !== null) {
+            $this->forceFill(['activated_at' => $this->activated_at ?? now(), 'activation_open_until' => null])->saveQuietly();
+        }
     }
 
     /**

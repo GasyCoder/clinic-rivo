@@ -10,6 +10,7 @@ use App\Http\Requests\Administration\StoreAnalysisCatalogRequest;
 use App\Http\Requests\Administration\UpdateAnalysisCatalogRequest;
 use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
+use App\Services\Laboratory\AnalysisCatalogHierarchy;
 use App\Services\Laboratory\AnalysisCatalogImportService;
 use App\Services\Laboratory\AnalysisCatalogManager;
 use App\Services\Spreadsheet\ExcelWorkbook;
@@ -22,7 +23,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AnalysisCatalogController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request, AnalysisCatalogHierarchy $hierarchy): Response
     {
         $filters = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
@@ -32,6 +33,7 @@ class AnalysisCatalogController extends Controller
         $search = str($filters['q'] ?? '')->squish()->toString();
         $status = $filters['status'] ?? 'ACTIVE';
 
+        $hierarchyMetadata = $hierarchy->metadata();
         $analyses = AnalysisCatalog::query()
             ->with(['catalogItem:id,uuid,code,name', 'parent:id,uuid,code,designation'])
             ->when($status !== 'ALL', fn ($query) => $query->where('is_active', $status === 'ACTIVE'))
@@ -46,46 +48,64 @@ class AnalysisCatalogController extends Controller
             ->orderBy('catalog_item_id')
             ->orderBy('display_order')
             ->orderBy('designation')
-            ->paginate(30)
+            ->paginate(1000)
             ->withQueryString()
-            ->through(fn (AnalysisCatalog $analysis) => $this->serialize($analysis));
+            ->through(fn (AnalysisCatalog $analysis) => $this->serialize(
+                $analysis,
+                $hierarchyMetadata[$analysis->id] ?? ['depth' => 0, 'path' => $analysis->designation],
+            ));
 
         return Inertia::render('Administration/Analyses/Index', [
             'analyses' => $analyses,
             'catalogItems' => $this->laboratoryCatalogItems(),
-            'parents' => AnalysisCatalog::query()
-                ->where('level', 'PARENT')->where('is_active', true)
-                ->with('catalogItem:id,uuid')
-                ->orderBy('designation')->get()
-                ->map(fn (AnalysisCatalog $item) => [
-                    'uuid' => $item->uuid,
-                    'catalog_item_uuid' => $item->catalogItem->uuid,
-                    'code' => $item->code,
-                    'designation' => $item->designation,
-                ]),
             'filters' => ['q' => $search, 'status' => $status, 'catalog_item' => $filters['catalog_item'] ?? ''],
             'summary' => [
                 'active' => AnalysisCatalog::query()->where('is_active', true)->count(),
                 'inactive' => AnalysisCatalog::query()->where('is_active', false)->count(),
                 'services' => CatalogItem::query()->where('module', CatalogModule::Laboratory->value)->count(),
+                'nested_groups' => AnalysisCatalog::query()
+                    ->where('level', AnalysisCatalog::CONTAINER_LEVEL)
+                    ->whereNotNull('parent_id')
+                    ->count(),
             ],
-            'levels' => AnalysisCatalog::LEVELS,
-            'resultTypes' => AnalysisCatalog::RESULT_TYPES,
+        ]);
+    }
+
+    public function create(AnalysisCatalogHierarchy $hierarchy): Response
+    {
+        return Inertia::render('Administration/Analyses/Create', $this->formData($hierarchy));
+    }
+
+    public function edit(AnalysisCatalog $analysisCatalog, AnalysisCatalogHierarchy $hierarchy): Response
+    {
+        $analysisCatalog->load(['catalogItem', 'parent']);
+        $metadata = $hierarchy->metadata();
+
+        return Inertia::render('Administration/Analyses/Edit', [
+            ...$this->formData($hierarchy),
+            'analysis' => [
+                ...$this->serialize($analysisCatalog, $metadata[$analysisCatalog->id] ?? ['depth' => 0, 'path' => $analysisCatalog->designation]),
+                'children' => $analysisCatalog->children()
+                    ->orderBy('display_order')->orderBy('designation')
+                    ->get()
+                    ->map(fn (AnalysisCatalog $child) => $this->serializeWithChildren($child, 1))
+                    ->values(),
+            ],
         ]);
     }
 
     public function store(StoreAnalysisCatalogRequest $request, AnalysisCatalogManager $manager): RedirectResponse
     {
-        $analysis = $manager->create($request->validated(), $request->user());
+        $analysis = $manager->saveWithChildren(null, $request->validated(), $request->user());
 
-        return back()->with('status', "Analyse « {$analysis->designation} » ajoutée.");
+        return to_route('administration.analyses.index')->with('status', "Analyse « {$analysis->designation} » ajoutée.");
     }
 
     public function update(UpdateAnalysisCatalogRequest $request, AnalysisCatalog $analysisCatalog, AnalysisCatalogManager $manager): RedirectResponse
     {
-        $analysis = $manager->update($analysisCatalog, $request->validated(), $request->user());
+        $analysis = $manager->saveWithChildren($analysisCatalog, $request->validated(), $request->user());
 
-        return back()->with('status', "Analyse « {$analysis->designation} » mise à jour.");
+        return to_route('administration.analyses.index')->with('status', "Analyse « {$analysis->designation} » mise à jour.");
     }
 
     public function activate(Request $request, AnalysisCatalog $analysisCatalog, AnalysisCatalogManager $manager): RedirectResponse
@@ -140,6 +160,22 @@ class AnalysisCatalogController extends Controller
         return back()->with('status', "Import terminé : {$result['created']} créée(s), {$result['updated']} mise(s) à jour.");
     }
 
+    /** @return array<string, mixed> */
+    private function formData(AnalysisCatalogHierarchy $hierarchy): array
+    {
+        return [
+            'catalogItems' => $this->laboratoryCatalogItems(),
+            'parents' => $hierarchy->parentOptions(),
+            'levels' => AnalysisCatalog::LEVELS,
+            'resultTypes' => AnalysisCatalog::RESULT_TYPES,
+            'examCategories' => AnalysisCatalog::query()
+                ->whereNotNull('exam_category')
+                ->distinct()
+                ->orderBy('exam_category')
+                ->pluck('exam_category'),
+        ];
+    }
+
     /** @return array<int, array<string, string>> */
     private function laboratoryCatalogItems(): array
     {
@@ -151,20 +187,48 @@ class AnalysisCatalogController extends Controller
             ->all();
     }
 
+    /**
+     * Serializes a sub-analysis for the inline editor together with its own
+     * children, when it is itself a group — the editor goes exactly one
+     * level deeper than the direct children already listed by edit(), so
+     * $remainingDepth is always called with 1 from there.
+     *
+     * @return array<string, mixed>
+     */
+    private function serializeWithChildren(AnalysisCatalog $item, int $remainingDepth): array
+    {
+        return [
+            ...$this->serialize($item, ['depth' => 0, 'path' => $item->designation]),
+            'children' => $remainingDepth > 0 && $item->level === AnalysisCatalog::CONTAINER_LEVEL
+                ? $item->children()
+                    ->orderBy('display_order')->orderBy('designation')
+                    ->get()
+                    ->map(fn (AnalysisCatalog $child) => $this->serializeWithChildren($child, $remainingDepth - 1))
+                    ->values()
+                : [],
+        ];
+    }
+
     /** @return array<string, mixed> */
-    private function serialize(AnalysisCatalog $item): array
+    private function serialize(AnalysisCatalog $item, array $hierarchy): array
     {
         return [
             'uuid' => $item->uuid, 'code' => $item->code, 'level' => $item->level,
             'designation' => $item->designation, 'description' => $item->description,
+            'exam_category' => $item->exam_category,
             'result_type' => $item->result_type, 'reference_general' => $item->reference_general,
             'reference_male' => $item->reference_male, 'reference_female' => $item->reference_female,
             'reference_child_male' => $item->reference_child_male,
             'reference_child_female' => $item->reference_child_female,
             'unit' => $item->unit, 'predefined_values' => $item->predefined_values ?? [],
             'display_order' => $item->display_order, 'is_active' => $item->is_active,
+            'is_bold' => $item->is_bold,
             'catalog_item' => $item->catalogItem,
             'parent' => $item->parent,
+            'source_system' => $item->source_system,
+            'source_metadata' => $item->source_metadata,
+            'hierarchy_depth' => $hierarchy['depth'],
+            'hierarchy_path' => $hierarchy['path'],
         ];
     }
 

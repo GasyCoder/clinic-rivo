@@ -8,6 +8,7 @@ use App\Actions\Cash\UnlockCashSessionAction;
 use App\Enums\CashSessionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\CashRegister;
+use App\Models\PaymentMethod;
 use App\Services\Cash\CashRegisterManager;
 use App\Services\Cash\CashRegisterProfileService;
 use App\Services\Catalog\CatalogActor;
@@ -28,7 +29,7 @@ class CashRegisterController extends Controller
         $status = $validated['status'] ?? 'ACTIVE';
         $query = CashRegister::query()
             ->withCount('sessions')
-            ->with(['activeSession.opener:id,name', 'activeSession.locker:id,name']);
+            ->with(['activeSession.opener:id,name', 'activeSession.locker:id,name', 'acceptedPaymentMethods']);
 
         if ($status !== 'ACTIVE') {
             $query->withTrashed();
@@ -54,6 +55,16 @@ class CashRegisterController extends Controller
                     'active' => CashRegister::query()->count(),
                     'archived' => CashRegister::onlyTrashed()->count(),
                 ],
+                'payment_methods' => PaymentMethod::query()
+                    ->where('active', true)
+                    ->orderBy('name')
+                    ->get(['uuid', 'code', 'name', 'category'])
+                    ->map(fn (PaymentMethod $method) => [
+                        'uuid' => $method->uuid,
+                        'code' => $method->code,
+                        'name' => $method->name,
+                        'category_label' => $method->category->label(),
+                    ])->values(),
             ],
         ]);
     }
@@ -107,6 +118,35 @@ class CashRegisterController extends Controller
 
         return response()->json([
             'message' => 'Caisse activée.',
+            'data' => $this->serialize($register),
+        ]);
+    }
+
+    /**
+     * Tenders this desk accepts. An empty list lifts the restriction: every
+     * active tender of the site becomes acceptable again.
+     */
+    public function updatePaymentMethods(
+        Request $request,
+        string $cashRegisterUuid,
+        CashRegisterManager $manager,
+    ): JsonResponse {
+        $actor = $this->authorizeActor($request, 'cash_registers.update');
+        $validated = $request->validate([
+            'payment_method_uuids' => ['present', 'array', 'max:50'],
+            'payment_method_uuids.*' => ['uuid'],
+        ]);
+        $register = CashRegister::query()->where('uuid', $cashRegisterUuid)->firstOrFail();
+        $register = $manager->syncAcceptedPaymentMethods(
+            $register,
+            $validated['payment_method_uuids'],
+            $actor->user(),
+        );
+
+        return response()->json([
+            'message' => $register->acceptedPaymentMethods->isEmpty()
+                ? 'Cette caisse accepte désormais tous les modes de paiement actifs du site.'
+                : 'Modes de paiement de la caisse mis à jour.',
             'data' => $this->serialize($register),
         ]);
     }
@@ -208,7 +248,9 @@ class CashRegisterController extends Controller
     /** @return array<string, mixed> */
     private function serialize(CashRegister $register): array
     {
-        $register->loadMissing(['activeSession.opener:id,name', 'activeSession.locker:id,name']);
+        $register->loadMissing([
+            'activeSession.opener:id,name', 'activeSession.locker:id,name', 'acceptedPaymentMethods',
+        ]);
         $session = $register->activeSession;
         $sessionStatus = $session?->status instanceof CashSessionStatus
             ? $session->status->value
@@ -223,6 +265,14 @@ class CashRegisterController extends Controller
             'active' => (bool) $register->active,
             'archived' => $register->trashed(),
             'sessions_count' => (int) ($register->sessions_count ?? 0),
+            // Empty means no restriction: every active tender is accepted.
+            'accepted_payment_methods' => $register->acceptedPaymentMethods
+                ->map(fn ($method) => [
+                    'uuid' => $method->uuid,
+                    'code' => $method->code,
+                    'name' => $method->name,
+                    'category_label' => $method->category->label(),
+                ])->values(),
             'session' => $session ? [
                 'uuid' => $session->uuid,
                 'session_number' => $session->session_number,

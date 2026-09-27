@@ -32,8 +32,20 @@ class PermissionSeeder extends Seeder
 
         'roles.view' => 'Voir les rôles',
         'roles.assign' => 'Attribuer un rôle',
+        // Le référentiel des rôles lui-même (ADR-100) : créer « Kinésithérapeute »
+        // ne doit pas exiger un déploiement. Réservé au portail central.
+        'roles.create' => 'Créer un rôle',
+        'roles.update' => 'Renommer un rôle',
+        'roles.archive' => 'Archiver un rôle',
+        'roles.restore' => 'Restaurer un rôle archivé',
         'permissions.view' => 'Voir les permissions',
         'permissions.assign' => 'Attribuer des permissions individuelles',
+        // Le catalogue lui-même (ADR-101). Une permission créée ici est
+        // attribuable tout de suite, mais n'ouvre rien tant qu'aucune route,
+        // Policy ou écran ne la vérifie — l'écran le dit.
+        'permissions.create' => 'Créer une permission au catalogue',
+        'permissions.update' => 'Corriger le libellé d’une permission',
+        'permissions.delete' => 'Retirer une permission jamais utilisée',
 
         // ADR-025 — portail central. Ces droits n'accordent aucun accès
         // direct aux bases locales : chaque lecture/écriture distante reste
@@ -43,18 +55,42 @@ class PermissionSeeder extends Seeder
         'reports.financial.view' => 'Voir les rapports financiers par site',
         'settings.view' => 'Voir les paramètres globaux',
         'settings.update' => 'Modifier les paramètres globaux',
+        // ADR-193 — la maintenance d'un site : la mettre, et la traverser.
+        'app_maintenance.update' => 'Mettre un site en maintenance, la programmer ou la lever',
+        'app_maintenance.bypass' => 'Utiliser le site pendant sa maintenance',
         'audit.view' => 'Voir le journal d’audit',
         'api.view' => 'Voir l’état des intégrations API',
         'trash.view' => 'Voir la corbeille multi-sites',
         'trash.restore' => 'Restaurer un élément depuis la corbeille multi-sites',
+        'trash.force_delete' => 'Supprimer définitivement un élément jamais utilisé de la corbeille',
 
         // CDC officiel §17, affiné par la décision projet qui sépare RH,
         // Logistique, Support et Maintenance en responsabilités autonomes.
+        // ADR-190 — adresses email professionnelles.
+        'professional_emails.view' => 'Voir les adresses email professionnelles',
+        'professional_emails.request' => 'Demander une adresse email professionnelle pour un employé',
+        'professional_emails.create' => 'Créer une adresse email professionnelle chez l’hébergeur',
+        'professional_emails.reject' => 'Refuser une demande d’adresse email professionnelle',
+        'professional_emails.deactivate' => 'Suspendre une adresse email professionnelle',
+        'professional_emails.activate' => 'Réactiver une adresse email professionnelle suspendue',
+        'professional_emails.update' => 'Réinitialiser le mot de passe d’une adresse email professionnelle',
+        'webmail.view' => 'Utiliser la messagerie professionnelle (ouvrir sa propre boîte)',
+        'webmail.open_any' => 'Ouvrir la boîte professionnelle d’un autre employé (avec son mot de passe)',
+        // ADR-197 — l'accès du personnel : compte RIVO et adresse pro créés ensemble, remis au RH.
+        'staff_access.view' => 'Voir les employés qui attendent leur accès (compte et adresse)',
+        'staff_access.create' => 'Créer l’accès d’un employé (compte et adresse) et l’envoyer au RH',
+        'staff_access.receive' => 'Recevoir et remettre les accès créés pour le personnel (mots de passe)',
         'employees.view' => 'Voir les employés',
         'employees.create' => 'Créer un employé',
         'employees.update' => 'Modifier un employé',
         'employees.delete' => 'Archiver un employé',
         'employees.restore' => 'Restaurer un employé',
+        'employees.import' => 'Importer les employés',
+        'employees.export' => 'Exporter les employés',
+        'employees.print' => 'Imprimer une fiche employé',
+        // ADR-206 — rémunération déclarée et compte bancaire : données sensibles, droits à part.
+        'employees.payroll.view' => 'Voir la rémunération et le compte bancaire d’un employé',
+        'employees.payroll.update' => 'Modifier la rémunération et le compte bancaire d’un employé',
         // Vue volontairement minimale du dossier RH pour relier un membre du
         // personnel à son dossier patient, sans exposer contrats ou données RH.
         'employees.patient_lookup' => 'Rechercher un employé pour son dossier patient',
@@ -98,16 +134,50 @@ class PermissionSeeder extends Seeder
         'contracts.create' => 'Créer un contrat',
         'contracts.update' => 'Modifier un contrat',
         'contracts.archive' => 'Archiver un contrat',
+        'contracts.restore' => 'Restaurer un contrat archivé',
+        'contracts.export' => 'Exporter les contrats',
+        'contracts.print' => 'Imprimer un contrat',
+        // Canevas de documents administratifs généralisés (contrat, congé,
+        // attestation, certificat, lettre, décision...), composés sur le
+        // portail Super Admin et poussés site par site (ADR-070). L'ancien
+        // upload local de modèle Word/PDF (ADR-069) est retiré par ADR-071 :
+        // un contrat fusionné passe désormais exclusivement par ce canevas.
+        'document_templates.view' => 'Voir les canevas de documents',
+        'document_templates.create' => 'Créer un canevas de document',
+        'document_templates.update' => 'Modifier un canevas de document',
+        'document_templates.archive' => 'Archiver un canevas de document',
+        'document_templates.restore' => 'Restaurer un canevas de document',
+        'document_templates.duplicate' => 'Dupliquer un canevas de document',
+        'generated_documents.view' => 'Voir les documents générés',
+        'generated_documents.create' => 'Générer un document administratif',
+        'generated_documents.print' => 'Imprimer un document généré',
+        'generated_documents.archive' => 'Archiver un document généré (ou le remplacer par une nouvelle version)',
+        'generated_documents.restore' => 'Restaurer un document généré archivé',
         'attendance.view' => 'Voir les présences',
         'attendance.create' => 'Enregistrer une présence',
         'attendance.update' => 'Modifier une présence',
+        'attendance.export' => 'Exporter les présences',
+        'attendance.print' => 'Imprimer les présences',
         'leave.view' => 'Voir les congés',
         'leave.create' => 'Créer une demande de congé',
         'leave.approve' => 'Approuver une demande de congé',
+        'leave.reject' => 'Refuser une demande de congé',
         'leave.cancel' => 'Annuler une demande de congé',
+        'leave.print' => 'Imprimer une demande de congé',
         'planning.view' => 'Voir les plannings',
         'planning.create' => 'Créer un planning',
         'planning.update' => 'Modifier un planning',
+        'planning.export' => 'Exporter les plannings',
+        'planning.print' => 'Imprimer les plannings',
+        'hr_settings.view' => 'Voir les paramètres RH',
+        'hr_settings.create' => 'Créer une valeur de paramétrage RH',
+        'hr_settings.update' => 'Modifier une valeur de paramétrage RH',
+        'hr_settings.archive' => 'Archiver une valeur de paramétrage RH',
+        'hr_settings.restore' => 'Restaurer une valeur de paramétrage RH',
+        'hr_documents.view' => 'Voir les documents privés RH',
+        'hr_documents.create' => 'Ajouter un document privé RH',
+        'hr_documents.archive' => 'Archiver un document privé RH',
+        'hr_documents.restore' => 'Restaurer un document privé RH',
         'logistics.view' => 'Voir la logistique',
         'logistics.manage' => 'Gérer la logistique',
         'administrative_stock.view' => 'Voir le stock administratif',
@@ -132,6 +202,7 @@ class PermissionSeeder extends Seeder
         'guarding.reports.export' => 'Exporter les rapports de gardiennage',
         'hr_reports.view' => 'Voir les rapports RH',
         'hr_reports.export' => 'Exporter les rapports RH',
+        'hr_reports.print' => 'Imprimer les rapports RH',
 
         // ADR-024 — référentiel partagé localement par chaque site. Ces
         // permissions restent dynamiques, mais ne sont attribuées par
@@ -170,6 +241,8 @@ class PermissionSeeder extends Seeder
         'medicines.update' => 'Modifier le paramétrage d’un médicament',
         'medicines.delete' => 'Archiver un médicament',
         'medicines.restore' => 'Restaurer un médicament archivé',
+        'medicines.sale_price.update' => 'Fixer et modifier le prix de vente d’un médicament',
+        'medicines.name.update' => 'Renommer un médicament sous son nom de vente à la pharmacie',
         'medicines.import' => 'Importer en masse le référentiel des médicaments',
         'medicine_categories.view' => 'Voir les catégories thérapeutiques',
         'medicine_categories.create' => 'Créer une catégorie thérapeutique',
@@ -181,6 +254,8 @@ class PermissionSeeder extends Seeder
         'medicine_suppliers.update' => 'Modifier un fournisseur de médicaments',
         'medicine_suppliers.delete' => 'Archiver un fournisseur de médicaments',
         'medicine_suppliers.restore' => 'Restaurer un fournisseur de médicaments',
+        'medicine_suppliers.import' => 'Importer la liste des fournisseurs de médicaments',
+        'medicine_suppliers.export' => 'Exporter la liste des fournisseurs de médicaments',
         'stock.availability.view' => 'Consulter la disponibilité agrégée des médicaments',
         'stock.view' => 'Voir le stock de médicaments et consommables',
         'stock.entry' => 'Enregistrer une entrée en stock pharmacie',
@@ -200,6 +275,36 @@ class PermissionSeeder extends Seeder
         'stock.cost.view' => 'Voir les prix d’achat du stock',
         'stock.cost.record' => 'Enregistrer les prix d’achat du stock',
 
+        // ADR-097 — Approvisionnement : catalogues fournisseurs ("Drive
+        // style"), prix fournisseur versionné, commandes, réceptions et
+        // factures. Réutilise medicine_suppliers.*/stock.* existants sans
+        // les redéfinir — la réception passe par stock.entry/stock.cost.record
+        // via RecordStockEntryAction, inchangé.
+        'supplier_catalogs.view' => 'Voir les catalogues fournisseurs',
+        'supplier_catalogs.create' => 'Importer un catalogue fournisseur',
+        'supplier_catalogs.update' => 'Activer un catalogue fournisseur',
+        'supplier_catalogs.delete' => 'Archiver un catalogue fournisseur',
+        'supplier_catalogs.restore' => 'Restaurer un catalogue fournisseur',
+        'medicine_supplier_offers.view' => 'Voir les prix proposés par les fournisseurs',
+        'medicine_supplier_offers.create' => 'Enregistrer un premier prix fournisseur',
+        'medicine_supplier_offers.update' => 'Réviser un prix fournisseur',
+        'purchase_orders.view' => 'Voir les commandes fournisseurs',
+        'purchase_orders.create' => 'Créer une commande fournisseur',
+        'purchase_orders.update' => 'Modifier une commande fournisseur en brouillon',
+        'purchase_orders.submit' => 'Passer une commande fournisseur',
+        'purchase_orders.cancel' => 'Annuler une commande fournisseur',
+        // ADR-179 — la confirmation que le fournisseur envoie sur une commande.
+        'purchase_orders.confirm' => 'Enregistrer la confirmation du fournisseur sur une commande (achats)',
+        'purchase_orders.delete' => 'Mettre à la corbeille une commande fournisseur en brouillon',
+        'purchase_orders.restore' => 'Restaurer une commande fournisseur mise à la corbeille',
+        'goods_receipts.view' => 'Voir les réceptions de commandes',
+        'goods_receipts.create' => 'Réceptionner une commande fournisseur',
+        'supplier_invoices.view' => 'Voir les factures fournisseurs',
+        'supplier_invoices.create' => 'Enregistrer une facture fournisseur',
+        'supplier_invoices.delete' => 'Archiver une facture fournisseur',
+        'supplier_invoices.update' => 'Modifier une facture fournisseur',
+        'supplier_invoices.restore' => 'Restaurer une facture fournisseur',
+
         'patients.view' => 'Voir les patients',
         'patients.create' => 'Créer un patient',
         'patients.update' => 'Modifier un patient',
@@ -212,6 +317,9 @@ class PermissionSeeder extends Seeder
         // ces deux permissions doivent pouvoir être restreintes séparément
         // du reste du dossier patient administratif (confidentialité des
         // informations médicales, CDCF client §34.1 règle 9).
+        'patients.export' => 'Exporter la liste des patients en Excel',
+        'patient_vip.view' => 'Voir les seuils des patients VIP',
+        'patient_vip.update' => 'Régler les seuils des patients VIP',
         'patients.medical_history.view' => 'Voir les antécédents et allergies',
         'patients.medical_history.manage' => 'Gérer les antécédents et allergies',
 
@@ -223,12 +331,25 @@ class PermissionSeeder extends Seeder
         'episodes.update' => 'Modifier un épisode',
         'episodes.mark_emergency' => 'Classer un épisode en urgence',
         'episodes.cancel' => 'Annuler un épisode',
+        // CDC §33.3 — sortie administrative. Voir la file d'attente de
+        // règlement et prononcer la sortie sont deux droits distincts :
+        // un compte peut avoir besoin de suivre les passages en attente
+        // sans pouvoir clore un compte patient.
+        'episodes.settlement.view' => 'Voir les passages en attente de règlement',
+        'episodes.administrative_exit' => 'Prononcer la sortie administrative d’un passage',
 
         // CDC §15 / §34.2 — seule Réception / Caisse encaisse. Les
         // L'annulation contrôlée d'un paiement reste dans la session de
-        // caisse ouverte qui l'a reçu. Remboursements, dettes et remises
-        // restent absents tant que leurs validations distinctes ne sont pas
-        // définies et implémentées.
+        // caisse ouverte qui l'a reçu. Les remboursements restent absents
+        // tant que leur validation distincte n'est pas définie et implémentée.
+        // ADR-192 — remises : une par facture, la plus avantageuse, sur la part patient.
+        'discounts.view' => 'Voir les remises d’une facture et d’un patient',
+        'discounts.create' => 'Appliquer ou retirer une remise sur une facture à encaisser',
+        'discounts.approve' => 'Accorder ou annuler la remise propre à un patient',
+        'discount_coupons.view' => 'Voir les coupons de remise',
+        'discount_coupons.create' => 'Créer un coupon de remise',
+        'discount_coupons.archive' => 'Archiver un coupon de remise',
+        'discount_coupons.force_delete' => 'Supprimer définitivement un coupon archivé jamais utilisé',
         'billing.view' => 'Voir les factures et soldes',
         'billing.create' => 'Créer une facture',
         'billing.validate' => 'Valider une facture',
@@ -236,6 +357,14 @@ class PermissionSeeder extends Seeder
         'payments.view' => 'Voir les paiements',
         'payments.create' => 'Enregistrer un paiement',
         'payments.cancel' => 'Annuler un paiement',
+        // CDC §33.3 / §34.1 règle 6 — la dérogation « dette validée » est
+        // autorisée par une personne habilitée, distincte de l'agent qui
+        // enregistre la sortie. Elle n'est donc pas accordée par défaut à
+        // RECEPTION. Une évasion (§33.3) est un constat, pas une
+        // dérogation : elle relève d'episodes.administrative_exit.
+        'debts.view' => 'Voir les créances patients',
+        'debts.authorize' => 'Autoriser une sortie avec dette validée',
+        'debts.record_escape' => 'Enregistrer une sortie évadé',
         'cash.view' => 'Voir la caisse',
         'cash.open' => 'Ouvrir la caisse',
         'cash.close' => 'Clôturer la caisse',
@@ -250,6 +379,11 @@ class PermissionSeeder extends Seeder
         'cash_registers.unlock' => 'Déverrouiller à distance une session de caisse',
         'cash_registers.close' => 'Clôturer à distance une session avec comptage et motif',
         'cash_registers.export' => 'Exporter en Excel les mouvements et l’historique d’une caisse',
+        'payment_methods.view' => 'Voir les modes de paiement acceptés par la caisse',
+        'payment_methods.create' => 'Créer un mode de paiement',
+        'payment_methods.update' => 'Modifier le libellé et le comportement de caisse d’un mode de paiement',
+        'payment_methods.activate' => 'Réactiver un mode de paiement désactivé',
+        'payment_methods.deactivate' => 'Désactiver un mode de paiement sans le supprimer',
         'receipts.view' => 'Voir les reçus',
         'receipts.print' => 'Imprimer les reçus',
 
@@ -259,13 +393,14 @@ class PermissionSeeder extends Seeder
         // possède désormais son workflow séparé décrit par ADR-048.
         'medical_record.view' => 'Voir le dossier médical du passage',
         'consultations.view' => 'Voir les consultations',
-        'consultations.create' => 'Créer une consultation',
+        'consultations.create' => 'Ouvrir une consultation : prendre un patient en charge (file Médecine) ou ouvrir une visite de service (hospitalisation)',
         'consultations.update' => 'Modifier une consultation',
+        'consultations.reopen' => 'Rouvrir une consultation clôturée pour la compléter',
         'consultations.delete' => 'Supprimer une consultation',
         'consultations.restore' => 'Restaurer une consultation',
 
         'diagnoses.view' => 'Voir les diagnostics',
-        'diagnoses.create' => 'Créer un diagnostic',
+        'diagnoses.create' => 'Poser un diagnostic (consultation, et sortie d’hospitalisation)',
         'diagnoses.update' => 'Modifier un diagnostic',
         'diagnostic_catalog.view' => 'Voir le référentiel central des diagnostics',
         'diagnostic_catalog.manage' => 'Créer, modifier, activer et désactiver les diagnostics du référentiel',
@@ -281,7 +416,11 @@ class PermissionSeeder extends Seeder
         'prescriptions.create' => 'Créer une prescription',
         'prescriptions.update' => 'Modifier une prescription',
         'prescriptions.cancel' => 'Annuler une prescription',
-        'medical_discharge.create' => 'Prononcer une sortie médicale',
+        'medical_discharge.create' => 'Prononcer une sortie médicale (consultation, sortie d’hospitalisation, pédiatrie)',
+        'death_records.view' => 'Consulter le registre des décès',
+        'death_records.create' => 'Établir un acte de constatation de décès',
+        'clinical_protocols.view' => 'Consulter les protocoles thérapeutiques',
+        'clinical_protocols.manage' => 'Rédiger et archiver les protocoles thérapeutiques',
 
         // CDC §15 "Soins" — seedées ici en avance du module Soins/Vitals
         // (pas encore construit) car explicitement demandées pour le rôle
@@ -304,10 +443,29 @@ class PermissionSeeder extends Seeder
         'care_orders.create' => 'Demander un ordre de soins depuis une consultation',
         'care_orders.view' => 'Voir les ordres de soins',
 
+        // ADR-072 — consommables réellement utilisés aux Soins, notifiés à
+        // la Pharmacie. Distinctes de pharmacy.dispense : servir une
+        // demande Soins ne délivre pas une ordonnance et n'exige aucune
+        // facture réglée. Aucune permission `prescriptions.*` n'est
+        // ajoutée ici : les Soins ne prescrivent jamais.
+        'care_consumables.view' => 'Voir les demandes de consommables Soins',
+        'care_consumables.request' => 'Déclarer des consommables utilisés aux Soins',
+        'care_consumables.serve' => 'Servir une demande de consommables Soins et sortir le stock',
+        'care_consumables.cancel' => 'Annuler une demande de consommables Soins non servie',
+
         // Paraclinique et orientations depuis Médecine. surgery.request est
         // volontairement distincte de surgery.create (jamais accordée à
         // MEDICINE) : demander une intervention n'est pas piloter le
         // dossier chirurgical.
+        // La porte de l'espace « Demandes d'examens » (/medicine/demandes-
+        // examens), qui réunit analyses et imagerie. Distincte des deux
+        // permissions ci-dessous, qui gouvernent ce qu'on y voit : sans
+        // celle-ci la route refusait un compte n'ayant que l'imagerie, alors
+        // que l'écran savait lui servir ses lignes.
+        'paraclinical_requests.view' => 'Ouvrir l’espace Demandes d’examens',
+        // ADR-131 — ranger une demande rendue ; un drapeau réversible, rien n'est supprimé.
+        'paraclinical_requests.archive' => 'Archiver et désarchiver une demande d’examen',
+
         'laboratory_orders.create' => 'Demander des analyses depuis une consultation',
         'laboratory_orders.view' => 'Voir les demandes d’analyses',
         'laboratory_results.view' => 'Voir les résultats d’analyses',
@@ -318,11 +476,55 @@ class PermissionSeeder extends Seeder
         'imaging_orders.create' => 'Demander un examen d’imagerie depuis une consultation',
         'imaging_orders.view' => 'Voir les demandes d’imagerie',
         'imaging_results.create' => 'Saisir un compte rendu d’imagerie',
+        // ADR-130 — corriger un compte rendu déjà enregistré ; les versions remplacées sont conservées.
+        'imaging_results.update' => 'Corriger un compte rendu d’imagerie déjà enregistré',
+        'imaging_templates.create' => 'Créer une feuille de compte rendu d’imagerie',
+        'imaging_templates.update' => 'Modifier une feuille de compte rendu d’imagerie',
+        'imaging_templates.archive' => 'Retirer une feuille de compte rendu d’imagerie',
 
         'surgery.request' => 'Demander une intervention chirurgicale depuis Médecine',
         'hospitalization.request' => 'Demander une hospitalisation depuis Médecine',
+        // ADR-113 — le séjour et sa fiche de régime.
+        'hospitalization.view' => 'Consulter les patients hospitalisés et leur fiche de régime',
+        'hospitalization.update' => 'Renseigner la chambre / le lit d’un séjour',
+        // ADR-165 — la liste contient des données personnelles : l'exporter est un droit à part.
+        'hospitalization.export' => 'Exporter en Excel la liste des patients hospitalisés',
+        'hospital_diet.record' => 'Saisir la fiche de régime d’un patient hospitalisé',
+        // ADR-164 — services, chambres et lits, réglés depuis le portail par l'API du site.
+        'hospital_beds.view' => 'Voir les services, chambres et lits d’un site et leur occupation',
+        'hospital_beds.create' => 'Créer un service, une chambre (avec son nombre de lits) ou un lit',
+        'hospital_beds.update' => 'Renommer un service, une chambre ou un lit, et mettre un lit hors service',
+        'hospital_beds.archive' => 'Archiver un service, une chambre ou un lit libre',
+        'hospital_beds.restore' => 'Restaurer un service, une chambre ou un lit archivé',
+        // ADR-116 — le « Dossier médical – Traitement » de la clinique.
+        'treatment_journal.view' => 'Consulter le journal de traitement d’un passage',
+        'treatment_journal.record' => 'Ajouter une ligne au journal de traitement',
+        // ADR-114 — modules Transferts et Pédiatrie.
+        'transfers.view' => 'Consulter les patients à transférer et transférés',
+        'transfers.manage' => 'Compléter un transfert et enregistrer le départ du patient',
+        'pediatrics.view' => 'Consulter la file Pédiatrie',
+        'pediatrics.manage' => 'Prendre en charge un patient orienté en Pédiatrie',
         'maternity.request' => 'Demander une orientation Maternité depuis Médecine',
+        'maternity.view' => 'Voir la file et les dossiers Maternité',
+        'maternity.create' => 'Ouvrir un dossier Maternité',
+        'maternity.update' => 'Mettre à jour un dossier Maternité',
+        'maternity.complete' => 'Clôturer une prise en charge Maternité',
+        'maternity.prenatal.manage' => 'Renseigner le suivi prénatal',
+        'maternity.labor.manage' => 'Renseigner le travail et sa surveillance',
+        'maternity.delivery.manage' => 'Renseigner l’accouchement ou demander une césarienne',
+        'maternity.newborn.manage' => 'Renseigner les nouveau-nés et leurs soins',
+        'maternity.procedures.manage' => 'Enregistrer les actes du catalogue Maternité',
+        // ADR-146 (amendement) — le nouveau-né vit dans le dossier de sa mère bien avant d'être
+        // patient. Le lire n'est donc pas « travailler en Maternité » : la Réception l'accueille,
+        // Médecine le soigne, et `maternity.view` — réservée au profil sage-femme — leur fermait
+        // l'accès. Ces trois droits nomment les trois gestes réels, identité et clinique séparées.
+        'newborns.view' => 'Voir les nouveau-nés d’une mère : nom, rang, sexe et date de naissance',
+        'newborns.medical_record.view' => 'Ouvrir le dossier médical d’un nouveau-né : naissance, poids, Apgar, état et soins',
+        'newborns.patient.create' => 'Ouvrir le dossier patient d’un nouveau-né depuis la Maternité',
         'transfer.request' => 'Demander un transfert/référence depuis Médecine',
+        // ADR-162 — la note quotidienne du séjour hospitalier.
+        'hospital_notes.view' => 'Lire les notes quotidiennes d’un séjour hospitalier',
+        'hospital_notes.create' => 'Écrire la note quotidienne d’un séjour hospitalier (S/O/A/P)',
         'pediatrics.request' => 'Demander une orientation Pédiatrie depuis Médecine',
 
         // CDC §16 "Chirurgie" — catalogue anesthésie. ADR-048 en fait un
@@ -349,6 +551,7 @@ class PermissionSeeder extends Seeder
         'surgery.create' => 'Créer une demande de chirurgie',
         'surgery.update' => 'Modifier une demande de chirurgie',
         'surgery.schedule' => 'Programmer une intervention',
+        'surgery.reset' => 'Réinitialiser un dossier de chirurgie saisi à tort (archivé, motif obligatoire)',
         'surgery.preoperative.view' => 'Voir le bilan préopératoire',
         'surgery.preoperative.validate' => 'Valider le bilan préopératoire',
         'surgery.intervention.create' => 'Créer une intervention',

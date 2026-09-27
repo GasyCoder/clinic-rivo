@@ -10,13 +10,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * A doctor's laboratory REQUEST — kept distinct from the EpisodeOrientation
- * that routes the sample/technician (ORIENTATION) and the per-item RESULT
- * a lab item carries once entered. No FACTURATION here at all.
+ * A laboratory REQUEST from Medicine or Reception — kept distinct from the
+ * EpisodeOrientation that routes the sample/technician (ORIENTATION) and the
+ * per-item RESULT. Billing remains owned by Reception/Cash.
  */
 #[Fillable([
-    'episode_id', 'consultation_id', 'source_orientation_id', 'lab_orientation_id',
+    'episode_id', 'hospital_stay_id', 'maternity_record_id', 'consultation_id', 'source_orientation_id', 'lab_orientation_id',
     'requested_by', 'notes', 'requested_at',
+    'cancelled_at', 'cancelled_by', 'cancel_reason',
+    'archived_at', 'archived_by',
 ])]
 class LabRequest extends Model
 {
@@ -24,7 +26,7 @@ class LabRequest extends Model
 
     protected function casts(): array
     {
-        return ['requested_at' => 'datetime'];
+        return ['requested_at' => 'datetime', 'cancelled_at' => 'datetime', 'archived_at' => 'datetime'];
     }
 
     public function episode(): BelongsTo
@@ -53,8 +55,31 @@ class LabRequest extends Model
     }
 
     /** Display-only, computed from item resolution — never a second persisted flag. */
+    public function isCancelled(): bool
+    {
+        return $this->cancelled_at !== null;
+    }
+
+    /**
+     * Whether anything has already been produced for this request. A request
+     * that carries a result is never cancellable: the act happened, and
+     * ADR-010 forbids erasing it.
+     */
+    public function hasAnyResult(): bool
+    {
+        $items = $this->relationLoaded('items') ? $this->items : $this->items()->get();
+
+        return $items->contains(fn (LabRequestItem $item): bool => $item->resulted_at !== null);
+    }
+
     public function displayStatus(): string
     {
+        // A cancelled request is not "awaiting a result": it was
+        // withdrawn, and the queues must stop counting it.
+        if ($this->isCancelled()) {
+            return 'CANCELLED';
+        }
+
         $items = $this->relationLoaded('items') ? $this->items : $this->items()->get();
 
         if ($items->isEmpty() || $items->every(fn (LabRequestItem $item) => $item->resulted_at === null)) {
@@ -69,5 +94,17 @@ class LabRequest extends Model
     protected function auditModule(): ?string
     {
         return 'clinical_flow';
+    }
+
+    /** ADR-162 — la demande faite depuis le séjour, sans consultation. */
+    public function hospitalStay(): BelongsTo
+    {
+        return $this->belongsTo(HospitalStay::class);
+    }
+
+    /** ADR-204 — la demande faite depuis une prise en charge Maternité, sans consultation Médecine. */
+    public function maternityRecord(): BelongsTo
+    {
+        return $this->belongsTo(MaternityRecord::class);
     }
 }

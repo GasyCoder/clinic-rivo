@@ -44,7 +44,7 @@ class DevelopmentUserSeederTest extends TestCase
     {
         $this->seed(DevelopmentUserSeeder::class);
 
-        $this->assertDatabaseCount('users', 13);
+        $this->assertDatabaseCount('users', 15);
         $this->assertDatabaseMissing('users', [
             'role_id' => Role::query()->where('code', 'SUPER_ADMIN')->value('id'),
         ]);
@@ -61,7 +61,7 @@ class DevelopmentUserSeederTest extends TestCase
             ]);
         }
 
-        foreach (['REGISTERED_NURSE', 'MIDWIFE', 'ANESTHETIST', 'GUARD', 'CLEANER', 'IT_TECHNICIAN'] as $profileCode) {
+        foreach (['REGISTERED_NURSE', 'MIDWIFE', 'ANESTHETIST', 'SURGEON', 'OR_NURSE', 'GUARD', 'CLEANER', 'IT_TECHNICIAN'] as $profileCode) {
             $this->assertDatabaseHas('users', [
                 'professional_profile_id' => ProfessionalProfile::query()
                     ->where('code', $profileCode)
@@ -100,7 +100,7 @@ class DevelopmentUserSeederTest extends TestCase
 
         $this->seed(DevelopmentUserSeeder::class);
 
-        $this->assertDatabaseCount('users', 13);
+        $this->assertDatabaseCount('users', 15);
         $this->assertSame($user->id, User::query()->where('email', $user->email)->value('id'));
         $this->assertTrue(Hash::check('Seeder-password1!', $user->fresh()->password));
         $this->assertDatabaseHas('audit_logs', [

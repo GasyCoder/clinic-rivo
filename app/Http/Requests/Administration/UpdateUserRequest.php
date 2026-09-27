@@ -4,6 +4,7 @@ namespace App\Http\Requests\Administration;
 
 use App\Models\ProfessionalProfile;
 use App\Support\SecurePassword;
+use App\Support\Users\AccountKindRules;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -26,6 +27,8 @@ class UpdateUserRequest extends FormRequest
     public function rules(): array
     {
         return [
+            // ADR-188 — personnel clinique (une fiche Employé) ou externe.
+            ...AccountKindRules::rules(creating: false),
             'name' => ['required', 'string', 'max:255'],
             'email' => [
                 'required',
@@ -35,7 +38,10 @@ class UpdateUserRequest extends FormRequest
                 Rule::unique('users', 'email')->ignore($this->route('user')),
             ],
             'password' => ['nullable', 'confirmed', SecurePassword::rule()],
-            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')],
+            // Un rôle archivé (ADR-100) reste une ligne : `exists` le trouverait
+            // et le compte se retrouverait sans socle, `User::role()` ne
+            // renvoyant plus un rôle archivé.
+            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')->whereNull('deleted_at')],
             'professional_profile_id' => [
                 Rule::requiredIf(fn () => ProfessionalProfile::query()
                     ->active()
@@ -49,6 +55,7 @@ class UpdateUserRequest extends FormRequest
                         ->where('active', true),
                 ),
             ],
+            'sync_profile_permissions' => ['sometimes', 'boolean'],
             'permission_overrides' => ['sometimes', 'array'],
             'permission_overrides.*.permission_id' => [
                 'required',
@@ -63,6 +70,7 @@ class UpdateUserRequest extends FormRequest
     public function messages(): array
     {
         return [
+            ...AccountKindRules::messages(),
             'password.confirmed' => 'La confirmation du mot de passe ne correspond pas.',
             'password.min' => 'Le mot de passe doit contenir au moins 12 caractères.',
             'email.unique' => 'Cette adresse email est déjà utilisée.',

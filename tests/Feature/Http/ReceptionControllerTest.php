@@ -88,6 +88,61 @@ class ReceptionControllerTest extends TestCase
             );
     }
 
+    /**
+     * L'accueil montre « qui vient d'arriver », pas l'historique.
+     *
+     * Sans borne, un passage vieux de trois jours se lisait comme une
+     * arrivée récente. C'est un filtre d'affichage : le passage plus ancien
+     * n'est ni modifié ni supprimé, et reste entier ailleurs.
+     */
+    public function test_the_dashboard_only_lists_arrivals_from_the_last_24_hours(): void
+    {
+        $user = $this->userWithPermissions(['reception.view', 'episodes.view', 'episodes.create']);
+        $patient = Patient::create(['patient_number' => 'M-000010', ...$this->patientData()]);
+
+        $today = Episode::create([
+            'patient_id' => $patient->id,
+            'episode_number' => 'ME-000010',
+            'status' => 'OPEN',
+            'administrative_status' => 'PENDING_ORIENTATION',
+            'started_at' => now()->subHours(7),
+        ]);
+
+        $yesterday = Episode::create([
+            'patient_id' => $patient->id,
+            'episode_number' => 'ME-000011',
+            'status' => 'OPEN',
+            'administrative_status' => 'PENDING_ORIENTATION',
+            'started_at' => now()->subHours(25),
+        ]);
+
+        $this->actingAs($user)->get('/reception')
+            ->assertInertia(fn ($page) => $page
+                ->has('recentEpisodes', 1)
+                ->where('recentEpisodes.0.uuid', $today->uuid));
+
+        // Rien n'a été supprimé : le passage écarté existe toujours.
+        $this->assertNotNull($yesterday->fresh());
+    }
+
+    /** La borne se lit en heures, pas au changement de date. */
+    public function test_a_passage_just_under_24_hours_old_is_still_listed(): void
+    {
+        $user = $this->userWithPermissions(['reception.view', 'episodes.view', 'episodes.create']);
+        $patient = Patient::create(['patient_number' => 'M-000012', ...$this->patientData()]);
+
+        Episode::create([
+            'patient_id' => $patient->id,
+            'episode_number' => 'ME-000012',
+            'status' => 'OPEN',
+            'administrative_status' => 'PENDING_ORIENTATION',
+            'started_at' => now()->subHours(23)->subMinutes(30),
+        ]);
+
+        $this->actingAs($user)->get('/reception')
+            ->assertInertia(fn ($page) => $page->has('recentEpisodes', 1));
+    }
+
     public function test_search_returns_matching_patients(): void
     {
         $user = $this->userWithPermissions(['episodes.create']);

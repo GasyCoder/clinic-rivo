@@ -67,6 +67,18 @@ class Invoice extends Model
         return $this->hasMany(Payment::class);
     }
 
+    /** ADR-192 — les remises appliquées, retirées comprises (elles restent tracées). */
+    public function discounts(): HasMany
+    {
+        return $this->hasMany(InvoiceDiscount::class);
+    }
+
+    /** La remise en vigueur, une seule par facture. */
+    public function activeDiscount(): HasOne
+    {
+        return $this->hasOne(InvoiceDiscount::class)->whereNull('removed_at');
+    }
+
     public function pharmacyDispense(): HasOne
     {
         return $this->hasOne(PharmacyDispense::class);

@@ -9,6 +9,7 @@ import {
     Eye,
     FileSpreadsheet,
     GraduationCap,
+    IdCard,
     Mail,
     Palmtree,
     Pencil,
@@ -24,12 +25,14 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import EmployeePhoto from '@/Components/Administration/EmployeePhoto.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import ExplorerView from '@/Components/UI/ExplorerView.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import HrPagination from '../Partials/HrPagination.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
+import { badgeSheetPath } from '@/utilities/employeeBadge';
 import { hrUrl } from '@/utilities/hrUrl';
 
 defineOptions({ layout: AppLayout });
@@ -113,6 +116,32 @@ const emptyDescription = computed(() => (total.value === 0
 
 // ADR-207 — les stagiaires ne sont pas des employés : la page le dit, et mène à « Stages ».
 const interns = computed(() => Number(props.summary?.interns ?? 0));
+
+/* ------------------------------------------------------------------ */
+/* Badges (ADR-209)                                                    */
+/* ------------------------------------------------------------------ */
+
+const canBadge = computed(() => can('employees.print'));
+/** Les dossiers cochés sur la page ouverte ; un autre filtre ou une autre page repart de zéro. */
+const selected = ref([]);
+watch(() => props.employees?.data, () => { selected.value = []; });
+
+const selectable = computed(() => (props.employees?.data ?? []).filter((employee) => ! employee.archived));
+const allSelected = computed(() => {
+    if (selectable.value.length === 0 || selected.value.length === 0) return false;
+
+    return selected.value.length === selectable.value.length ? true : 'indeterminate';
+});
+const toggleAll = (checked) => { selected.value = checked ? selectable.value.map((employee) => employee.uuid) : []; };
+const toggleOne = (uuid, checked) => {
+    selected.value = checked ? [...new Set([...selected.value, uuid])] : selected.value.filter((item) => item !== uuid);
+};
+
+/** Un dossier archivé n'a plus de badge : la vue « Archivés » n'en propose aucun. */
+const badgesAvailable = computed(() => canBadge.value && statusFilter.value !== 'archived' && count.value > 0);
+const allBadgesUrl = computed(() => hrUrl(badgeSheetPath({ status: statusFilter.value, q: props.filters?.q || undefined })));
+const selectedBadgesUrl = computed(() => hrUrl(badgeSheetPath({ uuids: selected.value })));
+const badgeUrl = (employee) => hrUrl(`/administration/employees/${employee.uuid}/badge`);
 </script>
 
 <template>
@@ -141,11 +170,29 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
                         <component :is="action.icon" class="h-4 w-4" /><span class="sm:hidden">{{ action.short }}</span><span class="hidden sm:inline">{{ action.label }}</span>
                     </Button>
                 </div>
+                <Button
+                    v-if="badgesAvailable"
+                    :as="Link"
+                    :href="allBadgesUrl"
+                    variant="outline"
+                    :title="`Badges des ${count} employé${count > 1 ? 's' : ''} affiché${count > 1 ? 's' : ''} (toutes les pages)`"
+                >
+                    <IdCard class="h-4 w-4" />Badges<span class="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{{ count }}</span>
+                </Button>
                 <Button v-if="can('employees.create')" :as="Link" :href="hrUrl('/administration/employees/create')">
                     <UserPlus class="h-4 w-4" />Nouvel employé
                 </Button>
             </template>
         </PageHeader>
+
+        <!-- ADR-209 — les dossiers cochés : leurs badges, sur une planche. -->
+        <div v-if="selected.length" class="flex flex-wrap items-center gap-3 rounded-xl border border-primary/40 bg-primary/5 px-4 py-2.5" role="status">
+            <span class="text-sm font-medium text-foreground">{{ selected.length }} employé{{ selected.length > 1 ? 's' : '' }} coché{{ selected.length > 1 ? 's' : '' }}</span>
+            <div class="ms-auto flex flex-wrap items-center gap-2">
+                <Button :as="Link" :href="selectedBadgesUrl" size="sm"><IdCard class="h-4 w-4" />Imprimer leurs badges</Button>
+                <Button type="button" variant="ghost" size="sm" @click="selected = []"><X class="h-4 w-4" />Décocher</Button>
+            </div>
+        </div>
 
         <!-- Les compteurs sont les filtres : un clic affiche ce qu'ils comptent. -->
         <div class="grid grid-cols-2 gap-1.5 rounded-xl border border-border bg-card p-1.5 shadow-sm sm:grid-cols-3 xl:grid-cols-5" role="group" aria-label="Filtrer par état">
@@ -268,6 +315,7 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
                         <span class="text-[11px] tabular-nums text-muted-foreground">Entrée · {{ frenchDate(employee.hire_date) || 'non renseignée' }}</span>
                         <div class="flex items-center gap-1">
                             <Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" variant="ghost" size="icon" :aria-label="`Voir le dossier de ${employee.name}`" title="Voir le dossier"><Eye class="h-4 w-4" /></Button>
+                            <Button v-if="!employee.archived && canBadge" :as="Link" :href="badgeUrl(employee)" variant="ghost" size="icon" :aria-label="`Badge de ${employee.name}`" title="Badge"><IdCard class="h-4 w-4" /></Button>
                             <Button v-if="!employee.archived && can('employees.update')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/edit`)" variant="ghost" size="icon" :aria-label="`Modifier ${employee.name}`" title="Modifier"><Pencil class="h-4 w-4" /></Button>
                             <Button v-if="employee.archived && can('employees.restore')" type="button" variant="ghost" size="icon" :aria-label="`Restaurer ${employee.name}`" title="Restaurer" @click="restore(employee)"><RotateCcw class="h-4 w-4" /></Button>
                         </div>
@@ -279,6 +327,9 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
                 <table class="w-full min-w-[860px] text-sm">
                     <thead>
                         <tr class="border-b border-border bg-muted/40 text-left text-xs font-semibold text-muted-foreground">
+                            <th v-if="canBadge" scope="col" class="w-10 ps-4 pe-0 py-2.5">
+                                <Checkbox :model-value="allSelected" :disabled="selectable.length === 0" aria-label="Cocher tous les employés de la page" @update:model-value="toggleAll" />
+                            </th>
                             <th scope="col" class="px-4 py-2.5">Employé</th>
                             <th scope="col" class="px-4 py-2.5">Fonction · département</th>
                             <th scope="col" class="px-4 py-2.5">Contact</th>
@@ -291,8 +342,16 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
                         <tr
                             v-for="employee in employees.data"
                             :key="employee.uuid"
-                            :class="cn('transition-colors hover:bg-muted/40', employee.archived && 'text-muted-foreground')"
+                            :class="cn('transition-colors hover:bg-muted/40', employee.archived && 'text-muted-foreground', selected.includes(employee.uuid) && 'bg-primary/5')"
                         >
+                            <td v-if="canBadge" class="w-10 ps-4 pe-0 py-2.5">
+                                <Checkbox
+                                    v-if="! employee.archived"
+                                    :model-value="selected.includes(employee.uuid)"
+                                    :aria-label="`Cocher ${employee.name}`"
+                                    @update:model-value="(checked) => toggleOne(employee.uuid, checked)"
+                                />
+                            </td>
                             <td class="px-4 py-2.5">
                                 <Link :href="hrUrl(`/administration/employees/${employee.uuid}`)" class="group flex items-center gap-3">
                                     <!-- ADR-194 — la photo 4 × 4, sinon les initiales. -->
@@ -333,6 +392,7 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
                             <td class="px-4 py-2.5">
                                 <div class="flex justify-end gap-1">
                                     <Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" variant="ghost" size="icon" :aria-label="`Voir le dossier de ${employee.name}`" title="Voir le dossier"><Eye class="h-4 w-4" /></Button>
+                                    <Button v-if="!employee.archived && canBadge" :as="Link" :href="badgeUrl(employee)" variant="ghost" size="icon" :aria-label="`Badge de ${employee.name}`" title="Badge"><IdCard class="h-4 w-4" /></Button>
                                     <Button v-if="!employee.archived && can('employees.update')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/edit`)" variant="ghost" size="icon" :aria-label="`Modifier ${employee.name}`" title="Modifier"><Pencil class="h-4 w-4" /></Button>
                                     <Button v-if="employee.archived && can('employees.restore')" type="button" variant="ghost" size="icon" :aria-label="`Restaurer ${employee.name}`" title="Restaurer" @click="restore(employee)"><RotateCcw class="h-4 w-4" /></Button>
                                 </div>

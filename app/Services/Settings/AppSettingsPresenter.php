@@ -8,6 +8,7 @@ use App\Models\PatientStaffLink;
 use App\Models\SiteMaintenance;
 use App\Services\Administration\EmployeeNumberAllocator;
 use App\Services\Patient\PatientNumberGenerator;
+use App\Support\Hr\BadgeDesign;
 use App\Support\Numbering\EmployeeNumberFormat;
 use App\Support\Settings\ThemePresets;
 use Illuminate\Support\Facades\DB;
@@ -30,6 +31,7 @@ class AppSettingsPresenter
         $setting = $this->settings->setting();
         $currency = $this->settings->currency();
         $ages = $this->settings->ageBands();
+        $badge = new BadgeDesign($this->settings);
 
         $values = collect(UpdateAppSettingsAction::FIELDS)
             ->mapWithKeys(fn (string $field) => [$field => $setting?->{$field}])
@@ -56,6 +58,8 @@ class AppSettingsPresenter
                 'profile_template' => $this->settings->profileTemplate()->value,
                 // ADR-191 — le thème réellement appliqué : réglé, « Personnalisé » ou RIVO.
                 'theme_preset' => $this->settings->themePreset(),
+                // ADR-209 — le badge tel qu'il s'imprime : un choix jamais réglé prend celui de la clinique.
+                ...$badge->formValues(),
             ],
             // Ce qui s'applique quand un champ reste vide : la configuration du déploiement.
             'fallbacks' => [
@@ -75,6 +79,17 @@ class AppSettingsPresenter
                 'theme' => ThemePresets::ORIGIN,
                 'patient_number_prefix' => strtoupper((string) config('rivo.site.code')) ?: 'X',
                 'employee_number_prefix' => EmployeeNumberFormat::DEFAULT_PREFIX,
+                // ADR-209 — le modèle de la clinique, et le nom écrit autour du sceau.
+                'badge' => [
+                    'primary' => BadgeDesign::DEFAULT_PRIMARY,
+                    'accent' => BadgeDesign::DEFAULT_ACCENT,
+                    'tagline' => BadgeDesign::DEFAULT_TAGLINE,
+                    'intern_label' => BadgeDesign::DEFAULT_INTERN_LABEL,
+                    'number_label' => BadgeDesign::DEFAULT_NUMBER_LABEL,
+                    'emblem_url' => BadgeDesign::DEFAULT_EMBLEM_URL,
+                    'logo_url' => config('rivo.documents.logo_url'),
+                    'brand' => $this->settings->brand(),
+                ],
             ],
             'appearance' => $this->settings->appearance()['site'],
             'numbering' => $this->numbering(),

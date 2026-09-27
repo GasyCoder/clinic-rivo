@@ -18598,6 +18598,8 @@ brouillons invisibles), `staffAccess.test.js` (urgence, libellé d'action, aucun
 
 **Status:** ACCEPTED (2026-09-26 — demande du propriétaire : « mettre à jour cette page, UI et UX complète avec
 shadcn ; ajouter une enveloppe pour envoyer un email en haut, et un bouton pour voir son badge »)
+; **le badge de cette décision est remplacé par l'ADR-209** (2026-09-27, arbitrage du propriétaire à la fusion de
+`dev`) : un seul badge, le modèle de la clinique. La fiche, « Écrire » et le reste de cette décision sont inchangés.
 
 **Complète l'ADR-066** (dossier RH), **l'ADR-194** (photo 4 × 4) et **l'ADR-195** (messagerie). Présentation
 seulement côté serveur : aucune route, permission, donnée ni migration nouvelle.
@@ -19714,3 +19716,158 @@ Un contrat archivé garde l'écran de choix. La feuille d'un document ramène à
 un contrat à plusieurs documents   « Imprimer » ouvre le plus récent ; les autres restent dans le dossier Contrats
 congé                              l'impression d'un congé propose ses canevas (ADR-207) sans ouvrir seul un
                                    document déjà produit — à aligner sur le contrat si le RH le demande
+```
+
+---
+
+# ADR-209 — Badge du personnel : un seul modèle, lu dans le dossier, réglé par site
+
+> Numérotée **ADR-200** à sa rédaction ; renumérotée **ADR-209** à la fusion de `dev` (2026-09-27), le numéro 200 étant déjà pris par une autre décision. Les références du code ont suivi.
+
+**Status:** ACCEPTED (2026-09-26 — demande explicite du propriétaire, avec le modèle de badge de la
+clinique : « générer le badge de tous les employés et des stagiaires depuis leurs listes, le voir depuis la
+fiche, modifier couleurs et logo dans les paramètres comme la page de connexion ; un badge standard, que
+gardien, RH, stagiaire… peuvent chacun porter »)
+
+**Complète l'ADR-184** (paramètres par site), **l'ADR-194** (photo 4 × 4, stagiaires), **l'ADR-207**
+(un stagiaire n'est pas un employé) et **l'ADR-187** (RH servies au portail). Le CDC ne décrit aucun
+badge : les règles ci-dessous sont celles du propriétaire.
+
+## Remplace le badge de l'ADR-198
+
+Deux badges ont été écrits en parallèle sous le même composant (`EmployeeBadge.vue`) : la carte simple de
+l'ADR-198 (QR du seul matricule, impression refusée pour un dossier inactif) et ce modèle. À la fusion de `dev`,
+le propriétaire a gardé **ce modèle seul** : la fiche porte la carte `EmployeeBadgeCard`, et son bouton « Badge »
+mène à la page d'impression. La carte à QR, sa fenêtre et sa feuille d'impression sont retirées ; les deux points
+qui les distinguaient (QR, dossier inactif) restent dans « Signalé, non tranché » ci-dessous.
+
+## Ce que montre le badge
+
+Tout est **lu dans le dossier**, rien ne se saisit sur le badge (`EmployeeBadges`) :
+
+```text
+photo         la photo 4 × 4 (ADR-194), sinon les initiales
+nom           prénom sur le bandeau, nom de famille en capitales dessous
+service       la pastille : le département, sinon la fonction
+fonction      la ligne sous la pastille
+stagiaire     la pastille dit « Stagiaire », la ligne sa filière ; « Valable jusqu'au … » la fin du stage
+              (celui en cours, sinon à venir, sinon le dernier terminé)
+numéro        la référence « Badge » du dossier, sinon le matricule
+icône         choisie sur le **code** stable du référentiel — fonction, puis département, puis filière —,
+              jamais sur un libellé (ADR-052) ; une fonction sans icône prévue garde la carte d'identité
+```
+
+## Un seul modèle, réglé par site
+
+Le modèle de la clinique (bandes bleu et jaune, devise manuscrite, sceau, photo dans ses anneaux, médaillon
+du métier, vagues) vaut pour **tout** le personnel et les stagiaires. Seule son apparence se règle, depuis
+le portail, par l'API du site — Paramètres › Patients & personnel › **Badge du personnel** — comme les
+pages de connexion (ADR-184) :
+
+```text
+badge_primary_color, badge_accent_color   vides = #1B4FA3 et #F6C318
+badge_tagline                             vide = « Votre santé, notre priorité » (80 caractères)
+badge_logo_style                          SEAL (sceau au nom de l'établissement) ou LOGO (image en largeur)
+emblème (asset « badge »)                 vide = l'emblème de la clinique livré (public/images/brand/…)
+                                          ou, en « Logo seul », le logo du site
+badge_show_tagline / _icon / _number      vides = affichés
+```
+
+`App\Support\Hr\BadgeDesign` résout ces valeurs ; l'aperçu des paramètres est **le composant même** qui
+s'imprime (`EmployeeBadge`). L'emblème déposé n'a pas d'adresse publique : il est servi par
+`/administration/badges/emblem` (capacité `view-employee-badge`), que le portail relaie comme toute page RH
+(ADR-187). La devise manuscrite (Dancing Script, licence OFL) est livrée avec l'application, jamais par un CDN.
+
+## Où il s'imprime
+
+```text
+liste des employés   « Badges (N) » : tous ceux que la liste affiche avec ses filtres, toutes pages ;
+                     cases à cocher, puis « Imprimer leurs badges » ; icône « Badge » par ligne
+stages               « Badges (N) » : les stagiaires de la vue, de la recherche et de la filière ; « Badge » par ligne
+fiche employé        carte « Badge » : l'aperçu et « Imprimer » ; dit quand la photo manque
+```
+
+`/administration/employees/badges` et `/administration/internships/badges` (`EmployeeBadgeController::sheet`,
+le filtre écrit une fois : `EmployeeDirectory::filtered`, `InternshipDirectory::listing`),
+`/administration/employees/{uuid}/badge` pour une personne. **Un dossier archivé n'a plus de badge**, quel
+que soit le filtre. Au plus 300 badges à la fois : au-delà, l'écran demande de filtrer ou de cocher.
+
+Format réel **54 × 85,6 mm** (carte ID-1), dessiné en SVG : net à l'écran comme à l'impression. Deux mises en
+page : planche A4 de neuf cartes avec traits de coupe, ou une carte par page pour une imprimante à badges
+(règle `@page` injectée au montage, comme le tour de salle). Vérifié par génération PDF.
+
+## Droits
+
+Aucune permission nouvelle. Imprimer un badge est le même geste qu'imprimer la fiche d'un employé :
+`employees.print` (et `employees.view` pour la politique). Régler le badge : `settings.view` /
+`settings.update` (ADR-184). Migration `2026_11_07_090000_add_badge_design_to_app_settings`, à jouer sur
+chaque site et sur le portail.
+
+## Signalé, non tranché
+
+```text
+dossier inactif        « Tous » et « Inactifs » impriment encore son badge : le badge ne dit pas « inactif »
+aucun code lisible     ni QR ni code-barres : aucun contrôle d'accès n'est défini pour le lire
+impression non tracée  imprimer est le fait du navigateur (ADR-116) : aucun registre des badges remis
+photo absente          le badge montre les initiales ; il ne bloque rien
+```
+
+## Amendement du 2026-09-27 — tout le badge se règle, et l'impression suit le papier choisi
+
+Demande du propriétaire : « tous les paramètres : texte, icône, taille de police, mise en place, format A4,
+paysage ou portrait, tous les paramètres possibles ». Le modèle reste unique pour tout le personnel ; ce qui
+s'y règle, par site, depuis Paramètres › Badge du personnel, passe de 7 à 39 réglages, rangés en cinq onglets.
+Une colonne vide garde la valeur de la clinique : un site que personne n'a réglé imprime le badge d'avant.
+
+```text
+Couleurs       principale, accent, texte (vide : tiré de la principale), fond de la carte ;
+               l'établissement : Sceau, Logo seul ou Aucun (nouveau) ; texte du sceau en haut et en bas
+               (réglé : écrit en capitales ; les deux vides : le nom coupé comme avant)
+Textes         devise, mention des stagiaires (« Stagiaire »), avant le numéro (« N° »), mention libre en pied
+Éléments       photo (sinon initiales), devise, médaillon, service, fonction, numéro, fin de stage, nom du site
+               (seul désactivé d'emblée), filigrane, décors ; icône du médaillon : automatique (par code,
+               ADR-052) ou une même icône pour tous, parmi 14
+Polices        police du badge (Moderne, Classique, Empattements), de la devise (Manuscrite, Comme le texte,
+               Italique) ; tailles du nom, des textes, de la devise, de 70 à 150 % ; nom en capitales ou tel
+               qu'écrit ; prénom puis nom, ou nom puis prénom ; service et fonction en capitales ou non
+Mise en page   badge en portrait ou en paysage ; taille de carte Standard 54 × 85,6, Grand 62,1 × 98,4,
+               Très grand 70,2 × 111,3 (le rapport de la carte est toujours gardé) ; photo ronde ou carrée
+               arrondie ; coins arrondis ou droits ; impression : papier A4, A5, A3, Lettre US ou carte seule,
+               orientation de la page, marges (0–25 mm), espace entre cartes (0–20 mm), traits de coupe
+```
+
+**Une seule liste.** `App\Support\Hr\BadgeDesign` porte les réglages (`FIELDS`, `COLORS`, `TEXTS`, `CHOICES`,
+`NUMBERS`, `SWITCHES`), leurs valeurs de la clinique et leurs bornes ; les règles de validation, le modèle,
+l'action d'enregistrement et le présentateur la lisent. `utilities/employeeBadge.js` en porte le miroir, et un
+test JS compare les deux listes, valeur par valeur. `UpdateAppSettingsAction::FIELDS` y renvoie
+(`...BadgeDesign::FIELDS`).
+
+**Un texte ne déborde jamais.** Une taille réglée agrandit le texte jusqu'à la hauteur de sa case, pas au-delà ;
+un texte encore trop long à la taille minimale est resserré à la largeur exacte (`textLength`). Un stagiaire
+garde toujours sa mention dans la pastille, même quand le service est masqué : on ne le prend jamais pour un
+titulaire du poste.
+
+**Deux dispositions, un dessin.** Le paysage (856 × 540, photo à gauche, nom à droite) et le portrait
+(540 × 856) partagent le même composant ; seule change la place de chaque élément (`BADGE_GEOMETRY`), et un
+test vérifie que chaque élément reste dans la carte.
+
+**L'impression suit le papier.** La page d'impression montre les vraies pages, au millimètre, réduites à
+l'écran pour tenir en largeur, jamais à l'impression : autant de cartes par page que le papier, l'orientation,
+les marges et l'espacement en contiennent (A4 portrait : 9 ; A4 paysage : 8 ; cartes en paysage sur A4
+portrait : 8). La règle `@page` prend la taille exacte du papier, la marge étant dans la page. Le réglage du
+site n'est qu'une proposition : le RH change le papier, l'orientation et les traits de coupe pour une
+impression, sans toucher au réglage. Un badge seul suit désormais le papier du site (il ouvrait avant sur une
+carte par page) ; `?layout=card` ouvre toujours une carte par page.
+
+**Une carte qui ne tient pas est refusée.** `App\Rules\BadgeFitsOnPage` refuse d'enregistrer une taille de
+carte, une orientation et des marges avec lesquelles aucune carte ne tient sur le papier (« Carte seule »
+tient toujours) ; l'écran le dit avant d'enregistrer, et la page d'impression l'annonce si le RH choisit un
+papier trop petit.
+
+Mêmes droits (`settings.view` / `settings.update`, `employees.print`), aucune permission nouvelle. Migration
+`2026_11_08_090000_add_badge_layout_to_app_settings`, à jouer sur chaque site et sur le portail.
+
+**Signalé, non tranché.** Aucune police n'est livrée avec l'application en dehors de la devise manuscrite :
+« Moderne » et « Classique » prennent celles du poste qui imprime. Pas de verso (consignes, « en cas de
+perte… ») : c'est une fonctionnalité, pas un réglage — à décider. L'icône ne se règle pas fonction par
+fonction.

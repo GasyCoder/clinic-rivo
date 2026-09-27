@@ -22,7 +22,7 @@ use Inertia\Response;
  */
 class InternshipController extends Controller
 {
-    private const STATUSES = ['current', 'future', 'ended', 'all'];
+    private const STATUSES = InternshipDirectory::STATUSES;
 
     public function __construct(
         private readonly HrPresenter $presenter,
@@ -84,20 +84,6 @@ class InternshipController extends Controller
     /** @return Builder<EmploymentContract> */
     private function filtered(string $status, string $search): Builder
     {
-        $today = now()->toDateString();
-
-        return $this->internships->internships(EmploymentContract::query())
-            ->when($status === 'current', fn (Builder $query) => $this->internships->current($query))
-            ->when($status === 'future', fn (Builder $query) => $query->whereDate('starts_on', '>', $today))
-            ->when($status === 'ended', fn (Builder $query) => $query->whereDate('ends_on', '<', $today))
-            ->when($search !== '', fn (Builder $query) => $query->where(function (Builder $nested) use ($search): void {
-                $nested->where('internship_school', 'like', "%{$search}%")
-                    ->orWhere('internship_level', 'like', "%{$search}%")
-                    ->orWhereHas('employee', fn ($employee) => $employee
-                        ->where('employee_number', 'like', "%{$search}%")
-                        ->orWhere('first_name', 'like', "%{$search}%")
-                        ->orWhere('last_name', 'like', "%{$search}%"))
-                    ->orWhereHas('internshipField', fn ($field) => $field->where('label', 'like', "%{$search}%"));
-            }));
+        return $this->internships->listing($status, $search);
     }
 }

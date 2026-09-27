@@ -1,10 +1,10 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import {
     Archive, ArchiveRestore, ArrowLeft, ArrowRight, AtSign, Briefcase, Building2, CalendarClock, CalendarDays, CalendarPlus, Clock,
     Copy, Download, Eye, FileText, FileUp, Fingerprint, GraduationCap, IdCard, KeyRound, Mail, MapPin, NotebookPen, Pencil,
-    Phone, Plus, Printer, Shirt, Sparkles, TriangleAlert, Upload, User, UserRound, Users,
+    Phone, Plus, Printer, Shirt, Sparkles, Upload, User, UserRound, Users,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
@@ -12,20 +12,19 @@ import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
-import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import ShadSelect from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
-import EmployeeBadge from '@/Components/Administration/EmployeeBadge.vue';
 import EmployeePhoto from '@/Components/Administration/EmployeePhoto.vue';
 import ProfessionalMailboxCard from '@/Components/Administration/ProfessionalMailboxCard.vue';
 import EmployeePayrollCard from '@/Components/Administration/EmployeePayrollCard.vue';
+import EmployeeBadgeCard from '@/Components/Administration/EmployeeBadgeCard.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
 import { useToastStore } from '@/stores/toast';
 import { employeeAccountLink } from '@/utilities/employeeAccount';
-import { hrContext, hrSiteName, hrUrl } from '@/utilities/hrUrl';
+import { hrContext, hrUrl } from '@/utilities/hrUrl';
 import { composeHref } from '@/utilities/webmail';
 
 /*
@@ -48,6 +47,8 @@ const props = defineProps({
     professionalEmail: { type: Object, default: null },
     // ADR-206 — servie seulement avec employees.payroll.view.
     payroll: { type: Object, default: null },
+    // ADR-209 — le badge du personnel, tel qu'il s'imprime ; absent pour un dossier archivé.
+    badge: { type: Object, default: null },
 });
 
 const page = usePage();
@@ -137,37 +138,6 @@ const emailTitle = computed(() => {
     if (!props.employee.email) return 'Aucune adresse email : elle se crée avec son accès (« Accès du personnel »).';
     return webmailAvailable.value ? `Écrire à ${props.employee.email} depuis la messagerie RIVO` : `Écrire à ${props.employee.email}`;
 });
-
-// --- Badge professionnel ---------------------------------------------------
-const badgeOpen = ref(false);
-const printingBadge = ref(false);
-const brand = computed(() => page.props.site?.brand ?? '');
-const siteName = computed(() => hrSiteName());
-const logoUrl = computed(() => page.props.site?.documents?.logo_url ?? null);
-const badgeInactive = computed(() => props.employee.archived || !props.employee.active);
-const canPrintBadge = computed(() => can('employees.print') && !badgeInactive.value);
-
-let printStyle = null;
-const stopPrinting = () => {
-    printStyle?.remove();
-    printStyle = null;
-    printingBadge.value = false;
-};
-const printBadge = async () => {
-    if (!canPrintBadge.value) return;
-    printingBadge.value = true;
-    await nextTick();
-    const sheet = document.getElementById('employee-badge-sheet');
-    await Promise.all([...(sheet?.querySelectorAll('img') ?? [])].map((image) => image.decode().catch(() => {})));
-    // Seul le badge sort, à taille réelle, avec ses repères de découpe.
-    printStyle = document.createElement('style');
-    printStyle.textContent = '@page { size: A4; margin: 14mm; } @media print { body * { visibility: hidden !important; } #employee-badge-sheet, #employee-badge-sheet * { visibility: visible !important; } #employee-badge-sheet { position: absolute; inset: 0 auto auto 0; } }';
-    document.head.appendChild(printStyle);
-    window.addEventListener('afterprint', stopPrinting, { once: true });
-    window.print();
-    window.setTimeout(stopPrinting, 1500);
-};
-onBeforeUnmount(stopPrinting);
 
 // --- Congés, présences, planning ------------------------------------------
 const LEAVE_TONES = { PENDING: 'warning', APPROVED: 'success', REJECTED: 'danger', CANCELLED: 'neutral' };
@@ -283,7 +253,7 @@ const documentIcon = (document) => DOCUMENT_ICONS[document.mime_type] ?? (docume
                         <span v-else class="inline-flex" :title="emailTitle">
                             <Button type="button" variant="outline" icon disabled :aria-label="emailTitle"><Mail class="h-4 w-4" /></Button>
                         </span>
-                        <Button type="button" variant="outline" @click="badgeOpen = true"><IdCard class="h-4 w-4" />Badge</Button>
+                        <Button v-if="badge && can('employees.print')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/badge`)" variant="outline"><IdCard class="h-4 w-4" />Badge</Button>
                         <Button v-if="can('employees.print')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/print`)" target="_blank" variant="outline"><Printer class="h-4 w-4" />Fiche</Button>
                         <Button v-if="!employee.archived && can('employees.update')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/edit`)"><Pencil class="h-4 w-4" />Modifier</Button>
                         <Button v-if="employee.archived && can('employees.restore')" type="button" variant="success" @click="restoreEmployee"><ArchiveRestore class="h-4 w-4" />Restaurer</Button>
@@ -589,26 +559,8 @@ const documentIcon = (document) => DOCUMENT_ICONS[document.mime_type] ?? (docume
 
             <!-- Colonne latérale -->
             <aside class="space-y-4">
-                <!-- Le badge, en miniature : un clic l'ouvre en grand. -->
-                <Card class="p-4">
-                    <div class="flex items-center justify-between gap-2">
-                        <div>
-                            <h2 class="flex items-center gap-2 font-heading text-base font-bold text-foreground"><IdCard class="h-4 w-4 text-primary" />Badge professionnel</h2>
-                            <p class="text-xs text-muted-foreground">{{ employee.badge ? `N° ${employee.badge}` : 'Format carte, avec photo et matricule' }}</p>
-                        </div>
-                        <Button type="button" size="sm" variant="outline" @click="badgeOpen = true"><Eye class="h-4 w-4" />Voir</Button>
-                    </div>
-                    <button
-                        type="button"
-                        class="mt-3 flex w-full justify-center overflow-hidden rounded-xl bg-muted/50 py-4 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        aria-label="Ouvrir le badge professionnel"
-                        @click="badgeOpen = true"
-                    >
-                        <span class="block h-[8.5rem] w-[5.4rem]">
-                            <EmployeeBadge :employee="employee" :brand="brand" :site-name="siteName" :logo-url="logoUrl" class="origin-top-left scale-[0.42]" />
-                        </span>
-                    </button>
-                </Card>
+                <!-- ADR-209 — le badge, tel qu'il s'imprime ; un dossier archivé n'en a plus. -->
+                <EmployeeBadgeCard v-if="badge" :employee-uuid="employee.uuid" :badge="badge" :can-print="can('employees.print')" />
 
                 <ProfessionalMailboxCard v-if="professionalEmail" :data="professionalEmail" :employee-uuid="employee.uuid" />
                 <EmployeePayrollCard
@@ -644,51 +596,6 @@ const documentIcon = (document) => DOCUMENT_ICONS[document.mime_type] ?? (docume
                 </Card>
             </aside>
         </div>
-    </div>
-
-    <!-- Le badge en grand -->
-    <Dialog
-        :open="badgeOpen"
-        size="lg"
-        title="Badge professionnel"
-        :description="`${employee.name} · format carte 54 × 85,6 mm, imprimé à taille réelle.`"
-        @update:open="(value) => { badgeOpen = value; }"
-    >
-        <template #icon>
-            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><IdCard class="h-5 w-5" /></span>
-        </template>
-        <div class="grid gap-5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
-            <div class="flex justify-center rounded-2xl bg-muted/50 p-5">
-                <EmployeeBadge :employee="employee" :brand="brand" :site-name="siteName" :logo-url="logoUrl" />
-            </div>
-            <div class="space-y-3 text-sm">
-                <div v-if="badgeInactive" class="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-                    <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>Ce dossier est {{ employee.archived ? 'archivé' : 'inactif' }} : le badge est marqué comme tel et ne s’imprime pas.</span>
-                </div>
-                <ul class="space-y-2 text-xs text-muted-foreground">
-                    <li class="flex gap-2"><User class="mt-px h-3.5 w-3.5 shrink-0 text-primary" />Photo, nom, fonction et service viennent du dossier RH.</li>
-                    <li class="flex gap-2"><IdCard class="mt-px h-3.5 w-3.5 shrink-0 text-primary" />Le QR ne porte que le matricule {{ employee.employee_number }}.</li>
-                    <li class="flex gap-2"><Printer class="mt-px h-3.5 w-3.5 shrink-0 text-primary" />Impression à taille réelle sur A4, à découper selon le cadre — ou sur une imprimante de cartes.</li>
-                    <li v-if="!employee.photo_url" class="flex gap-2 text-amber-700 dark:text-amber-300"><TriangleAlert class="mt-px h-3.5 w-3.5 shrink-0" />Pas encore de photo : ajoutez-la depuis « Modifier ».</li>
-                </ul>
-            </div>
-        </div>
-        <template #footer>
-            <Button v-if="!employee.photo_url && !employee.archived && can('employees.update')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/edit`)" variant="ghost" class="sm:me-auto"><Pencil class="h-4 w-4" />Ajouter la photo</Button>
-            <Button type="button" variant="outline" @click="badgeOpen = false">Fermer</Button>
-            <span v-if="can('employees.print')" class="inline-flex" :title="canPrintBadge ? 'Imprimer le badge' : 'Un dossier archivé ou inactif n’a pas de badge à imprimer.'">
-                <Button type="button" :disabled="!canPrintBadge" class="w-full" @click="printBadge"><Printer class="h-4 w-4" />Imprimer le badge</Button>
-            </span>
-        </template>
-    </Dialog>
-
-    <!-- Feuille d'impression du badge : n'existe que le temps d'imprimer. -->
-    <div v-if="printingBadge" id="employee-badge-sheet" class="hidden print:block">
-        <div class="inline-block border border-dashed border-black/40 p-[4mm]">
-            <EmployeeBadge :employee="employee" :brand="brand" :site-name="siteName" :logo-url="logoUrl" class="shadow-none ring-0" />
-        </div>
-        <p class="mt-[3mm] text-[3mm] text-black/60">Découper selon le pointillé · format CR80 54 × 85,6 mm</p>
     </div>
 
     <!-- Archiver le dossier -->

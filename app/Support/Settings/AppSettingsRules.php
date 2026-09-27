@@ -4,9 +4,11 @@ namespace App\Support\Settings;
 
 use App\Enums\AuthTemplate;
 use App\Enums\ProfileTemplate;
+use App\Rules\BadgeFitsOnPage;
 use App\Rules\ReadableThemeColors;
 use App\Services\Settings\AppSettings;
 use App\Support\Billing\DiscountRules;
+use App\Support\Hr\BadgeDesign;
 use App\Support\Numbering\EmployeeNumberFormat;
 use App\Support\Numbering\PatientNumberFormat;
 use Illuminate\Support\Fluent;
@@ -25,10 +27,10 @@ final class AppSettingsRules
     public const CHILD_MAX_AGE_LIMIT = 20;
 
     /** Taille maximale de chaque fichier, en kilo-octets. */
-    public const ASSET_MAX_KB = ['logo' => 1024, 'icon' => 512, 'signature' => 512, 'background' => 2048];
+    public const ASSET_MAX_KB = ['logo' => 1024, 'icon' => 512, 'signature' => 512, 'background' => 2048, 'badge' => 512];
 
     /** SVG exclu : un fichier servi tel quel ne doit jamais pouvoir exécuter un script. */
-    public const ASSET_MIMES = ['logo' => 'png,jpg,jpeg,webp', 'icon' => 'png,ico,webp', 'signature' => 'png,jpg,jpeg,webp', 'background' => 'jpg,jpeg,png,webp'];
+    public const ASSET_MIMES = ['logo' => 'png,jpg,jpeg,webp', 'icon' => 'png,ico,webp', 'signature' => 'png,jpg,jpeg,webp', 'background' => 'jpg,jpeg,png,webp', 'badge' => 'png,jpg,jpeg,webp'];
 
     private const HEX = '/^#[0-9a-fA-F]{6}$/';
 
@@ -43,6 +45,8 @@ final class AppSettingsRules
             'auth_template' => ['nullable', Rule::enum(AuthTemplate::class)],
             'profile_template' => ['nullable', Rule::enum(ProfileTemplate::class)],
             'primary_color' => ['nullable', 'string', 'regex:'.self::HEX],
+            // ADR-209 — le badge du personnel : vide = le modèle bleu et jaune de la clinique.
+            ...self::badge(),
             // ADR-191 — thème : préréglage et couleurs de chaque mode (vide = couleur d'origine).
             'theme_preset' => ['nullable', Rule::in(ThemePresets::keys())],
             'light_background' => ['nullable', 'string', 'regex:'.self::HEX, new ReadableThemeColors('light')],
@@ -169,6 +173,7 @@ final class AppSettingsRules
             'profile_template.enum' => 'Choisissez un modèle de profil proposé.',
             'search_engines_hidden.boolean' => 'Cochez ou décochez la case des moteurs de recherche.',
             'primary_color.regex' => 'La couleur s’écrit au format #RRVVBB, par exemple #1F7A99.',
+            ...self::badgeMessages(),
             'light_background.regex' => 'La couleur s’écrit au format #RRVVBB.',
             'light_foreground.regex' => 'La couleur s’écrit au format #RRVVBB.',
             'dark_primary_color.regex' => 'La couleur s’écrit au format #RRVVBB.',
@@ -192,6 +197,73 @@ final class AppSettingsRules
             'legal_email.email' => 'Adresse email invalide.',
             ...DiscountRules::messages('staff_discount_type', 'staff_discount_value'),
         ];
+    }
+
+    /**
+     * ADR-209 — le badge du personnel : une seule liste, `BadgeDesign`, dit quels
+     * réglages existent, leurs choix et leurs bornes.
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    private static function badge(): array
+    {
+        $rules = [];
+
+        foreach (BadgeDesign::COLORS as $field) {
+            $rules[$field] = ['nullable', 'string', 'regex:'.self::HEX];
+        }
+
+        foreach (BadgeDesign::TEXTS as $field => $max) {
+            $rules[$field] = ['nullable', 'string', 'max:'.$max];
+        }
+
+        foreach (BadgeDesign::CHOICES as $field => $values) {
+            $rules[$field] = ['nullable', 'string', Rule::in($values)];
+        }
+
+        foreach (BadgeDesign::NUMBERS as $field => [$min, $max]) {
+            $rules[$field] = ['nullable', 'integer', 'min:'.$min, 'max:'.$max];
+        }
+
+        foreach (array_keys(BadgeDesign::SWITCHES) as $field) {
+            $rules[$field] = ['sometimes', 'nullable', 'boolean'];
+        }
+
+        // La carte doit tenir sur la page choisie, marges comprises.
+        $rules['badge_page_margin'][] = new BadgeFitsOnPage;
+
+        return $rules;
+    }
+
+    /** @return array<string, string> */
+    private static function badgeMessages(): array
+    {
+        $messages = [
+            'badge_logo_style.in' => 'Choisissez « Sceau », « Logo seul » ou « Aucun ».',
+            'badge_icon.in' => 'Choisissez une icône proposée.',
+            'badge_paper.in' => 'Choisissez un papier proposé.',
+        ];
+
+        foreach (BadgeDesign::COLORS as $field) {
+            $messages[$field.'.regex'] = 'La couleur s’écrit au format #RRVVBB, par exemple #1B4FA3.';
+        }
+
+        foreach (BadgeDesign::TEXTS as $field => $max) {
+            $messages[$field.'.max'] = "Ce texte du badge tient en {$max} caractères au plus.";
+        }
+
+        foreach (array_keys(BadgeDesign::CHOICES) as $field) {
+            $messages[$field.'.in'] ??= 'Choisissez une valeur proposée.';
+        }
+
+        foreach (BadgeDesign::NUMBERS as $field => [$min, $max]) {
+            $unit = str_ends_with($field, '_size') ? ' %' : ' mm';
+            $messages[$field.'.min'] = "Au moins {$min}{$unit}.";
+            $messages[$field.'.max'] = "Au plus {$max}{$unit}.";
+            $messages[$field.'.integer'] = 'Un nombre entier.';
+        }
+
+        return $messages;
     }
 
     /** @return array<string, array<int, string>> */

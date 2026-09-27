@@ -3,7 +3,7 @@ import { hrUrl } from '@/utilities/hrUrl';
 import { computed, ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import {
-    CalendarClock, CalendarPlus, CircleCheck, FilePlus2, FolderOpen, GraduationCap, History, Layers,
+    CalendarClock, CalendarPlus, CircleCheck, FilePlus2, FolderOpen, GraduationCap, History, IdCard, Layers,
     Pencil, School, Search, TriangleAlert, UserPlus, UserRound,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -18,6 +18,7 @@ import HrStatCard from '../Partials/HrStatCard.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { endingLabel, formatPeriod } from '@/utilities/hr';
 import { cn } from '@/lib/cn';
+import { badgeSheetPath } from '@/utilities/employeeBadge';
 
 defineOptions({ layout: AppLayout });
 
@@ -60,6 +61,17 @@ const STATE = {
     archived: { label: 'Archivé', tone: 'neutral' },
 };
 const canCreateIntern = computed(() => can('employees.create') && can('contracts.create'));
+
+// ADR-209 — les badges des stagiaires affichés (vue, recherche et filière : toutes les pages), ou d'un seul.
+const canBadge = computed(() => can('employees.print'));
+const listedCount = computed(() => props.internships?.total ?? props.internships?.data?.length ?? 0);
+const badgesUrl = computed(() => hrUrl(badgeSheetPath({
+    scope: 'interns',
+    status: props.filters?.status,
+    q: props.filters?.q || undefined,
+    field: props.filters?.field || undefined,
+})));
+const badgeUrl = (stage) => hrUrl(`/administration/employees/${stage.employee.uuid}/badge`);
 </script>
 
 <template>
@@ -74,6 +86,9 @@ const canCreateIntern = computed(() => can('employees.create') && can('contracts
             tone="violet"
         >
             <template #actions>
+                <Button v-if="canBadge && listedCount > 0" :as="Link" :href="badgesUrl" variant="outline" title="Badges des stagiaires affichés (toutes les pages)">
+                    <IdCard class="h-4 w-4" />Badges<span class="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{{ listedCount }}</span>
+                </Button>
                 <Button v-if="can('contracts.create') && hasInternshipType" :as="Link" :href="hrUrl('/administration/contracts/create?type=stage')" variant="outline"><FilePlus2 class="h-4 w-4" />Stage d’un dossier existant</Button>
                 <Button v-if="canCreateIntern && hasInternshipType" :as="Link" :href="hrUrl('/administration/employees/create?stagiaire=1')"><UserPlus class="h-4 w-4" />Nouveau stagiaire</Button>
             </template>
@@ -156,6 +171,7 @@ const canCreateIntern = computed(() => can('employees.create') && can('contracts
                             <td class="px-5 py-3">
                                 <div class="flex justify-end gap-1.5">
                                     <Button :as="Link" :href="hrUrl(`/administration/employees/${stage.employee.uuid}`)" size="icon-xs" variant="outline" title="Dossier du stagiaire" aria-label="Dossier du stagiaire"><FolderOpen class="h-3.5 w-3.5" /></Button>
+                                    <Button v-if="canBadge && !stage.archived" :as="Link" :href="badgeUrl(stage)" size="icon-xs" variant="outline" :title="`Badge de ${stage.employee.name}`" :aria-label="`Badge de ${stage.employee.name}`"><IdCard class="h-3.5 w-3.5" /></Button>
                                     <Button v-if="can('contracts.update') && !stage.archived" :as="Link" :href="hrUrl(`/administration/contracts/${stage.uuid}/edit`)" size="icon-xs" variant="outline" title="Modifier le stage" aria-label="Modifier le stage"><Pencil class="h-3.5 w-3.5" /></Button>
                                 </div>
                             </td>

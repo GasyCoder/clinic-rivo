@@ -1,4 +1,5 @@
-import { BadgePercent, Baby, Coins, Construction, Globe, Hash, Landmark, LayoutTemplate, Palette, PenLine, SearchX, SlidersHorizontal } from 'lucide-vue-next';
+import { BadgePercent, Baby, Coins, Construction, Globe, Hash, IdCard, Landmark, LayoutTemplate, Palette, PenLine, SearchX, SlidersHorizontal } from 'lucide-vue-next';
+import { BADGE_FIELDS } from './employeeBadge.js';
 
 /**
  * Les modules des paramètres de l'application (ADR-191, amendement du 2026-09-25) :
@@ -11,7 +12,7 @@ import { BadgePercent, Baby, Coins, Construction, Globe, Hash, Landmark, LayoutT
  */
 export const SETTINGS_GROUPS = Object.freeze([
     { id: 'apparence', label: 'Apparence', description: 'Ce que chacun voit : nom, couleurs, affichage et disposition des écrans.' },
-    { id: 'dossiers', label: 'Patients & personnel', description: 'Les numéros attribués et le formulaire d’un nouveau patient.' },
+    { id: 'dossiers', label: 'Patients & personnel', description: 'Les numéros attribués, le formulaire d’un nouveau patient et le badge du personnel.' },
     { id: 'etablissement', label: 'Établissement & documents', description: 'Ce qui s’imprime sur les factures, reçus et documents, et les remises.' },
     { id: 'confidentialite', label: 'Confidentialité', description: 'Ce que l’extérieur peut voir de l’application.' },
     { id: 'exploitation', label: 'Exploitation', description: 'La disponibilité de chaque site pour ses utilisateurs.' },
@@ -50,6 +51,12 @@ export const SETTINGS_SECTIONS = Object.freeze([
         id: 'ages', group: 'dossiers', label: 'Âges des patients', icon: Baby,
         description: 'Tranches bébé, enfant et adulte du formulaire patient.',
         fields: ['baby_max_age', 'child_max_age'],
+    },
+    {
+        // ADR-209 — un seul modèle pour tout le personnel, dont tout l'aspect se règle (amendement du 2026-09-27).
+        id: 'badges', group: 'dossiers', label: 'Badge du personnel', icon: IdCard,
+        description: 'Couleurs, textes, polices, disposition et impression du badge des employés et stagiaires.',
+        fields: [...BADGE_FIELDS],
     },
     {
         id: 'monnaie', group: 'etablissement', label: 'Monnaie', icon: Coins,

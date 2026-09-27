@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Support\Hr\BadgeDesign;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -22,6 +23,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'patient_number_reset', 'episode_number_digits',
     'employee_number_prefix', 'employee_number_separator', 'employee_number_digits',
     'auth_template', 'auth_background_path', 'profile_template',
+    // ADR-209 — le badge du personnel : chaque réglage de BadgeDesign::FIELDS, et l'emblème déposé.
+    'badge_primary_color', 'badge_accent_color', 'badge_text_color', 'badge_background_color',
+    'badge_tagline', 'badge_seal_top', 'badge_seal_bottom', 'badge_intern_label', 'badge_number_label', 'badge_footer_text',
+    'badge_logo_style', 'badge_icon', 'badge_font', 'badge_tagline_font', 'badge_name_case', 'badge_name_order', 'badge_text_case',
+    'badge_orientation', 'badge_card_size', 'badge_photo_shape', 'badge_corners', 'badge_paper', 'badge_paper_orientation',
+    'badge_name_size', 'badge_text_size', 'badge_tagline_size', 'badge_page_margin', 'badge_gap',
+    'badge_show_photo', 'badge_show_tagline', 'badge_show_icon', 'badge_show_department', 'badge_show_job',
+    'badge_show_number', 'badge_show_validity', 'badge_show_site', 'badge_show_watermark', 'badge_show_decorations',
+    'badge_cut_marks', 'badge_logo_path',
     'currency_label', 'currency_position', 'currency_decimals',
     'baby_max_age', 'child_max_age',
     'director_name', 'director_title', 'signature_path',
@@ -38,6 +48,9 @@ class AppSetting extends Model
         return [
             'currency_decimals' => 'integer',
             'search_engines_hidden' => 'boolean',
+            // ADR-209 — les interrupteurs et les nombres du badge.
+            ...array_fill_keys(array_keys(BadgeDesign::SWITCHES), 'boolean'),
+            ...array_fill_keys(array_keys(BadgeDesign::NUMBERS), 'integer'),
             'baby_max_age' => 'integer',
             'child_max_age' => 'integer',
             'ui_font_size' => 'integer',

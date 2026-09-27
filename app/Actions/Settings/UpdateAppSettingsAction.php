@@ -6,6 +6,7 @@ use App\Models\AppSetting;
 use App\Services\Audit\Auditor;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Settings\AppSettings;
+use App\Support\Hr\BadgeDesign;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
@@ -28,6 +29,8 @@ class UpdateAppSettingsAction
         'patient_number_reset', 'episode_number_digits',
         'employee_number_prefix', 'employee_number_separator', 'employee_number_digits',
         'auth_template', 'profile_template',
+        // ADR-209 — le badge du personnel : couleurs, textes, affichage, polices, disposition, impression.
+        ...BadgeDesign::FIELDS,
         'currency_label', 'currency_position', 'currency_decimals',
         'baby_max_age', 'child_max_age',
         'director_name', 'director_title',
@@ -63,6 +66,11 @@ class UpdateAppSettingsAction
             // ADR-192 — la remise personnel : un type sans valeur n'en est pas une, et inversement.
             if ($values['staff_discount_type'] === null || $values['staff_discount_value'] === null) {
                 $values['staff_discount_type'] = $values['staff_discount_value'] = null;
+            }
+
+            // Une couleur s'enregistre en majuscules, comme celles du thème.
+            foreach (BadgeDesign::COLORS as $field) {
+                $values[$field] = $values[$field] === null ? null : strtoupper((string) $values[$field]);
             }
 
             // Un préfixe s'écrit dans les numéros en majuscules.

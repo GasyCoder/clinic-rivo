@@ -23,6 +23,7 @@
         "@laravel/multiplex": "^0.4.1"
     },
     "dependencies": {
+        "@fontsource/dancing-script": "^5.3.0",
         "@headlessui/vue": "^1.7.23",
         "@inertiajs/vite": "^3.6.1",
         "@inertiajs/vue3": "^3.6.1",

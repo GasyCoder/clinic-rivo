@@ -7,6 +7,7 @@ import Button from '@/Components/Shadcn/Button.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import AdvancedSettings from '@/Components/Settings/AdvancedSettings.vue';
 import AgeBandSettings from '@/Components/Settings/AgeBandSettings.vue';
+import BadgeSettings from '@/Components/Settings/BadgeSettings.vue';
 import CurrencySettings from '@/Components/Settings/CurrencySettings.vue';
 import DirectionSettings from '@/Components/Settings/DirectionSettings.vue';
 import DiscountSettings from '@/Components/Settings/DiscountSettings.vue';
@@ -23,6 +24,7 @@ import { usePermissions } from '@/composables/usePermissions';
 import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard';
 import { cn } from '@/lib/cn';
 import { DEFAULT_PRIMARY, isHexColor } from '@/utilities/brandColor';
+import { BADGE_FIELDS, badgeFormValue } from '@/utilities/employeeBadge';
 import { SETTINGS_SECTIONS, settingsSection, settingsUrl } from '@/utilities/settingsSections';
 
 /**
@@ -46,6 +48,8 @@ const props = defineProps({
     currencyLabels: { type: Array, default: () => ['Ar', 'Ariary', 'MGA'] },
     authTemplates: { type: Array, default: () => [] },
     profileTemplates: { type: Array, default: () => [] },
+    // ADR-209 — comment le badge du personnel montre l'établissement.
+    badgeLogoStyles: { type: Array, default: () => [] },
     // ADR-191 — thèmes proposés et bornes de la numérotation.
     themePresets: { type: Object, default: () => ({}) },
     numberingOptions: { type: Object, default: () => ({}) },
@@ -86,6 +90,8 @@ const FIELDS = [
     'patient_number_reset', 'episode_number_digits',
     'employee_number_prefix', 'employee_number_separator', 'employee_number_digits',
     'auth_template', 'profile_template',
+    // ADR-209 — le badge du personnel : une seule liste, celle de BadgeDesign::FIELDS.
+    ...BADGE_FIELDS,
     'currency_label', 'currency_position', 'currency_decimals',
     'baby_max_age', 'child_max_age',
     'director_name', 'director_title',
@@ -102,6 +108,8 @@ const valuesOf = (payload) => Object.fromEntries(FIELDS.map((field) => {
     if (field === 'auth_template') return [field, value || 'COVER'];
     if (field === 'profile_template') return [field, value || 'SIDEBAR'];
     if (field === 'theme_preset') return [field, value || 'rivo'];
+    // ADR-209 — jamais réglé : la valeur de la clinique (sceau, tout affiché, A4 portrait…).
+    if (BADGE_FIELDS.includes(field)) return [field, badgeFormValue(field, value)];
     // ADR-192 — une remise se lit « 10 », jamais « 10.00 » : la même valeur ne compte pas deux fois comme modifiée.
     if (field === 'staff_discount_value') return [field, value === null || value === undefined || value === '' ? '' : String(Number(value))];
     // Les couleurs s'éditent en majuscules : la même valeur ne compte pas deux fois comme modifiée.
@@ -299,6 +307,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                             :readonly="readonly"
                         />
                         <AgeBandSettings v-else-if="current.id === 'ages'" :form="form" :limits="limits" :readonly="readonly" />
+                        <BadgeSettings
+                            v-else-if="current.id === 'badges'"
+                            :form="form"
+                            :fallbacks="fallbacks"
+                            :assets="data.assets"
+                            :logo-styles="badgeLogoStyles"
+                            :site-code="selectedCode"
+                            :site-name="target.site.name"
+                            :limits="limits"
+                            :readonly="readonly"
+                            @saved="afterSave"
+                        />
                         <CurrencySettings v-else-if="current.id === 'monnaie'" :form="form" :currency-labels="currencyLabels" :readonly="readonly" />
                         <DiscountSettings
                             v-else-if="current.id === 'remises'"

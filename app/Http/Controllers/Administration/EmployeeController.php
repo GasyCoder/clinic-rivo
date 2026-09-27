@@ -26,6 +26,8 @@ use App\Models\HrReferenceValue;
 use App\Models\LeaveRequest;
 use App\Models\PlanningShift;
 use App\Models\ProfessionalMailbox;
+use App\Services\Administration\EmployeeBadges;
+use App\Services\Administration\EmployeeDirectory;
 use App\Services\Administration\EmployeeNumberAllocator;
 use App\Services\Administration\HrPresenter;
 use App\Services\Administration\InternshipDirectory;
@@ -50,34 +52,17 @@ class EmployeeController extends Controller
         private readonly HrPresenter $presenter,
         private readonly InternshipDirectory $internships,
         private readonly LeaveToday $leaveToday,
+        private readonly EmployeeDirectory $directory,
     ) {}
 
     public function index(Request $request): Response
     {
         Gate::forUser($request->user())->authorize('viewAny', Employee::class);
         $search = trim((string) $request->query('q', ''));
-        $status = in_array($request->query('status'), ['active', 'on_leave', 'inactive', 'archived', 'all'], true)
-            ? $request->query('status') : 'active';
+        $status = $this->directory->status($request->query('status'));
 
         // ADR-207 — un stagiaire n'est pas un employé : il vit dans « Stages ».
-        $employees = $this->staff()
-            ->when($status === 'archived', fn ($query) => $query->onlyTrashed())
-            ->when($status === 'all', fn ($query) => $query->withTrashed())
-            ->when($status === 'active', fn ($query) => $query->where('active', true))
-            ->when($status === 'on_leave', fn ($query) => $this->leaveToday->employees($query->where('active', true)))
-            ->when($status === 'inactive', fn ($query) => $query->where('active', false))
-            ->when($search !== '', function ($query) use ($search): void {
-                $query->where(function ($nested) use ($search): void {
-                    $nested->where('employee_number', 'like', "%{$search}%")
-                        ->orWhere('first_name', 'like', "%{$search}%")
-                        ->orWhere('last_name', 'like', "%{$search}%")
-                        ->orWhere('profession', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%")
-                        ->orWhere('identity_document_number', 'like', "%{$search}%")
-                        ->orWhereHas('department', fn ($reference) => $reference->where('label', 'like', "%{$search}%"))
-                        ->orWhereHas('jobTitle', fn ($reference) => $reference->where('label', 'like', "%{$search}%"));
-                });
-            })
+        $employees = $this->directory->filtered($status, $search)
             ->with([
                 'addressEntry' => fn ($query) => $query->withTrashed(),
                 'department' => fn ($query) => $query->withTrashed(),
@@ -111,7 +96,7 @@ class EmployeeController extends Controller
     /** Les dossiers du personnel, stagiaires exclus (ADR-207). */
     private function staff(): Builder
     {
-        return $this->internships->withoutInterns(Employee::query());
+        return $this->directory->staff();
     }
 
     public function create(Request $request): Response
@@ -146,7 +131,7 @@ class EmployeeController extends Controller
         ]);
     }
 
-    public function show(Request $request, Employee $employee): Response
+    public function show(Request $request, Employee $employee, EmployeeBadges $badges): Response
     {
         Gate::forUser($request->user())->authorize('view', $employee);
         $employee->load([
@@ -202,6 +187,11 @@ class EmployeeController extends Controller
             'documentOptions' => $this->documentOptions(),
             'attestationTypes' => $this->references(HrReferenceType::AttestationType),
             'professionalEmail' => $this->professionalEmail($request, $employee),
+            // ADR-209 — le badge, tel qu'il s'imprime. Un dossier archivé n'en a plus.
+            'badge' => $employee->trashed() ? null : [
+                'person' => $badges->presentOne($employee),
+                'design' => $badges->design(),
+            ],
         ]);
     }
 

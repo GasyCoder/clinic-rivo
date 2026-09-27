@@ -4,7 +4,7 @@ import fs from 'node:fs';
 
 /*
  * La fiche d'un employé (ADR-066, ADR-194) : écrite en shadcn, avec « écrire »
- * et le badge professionnel. Ce que le build ne vérifie pas.
+ * et le badge du personnel (ADR-209). Ce que le build ne vérifie pas.
  */
 const read = (path) => fs.readFileSync(`resources/js/${path}`, 'utf8');
 const SHOW = 'Pages/Administration/Employees/Show.vue';
@@ -47,15 +47,16 @@ test('« écrire » ouvre la messagerie RIVO déjà adressée, sinon la messager
     assert.match(webmail, /openCompose\('new', \{ to: target \}\)/);
 });
 
-test('le badge : format carte, QR du seul matricule, impression réservée à un dossier en poste', () => {
+test('le badge : le modèle de la clinique, seul badge de la fiche (ADR-209)', () => {
     const badge = read(BADGE);
-    assert.match(badge, /width: 54mm; height: 85\.6mm;/);
-    assert.match(badge, /QRCode\.toDataURL\(String\(number\)/);
-    assert.match(badge, /watch\(\(\) => props\.employee\.employee_number/);
-    assert.match(badge, /print-color-adjust: exact/);
+    // Un seul modèle pour tout le personnel, dessiné en SVG, réglé par site : plus de carte à QR (ADR-198).
+    assert.match(badge, /person: \{ type: Object, required: true \}/);
+    assert.match(badge, /design: \{ type: Object, default: \(\) => \(\{\}\) \}/);
+    assert.doesNotMatch(badge, /QRCode/);
 
     const show = read(SHOW);
-    assert.match(show, /<Button type="button" variant="outline" @click="badgeOpen = true"><IdCard class="h-4 w-4" \/>Badge<\/Button>/);
-    assert.match(show, /const canPrintBadge = computed\(\(\) => can\('employees\.print'\) && !badgeInactive\.value\)/);
-    assert.match(show, /<div v-if="printingBadge" id="employee-badge-sheet" class="hidden print:block">/);
+    assert.match(show, /<EmployeeBadgeCard v-if="badge" :employee-uuid="employee\.uuid" :badge="badge" :can-print="can\('employees\.print'\)" \/>/);
+    // Le bouton de l'en-tête mène à la page d'impression du badge, jamais à une seconde carte.
+    assert.match(show, /<Button v-if="badge && can\('employees\.print'\)" :as="Link" :href="hrUrl\(`\/administration\/employees\/\$\{employee\.uuid\}\/badge`\)" variant="outline"><IdCard class="h-4 w-4" \/>Badge<\/Button>/);
+    assert.doesNotMatch(show, /badgeOpen|printBadge|employee-badge-sheet|import EmployeeBadge from/);
 });

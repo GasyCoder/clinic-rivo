@@ -5,6 +5,7 @@ namespace App\Http\Controllers\SuperAdmin;
 use App\Actions\Settings\StoreAppSettingAssetAction;
 use App\Actions\Settings\UpdateAppSettingsAction;
 use App\Enums\AuthTemplate;
+use App\Enums\BadgeLogoStyle;
 use App\Enums\ProfileTemplate;
 use App\Http\Controllers\Controller;
 use App\Services\Catalog\CatalogActor;
@@ -38,7 +39,7 @@ class AppSettingsController extends Controller
      * même ordre, que `resources/js/utilities/settingsSections.js` (vérifié par test) ;
      * le premier s'ouvre quand on arrive sur « Paramètres ».
      */
-    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'monnaie', 'remises', 'legal', 'direction', 'visibilite', 'maintenance'];
+    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'badges', 'monnaie', 'remises', 'legal', 'direction', 'visibilite', 'maintenance'];
 
     /**
      * La page d'un module. Sans module, le premier : comme dans les paramètres de
@@ -81,6 +82,11 @@ class AppSettingsController extends Controller
             'profileTemplates' => collect(ProfileTemplate::cases())->map(fn (ProfileTemplate $template) => [
                 'value' => $template->value,
                 'label' => $template->label(),
+            ])->all(),
+            // ADR-209 — le badge du personnel : comment il montre l'établissement.
+            'badgeLogoStyles' => collect(BadgeLogoStyle::cases())->map(fn (BadgeLogoStyle $style) => [
+                'value' => $style->value,
+                'label' => $style->label(),
             ])->all(),
             // ADR-191 — thèmes proposés et bornes de la numérotation : une seule source.
             'themePresets' => ThemePresets::all(),

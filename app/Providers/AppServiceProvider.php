@@ -126,6 +126,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('view-employee-photo', fn (User $user): bool => $user->can('employees.view')
             || $user->can('planning.view') || $user->can('contracts.view')
             || $user->can('attendance.view') || $user->can('leave.view'));
+        // ADR-209 — l'emblème du badge : pour qui voit un employé ou imprime son badge.
+        Gate::define('view-employee-badge', fn (User $user): bool => $user->can('view-employee-photo') || $user->can('employees.print'));
         // ADR-172 — le dossier chirurgical imprimable s'ouvre au bloc comme à l'anesthésie ;
         // chaque feuille reste gardée par son propre droit (SurgicalDossierSheet).
         Gate::define('view-surgical-dossier', fn (User $user): bool => $user->can('surgery.view') || $user->can('anesthesia.view'));

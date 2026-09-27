@@ -106,7 +106,7 @@ test('the settings read module by module: the open module in a card, the modules
     // Chaque module a son composant, en champs shadcn empilés ; la page l'affiche pour son module.
     const COMPONENTS = {
         identite: 'IdentitySettings', theme: 'ThemeSettings', avance: 'AdvancedSettings', ecrans: 'ScreenTemplates',
-        numerotation: 'NumberingSettings', ages: 'AgeBandSettings', monnaie: 'CurrencySettings', remises: 'DiscountSettings', legal: 'LegalSettings',
+        numerotation: 'NumberingSettings', ages: 'AgeBandSettings', badges: 'BadgeSettings', monnaie: 'CurrencySettings', remises: 'DiscountSettings', legal: 'LegalSettings',
         direction: 'DirectionSettings', visibilite: 'SearchVisibilitySettings', maintenance: 'MaintenanceSettings',
     };
     assert.deepEqual(Object.keys(COMPONENTS), [...SETTINGS_SECTION_IDS]);

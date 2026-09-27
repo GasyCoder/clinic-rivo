@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Administration\AttendanceController;
+use App\Http\Controllers\Administration\EmployeeBadgeController;
 use App\Http\Controllers\Administration\EmployeeController;
 use App\Http\Controllers\Administration\EmploymentContractController;
 use App\Http\Controllers\Administration\GeneratedDocumentController;
@@ -39,6 +40,8 @@ Route::get('/employees/import-template', [EmployeeController::class, 'importTemp
 Route::post('/employees/import', [EmployeeController::class, 'import'])->name('employees.import')->middleware('can:employees.import');
 Route::get('/employees/create', [EmployeeController::class, 'create'])->name('employees.create')->middleware('can:employees.create');
 Route::post('/employees', [EmployeeController::class, 'store'])->name('employees.store')->middleware('can:employees.create');
+// ADR-209 — la planche des badges de la liste affichée (ou cochée) : sous sa liste, avant /employees/{employee}.
+Route::get('/employees/badges', [EmployeeBadgeController::class, 'sheet'])->name('employees.badges')->middleware('can:employees.print')->defaults('scope', 'employees');
 Route::get('/employees/{employee}', [EmployeeController::class, 'show'])->name('employees.show')->middleware('can:employees.view')->withTrashed();
 Route::get('/employees/{employee}/edit', [EmployeeController::class, 'edit'])->name('employees.edit')->middleware('can:employees.update');
 // ADR-190 — l'adresse email professionnelle : le RH la demande, le Super Admin la crée depuis le portail.
@@ -61,6 +64,9 @@ Route::post('/professional-emails/{mailbox}/suspend', [ProfessionalMailboxContro
 Route::post('/professional-emails/{mailbox}/reactivate', [ProfessionalMailboxController::class, 'reactivate'])->name('professional-emails.reactivate')->middleware('can:professional_emails.activate');
 Route::post('/professional-emails/{mailbox}/password', [ProfessionalMailboxController::class, 'resetPassword'])->name('professional-emails.password')->middleware('can:professional_emails.update');
 Route::get('/employees/{employee}/print', [EmployeeController::class, 'print'])->name('employees.print')->middleware('can:employees.print')->withTrashed();
+// ADR-209 — le badge d'une personne (jamais d'un dossier archivé), et l'emblème déposé pour le badge du site.
+Route::get('/employees/{employee}/badge', [EmployeeBadgeController::class, 'show'])->name('employees.badge')->middleware('can:employees.print');
+Route::get('/badges/emblem', [EmployeeBadgeController::class, 'emblem'])->name('badges.emblem')->middleware('can:view-employee-badge');
 // ADR-194 — la photo d'identité 4 × 4, lue sur le disque privé du site.
 Route::get('/employees/{employee}/photo', [EmployeeController::class, 'photo'])->name('employees.photo')->middleware('can:view-employee-photo')->withTrashed();
 Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update')->middleware('can:employees.update');
@@ -79,6 +85,7 @@ Route::post('/contracts/{contract}/restore', [EmploymentContractController::clas
 
 // ADR-194 — les stages : les contrats de stage, lus avec leur filière.
 Route::get('/internships', [InternshipController::class, 'index'])->name('internships.index')->middleware('can:contracts.view');
+Route::get('/internships/badges', [EmployeeBadgeController::class, 'sheet'])->name('internships.badges')->middleware('can:employees.print')->defaults('scope', 'interns');
 
 Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index')->middleware('can:attendance.view');
 Route::get('/attendance/export', [AttendanceController::class, 'export'])->name('attendance.export')->middleware('can:attendance.export');

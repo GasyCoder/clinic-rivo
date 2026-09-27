@@ -3,6 +3,7 @@
 namespace App\Services\Administration;
 
 use App\Enums\HrReferenceType;
+use App\Models\EmploymentContract;
 use App\Models\HrReferenceValue;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -19,6 +20,9 @@ use Illuminate\Support\Collection;
  */
 class InternshipDirectory
 {
+    /** Les vues de la page « Stages ». */
+    public const STATUSES = ['current', 'future', 'ended', 'all'];
+
     /** @var Collection<int, int>|null */
     private ?Collection $typeIds = null;
 
@@ -101,5 +105,32 @@ class InternshipDirectory
     public function withoutInterns(Builder $employees): Builder
     {
         return $employees->whereNot(fn (Builder $query) => $this->interns($query));
+    }
+
+    /**
+     * Les stages de la page « Stages » pour une vue, une recherche et une filière :
+     * écrit une fois pour la liste et pour ce qui en part (ADR-209 : les badges
+     * des stagiaires affichés).
+     *
+     * @return Builder<EmploymentContract>
+     */
+    public function listing(string $status, string $search, ?HrReferenceValue $field = null): Builder
+    {
+        $today = now()->toDateString();
+
+        return $this->internships(EmploymentContract::query())
+            ->when($status === 'current', fn (Builder $query) => $this->current($query))
+            ->when($status === 'future', fn (Builder $query) => $query->whereDate('starts_on', '>', $today))
+            ->when($status === 'ended', fn (Builder $query) => $query->whereDate('ends_on', '<', $today))
+            ->when($field, fn (Builder $query) => $query->where('internship_field_id', $field->getKey()))
+            ->when($search !== '', fn (Builder $query) => $query->where(function (Builder $nested) use ($search): void {
+                $nested->where('internship_school', 'like', "%{$search}%")
+                    ->orWhere('internship_level', 'like', "%{$search}%")
+                    ->orWhereHas('employee', fn ($employee) => $employee
+                        ->where('employee_number', 'like', "%{$search}%")
+                        ->orWhere('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%"))
+                    ->orWhereHas('internshipField', fn ($field) => $field->where('label', 'like', "%{$search}%"));
+            }));
     }
 }

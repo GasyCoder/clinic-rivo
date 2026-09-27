@@ -171,6 +171,76 @@ class AppSettingsPortalTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'app_settings.update', 'user_id' => $this->superAdmin->id]);
     }
 
+    public function test_all_site_settings_are_reset_through_its_api_only(): void
+    {
+        Http::fake([
+            'https://a.test/api/v1/super-admin/app-settings/reset' => Http::response([
+                'message' => 'Tous les paramètres ont été réinitialisés aux valeurs par défaut pour ce site.',
+                'data' => $this->sitePayload('A', 'Ambondromamy'),
+            ]),
+        ]);
+
+        $this->actingAs($this->superAdmin)
+            ->delete('/super-admin/settings/reset', ['site_code' => 'A', 'confirmation' => 'RÉINITIALISER'])
+            ->assertRedirect()
+            ->assertSessionHas('status', 'Tous les paramètres ont été réinitialisés aux valeurs par défaut pour ce site.');
+
+        Http::assertSent(fn ($request) => $request->method() === 'DELETE'
+            && $request->url() === 'https://a.test/api/v1/super-admin/app-settings/reset'
+            && $request->hasHeader('Idempotency-Key')
+            && $request['confirmation'] === 'RÉINITIALISER'
+            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'settings.update'));
+
+        $this->assertSame(0, AppSetting::query()->count(), 'Le portail ne doit jamais écrire les réglages du site dans sa base.');
+    }
+
+    public function test_a_reset_is_never_sent_without_the_exact_confirmation_text(): void
+    {
+        Http::fake();
+
+        $this->actingAs($this->superAdmin)
+            ->delete('/super-admin/settings/reset', [
+                'site_code' => 'A',
+                'confirmation' => 'REINITIALISER',
+            ])
+            ->assertRedirect()
+            ->assertSessionHasErrors('confirmation');
+
+        Http::assertNothingSent();
+        $this->assertDatabaseMissing('audit_logs', ['action' => 'app_settings.reset']);
+    }
+
+    public function test_the_portal_can_reset_all_its_own_settings_locally(): void
+    {
+        Http::fake();
+        Storage::disk(AppSettings::DISK)->put('branding/logo-portal.png', 'logo');
+
+        AppSetting::query()->create([
+            'app_name' => 'Portail personnalisé',
+            'app_tagline' => 'Devise personnalisée',
+            'logo_path' => 'branding/logo-portal.png',
+            'primary_color' => '#0F766E',
+            'currency_label' => 'Ariary',
+            'director_name' => 'Direction',
+        ]);
+
+        $this->actingAs($this->superAdmin)
+            ->delete('/super-admin/settings/reset', [
+                'site_code' => AppSettingsController::PORTAL,
+                'confirmation' => 'RÉINITIALISER',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('status', 'Tous les paramètres du portail ont été réinitialisés aux valeurs par défaut.');
+
+        Http::assertNothingSent();
+        $this->assertSame(0, AppSetting::query()->count());
+        Storage::disk(AppSettings::DISK)->assertMissing('branding/logo-portal.png');
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'app_settings.reset',
+            'user_id' => $this->superAdmin->id,
+        ]);
+    }
+
     public function test_a_file_travels_to_the_site_as_is(): void
     {
         Http::fake([

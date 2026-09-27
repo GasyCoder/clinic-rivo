@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\SuperAdmin;
 
+use App\Actions\Settings\ResetAppSettingsAction;
 use App\Actions\Settings\StoreAppSettingAssetAction;
 use App\Actions\Settings\UpdateAppSettingsAction;
 use App\Enums\AuthTemplate;
@@ -112,6 +113,27 @@ class AppSettingsController extends Controller
         }
 
         return $this->relay($client->updateAppSettings($target, $validated, $request->user()), 'Paramètres enregistrés.');
+    }
+
+    public function reset(Request $request, PortalSiteApiClient $client, ResetAppSettingsAction $action): RedirectResponse
+    {
+        $target = $this->target($request);
+        $validated = $request->validate([
+            'confirmation' => ['required', 'string', 'in:'.ResetAppSettingsAction::CONFIRMATION],
+        ], [
+            'confirmation.in' => 'Tapez exactement « '.ResetAppSettingsAction::CONFIRMATION.' » pour confirmer.',
+        ]);
+
+        if ($target === self::PORTAL) {
+            $action->execute(CatalogActor::fromUser($request->user()));
+
+            return back()->with('status', 'Tous les paramètres du portail ont été réinitialisés aux valeurs par défaut.');
+        }
+
+        return $this->relay(
+            $client->resetAppSettings($target, $validated['confirmation'], $request->user()),
+            'Tous les paramètres ont été réinitialisés aux valeurs par défaut.',
+        );
     }
 
     public function storeAsset(Request $request, string $kind, PortalSiteApiClient $client, StoreAppSettingAssetAction $action): RedirectResponse

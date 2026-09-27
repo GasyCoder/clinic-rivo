@@ -251,6 +251,13 @@ changement de son mot de passe (`ChangeOwnPasswordAction` : ancien exigé,
 `SecurePassword`, autres sessions fermées, audit `user.password.change`) ;
 nom, email, rôle et droits restent à l'administration (ADR-022).
 
+**Réinitialisation globale des paramètres** (ADR-210). Depuis chaque module de Paramètres, le bouton
+« Réinitialiser tous les paramètres » exige la saisie exacte de `RÉINITIALISER`, puis retire la ligne
+`app_settings` auditée (`app_settings.reset`) et ses cinq fichiers personnalisés. Tous les champs retombent
+ainsi sur `config/rivo.php`, y compris les futurs réglages. Coupons, maintenance, compteurs de numérotation,
+préférences des comptes et données métier restent intacts. Un site est réinitialisé uniquement par son API,
+avec `settings.update` revérifié localement.
+
 **Apparence et chargement** (ADR-185). Le thème se choisit Clair / Système / Sombre
 (`ThemeModeSwitcher`, `stores/theme.js` : `mode` gardé sur le poste, `resolved`
 suit l'appareil pour « Système ») ; `app.blade.php` pose `dark` avant le premier

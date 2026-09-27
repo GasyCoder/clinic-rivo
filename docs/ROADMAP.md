@@ -928,6 +928,7 @@ admin.rivo.mg
 - [x] Vignette de couleurs (clair / sombre) devant chaque thème de départ, reprise dans le champ fermé ; slot `leading` sur le `Select` partagé (ADR-191)
 - [x] Repère visuel devant chaque option de l'affichage avancé (taille, densité, arrondis, animations, contraste) (ADR-191)
 - [x] Repères dans les listes de la Numérotation et de la Monnaie ; icône en tête des champs texte (Identité, Identité légale, Direction, Âges, préfixes) et des aperçus (ADR-191)
+- [x] Réinitialisation globale des paramètres d'un site ou du portail vers les valeurs du déploiement, avec saisie exacte de « RÉINITIALISER », API du site et audit ; coupons, maintenance et compteurs conservés (ADR-210)
 - [x] « Moteurs de recherche » : carte d'état (Masquée / Visible), trois consignes en cartes, liens vers les outils de retrait, robots.txt et en-tête copiables (ADR-191)
 - [ ] Couleurs d'alerte et format des autres numéros (factures, reçus, commandes) réglables — à décider (ADR-191)
 - [x] Mode maintenance par site depuis Paramètres › Maintenance : maintenant ou programmée, message personnalisable avec aperçu, bandeau 24 h avant, réouverture automatique à la fin prévue, levée tracée ; seul le droit `app_maintenance.bypass` traverse, connexion et API restent ouvertes (ADR-193)

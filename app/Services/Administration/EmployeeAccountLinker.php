@@ -6,6 +6,7 @@ use App\Enums\AccountKind;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\Audit\Auditor;
+use App\Support\Hr\JobTitleAccountRole;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Validation\ValidationException;
 
@@ -104,9 +105,11 @@ class EmployeeAccountLinker
      */
     public function linkableEmployees(): array
     {
+        $accountRoles = new JobTitleAccountRole;
+
         return Employee::query()
             ->where('active', true)
-            ->with(['jobTitle:id,label', 'department:id,label', 'user:id,uuid,name'])
+            ->with(['jobTitle:id,type,label,metadata', 'department:id,label', 'user:id,uuid,name'])
             ->orderBy('last_name')
             ->orderBy('first_name')
             ->get()
@@ -117,6 +120,8 @@ class EmployeeAccountLinker
                 'email' => $employee->email,
                 'phone' => $employee->phone,
                 'account' => $employee->user ? ['uuid' => $employee->user->uuid, 'name' => $employee->user->name] : null,
+                // ADR-199 — le rôle que sa fonction propose, prérempli par l'assistant.
+                'proposed_access' => $accountRoles->forEmployee($employee),
             ])
             ->all();
     }

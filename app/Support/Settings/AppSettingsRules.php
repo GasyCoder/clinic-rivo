@@ -51,6 +51,7 @@ final class AppSettingsRules
             'dark_background' => ['nullable', 'string', 'regex:'.self::HEX, new ReadableThemeColors('dark')],
             'dark_foreground' => ['nullable', 'string', 'regex:'.self::HEX, new ReadableThemeColors('dark')],
             // Réglages avancés : les valeurs par défaut du site.
+            'ui_font_family' => ['nullable', Rule::in(UiOptions::FONT_FAMILIES)],
             'ui_font_size' => ['nullable', 'integer', Rule::in(UiOptions::FONT_SIZES)],
             'ui_density' => ['nullable', Rule::in(UiOptions::DENSITIES)],
             'ui_radius' => ['nullable', Rule::in(UiOptions::RADII)],

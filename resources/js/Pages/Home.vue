@@ -18,6 +18,7 @@ import {
     ChevronRight,
     CircleAlert,
     Clock,
+    LayoutGrid,
     Plus,
     ShieldCheck,
 } from 'lucide-vue-next';
@@ -131,35 +132,22 @@ const focusMetrics = computed(() => focus.value.metrics
     .filter(Boolean));
 const otherMetrics = computed(() => metrics.value.filter((metric) => !focus.value.metrics.includes(metric.key)));
 
-/*
- * The card reads sideways — icon, then figure and label — so it stays short.
- * Two of them side by side on a phone would clip the label instead; the
- * second column only appears once there is room for it.
- */
-const gridFor = (count) => ({
-    1: 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4',
-    2: 'grid-cols-1 sm:grid-cols-2',
-    3: 'grid-cols-1 sm:grid-cols-3',
-    4: 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4',
-    5: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5',
-}[count] ?? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6');
-
 const metricGroups = computed(() => [
     { key: 'focus', title: 'Votre activité', items: focusMetrics.value },
     { key: 'other', title: focusMetrics.value.length ? 'Autres indicateurs accessibles' : 'Indicateurs accessibles', items: otherMetrics.value },
-].filter((group) => group.items.length).map((group) => ({ ...group, grid: gridFor(group.items.length) })));
+].filter((group) => group.items.length));
 
 const pendingOrientation = computed(() => metrics.value.find((metric) => metric.key === 'pending_orientation'));
 
 const toneClasses = {
-    navy: { icon: 'bg-primary/10 text-primary ring-primary/20 ', value: 'text-primary ', bar: 'bg-primary' },
-    ocean: { icon: 'bg-sky-50 text-sky-700 ring-sky-100 dark:bg-sky-950/50 dark:text-sky-300 dark:ring-sky-900', value: 'text-sky-800 dark:text-sky-200', bar: 'bg-sky-500' },
-    cyan: { icon: 'bg-cyan-50 text-cyan-700 ring-cyan-100 dark:bg-cyan-950/50 dark:text-cyan-300 dark:ring-cyan-900', value: 'text-cyan-800 dark:text-cyan-200', bar: 'bg-cyan-500' },
-    green: { icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300 dark:ring-emerald-900', value: 'text-emerald-800 dark:text-emerald-200', bar: 'bg-emerald-500' },
-    yellow: { icon: 'bg-amber-50 text-amber-700 ring-amber-100 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900', value: 'text-amber-800 dark:text-amber-200', bar: 'bg-amber-500' },
+    navy: { icon: 'bg-primary/[0.08] text-primary ring-primary/15', value: 'text-foreground' },
+    ocean: { icon: 'bg-primary/[0.08] text-primary ring-primary/15', value: 'text-foreground' },
+    cyan: { icon: 'bg-primary/[0.08] text-primary ring-primary/15', value: 'text-foreground' },
+    green: { icon: 'bg-emerald-50/70 text-emerald-700 ring-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900', value: 'text-foreground' },
+    yellow: { icon: 'bg-amber-50/70 text-amber-700 ring-amber-100 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900', value: 'text-foreground' },
     // Neutre, volontairement : le registre des décès (ADR-107) ne porte
     // ni la couleur d'accent ni celle d'une alerte à traiter.
-    slate: { icon: 'bg-muted text-muted-foreground ring-border', value: 'text-foreground', bar: 'bg-muted-foreground' },
+    slate: { icon: 'bg-muted text-muted-foreground ring-border', value: 'text-foreground' },
 };
 const tone = (name) => toneClasses[name] ?? toneClasses.navy;
 </script>
@@ -167,62 +155,62 @@ const tone = (name) => toneClasses[name] ?? toneClasses.navy;
 <template>
     <Head title="Vue d’ensemble" />
 
-    <div class="mx-auto w-full max-w-screen-2xl space-y-6">
-        <!-- En-tête : qui, où, quand, et l'action du moment. -->
-        <Card class="relative overflow-hidden border-primary/15">
-            <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary via-sky-500 to-emerald-500" />
-            <div aria-hidden="true" class="pointer-events-none absolute -left-20 -top-24 h-64 w-64 rounded-full bg-primary/10 blur-3xl" />
-            <div aria-hidden="true" class="pointer-events-none absolute -bottom-28 left-1/2 h-56 w-56 rounded-full bg-sky-400/10 blur-3xl" />
-
-            <div class="relative grid xl:grid-cols-[minmax(0,1fr)_480px]">
-                <header class="flex min-w-0 items-center gap-4 p-5 sm:gap-5 sm:p-6 lg:p-7">
-                    <Avatar :initials="userInitials" size="lg" variant="primary-pale" class="h-14 w-14 ring-4 ring-primary/10 sm:h-16 sm:w-16" />
+    <div class="mx-auto w-full max-w-screen-2xl space-y-5">
+        <!-- Une entrée calme : identité et contexte à gauche, prochain geste à droite. -->
+        <Card class="overflow-hidden">
+            <div class="grid xl:grid-cols-[minmax(0,1fr)_420px]">
+                <header class="flex min-w-0 items-start gap-4 p-5 sm:items-center sm:gap-5 sm:p-6">
+                    <Avatar :initials="userInitials" size="lg" variant="primary-pale" class="h-12 w-12 border border-primary/10 sm:h-14 sm:w-14" />
                     <div class="min-w-0 flex-1">
-                        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-                            <Badge class="border-primary/20 bg-primary/10 text-primary" variant="outline">
-                                <Building2 class="h-3.5 w-3.5" />{{ page.props.site.name }} · {{ page.props.site.code }}
+                        <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                            <Badge variant="outline" class="font-medium text-foreground">
+                                <Building2 class="h-3.5 w-3.5 text-primary" />{{ page.props.site.name }} · {{ page.props.site.code }}
                             </Badge>
-                            <span class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays class="h-3.5 w-3.5" />{{ generatedDate }}</span>
+                            <span class="inline-flex items-center gap-1.5"><CalendarDays class="h-3.5 w-3.5" />{{ generatedDate }}</span>
                         </div>
                         <h1 class="mt-3 truncate font-heading text-2xl font-bold tracking-tight text-foreground sm:text-[28px]">
                             {{ greeting }}, {{ user.name }}
                         </h1>
-                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
                             <Badge variant="secondary">{{ roleName }}</Badge>
+                            <p v-if="focus.lead" class="text-xs text-muted-foreground sm:text-sm">{{ focus.lead }}</p>
                         </div>
                     </div>
                 </header>
 
-                <aside v-if="quickLinks.length || primaryAction" class="border-t border-border bg-muted/25 p-4 sm:p-5 xl:border-l xl:border-t-0">
+                <aside v-if="quickLinks.length || primaryAction" class="border-t border-border bg-muted/20 p-4 sm:p-5 xl:border-l xl:border-t-0">
                     <div class="mb-3 flex items-center justify-between gap-3">
                         <div>
-                            <p class="text-xs font-bold text-foreground">Actions rapides</p>
-                            <p class="mt-0.5 text-[11px] text-muted-foreground">Accès adaptés à votre profil</p>
+                            <p class="text-sm font-semibold text-foreground">Accès rapides</p>
+                            <p class="mt-0.5 text-xs text-muted-foreground">Vos outils les plus utilisés</p>
                         </div>
-                        <span class="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground"><Clock class="h-3.5 w-3.5" />{{ generatedTime }}</span>
+                        <span class="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"><Clock class="h-3.5 w-3.5" />{{ generatedTime }}</span>
                     </div>
 
-                    <div class="grid gap-2 sm:grid-cols-2">
+                    <div class="space-y-2">
                         <Button
                             v-if="primaryAction"
                             :as="Link"
                             :href="primaryAction.link"
                             size="sm"
-                            class="w-full justify-start"
+                            class="w-full justify-between px-3"
                         >
-                            <component :is="primaryAction.icon" class="h-4 w-4" />{{ primaryAction.label }}
+                            <span class="inline-flex min-w-0 items-center gap-2"><component :is="primaryAction.icon" class="h-4 w-4" /><span class="truncate">{{ primaryAction.label }}</span></span>
+                            <ArrowRight class="h-4 w-4" />
                         </Button>
-                        <Button
-                            v-for="link in quickLinks"
-                            :key="link.link"
-                            :as="Link"
-                            :href="link.link"
-                            variant="outline"
-                            size="sm"
-                            class="w-full justify-start bg-card"
-                        >
-                            <component :is="link.icon" class="h-4 w-4 text-primary" />{{ link.title }}
-                        </Button>
+                        <div v-if="quickLinks.length" class="grid gap-2 sm:grid-cols-2">
+                            <Button
+                                v-for="link in quickLinks"
+                                :key="link.link"
+                                :as="Link"
+                                :href="link.link"
+                                variant="outline"
+                                size="sm"
+                                class="w-full justify-start bg-card px-3 shadow-none"
+                            >
+                                <component :is="link.icon" class="h-4 w-4 text-muted-foreground" /><span class="truncate">{{ link.title }}</span>
+                            </Button>
+                        </div>
                     </div>
                 </aside>
             </div>
@@ -247,62 +235,64 @@ const tone = (name) => toneClasses[name] ?? toneClasses.navy;
 
         <HrHomePanel v-if="hr" v-bind="hr" />
 
-        <!-- Indicateurs du jour. -->
-        <section v-if="metrics.length" class="space-y-4" aria-labelledby="today-title">
-            <div class="flex flex-wrap items-end justify-between gap-2">
-                <div>
-                    <h2 id="today-title" class="font-heading text-base font-bold text-foreground">Activité aujourd’hui</h2>
-                    <p class="mt-0.5 text-xs text-muted-foreground">Calculée à partir des données autorisées pour votre compte.</p>
-                </div>
-                <span class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Clock class="h-4 w-4" />Mis à jour à {{ generatedTime }}</span>
-            </div>
+        <div class="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <main class="min-w-0 space-y-5">
+                <!-- Les indicateurs forment un seul bloc : aucun grand vide quand il n'en existe qu'un. -->
+                <Card v-if="metrics.length" class="overflow-hidden" aria-labelledby="today-title">
+                    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
+                        <div>
+                            <h2 id="today-title" class="font-heading text-base font-bold text-foreground">Activité aujourd’hui</h2>
+                            <p class="mt-0.5 text-xs text-muted-foreground">Indicateurs disponibles pour votre compte.</p>
+                        </div>
+                        <span class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Clock class="h-4 w-4" />Mis à jour à {{ generatedTime }}</span>
+                    </div>
 
-            <template v-for="group in metricGroups" :key="group.key">
-                <div v-if="group.items.length">
-                    <h3 class="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{{ group.title }}</h3>
-                    <div :class="['grid gap-3', group.grid]">
-                        <Card
-                            v-for="metric in group.items"
-                            :key="metric.key"
-                            :class="[
-                                'group relative overflow-hidden transition',
-                                metric.href ? 'hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md' : '',
-                            ]"
-                        >
+                    <section
+                        v-for="group in metricGroups"
+                        :key="group.key"
+                        :aria-label="group.title"
+                        class="p-3 [&+&]:border-t [&+&]:border-border"
+                    >
+                        <h3 class="px-1 pb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{{ group.title }}</h3>
+                        <div class="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2">
                             <component
                                 :is="metric.href ? Link : 'div'"
+                                v-for="metric in group.items"
+                                :key="metric.key"
                                 :href="metric.href || undefined"
                                 :title="metric.description"
-                                class="relative flex h-full items-start gap-3 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                                :class="[
+                                    'group flex min-w-0 items-center gap-3 rounded-lg border border-border/70 bg-background px-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                    metric.href ? 'transition-colors hover:border-primary/25 hover:bg-accent/45' : '',
+                                ]"
                             >
-                                <span :class="['absolute inset-x-0 top-0 h-0.5 opacity-0 transition-opacity group-hover:opacity-100', tone(metric.tone).bar]" aria-hidden="true" />
                                 <span :class="['grid h-10 w-10 shrink-0 place-items-center rounded-lg ring-1 ring-inset', tone(metric.tone).icon]"><component :is="lucideIcon(metric.icon)" class="h-5 w-5" /></span>
                                 <span class="min-w-0 flex-1">
-                                    <span :class="['block text-2xl font-bold leading-none tabular-nums', metric.value > 0 ? tone(metric.tone).value : 'text-muted-foreground']">{{ metric.value }}</span>
-                                    <span class="mt-1 block truncate text-xs font-semibold text-foreground">{{ metric.label }}</span>
-                                    <span class="mt-0.5 block truncate text-[11px] leading-4 text-muted-foreground">{{ metric.description }}</span>
+                                    <span class="flex items-baseline gap-2">
+                                        <strong :class="['text-2xl font-bold leading-none tabular-nums', metric.value > 0 ? tone(metric.tone).value : 'text-muted-foreground']">{{ metric.value }}</strong>
+                                        <span class="truncate text-xs font-semibold text-foreground">{{ metric.label }}</span>
+                                    </span>
+                                    <span class="mt-1 block truncate text-[11px] leading-4 text-muted-foreground">{{ metric.description }}</span>
                                 </span>
-                                <ArrowRight v-if="metric.href" class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                                <ArrowRight v-if="metric.href" class="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
                             </component>
-                        </Card>
-                    </div>
-                </div>
-            </template>
-        </section>
+                        </div>
+                    </section>
+                </Card>
 
-        <div class="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <ActivityTrendChart :trend="overview.trend" />
+                <ActivityTrendChart :trend="overview.trend" />
+            </main>
 
-            <div class="space-y-5">
-                <PatientDemographicsChart v-if="overview.patient_demographics" :demographics="overview.patient_demographics" />
-
-                <!-- Accès directs : à côté du graphique plutôt qu'en bas de page. -->
+            <aside class="space-y-5 xl:sticky xl:top-24">
+                <!-- Accès directs : visibles au même niveau que l'activité du jour. -->
                 <Card aria-labelledby="workspaces-title" class="overflow-hidden">
-                <aside>
                     <div class="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
-                        <div>
-                            <h2 id="workspaces-title" class="font-heading text-base font-bold text-foreground">Vos espaces</h2>
-                            <p class="mt-0.5 text-xs text-muted-foreground">Modules attribués à votre compte</p>
+                        <div class="flex items-start gap-3">
+                            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><LayoutGrid class="h-4 w-4" /></span>
+                            <div>
+                                <h2 id="workspaces-title" class="font-heading text-base font-bold text-foreground">Vos espaces de travail</h2>
+                                <p class="mt-0.5 text-xs text-muted-foreground">Accès disponibles pour ce compte</p>
+                            </div>
                         </div>
                         <Badge variant="secondary" class="tabular-nums">{{ workspaces.length }}</Badge>
                     </div>
@@ -314,9 +304,9 @@ const tone = (name) => toneClasses[name] ?? toneClasses.navy;
                                 v-for="workspace in group.items"
                                 :key="workspace.title"
                                 :href="workspace.link"
-                                class="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                                class="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                             >
-                                <span :class="['flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset', tone(workspace.tone).icon]"><component :is="workspace.icon" class="h-4 w-4" /></span>
+                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted/70 text-muted-foreground ring-1 ring-inset ring-border"><component :is="workspace.icon" class="h-4 w-4" /></span>
                                 <span class="min-w-0 flex-1">
                                     <span class="block truncate text-sm font-semibold text-foreground group-hover:text-primary">{{ workspace.title }}</span>
                                     <span class="block truncate text-xs text-muted-foreground">{{ workspace.description }}</span>
@@ -331,13 +321,14 @@ const tone = (name) => toneClasses[name] ?? toneClasses.navy;
                         <p class="mx-auto mt-1 max-w-xs text-xs leading-5 text-muted-foreground">Votre compte est actif, mais aucune permission de module ne lui est accordée. Contactez l’administrateur local.</p>
                     </div>
 
-                    <p class="flex items-start gap-2 border-t border-border bg-muted/30 px-5 py-3.5 text-[11px] leading-4 text-muted-foreground">
-                        <ShieldCheck class="mt-px h-4 w-4 shrink-0 text-primary" />
+                    <p class="flex items-start gap-2 border-t border-border bg-muted/20 px-5 py-3.5 text-[11px] leading-4 text-muted-foreground">
+                        <ShieldCheck class="mt-px h-4 w-4 shrink-0" />
                         Données et raccourcis filtrés selon vos permissions.
                     </p>
-                </aside>
                 </Card>
-            </div>
+
+                <PatientDemographicsChart v-if="overview.patient_demographics" :demographics="overview.patient_demographics" />
+            </aside>
         </div>
     </div>
 </template>

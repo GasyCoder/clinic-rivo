@@ -25,6 +25,12 @@ import { cn } from '@/lib/cn';
 const props = defineProps({
     /** `[{ value, label, hint?, title?, icon, tone?, count, active?, filterable? }]` */
     tiles: { type: Array, required: true },
+    /**
+     * Une bande serrée plutôt que des cartes : sur les tableaux des passages
+     * (Soins, Médecine, Maternité), les compteurs se lisent au-dessus de la
+     * liste et ne doivent pas la repousser sous la ligne de flottaison.
+     */
+    compact: { type: Boolean, default: false },
     class: { type: String, default: '' },
 });
 
@@ -74,7 +80,40 @@ const clickable = (tile) => tile.filterable !== false;
 </script>
 
 <template>
-    <div :class="cn('grid grid-cols-2 gap-3 lg:grid-cols-4', props.class)">
+    <div v-if="compact" :class="cn('grid grid-cols-2 gap-2 lg:grid-cols-4', props.class)">
+        <component
+            :is="clickable(tile) ? 'button' : 'div'"
+            v-for="tile in tiles"
+            :key="tile.value"
+            :type="clickable(tile) ? 'button' : undefined"
+            :title="tile.title"
+            :class="cn(
+                'flex min-w-0 items-center gap-2.5 rounded-lg border bg-card px-3 py-2 text-start shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                tile.active ? tone(tile).active : tone(tile).idle,
+                ! clickable(tile) && 'cursor-default',
+            )"
+            :aria-pressed="clickable(tile) ? Boolean(tile.active) : undefined"
+            @click="clickable(tile) && $emit('select', tile.value)"
+        >
+            <span :class="cn('grid h-8 w-8 shrink-0 place-items-center rounded-md', tone(tile).icon)">
+                <component :is="tile.icon" class="h-4 w-4" aria-hidden="true" />
+            </span>
+            <span class="min-w-0 flex-1">
+                <!-- Trop étroit (deux colonnes sur un téléphone), le libellé passe sous le
+                     chiffre plutôt que d'être coupé. -->
+                <span class="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+                    <span :class="cn(
+                        'shrink-0 text-lg font-bold leading-none tabular-nums',
+                        tile.count ? tone(tile).value : 'text-muted-foreground',
+                    )">{{ tile.count }}</span>
+                    <span class="max-w-full truncate text-xs font-semibold text-foreground">{{ tile.label }}</span>
+                </span>
+                <span v-if="tile.hint" class="mt-0.5 block truncate text-[11px] leading-4 text-muted-foreground">{{ tile.hint }}</span>
+            </span>
+        </component>
+    </div>
+
+    <div v-else :class="cn('grid grid-cols-2 gap-3 lg:grid-cols-4', props.class)">
         <component
             :is="clickable(tile) ? 'button' : 'div'"
             v-for="tile in tiles"

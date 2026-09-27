@@ -59,7 +59,7 @@ class EmployeeController extends Controller
         $status = in_array($request->query('status'), ['active', 'on_leave', 'inactive', 'archived', 'all'], true)
             ? $request->query('status') : 'active';
 
-        // ADR-198 — un stagiaire n'est pas un employé : il vit dans « Stages ».
+        // ADR-207 — un stagiaire n'est pas un employé : il vit dans « Stages ».
         $employees = $this->staff()
             ->when($status === 'archived', fn ($query) => $query->onlyTrashed())
             ->when($status === 'all', fn ($query) => $query->withTrashed())
@@ -108,7 +108,7 @@ class EmployeeController extends Controller
         ]);
     }
 
-    /** Les dossiers du personnel, stagiaires exclus (ADR-198). */
+    /** Les dossiers du personnel, stagiaires exclus (ADR-207). */
     private function staff(): Builder
     {
         return $this->internships->withoutInterns(Employee::query());
@@ -192,7 +192,7 @@ class EmployeeController extends Controller
 
         return Inertia::render('Administration/Employees/Show', [
             'employee' => $this->presenter->employee($employee),
-            // ADR-197 — données sensibles : servies seulement avec leur droit, jamais vides.
+            // ADR-206 — données sensibles : servies seulement avec leur droit, jamais vides.
             'payroll' => $user->can('employees.payroll.view') ? $this->presenter->payroll($employee) : null,
             'contracts' => $contracts,
             'documents' => $documents,
@@ -246,7 +246,7 @@ class EmployeeController extends Controller
         return Inertia::render('Administration/Employees/Edit', [
             ...$this->formData($request, $employee),
             'employee' => $this->presenter->employee($employee),
-            // ADR-197 — prérempli pour qui peut lire ou modifier la rémunération.
+            // ADR-206 — prérempli pour qui peut lire ou modifier la rémunération.
             'payroll' => $request->user()->can('employees.payroll.view') || $request->user()->can('employees.payroll.update')
                 ? $this->presenter->payroll($employee)
                 : null,

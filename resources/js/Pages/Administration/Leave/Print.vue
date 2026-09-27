@@ -10,7 +10,7 @@ import { usePermissions } from '@/composables/usePermissions';
 defineOptions({ layout: AppLayout });
 const props = defineProps({
     leave: Object,
-    /** ADR-198 — les canevas « Personnel + demande de congé » publiés par le Super Admin. */
+    /** ADR-207 — les canevas « Personnel + demande de congé » publiés par le Super Admin. */
     templates: { type: Array, default: () => [] },
     /** Les documents déjà générés pour ce congé. */
     documents: { type: Array, default: () => [] },
@@ -41,7 +41,7 @@ const generateHref = (template) => hrUrl(`/administration/generated-documents/cr
             <Button @click="printPage"><Printer class="h-4 w-4" />Imprimer la fiche de demande</Button>
         </div>
 
-        <!-- ADR-198 — le document officiel du congé : un canevas du Super Admin, rempli pour ce congé. -->
+        <!-- ADR-207 — le document officiel du congé : un canevas du Super Admin, rempli pour ce congé. -->
         <Card class="print-actions p-5">
             <div class="flex items-start gap-3">
                 <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><FileSignature class="h-5 w-5" /></span>

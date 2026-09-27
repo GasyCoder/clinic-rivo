@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { maternityBundle } from './support/maternityPage.js';
 
-const maternity = fs.readFileSync('resources/js/Pages/Maternity/Show.vue', 'utf8');
+// ADR-204 — la page Maternité orchestre ; l'étape « Nouveau-né » porte ses fiches.
+const maternity = maternityBundle();
+const newbornStep = fs.readFileSync('resources/js/Components/Maternity/Steps/DeliveryNewbornStep.vue', 'utf8');
 const patient = fs.readFileSync('resources/js/Pages/Patients/Show.vue', 'utf8');
 const sheet = fs.readFileSync('resources/js/Pages/Medicine/MedicalRecordPrint.vue', 'utf8');
 const episode = fs.readFileSync('resources/js/Pages/Episodes/Show.vue', 'utf8');
@@ -43,8 +46,8 @@ test('un bébé pas encore patient a pourtant son dossier, et le dit', () => {
  * Le composant vit donc hors du fieldset — sans quoi les dossiers des bébés seraient inaccessibles.
  */
 test('le composant est placé hors du formulaire verrouillé', () => {
-    const at = maternity.indexOf('<NewbornDossiers');
-    const fieldset = maternity.indexOf('<fieldset class="min-w-0 space-y-5 p-5"');
+    const at = newbornStep.indexOf('<NewbornDossiers');
+    const fieldset = newbornStep.indexOf('<fieldset');
 
     assert.ok(at > -1 && fieldset > -1 && at < fieldset, 'NewbornDossiers doit précéder le fieldset');
 });

@@ -3,7 +3,7 @@
 namespace App\Enums;
 
 /**
- * ADR-197 — comment le dossier est rémunéré : un salaire, une indemnité (par
+ * ADR-206 — comment le dossier est rémunéré : un salaire, une indemnité (par
  * exemple un stagiaire indemnisé) ou rien. C'est une déclaration du RH : aucune
  * paie, retenue ni net n'en est calculé (ADR-066).
  */

@@ -125,6 +125,58 @@ class ImapMailServerIntegrationTest extends TestCase
      * Le lot annoncé (plan) : compteurs, sélection, recherche, lecture et marquage
      * « lu » partent ensemble, et chaque lecture qui suit se sert de ce qui est arrivé.
      */
+    public function test_a_connection_kept_open_serves_the_next_page_in_one_batch(): void
+    {
+        $server = ImapMailServer::connect(self::ADDRESS, self::PASSWORD);
+        $marker = 'rivo'.bin2hex(random_bytes(4));
+        $criteria = ['text' => $marker];
+        $send = function (string $subject) use ($server, $marker): void {
+            $server->send(OutgoingMessage::build(self::ADDRESS, 'Soa Rakoto', ['to' => self::ADDRESS, 'subject' => "{$subject} {$marker}", 'body_html' => "<p>{$marker}</p>"]));
+        };
+        $page = function () use ($server, $criteria): array {
+            $server->plan('INBOX', $criteria);
+            $server->folders();
+
+            return $server->messages('INBOX', 1, 25, $criteria);
+        };
+        $prefetched = fn (): int => count((new \ReflectionProperty($server, 'headers'))->getValue($server));
+
+        $send('Premier');
+        $send('Second');
+        for ($attempt = 0; $attempt < 20 && count($server->uids('INBOX', $criteria)) < 2; $attempt++) {
+            usleep(250_000);
+        }
+
+        $first = $page();
+        $this->assertSame(2, $first['total']);
+        $this->assertSame(0, $prefetched(), 'une première page demande ses en-têtes à part');
+
+        // La requête suivante, sur la même connexion : les en-têtes partent avec les compteurs.
+        $this->assertTrue($server->alive());
+        $server->beginRequest();
+        $second = $page();
+        $this->assertSame(2, $prefetched(), 'la page déjà servie part dans le même envoi');
+        $this->assertSame($first['items'], $second['items'], 'la même liste qu’en la redemandant');
+
+        // Un nouveau message entre-temps : il apparaît, les autres viennent du même envoi.
+        $send('Troisième');
+        for ($attempt = 0; $attempt < 20 && count($server->uids('INBOX', $criteria)) < 3; $attempt++) {
+            usleep(250_000);
+        }
+        $server->beginRequest();
+        $third = $page();
+        $this->assertSame(3, $third['total']);
+        $this->assertSame("Troisième {$marker}", $third['items'][0]['subject']);
+
+        // Un drapeau changé entre deux requêtes se voit à la suivante.
+        $server->flag('INBOX', [$third['items'][1]['uid']], '\\Seen', true);
+        $server->beginRequest();
+        $this->assertTrue($page()['items'][1]['seen']);
+
+        $server->delete('INBOX', $server->uids('INBOX', $criteria));
+        $server->disconnect();
+    }
+
     public function test_an_announced_read_leaves_with_the_folder_counters(): void
     {
         $marker = 'rivo'.bin2hex(random_bytes(4));

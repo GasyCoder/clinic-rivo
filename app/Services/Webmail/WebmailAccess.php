@@ -22,7 +22,9 @@ use Ramsey\Uuid\Uuid;
  *                          son site.
  *
  * Aucune des deux ne dispense du mot de passe de la boîte : c'est le serveur de
- * messagerie qui l'exige, et RIVO ne le connaît pas (ADR-190).
+ * messagerie qui l'exige. RIVO ne le garde jamais en base (ADR-190) ; pour SA
+ * boîte, il reprend celui saisi à la connexion à RIVO — le même depuis l'ADR-197 —
+ * et la boîte s'ouvre sans rien redemander (ADR-200).
  *
  * Le portail (amendement du 2026-09-26) n'ouvre qu'une boîte : la sienne, réglée
  * dans son .env (adresse et mot de passe, comme l'accès cPanel). Le Super Admin y
@@ -94,10 +96,26 @@ class WebmailAccess
     }
 
     /**
-     * Le mot de passe de la boîte : celui du .env pour la boîte du portail, sinon
-     * celui saisi dans cette session.
+     * Le mot de passe de la boîte : celui du .env pour la boîte du portail ; celui
+     * tapé pour cette boîte à l'écran d'ouverture ; pour sa propre boîte, celui
+     * gardé depuis la connexion à RIVO (ADR-200).
      */
     public function password(?WebmailBox $box): ?string
+    {
+        return match ($this->passwordSource($box)) {
+            'portal' => (string) config('rivo.webmail.portal.password'),
+            'session' => $this->session->passwordFor($box),
+            WebmailSession::VIA_LOGIN, WebmailSession::VIA_TYPED => $this->session->ownPasswordFor($box),
+            default => null,
+        };
+    }
+
+    /**
+     * D'où vient le mot de passe de cette boîte : `portal` (.env), `session` (tapé
+     * pour elle à l'écran d'ouverture), `login` (sa boîte, depuis la connexion à
+     * RIVO), `typed` (sa boîte, tapé une fois) — `null` s'il n'est pas connu.
+     */
+    public function passwordSource(?WebmailBox $box): ?string
     {
         if ($box === null) {
             return null;
@@ -106,10 +124,14 @@ class WebmailAccess
         if ($box->portal) {
             $portal = $this->portalBox();
 
-            return $portal !== null && $portal->is($box) ? (string) config('rivo.webmail.portal.password') : null;
+            return $portal !== null && $portal->is($box) ? 'portal' : null;
         }
 
-        return $this->session->passwordFor($box);
+        if ($this->session->passwordFor($box) !== null) {
+            return 'session';
+        }
+
+        return $this->session->ownPasswordFor($box) !== null ? $this->session->ownVia() : null;
     }
 
     /** L'adresse active de la fiche employé reliée au compte — sur un site seulement. */

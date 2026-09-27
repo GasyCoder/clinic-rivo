@@ -29,9 +29,11 @@ final class MedicalDischargeAttributes
             // ADR-094 — une absence reste une absence, jamais une chaîne vide.
             'final_diagnosis' => $finalDiagnosis !== '' ? $finalDiagnosis : null,
             // ADR-107 — pour un décès, le type de sortie *est* l'état du patient.
+            // Facultatif depuis l'amendement ADR-177 du 2026-09-27 : non
+            // renseigné, il reste `null`, jamais une chaîne vide.
             'patient_condition' => $deceased
                 ? EpisodeMedicalStatus::Deceased->label()
-                : trim((string) ($data['patient_condition'] ?? '')),
+                : (trim((string) ($data['patient_condition'] ?? '')) ?: null),
             'discharge_prescription' => $deceased ? null : ($data['discharge_prescription'] ?? null),
             'recommendations' => $deceased ? null : ($data['recommendations'] ?? null),
             'follow_up_at' => $deceased ? null : ($data['follow_up_at'] ?? null),

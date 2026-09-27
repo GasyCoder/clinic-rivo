@@ -10,7 +10,7 @@
  */
 const props = defineProps({
     modelValue: { type: [String, null], default: null },
-    /** [{ value, label, description?, tone? }] — tone: neutral|positive|warning */
+    /** [{ value, label, description?, tone?, icon? }] — tone: neutral|positive|warning ; icon : un composant lucide */
     options: { type: Array, required: true },
     label: { type: String, default: '' },
     hint: { type: String, default: '' },
@@ -61,7 +61,10 @@ const select = (value) => {
                 ]"
                 @click="select(option.value)"
             >
-                <span class="block truncate">{{ option.label }}</span>
+                <span class="flex min-w-0 items-center gap-1.5">
+                    <component :is="option.icon" v-if="option.icon" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span class="block truncate">{{ option.label }}</span>
+                </span>
                 <span v-if="option.description" class="mt-0.5 block truncate text-[10px] font-normal opacity-75">{{ option.description }}</span>
             </button>
         </div>

@@ -112,6 +112,46 @@ final class ActivePregnancyResolver
         return $pregnancy->fresh();
     }
 
+    /**
+     * ADR-204 — la **première** datation d'une grossesse ouverte sans DDR ni DPA.
+     *
+     * Avec l'enregistrement automatique, « Créer une nouvelle grossesse » crée
+     * la grossesse dès le choix, avant que la DDR soit tapée. Sa première
+     * datation n'est pas une correction : elle se pose ici, une seule fois,
+     * avec la même règle que la création (la DPA se calcule depuis la DDR).
+     * Une grossesse déjà datée ne se corrige que par l'action auditée
+     * `UpdatePregnancyDatingAction`.
+     *
+     * @param  array<string, mixed>  $pregnancyData
+     */
+    public function syncInitialDating(Pregnancy $pregnancy, array $pregnancyData, User $actor): Pregnancy
+    {
+        if ($pregnancy->last_menstrual_period !== null || $pregnancy->estimated_due_date !== null) {
+            return $pregnancy;
+        }
+
+        $lastPeriod = filled($pregnancyData['last_menstrual_period'] ?? null) ? $pregnancyData['last_menstrual_period'] : null;
+        $submittedDueDate = filled($pregnancyData['estimated_due_date'] ?? null) ? $pregnancyData['estimated_due_date'] : null;
+
+        if ($lastPeriod === null && $submittedDueDate === null) {
+            return $pregnancy;
+        }
+
+        $dueDate = $lastPeriod ? $this->dating->estimatedDueDate($lastPeriod)->toDateString() : $submittedDueDate;
+
+        $pregnancy->fill([
+            'last_menstrual_period' => $lastPeriod,
+            'estimated_due_date' => $dueDate,
+            'dating_method' => $lastPeriod ? PregnancyDatingMethod::LastMenstrualPeriod : PregnancyDatingMethod::ManualCorrection,
+            'dating_confirmed_at' => now(),
+            'dating_confirmed_by' => $actor->getKey(),
+            'started_at' => $lastPeriod ?? $pregnancy->started_at,
+            'updated_by' => $actor->getKey(),
+        ])->save();
+
+        return $pregnancy->fresh();
+    }
+
     /** @return array<string, mixed> */
     public function consultationSnapshot(Pregnancy $pregnancy): array
     {

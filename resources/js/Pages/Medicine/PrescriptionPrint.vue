@@ -6,6 +6,7 @@ import Button from '@/Components/Shadcn/Button.vue';
 import { ArrowLeft, Printer } from 'lucide-vue-next';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
+import { doctorName } from '@/utilities/doctorName';
 
 defineOptions({ layout: AppLayout });
 
@@ -31,6 +32,17 @@ const birthLabel = computed(() => (props.patient.birth_date && !props.patient.bi
     : patientAge.value));
 
 /** Reads like "500 mg, 3 fois par jour, pendant 7 jours", the way a prescriber actually writes posology. */
+/**
+ * ADR-205 — la sage-femme signe sous son titre, jamais sous « Dr ». Sans titre
+ * servi, la feuille reste celle d'un médecin.
+ */
+const prescriberLine = computed(() => {
+    const name = props.prescription.prescribed_by || 'N/R';
+
+    return props.prescription.prescriber_title ? `${props.prescription.prescriber_title} ${name}` : doctorName(name);
+});
+const signatureLabel = computed(() => (props.prescription.prescriber_title ? 'Signature et cachet du prescripteur' : 'Signature et cachet du médecin'));
+
 const posologyLine = (line) => {
     const parts = [line.dosage, line.frequency].filter(Boolean).join(', ');
 
@@ -72,7 +84,7 @@ const printDocument = () => window.print();
             </header>
 
             <section class="rx-prescriber-row">
-                <p><strong>Dr {{ prescription.prescribed_by || 'N/R' }}</strong></p>
+                <p><strong>{{ prescriberLine }}</strong></p>
                 <p>Fait à {{ siteName }}, le {{ formatDateTime(prescription.prescribed_at) }}</p>
             </section>
 
@@ -101,7 +113,7 @@ const printDocument = () => window.print();
 
             <section class="rx-signature">
                 <div class="rx-signature-box">
-                    <p class="rx-signature-label">Signature et cachet du médecin</p>
+                    <p class="rx-signature-label">{{ signatureLabel }}</p>
                     <div class="rx-signature-line" />
                 </div>
             </section>

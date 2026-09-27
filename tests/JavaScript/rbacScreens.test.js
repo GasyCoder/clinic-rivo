@@ -23,6 +23,14 @@ test('les comptes et les rôles sont deux écrans', () => {
     assert.match(roles, /import AccountWorkspace from '@\/Components\/Rbac\/AccountWorkspace\.vue'/);
 });
 
+test('l’information sur les accès tient dans le bouton « ! » de l’en-tête', () => {
+    assert.match(users, /import NoticesButton from '@\/Components\/Shadcn\/NoticesButton\.vue'/);
+    assert.match(users, /<NoticesButton :notices="accountNotices" heading="À savoir sur les comptes" \/>/);
+    assert.match(users, /title: 'Un accès propre à chaque compte'/);
+    assert.equal((users.match(/Un accès propre à chaque compte/g) ?? []).length, 1, 'le grand bandeau subsiste ou le texte est dupliqué');
+    assert.doesNotMatch(users, /<Card class="p-4 sm:px-5">[\s\S]*?Un accès propre à chaque compte/);
+});
+
 /**
  * Les commandes de comptes ont suivi l'écran : laissées sous l'URL des
  * rôles, elles auraient fait dépendre la création d'un compte d'une route

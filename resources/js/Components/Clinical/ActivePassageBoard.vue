@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, useSlots, watch } from 'vue';
 import { Link, router } from '@inertiajs/vue3';
-import { Activity, ArrowRight, CircleAlert, CircleCheck, CircleDashed, CircleHelp, Clock, Compass, FileHeart, FileText, Folder, FolderClock, Lock, NotebookPen, Play, RefreshCw, Search, Siren, Undo2 } from 'lucide-vue-next';
+import { Activity, ArrowRight, Bandage, Check, CircleAlert, CircleCheck, CircleDashed, CircleHelp, Clock, Compass, FileHeart, FileText, Folder, FolderClock, NotebookPen, Play, RefreshCw, Search, Siren, Undo2 } from 'lucide-vue-next';
 import EntryPathConfirm from '@/Components/Clinical/EntryPathConfirm.vue';
+import SendToCareConfirm from '@/Components/Clinical/SendToCareConfirm.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
 import QueueSkipConfirm from '@/Components/Clinical/QueueSkipConfirm.vue';
 import Avatar from '@/Components/Shadcn/Avatar.vue';
@@ -15,7 +16,7 @@ import { usePermissions } from '@/composables/usePermissions';
 import { useToastStore } from '@/stores/toast';
 import { cn } from '@/lib/cn';
 import { formatDateTime } from '@/utilities/date';
-import { nextStepIcon } from '@/utilities/nextSteps';
+import { nextStepIcon, nextStepTitle } from '@/utilities/nextSteps';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 import {
     blockHeading,
@@ -71,7 +72,16 @@ const props = defineProps({
     counts: { type: Object, default: () => ({}) },
     view: { type: String, default: 'waiting' },
     search: { type: String, default: '' },
+    /** Des filtres propres au service (`?type=` en Maternité), gardés quand la vue ou la recherche change. */
+    extraParams: { type: Object, default: () => ({}) },
+    /**
+     * Le service demande un choix avant de prendre en charge (ADR-204 : le
+     * parcours Maternité). Le tableau émet alors `take-charge` avec la ligne et
+     * `proceed(data)`, qui poste le geste avec ces données.
+     */
+    interceptTakeCharge: { type: Boolean, default: false },
 });
+const emit = defineEmits(['take-charge']);
 
 const { can } = usePermissions();
 const toast = useToastStore();
@@ -80,7 +90,7 @@ const rows = computed(() => props.passages?.data ?? []);
 const waitingView = computed(() => isWaitingView(props.view));
 
 const query = ref(props.search ?? '');
-const visit = (params) => router.get(props.baseUrl, params, { preserveState: true, preserveScroll: true, replace: true });
+const visit = (params) => router.get(props.baseUrl, { ...params, ...props.extraParams }, { preserveState: true, preserveScroll: true, replace: true });
 
 /** Un filtre déjà actif se relâche vers « En attente », le travail à faire. */
 const selectView = (view) => visit(boardParams(view === props.view && view !== 'waiting' ? 'waiting' : view, query.value));
@@ -148,17 +158,25 @@ const COLUMN_LABELS = computed(() => ({
 
 /** Une seule prise en charge à la fois : un double clic n'en ouvre pas deux. */
 const taking = ref(null);
-const postTakeCharge = (row, url) => {
+const postTakeCharge = (row, url, data = {}) => {
     if (taking.value || !url) return;
 
     taking.value = row.uuid;
-    router.post(url, {}, {
+    router.post(url, data, {
         preserveScroll: true,
         onError: (errors) => toast.warning(errors.episode ?? errors.orientation ?? 'La prise en charge n’a pas pu être enregistrée.', 8000),
         onFinish: () => { taking.value = null; },
     });
 };
-const takeCharge = (row) => postTakeCharge(row, row.actions?.take_charge_url);
+const takeCharge = (row) => {
+    if (props.interceptTakeCharge) {
+        emit('take-charge', { row, proceed: (data = {}) => postTakeCharge(row, row.actions?.take_charge_url, data) });
+
+        return;
+    }
+
+    postTakeCharge(row, row.actions?.take_charge_url);
+};
 
 // Prendre un patient quand d'autres attendent avant lui dans la file : on
 // demande, on n'interdit pas (ADR-121).
@@ -170,8 +188,9 @@ const skipGuard = useQueueSkipGuard({
 
 /**
  * Par où ce patient devrait entrer (`EpisodeEntryPath`) : dit avant de le
- * prendre à contre-sens. Attendu aux Soins, la Médecine choisit ; attendu en
- * Médecine, les Soins sont seulement informés — rien ne part d'ici.
+ * prendre à contre-sens, jamais refusé. Attendu aux Soins, la Médecine choisit ;
+ * attendu en Médecine, les Soins le prennent s'ils le décident — hors de leur
+ * file numérotée, donc sans le garde-fou « un patient attend avant celui-ci ».
  */
 const pathwayRow = ref(null);
 const requestTakeCharge = (row) => {
@@ -183,11 +202,19 @@ const requestTakeCharge = (row) => {
 
     skipGuard.request(row);
 };
-const consultAnyway = () => {
+const proceedAnyway = () => {
     const row = pathwayRow.value;
     pathwayRow.value = null;
 
-    if (row?.actions?.take_charge_url) skipGuard.request(row);
+    if (!row?.actions?.take_charge_url) return;
+
+    if (row.pathway?.code === 'CARE_FIRST') {
+        skipGuard.request(row);
+
+        return;
+    }
+
+    takeCharge(row);
 };
 const doCareMyself = () => {
     const row = pathwayRow.value;
@@ -196,11 +223,48 @@ const doCareMyself = () => {
     if (row) postTakeCharge(row, row.pathway?.care_take_charge_url);
 };
 
+// Déjà pris en charge ailleurs : le clic dit par qui et depuis quand — le
+// serveur refuserait de toute façon (`TakeChargeOfEpisodeAction`).
+const explainHeld = (row) => toast.info(row.held_elsewhere.message, 8000);
+
 // Pris par erreur : le patient retrouve sa place (ADR-122, ADR-127). Le
 // serveur refuse dès qu'un travail est enregistré, et le dit.
 const releasePatient = (row) => router.post(row.actions.release_url, {}, {
     preserveScroll: true,
     onError: (errors) => toast.warning(errors.orientation ?? 'Le patient n’a pas pu être remis en file.', 8000),
+});
+
+// ADR-177, amendements du 2026-09-27 — envoyer un patient aux Soins à tout
+// moment (avant, pendant ou après la consultation) ; l'annuler tant que les
+// Soins ne l'ont pas pris. Le serveur décide qui peut l'être et revérifie à l'envoi.
+const SEND_TO_CARE_TITLES = {
+    BEFORE: 'Envoyer aux Soins avant la consultation — le patient garde sa place ici',
+    DURING: 'Envoyer aux Soins pendant la consultation — elle reste ouverte, le patient revient chez vous',
+    AFTER: 'Envoyer aux Soins après la consultation — un soin demandé ensuite',
+};
+const sendToCareTitle = (row) => SEND_TO_CARE_TITLES[row.actions.send_to_care?.moment] ?? 'Envoyer aux Soins';
+const sendingRow = ref(null);
+const sendingError = ref('');
+const sending = ref(false);
+const openSendToCare = (row) => {
+    sendingError.value = '';
+    sendingRow.value = row;
+};
+const confirmSendToCare = (note) => {
+    const row = sendingRow.value;
+    if (!row?.actions?.send_to_care || sending.value) return;
+
+    sending.value = true;
+    router.post(row.actions.send_to_care.url, { note }, {
+        preserveScroll: true,
+        onSuccess: () => { sendingRow.value = null; },
+        onError: (errors) => { sendingError.value = errors.note ?? errors.episode ?? 'L’envoi aux Soins n’a pas pu être enregistré.'; },
+        onFinish: () => { sending.value = false; },
+    });
+};
+const withdrawFromCare = (row) => router.post(row.actions.withdraw_care_url, {}, {
+    preserveScroll: true,
+    onError: (errors) => toast.warning(errors.episode ?? 'L’envoi aux Soins n’a pas pu être annulé.', 8000),
 });
 
 const SEX_LABELS = { M: 'Homme', F: 'Femme' };
@@ -246,7 +310,7 @@ const pages = computed(() => props.passages?.links ?? []);
             <Button v-if="view !== 'emergency'" type="button" size="xs" variant="danger-outline" @click="selectView('emergency')">Voir les urgences</Button>
         </div>
 
-        <QueueCounters :tiles="tiles" @select="selectView" />
+        <QueueCounters :tiles="tiles" compact @select="selectView" />
 
         <Card class="overflow-hidden shadow-sm">
             <div class="flex flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-start lg:justify-between">
@@ -315,11 +379,11 @@ const pages = computed(() => props.passages?.links ?? []);
                                 <span v-else-if="isPinnedEmergency(row)" class="mx-auto grid h-9 w-9 place-items-center rounded-full bg-red-600 text-white" title="Urgence : en tête de file, sans numéro">
                                     <Siren class="h-4.5 w-4.5" aria-hidden="true" /><span class="sr-only">Urgence en tête de file</span>
                                 </span>
-                                <span v-else class="text-muted-foreground" :title="row.pathway?.blocking ? row.pathway.title : undefined" aria-label="Pas dans la file">—</span>
+                                <span v-else class="text-muted-foreground" :title="row.pathway?.code === 'MEDICINE_ONLY' ? `${row.pathway.title} : hors de la file ${words.name}, mais il peut être pris ici` : undefined" aria-label="Pas dans la file">—</span>
                             </td>
 
                             <td v-if="has('patient')" class="px-4 py-3">
-                                <div class="flex min-w-[190px] max-w-[230px] items-center gap-3">
+                                <div class="flex min-w-[190px] max-w-[250px] items-start gap-3">
                                     <Avatar size="sm" :variant="isEmergency(row) ? 'danger-pale' : 'slate-pale'" :text="formatPatientInitials(row.episode.patient)" aria-hidden="true" />
                                     <div class="min-w-0">
                                         <Link v-if="can('patients.view')" :href="`/patients/${row.episode.patient.uuid}`" :title="formatPatientName(row.episode.patient)" class="block truncate text-sm font-bold text-foreground hover:text-primary">{{ formatPatientName(row.episode.patient) }}</Link>
@@ -330,6 +394,8 @@ const pages = computed(() => props.passages?.links ?? []);
                                         </span>
                                         <!-- L'urgence est une propriété du passage, jamais du patient (ADR-021, ADR-056). -->
                                         <Badge v-if="isEmergency(row)" tone="danger" class="mt-1 px-2 py-0.5 text-[10px] uppercase">Urgence</Badge>
+                                        <!-- Ce qu'un service sait de plus sur le patient (la grossesse, en Maternité). -->
+                                        <slot name="patient-details" :row="row" />
                                     </div>
                                 </div>
                             </td>
@@ -363,15 +429,21 @@ const pages = computed(() => props.passages?.links ?? []);
                             </td>
 
                             <td v-if="has('suggestion')" class="px-4 py-3">
-                                <!-- Indicatif : une suggestion ne cache le passage à aucun service. -->
+                                <!-- Indicatif : une suggestion ne cache le passage à aucun service.
+                                     Une étape déjà faite passe en vert, avec sa coche : le serveur
+                                     la lit sur les orientations terminées du passage. -->
                                 <div v-if="row.next_steps.length" class="flex max-w-[200px] flex-wrap gap-1">
                                     <Badge
                                         v-for="step in row.next_steps"
                                         :key="step.value"
+                                        :tone="step.done ? 'success' : ''"
                                         :variant="step.value === module ? 'secondary' : 'outline'"
-                                        :class="cn('px-2 py-0.5 text-[11px]', step.value === module && 'ring-1 ring-primary/30')"
+                                        :title="nextStepTitle(step)"
+                                        :class="cn('px-2 py-0.5 text-[11px]', !step.done && step.value === module && 'ring-1 ring-primary/30')"
                                     >
                                         <component :is="nextStepIcon(step.value)" class="h-3 w-3" aria-hidden="true" />{{ step.label }}
+                                        <Check v-if="step.done" class="h-3 w-3" aria-hidden="true" />
+                                        <span v-if="step.done" class="sr-only"> — fait</span>
                                     </Badge>
                                 </div>
                                 <span v-else class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
@@ -393,9 +465,14 @@ const pages = computed(() => props.passages?.links ?? []);
                                 <!-- En attente ici, mais pris en charge ailleurs en ce moment : le dire
                                      en clair, pour qu'on n'appelle pas un patient en plein soin. -->
                                 <div v-if="row.elsewhere.some((item) => item.state === 'IN_PROGRESS')" class="mt-1.5 flex flex-wrap gap-1">
-                                    <Badge v-for="item in row.elsewhere.filter((other) => other.state === 'IN_PROGRESS')" :key="item.module" tone="info" class="whitespace-nowrap px-2 py-0.5 text-[11px]" :title="elsewhereLabel(item)">
-                                        <Activity class="h-3 w-3" aria-hidden="true" />Actuellement : {{ item.label }}
-                                    </Badge>
+                                    <template v-for="item in row.elsewhere.filter((other) => other.state === 'IN_PROGRESS')" :key="item.module">
+                                        <Badge tone="info" class="whitespace-nowrap px-2 py-0.5 text-[11px]" :title="row.held_elsewhere?.module === item.module ? row.held_elsewhere.message : elsewhereLabel(item)">
+                                            <Activity class="h-3 w-3" aria-hidden="true" />Actuellement : {{ item.label }}
+                                        </Badge>
+                                        <!-- Le nom sous la pastille, jamais dedans : collé, il élargissait la colonne
+                                             au point de pousser le bouton hors du tableau. -->
+                                        <span v-if="row.held_elsewhere?.module === item.module && row.held_elsewhere.by" class="w-full text-[11px] text-muted-foreground">par {{ row.held_elsewhere.by }}</span>
+                                    </template>
                                 </div>
                                 <ul v-if="row.elsewhere.some((item) => item.state !== 'IN_PROGRESS')" class="mt-1.5 space-y-0.5 border-t border-dashed border-border pt-1.5" :aria-label="'Ailleurs que ' + words.at">
                                     <li v-for="item in row.elsewhere.filter((other) => other.state !== 'IN_PROGRESS')" :key="item.module" class="text-[11px] text-muted-foreground">{{ elsewhereLabel(item) }}</li>
@@ -437,26 +514,29 @@ const pages = computed(() => props.passages?.links ?? []);
                                         type="button"
                                         size="sm"
                                         :class="ACTION_CLASS"
-                                        :variant="isEmergency(row) ? 'danger' : 'primary'"
+                                        :variant="isEmergency(row) ? 'danger' : (row.pathway?.code === 'MEDICINE_ONLY' ? 'white-outline' : 'primary')"
                                         :disabled="taking === row.uuid"
-                                        title="Prendre en charge ce patient"
+                                        :title="row.pathway ? row.pathway.title + ' — le prendre quand même ?' : 'Prendre en charge ce patient'"
                                         aria-label="Prendre en charge"
                                         @click="requestTakeCharge(row)"
                                     >
                                         <Play class="h-3.5 w-3.5" aria-hidden="true" />{{ taking === row.uuid ? 'Prise…' : 'Prendre' }}
                                     </Button>
-                                    <!-- Attendu ailleurs : le geste reste à sa place, verrouillé, et dit pourquoi. -->
+                                    <!-- Déjà pris en charge en Médecine ou aux Soins : « En cours » à la place
+                                         de « Prendre », et le système le dit au clic (ADR-177). -->
                                     <Button
-                                        v-else-if="row.pathway?.blocking"
+                                        v-else-if="row.held_elsewhere"
                                         type="button"
                                         size="sm"
-                                        :class="ACTION_CLASS"
+                                        :class="cn(ACTION_CLASS, 'border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100 hover:text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200')"
                                         variant="white-outline"
-                                        :title="row.pathway.title"
-                                        :aria-label="`Prendre en charge — ${row.pathway.title}`"
-                                        @click="requestTakeCharge(row)"
+                                        :title="row.held_elsewhere.message"
+                                        :aria-label="`En cours ${row.held_elsewhere.where} — ${row.held_elsewhere.message}`"
+                                        @click="explainHeld(row)"
                                     >
-                                        <Lock class="h-3.5 w-3.5" aria-hidden="true" />Prendre
+                                        <!-- « En cours » seul : le service est déjà écrit à côté (« Actuellement : Médecine »),
+                                             et un libellé plus long poussait le tableau hors de l'écran. -->
+                                        <Activity class="h-3.5 w-3.5" aria-hidden="true" />En cours
                                     </Button>
                                     <Button v-if="row.actions.open_url" :as="Link" :href="row.actions.open_url" size="sm" :class="ACTION_CLASS" variant="white-outline" :title="openTitle(row)">
                                         <component :is="row.module.is_waiting_on_results ? RefreshCw : FileText" class="h-3.5 w-3.5" aria-hidden="true" />{{ openLabel(row) }}
@@ -472,6 +552,32 @@ const pages = computed(() => props.passages?.links ?? []);
                                         @click="releasePatient(row)"
                                     >
                                         <Undo2 class="h-3.5 w-3.5" aria-hidden="true" />Remettre
+                                    </Button>
+                                    <!-- L'envoyer aux Soins à tout moment, et l'annuler tant que les Soins
+                                         ne l'ont pas pris. -->
+                                    <Button
+                                        v-if="row.actions.send_to_care"
+                                        type="button"
+                                        size="sm"
+                                        :class="ACTION_CLASS"
+                                        variant="white-outline"
+                                        :title="sendToCareTitle(row)"
+                                        :aria-label="sendToCareTitle(row)"
+                                        @click="openSendToCare(row)"
+                                    >
+                                        <Bandage class="h-3.5 w-3.5" aria-hidden="true" />Aux Soins
+                                    </Button>
+                                    <Button
+                                        v-if="row.actions.withdraw_care_url"
+                                        type="button"
+                                        size="sm"
+                                        :class="ACTION_CLASS"
+                                        variant="white-outline"
+                                        title="Annuler l’envoi aux Soins — tant qu’ils n’ont pas pris le patient"
+                                        aria-label="Annuler l’envoi aux Soins"
+                                        @click="withdrawFromCare(row)"
+                                    >
+                                        <Undo2 class="h-3.5 w-3.5" aria-hidden="true" />Annuler l’envoi
                                     </Button>
 
                                     <!-- Relecture : journal et dossier d'un passage terminé, chacun servi
@@ -526,9 +632,17 @@ const pages = computed(() => props.passages?.links ?? []);
         <EntryPathConfirm
             :row="pathwayRow"
             :busy="Boolean(taking)"
-            @consult="consultAnyway"
+            @proceed="proceedAnyway"
             @care="doCareMyself"
             @cancel="pathwayRow = null"
+        />
+
+        <SendToCareConfirm
+            :row="sendingRow"
+            :busy="sending"
+            :error="sendingError"
+            @confirm="confirmSendToCare"
+            @cancel="sendingRow = null"
         />
 
         <QueueSkipConfirm

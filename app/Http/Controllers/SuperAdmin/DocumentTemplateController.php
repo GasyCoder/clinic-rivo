@@ -42,7 +42,7 @@ class DocumentTemplateController extends Controller
         // this check the Super Admin could compose a whole document only to
         // learn it can't be delivered when they finally click "Enregistrer".
         $this->assertSiteReachable($site);
-        // ADR-199 — « Nouveau canevas » depuis un dossier arrive réglé sur son
+        // ADR-208 — « Nouveau canevas » depuis un dossier arrive réglé sur son
         // type et sur le contexte que ce dossier attend.
         $folder = filled($request->query('type')) ? DocumentFamily::key((string) $request->query('type')) : null;
 
@@ -79,7 +79,7 @@ class DocumentTemplateController extends Controller
         $siteCode = $this->validatedSiteCode($request);
         $payload = $this->templatePayload($request);
 
-        // ADR-199 — le canevas créé se retrouve dans son dossier.
+        // ADR-208 — le canevas créé se retrouve dans son dossier.
         return $this->respond(
             $client->createDocumentTemplate($siteCode, $payload, $request->user()),
             'Canevas créé.',
@@ -228,7 +228,7 @@ class DocumentTemplateController extends Controller
     }
 
     /**
-     * ADR-199 — les dossiers de canevas : un par type, avec le contexte attendu.
+     * ADR-208 — les dossiers de canevas : un par type, avec le contexte attendu.
      *
      * @return list<array{key: string, label: string, context: string}>
      */
@@ -246,7 +246,7 @@ class DocumentTemplateController extends Controller
     {
         $catalog = app(DocumentFormFieldCatalog::class);
 
-        // ADR-198 — ce que le RH verra : les champs de la page 1, et où le canevas lui est proposé.
+        // ADR-207 — ce que le RH verra : les champs de la page 1, et où le canevas lui est proposé.
         return collect(DocumentDataContext::cases())->map(fn (DocumentDataContext $context) => [
             'value' => $context->value,
             'label' => $context->label(),

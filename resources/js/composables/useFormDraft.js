@@ -115,12 +115,9 @@ export function useFormDraft({ endpoint, forms, initial = null, enabled = true, 
     /**
      * Rattacher un formulaire qui vit dans un composant enfant.
      *
-     * Les formulaires de « Conduite à tenir » — demande de chirurgie,
-     * d'hospitalisation, de transfert — appartiennent à
-     * `ClinicalOrientationCard`, et non à la page. Tant qu'ils n'étaient
-     * pas rattachés ici, tout ce que le médecin y saisissait disparaissait
-     * à l'actualisation : ce sont pourtant les formulaires les plus longs
-     * du parcours (motif, résumé clinique, traitement prévu).
+     * Un formulaire créé par un composant plutôt que par la page n'est
+     * pas connu à la création du brouillon ; sans ce rattachement, ce que
+     * le médecin y saisit disparaîtrait à l'actualisation (ADR-073).
      *
      * L'enregistrement restaure immédiatement ce que le brouillon portait
      * déjà pour cette section, puis l'observe comme les autres.

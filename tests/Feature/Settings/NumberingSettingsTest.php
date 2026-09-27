@@ -110,6 +110,41 @@ class NumberingSettingsTest extends TestCase
         $this->assertSame('A-27-0002', $patients->next());
     }
 
+    /**
+     * Le cas signalé le 2026-09-27 : un patient créé avec « _ », puis le séparateur passé à « - ».
+     * Le nouveau réglage vaut pour les nouveaux patients ; un patient existant garde son numéro,
+     * et ses passages et ses bébés le prolongent dans sa forme — jamais « A_26_001-002 ».
+     */
+    public function test_a_new_separator_never_mixes_into_the_numbers_of_an_existing_patient(): void
+    {
+        Carbon::setTestNow('2026-09-27 01:00:00');
+        AppSetting::query()->create(['patient_number_separator' => '_', 'patient_number_digits' => 3, 'episode_number_digits' => 3]);
+        $old = $this->patient($this->patients()->next());
+        $this->assertSame('A_26_001', $old->patient_number);
+        $this->assertSame('A_26_001_001', $this->episodes()->next($old));
+
+        AppSetting::query()->firstOrFail()->update(['patient_number_separator' => '-']);
+
+        $new = $this->patient($this->patients()->next());
+        $this->assertSame('A-26-002', $new->patient_number);
+        $this->assertSame('A-26-002-001', $this->episodes()->next($new));
+
+        // Le patient déjà numéroté garde sa forme, pour lui, ses passages et ses bébés.
+        $this->assertSame('A_26_001', $old->fresh()->patient_number);
+        $this->assertSame('A_26_001_002', $this->episodes()->next($old));
+        $this->assertSame('A_26_001_B1', $this->patients()->newborn($old, 1));
+        $this->assertSame(2, $this->episodes()->sequenceFromNumber($old, 'A_26_001_002'));
+    }
+
+    public function test_a_number_without_any_separator_takes_the_configured_one(): void
+    {
+        $format = (new AppSettings)->patientNumbering();
+
+        $this->assertSame('-', $format->separatorOf('0001'));
+        $this->assertSame('/', $format->separatorOf('CSG/2026/00001'));
+        $this->assertSame('0001-01', $format->episode('0001', 1));
+    }
+
     public function test_a_number_already_given_is_skipped_and_never_rewritten(): void
     {
         Carbon::setTestNow('2026-09-25 10:00:00');

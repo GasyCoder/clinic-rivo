@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\CatalogItem;
 use App\Models\Consultation;
 use App\Models\HospitalStay;
+use App\Models\MaternityRecord;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
@@ -38,7 +39,7 @@ class ParaclinicalRequestGuard
      * @throws ValidationException
      */
     public static function ensureNoActiveDuplicate(
-        Consultation|HospitalStay $owner,
+        Consultation|HospitalStay|MaternityRecord $owner,
         Collection $requested,
         string $relation,
         string $errorKey,
@@ -63,8 +64,12 @@ class ParaclinicalRequestGuard
             return;
         }
 
-        // ADR-162 — la même règle pour une demande du séjour.
-        $scope = $owner instanceof HospitalStay ? 'ce séjour' : 'cette consultation';
+        // ADR-162, ADR-204 — la même règle pour une demande du séjour ou de la Maternité.
+        $scope = match (true) {
+            $owner instanceof HospitalStay => 'ce séjour',
+            $owner instanceof MaternityRecord => 'cette prise en charge Maternité',
+            default => 'cette consultation',
+        };
 
         throw ValidationException::withMessages([
             $errorKey => $duplicates->count() === 1

@@ -6,7 +6,6 @@ use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\MedicalDischargeType;
 use App\Models\EpisodeOrientation;
-use App\Support\ConsultationWorkflow;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -52,7 +51,12 @@ class StoreMedicalDischargeRequest extends FormRequest
         $deceased = $this->input('type') === MedicalDischargeType::Deceased->value;
 
         return [
-            'type' => ['required', Rule::enum(MedicalDischargeType::class)],
+            // ADR-203 — en consultation, le transfert
+            // se décide par la conduite « Référence / Transfert », jamais comme
+            // type de sortie : deux chemins pour la même décision.
+            'type' => ['required', $this->forConsultation()
+                ? Rule::enum(MedicalDischargeType::class)->only(MedicalDischargeType::forConsultation())
+                : Rule::enum(MedicalDischargeType::class)],
             'final_diagnosis' => [
                 Rule::requiredIf(fn (): bool => $this->requiresFinalDiagnosis()),
                 'nullable', 'string', 'max:5000',
@@ -60,7 +64,7 @@ class StoreMedicalDischargeRequest extends FormRequest
             // L'état n'est pas absent, il est connu : le type de sortie
             // *est* la réponse. Il est donc posé par le serveur plutôt que
             // choisi dans une liste qui n'a pas de case juste.
-            'patient_condition' => [$deceased ? 'nullable' : 'required', 'string', 'max:3000'],
+            'patient_condition' => [$deceased || $this->forConsultation() ? 'nullable' : 'required', 'string', 'max:3000'],
             // `prohibited` remplace le jeu de règles entier, il ne s'y ajoute
             // pas : laisser `string` à côté le faisait échouer sur le `null`
             // que le formulaire envoie pour un champ vide, et le médecin
@@ -88,6 +92,7 @@ class StoreMedicalDischargeRequest extends FormRequest
     {
         return [
             'final_diagnosis.required' => 'Le diagnostic final est obligatoire pour prononcer la sortie.',
+            'type.enum' => 'Un transfert se décide par la conduite « Référence / Transfert », pas comme type de sortie.',
             'patient_condition.required' => 'Indiquez l’état du patient au moment de la sortie.',
             // Un payload forgé reçoit une erreur nommée plutôt que d'être
             // ignoré en silence : l'interface n'est jamais la seule garde.
@@ -106,22 +111,26 @@ class StoreMedicalDischargeRequest extends FormRequest
     }
 
     /**
-     * Le diagnostic final reste exigé pour toute vraie consultation
-     * (CDC §33.1). Il ne l'est pas pour un passage venu uniquement pour un
-     * ECG, une échographie ou une analyse : la conclusion de l'examen tient
-     * lieu de diagnostic, et le résultat n'est souvent pas encore revenu
-     * quand le médecin clôture (ADR-094).
-     *
-     * La règle n'est pas recopiée ici : `ConsultationWorkflow` la porte une
-     * seule fois, et la garde de clôture consulte exactement la même —
-     * sans quoi la sortie pourrait partir sur un dossier que la clôture
-     * refuserait ensuite.
+     * ADR-203 — conclure une consultation ne demande
+     * que la conduite à tenir : le diagnostic final y est facultatif. La sortie
+     * d'un séjour et celle de la Pédiatrie, qui héritent de cette requête, le
+     * gardent exigé (ADR-162).
      */
     private function requiresFinalDiagnosis(): bool
     {
-        $consultation = $this->route('episodeOrientation')?->consultation()->with('episode.serviceRequests')->first();
+        return ! $this->forConsultation();
+    }
 
-        return $consultation === null
-            || app(ConsultationWorkflow::class)->requiresFinalDiagnosis($consultation);
+    /**
+     * Cette requête sert aussi la sortie d'un séjour et celle de la Pédiatrie,
+     * dont la route porte aussi un `episodeOrientation` : seule une orientation
+     * Médecine est une consultation.
+     */
+    private function forConsultation(): bool
+    {
+        $orientation = $this->route('episodeOrientation');
+
+        return $orientation instanceof EpisodeOrientation
+            && $orientation->destination_module === CatalogModule::Medicine;
     }
 }

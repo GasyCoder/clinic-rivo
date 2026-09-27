@@ -414,6 +414,7 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
                 :care-record="careRecord"
                 :blood-pressure="careBloodPressure"
                 :allergies="stay.allergies"
+                :recorded-at="careRecord.updated_at ?? careRecord.created_at"
             />
             <Card v-if="latestReading" class="p-4">
                 <p class="text-xs text-muted-foreground">Dernier relevé de surveillance · <span class="font-semibold text-foreground">{{ formatDateTime(latestReading.measured_at) }}</span></p>

@@ -27,7 +27,7 @@ class GeneratedDocumentPolicy
         return $user->can('generated_documents.print');
     }
 
-    /** ADR-199 — archiver (ou remplacer par une nouvelle version) : jamais d'effacement. */
+    /** ADR-208 — archiver (ou remplacer par une nouvelle version) : jamais d'effacement. */
     public function delete(User $user, GeneratedDocument $document): bool
     {
         return $user->can('generated_documents.archive');

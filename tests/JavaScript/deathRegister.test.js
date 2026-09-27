@@ -4,7 +4,8 @@ import fs from 'node:fs';
 
 const index = fs.readFileSync('resources/js/Pages/Deaths/Index.vue', 'utf8');
 const certificate = fs.readFileSync('resources/js/Pages/Deaths/CertificatePrint.vue', 'utf8');
-const orientation = fs.readFileSync('resources/js/Components/Clinical/ClinicalOrientationCard.vue', 'utf8');
+const orientation = fs.readFileSync('resources/js/Components/Clinical/ConsultationDecisionPanel.vue', 'utf8');
+const medicine = fs.readFileSync('resources/js/Pages/Medicine/Show.vue', 'utf8');
 const discharge = fs.readFileSync('resources/js/Components/Clinical/ClinicalDischargeForm.vue', 'utf8');
 
 /**
@@ -56,25 +57,28 @@ test('le bouton de signature suit le droit envoyé par le serveur', () => {
 });
 
 /**
- * ADR-106 — transmettre engage le service destinataire et débloque la
- * clôture (ADR-084). Un clic ne doit pas suffire.
+ * ADR-106, ADR-203 — la conduite à tenir part avec
+ * « Clôturer », et seulement par elle : un seul geste signé, jamais un clic.
  */
-test('aucune demande n’est transmise sans confirmation', () => {
-    for (const kind of ['SURGERY', 'HOSPITALIZATION', 'REFERRAL', 'SERVICE']) {
-        assert.match(orientation, new RegExp(`@submit\\.prevent="openTransmitConfirmation\\('${kind}'\\)"`));
-    }
+test('la conduite à tenir ne part qu’avec la clôture confirmée', () => {
+    // Le panneau ne transmet rien lui-même : son seul envoi est « Changer de
+    // conduite », qui annule la demande en cours après confirmation.
+    assert.doesNotMatch(codeOf(orientation), /Transmettre la demande/);
+    assert.doesNotMatch(orientation, /surgical-referrals|hospitalization-requests`|medical-referrals`|\/referrals`|\/discharge`/);
+    assert.match(orientation, /\/orientation`/);
+    const change = orientation.slice(orientation.indexOf('title="Changer de conduite ?"') - 200);
+    assert.match(change, /:dismissible="false"/);
 
-    // Un seul appelant pour chaque envoi réel : la confirmation.
-    const confirm = orientation.slice(orientation.indexOf('const TRANSMIT_SUBMITS'), orientation.indexOf('const transmitProcessing'));
-    for (const submit of ['submitSurgery', 'submitHospitalization', 'submitReferral', 'submitService']) {
-        assert.match(confirm, new RegExp(`${submit}\\(\\)`));
-    }
+    // La clôture ouvre d'abord la confirmation ; la fenêtre seule envoie.
+    const open = medicine.slice(medicine.indexOf('const completeConsultation = '), medicine.indexOf('const submitCompleteConsultation'));
+    assert.match(open, /closeConfirmOpen\.value = true/);
+    assert.doesNotMatch(open, /\.post\(/);
 
-    // Elle relit ce qui part, et n'est pas fermable au clic extérieur.
-    const dialog = orientation.slice(orientation.indexOf('title="Confirmer la demande"') - 200);
+    const dialog = medicine.slice(medicine.indexOf(':title="closureActionLabels.title"') - 200, medicine.indexOf('closureActionLabels.confirm }}'));
     assert.match(dialog, /:dismissible="false"/);
-    assert.match(dialog, /v-for="line in transmitLines"/);
+    assert.match(dialog, /v-for="line in closureSummary"/);
     assert.match(dialog, /\$page\.props\.auth\.user\.name/);
+    assert.match(dialog, /@click="submitCompleteConsultation"/);
 });
 
 /**
@@ -106,25 +110,24 @@ test('les demandes de conduite à tenir utilisent la primitive de champ', () => 
     assert.doesNotMatch(orientation, /mb-1 block text-\[11px\] font-bold/);
 
     // Et l'erreur remonte au champ plutôt que de flotter sous lui.
-    assert.match(orientation, /<FormField label="Intervention envisagée" required :error="surgeryForm\.errors\.catalog_item_uuid">/);
+    assert.match(orientation, /<FormField v-if="form\.type === 'SURGERY'" label="Intervention envisagée" required :error="error\('catalog_item_uuid'\)">/);
 });
 
 /**
  * ADR-114 — une destination qui a son module ne se remplit plus en
- * consultation : le médecin coche et transmet, le reste part repris du
- * dossier et se complète dans l'espace destinataire.
+ * consultation : le médecin choisit, le reste part repris du dossier et se
+ * complète dans l'espace destinataire.
  */
 test('les demandes vers un module se transmettent sans formulaire', () => {
-    // Transfert : ni établissement ni résumé à saisir ici.
-    assert.doesNotMatch(orientation, /orientation_referral_facility|orientation_referral_summary/);
-    assert.match(orientation, /espace <strong class="font-semibold text-foreground">Transferts<\/strong>/);
+    // Ni motif, ni résumé, ni diagnostic à ressaisir : repris du dossier.
+    assert.doesNotMatch(orientation, /clinical_summary|admission_diagnosis|form\.reason/);
+    assert.match(orientation, /partent repris du dossier : rien à ressaisir/);
 
-    // Maternité / Pédiatrie : un clic, le motif repris du dossier.
-    assert.doesNotMatch(orientation, /orientation_service_motif|orientation_service_observations/);
-
-    // Chirurgie : l'intervention reste à choisir, le diagnostic est repris.
-    assert.doesNotMatch(orientation, /orientation_surgery_diagnostic|orientation_surgery_notes/);
-    assert.match(orientation, /id="orientation_surgery_item"/);
+    // Chirurgie : l'intervention reste à choisir.
+    assert.match(orientation, /v-model="form\.catalog_item_uuid"/);
+    // Transfert : un site de la clinique, un autre établissement, ou plus tard.
+    assert.match(orientation, /À préciser plus tard/);
+    assert.match(orientation, /Autre établissement…/);
 });
 
 /**
@@ -187,29 +190,26 @@ test('la sortie médicale passe par une confirmation', () => {
 });
 
 /**
- * ADR-113 / ADR-107 (amendements) — une destination qui a son module se
- * transmet en un clic : le détail se complète dans l'espace Hospitalisation
- * ou dans le registre des décès, jamais deux fois.
+ * ADR-113 / ADR-107 (amendements) — l'hospitalisation part repris du dossier,
+ * le détail d'un décès s'établit au registre, jamais deux fois.
  */
 test('hospitalisation et décès se transmettent sans formulaire', () => {
-    const hospital = orientation.slice(orientation.indexOf("active.type === 'HOSPITALIZATION'"), orientation.indexOf("active.type === 'REFERRAL'"));
-    assert.doesNotMatch(hospital, /hospitalizationForm\.reason/);
-    assert.match(hospital, /Transmettre la demande/);
+    const hospital = orientation.slice(orientation.indexOf('DECISION_HINTS'), orientation.indexOf('</script>'));
+    assert.doesNotMatch(hospital, /hospitalizationForm/);
 
+    assert.doesNotMatch(orientation, /death_occurred_at|death_causes|death_place/);
+    assert.match(orientation, /registre des décès/);
     assert.doesNotMatch(discharge, /id="death_occurred_at"/);
-    assert.doesNotMatch(discharge, /id="death_causes"/);
     assert.match(discharge, /registre des décès/);
 });
 
 /**
- * ADR-114 — une demande transmise vers un module ne se retransmet pas : le
- * second clic créait un doublon. L'écran conduit au module à la place.
+ * ADR-114 — une demande transmise ne se retransmet pas : l'écran la lit, mène
+ * à son module, et la changer passe par une annulation tracée.
  */
-test('une demande transmise ne propose plus « Transmettre la demande »', () => {
-    assert.match(orientation, /const MODULE_TYPES = \['SURGERY', 'HOSPITALIZATION', 'REFERRAL', 'MATERNITY', 'PEDIATRICS'\]/);
-    assert.match(orientation, /<div v-if="submittedToModule"/);
-    // Tous les formulaires qui transmettent suivent ce bloc dans la même chaîne.
-    assert.match(orientation, /<form v-else-if="active\.type === 'SURGERY'"/);
+test('une conduite déjà transmise se lit et se change, jamais ne se retransmet', () => {
+    assert.match(orientation, /<div v-if="locked"/);
     assert.match(orientation, /:href="active\.request\.module_url"/);
-    assert.doesNotMatch(orientation, /corriger en la retransmettant/);
+    assert.match(orientation, /Changer de conduite/);
+    assert.doesNotMatch(codeOf(orientation), /Transmettre la demande/);
 });

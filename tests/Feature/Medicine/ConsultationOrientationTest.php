@@ -19,6 +19,7 @@ use App\Enums\MedicalRequestStatus;
 use App\Enums\ReceptionRoutingMode;
 use App\Enums\SurgicalRequestStatus;
 use App\Models\CatalogItem;
+use App\Models\ConsultationDraft;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\Patient;
@@ -282,15 +283,14 @@ class ConsultationOrientationTest extends TestCase
     }
 
     /**
-     * §31.11 and §31.12 — the last step verifies and closes. It never asks
-     * again what the orientation is, and it refuses to close while the
-     * chosen destination has been told nothing.
+     * ADR-203 — choisir la conduite puis clôturer est
+     * un seul geste : la clôture transmet la demande choisie, reprise du
+     * dossier, puis conclut la rencontre.
      */
-    public function test_closure_refuses_a_selected_but_untransmitted_orientation(): void
+    public function test_closure_transmits_the_chosen_orientation_and_closes(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->consultation($doctor);
-        $this->prepareEveryStepButOrientation($orientation, $doctor);
 
         $this->actingAs($doctor)
             ->post("/medicine/orientations/{$orientation->uuid}/orientation", [
@@ -299,22 +299,20 @@ class ConsultationOrientationTest extends TestCase
             ->assertSessionHasNoErrors();
 
         $this->actingAs($doctor)
-            ->post("/medicine/orientations/{$orientation->uuid}/complete")
-            ->assertSessionHasErrors('consultation');
-
-        // Transmitting the request is what unblocks the closure — the doctor
-        // is never asked to restate the destination.
-        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/hospitalization-requests", [
-            'reason' => 'Surveillance rapprochée',
-            'priority' => 'NORMAL',
-        ])->assertSessionHasNoErrors();
-
-        $this->actingAs($doctor)
-            ->post("/medicine/orientations/{$orientation->uuid}/complete")
+            ->post("/medicine/orientations/{$orientation->uuid}/complete", [
+                'decision' => ['type' => 'HOSPITALIZATION', 'priority' => 'URGENT', 'notes' => 'Surveillance rapprochée'],
+            ])
             ->assertSessionHasNoErrors();
 
-        $this->assertSame('COMPLETED', $orientation->consultation()->firstOrFail()->status->value);
+        $consultation = $orientation->consultation()->firstOrFail();
+        $this->assertSame('COMPLETED', $consultation->status->value);
         $this->assertSame(EpisodeOrientationStatus::Completed, $orientation->fresh()->status);
+
+        $active = $consultation->activeOrientation;
+        $this->assertSame('SUBMITTED', $active->status->value);
+        $request = $active->hospitalizationRequest;
+        $this->assertSame('URGENT', $request->priority->value);
+        $this->assertSame('Surveillance rapprochée', $request->instructions);
     }
 
     /** §31.13 — une orientation urgente part immédiatement. */
@@ -473,9 +471,9 @@ class ConsultationOrientationTest extends TestCase
             'medical_discharge_id' => null,
         ]);
 
-        $blockersBefore = collect(app(ConsultationWorkflow::class)
-            ->blockersForClosure($consultation->fresh()))->pluck('message')->implode(' ');
-        $this->assertStringContainsString('non transmise', $blockersBefore);
+        // ADR-203 — une conduite choisie ne retient
+        // plus la clôture : c'est elle qui la transmet.
+        $this->assertSame([], app(ConsultationWorkflow::class)->blockersForClosure($consultation->fresh()));
 
         // Le médecin reclique « Sortie médicale ».
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/orientation", [
@@ -491,9 +489,7 @@ class ConsultationOrientationTest extends TestCase
             $active->medical_discharge_id,
         );
 
-        $blockersAfter = collect(app(ConsultationWorkflow::class)
-            ->blockersForClosure($consultation->fresh()))->pluck('message')->implode(' ');
-        $this->assertStringNotContainsString('non transmise', $blockersAfter);
+        $this->assertSame([], app(ConsultationWorkflow::class)->blockersForClosure($consultation->fresh()));
     }
 
     /**
@@ -533,55 +529,36 @@ class ConsultationOrientationTest extends TestCase
     }
 
     /**
-     * ADR-098 — every patient concludes on the same step: the blockers never
-     * send the doctor back to the examination or the paraclinical screen.
+     * ADR-203 — la conduite à tenir est la seule
+     * condition de la clôture, pour tout patient : ni diagnostic, ni étape à
+     * valider, ni renvoi vers l'examen clinique ou la Paraclinique.
      */
-    public function test_the_closure_blockers_point_every_patient_to_the_decision_step(): void
+    public function test_the_only_closure_blocker_is_the_conduite_a_tenir(): void
     {
         $doctor = $this->doctor();
         [, $imagingOnly] = $this->consultation($doctor, module: CatalogModule::Imaging);
         [, $normal] = $this->consultation($doctor);
 
-        $blockersFor = fn (string $uuid): string => collect($this->actingAs($doctor)
+        $blockersFor = fn (string $uuid): array => $this->actingAs($doctor)
             ->get("/medicine/orientations/{$uuid}/cloture")
-            ->viewData('page')['props']['consultation']['closure_blockers'])->pluck('message')->implode(' ');
+            ->viewData('page')['props']['consultation']['closure_blockers'];
 
-        foreach ([$blockersFor($imagingOnly->uuid), $blockersFor($normal->uuid)] as $blockers) {
-            // La garantie d'origine : quel que soit le patient, ce qui manque
-            // se règle sur la dernière étape — jamais un renvoi vers l'examen
-            // clinique ou la Paraclinique.
-            $this->assertStringContainsString('Conduite à tenir : indiquez la suite de la prise en charge (étape Décision & clôture).', $blockers);
-            $this->assertStringNotContainsString('Paraclinique', $blockers);
-            $this->assertStringNotContainsString('examen clinique', $blockers);
+        foreach ([$imagingOnly, $normal] as $orientation) {
+            $this->assertSame([[
+                'message' => 'Conduite à tenir : choisissez la suite de la prise en charge.',
+                'step' => null,
+                'closure_section' => null,
+            ]], $blockersFor($orientation->uuid));
         }
 
-        // ADR-094 — le diagnostic, lui, ne concerne plus les deux : un
-        // passage venu seulement pour un ECG ou une écho n'en doit aucun,
-        // et le réclamer reviendrait à en faire inventer un.
-        $this->assertStringNotContainsString('Diagnostic :', $blockersFor($imagingOnly->uuid));
-        $this->assertStringContainsString(
-            'Diagnostic : aucun diagnostic enregistré — posez-le à l’étape Décision & clôture.',
-            $blockersFor($normal->uuid),
-        );
-    }
+        // Rien de choisi : la clôture refuse, et dit pourquoi.
+        $this->actingAs($doctor)->post("/medicine/orientations/{$normal->uuid}/complete")
+            ->assertSessionHasErrors('consultation');
 
-    /**
-     * « Déjà sur place » ne suffit pas : le diagnostic se pose à la première
-     * sous-étape de la Clôture, la conduite à tenir à la deuxième, et cette
-     * liste se lit depuis la troisième. Sans cette indication, l'écran
-     * énonçait de nouveau l'obstacle sans dire où agir (ADR-084).
-     */
-    public function test_each_closure_blocker_names_the_sub_step_that_resolves_it(): void
-    {
-        $doctor = $this->doctor();
-        [, $orientation] = $this->consultation($doctor);
-
-        $blockers = collect($this->actingAs($doctor)
-            ->get("/medicine/orientations/{$orientation->uuid}/cloture")
-            ->viewData('page')['props']['consultation']['closure_blockers']);
-
-        $this->assertSame(1, $blockers->firstWhere('message', 'Diagnostic : aucun diagnostic enregistré — posez-le à l’étape Décision & clôture.')['closure_section']);
-        $this->assertSame(2, $blockers->firstWhere('message', 'Conduite à tenir : indiquez la suite de la prise en charge (étape Décision & clôture).')['closure_section']);
+        // Une conduite choisie lève le seul obstacle.
+        $this->actingAs($doctor)->post("/medicine/orientations/{$normal->uuid}/orientation", ['type' => 'DISCHARGE'])
+            ->assertSessionHasNoErrors();
+        $this->assertSame([], $blockersFor($normal->uuid));
     }
 
     /** ADR-098 — a diagnosis recorded at « Décision & clôture » keeps the doctor there. */
@@ -681,6 +658,159 @@ class ConsultationOrientationTest extends TestCase
     }
 
     /** @param array<int, string>|null $permissions */
+    // ── ADR-203 — conclure en un geste ─────────
+
+    private function closeWith(User $doctor, EpisodeOrientation $orientation, array $decision)
+    {
+        return $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/complete", ['decision' => $decision]);
+    }
+
+    public function test_a_discharge_chosen_at_closure_needs_no_diagnosis_no_condition_and_no_validated_step(): void
+    {
+        $doctor = $this->doctor();
+        [$episode, $orientation] = $this->consultation($doctor);
+
+        $this->actingAs($doctor)->putJson("/medicine/orientations/{$orientation->uuid}/draft", [
+            'payload' => ['decision' => ['type' => 'DISCHARGE']],
+        ])->assertOk();
+
+        $this->closeWith($doctor, $orientation, ['type' => 'DISCHARGE'])->assertSessionHasNoErrors();
+
+        $consultation = $orientation->consultation()->firstOrFail();
+        $discharge = $consultation->medicalDischarge()->firstOrFail();
+        $this->assertSame('COMPLETED', $consultation->status->value);
+        // La conduite préparée est partie : plus aucun brouillon à restaurer.
+        $this->assertSame(0, ConsultationDraft::query()->count());
+        $this->assertSame(MedicalDischargeType::Normal, $discharge->type);
+        $this->assertNull($discharge->final_diagnosis);
+        $this->assertNull($discharge->patient_condition);
+        $this->assertSame(0, $consultation->diagnoses()->count());
+        $this->assertSame('MEDICALLY_DISCHARGED', $episode->fresh()->medical_status->value);
+    }
+
+    public function test_the_final_diagnosis_is_the_recorded_diagnoses_and_none_is_invented(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+
+        foreach (['Angine aiguë', 'Fièvre'] as $description) {
+            $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/diagnoses", [
+                'type' => 'FINAL', 'description' => $description,
+            ])->assertSessionHasNoErrors();
+        }
+
+        $this->closeWith($doctor, $orientation, [
+            'type' => 'DISCHARGE', 'discharge_type' => 'AT_PATIENT_REQUEST', 'patient_condition' => 'Amélioré',
+        ])->assertSessionHasNoErrors();
+
+        $consultation = $orientation->consultation()->firstOrFail();
+        $discharge = $consultation->medicalDischarge()->firstOrFail();
+        $this->assertSame("Angine aiguë\nFièvre", $discharge->final_diagnosis);
+        $this->assertSame('Amélioré', $discharge->patient_condition);
+        // La liste n'est jamais enregistrée comme un diagnostic de plus.
+        $this->assertSame(2, $consultation->diagnoses()->count());
+    }
+
+    public function test_a_transfer_is_never_a_discharge_type_in_a_consultation(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+
+        $this->closeWith($doctor, $orientation, ['type' => 'DISCHARGE', 'discharge_type' => 'TRANSFER'])
+            ->assertSessionHasErrors('decision.discharge_type');
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/discharge", [
+            'type' => 'TRANSFER', 'transfer_destination' => 'CHU', 'discharged_at' => now()->subMinute()->format('Y-m-d H:i:s'),
+        ])->assertSessionHasErrors('type');
+
+        $this->assertSame('IN_PROGRESS', $orientation->consultation()->firstOrFail()->status->value);
+    }
+
+    public function test_a_referral_chosen_at_closure_goes_to_transfers_and_closes(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+
+        $this->closeWith($doctor, $orientation, ['type' => 'REFERRAL', 'facility' => 'CHU Mahajanga', 'priority' => 'URGENT'])
+            ->assertSessionHasNoErrors();
+
+        $consultation = $orientation->consultation()->firstOrFail();
+        $referral = $consultation->activeOrientation->medicalReferral;
+        $this->assertSame('CHU Mahajanga', $referral->facility);
+        $this->assertSame('COMPLETED', $consultation->status->value);
+        $this->assertNull($consultation->medicalDischarge()->first(), 'un transfert ne fabrique aucune sortie médicale');
+    }
+
+    public function test_surgery_at_closure_needs_its_intervention_and_nothing_else(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+
+        $this->closeWith($doctor, $orientation, ['type' => 'SURGERY'])
+            ->assertSessionHasErrors('decision.catalog_item_uuid');
+        $this->assertSame('IN_PROGRESS', $orientation->consultation()->firstOrFail()->status->value);
+
+        $this->closeWith($doctor, $orientation, ['type' => 'SURGERY', 'catalog_item_uuid' => $this->surgeryItem($doctor)->uuid])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(SurgicalRequestStatus::Pending, SurgicalRequest::query()->sole()->status);
+        $this->assertSame('COMPLETED', $orientation->consultation()->firstOrFail()->status->value);
+    }
+
+    public function test_a_service_and_a_destination_the_account_may_not_choose_are_handled(): void
+    {
+        $doctor = $this->doctor();
+        [$episode, $orientation] = $this->consultation($doctor);
+
+        $this->closeWith($doctor, $orientation, ['type' => 'MATERNITY'])->assertSessionHasNoErrors();
+        $this->assertSame(
+            EpisodeOrientationStatus::Pending,
+            $episode->orientations()->where('destination_module', CatalogModule::Maternity->value)->sole()->status,
+        );
+
+        $limited = $this->doctor([
+            'consultations.view', 'consultations.create', 'consultations.update', 'patients.view', 'medical_discharge.create',
+        ], 'MEDICINE_LIMITED');
+        [, $other] = $this->consultation($limited);
+        $this->closeWith($limited, $other, ['type' => 'SURGERY', 'catalog_item_uuid' => $this->surgeryItem($doctor)->uuid])
+            ->assertSessionHasErrors('decision.type');
+    }
+
+    public function test_a_death_pronounced_at_closure_leads_to_the_register(): void
+    {
+        $doctor = $this->doctor();
+        $doctor->role->permissions()->syncWithoutDetaching([Permission::query()->firstOrCreate(['name' => 'death_records.view'])->id]);
+        [, $orientation] = $this->consultation($doctor);
+
+        $this->closeWith($doctor, $orientation, ['type' => 'DISCHARGE', 'discharge_type' => 'DECEASED'])
+            ->assertRedirect(route('deaths.index'));
+
+        $discharge = $orientation->consultation()->firstOrFail()->medicalDischarge()->firstOrFail();
+        $this->assertSame(MedicalDischargeType::Deceased, $discharge->type);
+        $this->assertSame('Décédé', $discharge->patient_condition);
+    }
+
+    /**
+     * Une conduite déjà transmise ne se remplace pas en silence : la changer
+     * l'annule, et c'est un geste à part (« Changer de conduite »).
+     */
+    public function test_a_submitted_conduite_is_never_silently_replaced_at_closure(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/referrals", [
+            'destination' => 'MATERNITY', 'reason' => null, 'return_step' => 'cloture',
+        ])->assertSessionHasNoErrors();
+
+        $this->closeWith($doctor, $orientation, ['type' => 'DISCHARGE'])
+            ->assertSessionHasErrors('decision.type');
+        $this->assertSame('IN_PROGRESS', $orientation->consultation()->firstOrFail()->status->value);
+
+        // La même conduite, ou aucune précision : la demande partie suffit.
+        $this->closeWith($doctor, $orientation, [])->assertSessionHasNoErrors();
+        $this->assertSame('COMPLETED', $orientation->consultation()->firstOrFail()->status->value);
+    }
+
     private function doctor(?array $permissions = null, string $roleCode = 'MEDICINE'): User
     {
         $role = Role::query()->firstOrCreate(['code' => $roleCode], ['name' => 'Médecine']);
@@ -757,34 +887,5 @@ class ConsultationOrientationTest extends TestCase
             'created_by' => $doctor->id,
             'updated_by' => $doctor->id,
         ]);
-    }
-
-    /** Everything a closure needs except the conduite à tenir itself. */
-    private function prepareEveryStepButOrientation(EpisodeOrientation $orientation, User $doctor): void
-    {
-        $this->actingAs($doctor)->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
-            'chief_complaint' => 'Douleur abdominale',
-            'reason' => '<p>Douleur depuis 3 jours</p>',
-            'current_treatments' => [],
-        ]);
-        $this->actingAs($doctor)->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
-            'clinical_exam' => '<p>Sensibilité en fosse iliaque droite</p>',
-        ]);
-        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/diagnoses", [
-            'type' => 'FINAL',
-            'description' => 'Appendicite aiguë',
-        ]);
-
-        foreach ([
-            ['step' => 'dossier', 'intent' => 'COMPLETE'],
-            ['step' => 'consultation', 'intent' => 'COMPLETE'],
-            ['step' => 'examen', 'intent' => 'COMPLETE'],
-            ['step' => 'paraclinique', 'intent' => 'SKIP'],
-            ['step' => 'ordonnance', 'intent' => 'SKIP'],
-        ] as $payload) {
-            $this->actingAs($doctor)
-                ->post("/medicine/orientations/{$orientation->uuid}/steps", $payload)
-                ->assertSessionHasNoErrors();
-        }
     }
 }

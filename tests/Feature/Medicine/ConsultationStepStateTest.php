@@ -291,62 +291,31 @@ class ConsultationStepStateTest extends TestCase
     }
 
     /**
+     * ADR-203 — aucune étape ne retient plus la
+     * clôture : ni le dossier (ADR-129), ni l'interrogatoire, l'examen ou la
+     * prescription non validés (ADR-076). Seule la conduite à tenir le fait ;
+     * les étapes restent affichées avec leur vrai statut.
+     */
+    public function test_no_unvalidated_step_blocks_closure_any_more(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $consultation = $orientation->consultation()->firstOrFail();
+
+        $blockers = $this->app->make(ConsultationWorkflow::class)->blockersForClosure($consultation);
+
+        $this->assertSame(['Conduite à tenir : choisissez la suite de la prise en charge.'], array_column($blockers, 'message'));
+        $this->assertSame(
+            ConsultationStepStatus::NotStarted,
+            $consultation->steps()->where('step', ConsultationStep::Interview->value)->first()?->status ?? ConsultationStepStatus::NotStarted,
+        );
+    }
+
+    /**
      * A patient who came only for an ultrasound has no interrogation and no
      * physical examination to record. Those steps are not omissions to make
      * up before closing — but they stay reachable, never locked.
      */
-    /**
-     * ADR-084 : la Clôture montre « ce qui manque encore **et le chemin pour
-     * y retourner** ». L'écran énonçait l'obstacle sans ce chemin, laissant
-     * le médecin chercher l'étape à valider.
-     */
-    public function test_each_closure_blocker_carries_the_step_to_go_to(): void
-    {
-        $doctor = $this->doctor();
-        [, $orientation] = $this->medicineConsultation($doctor);
-        $consultation = $orientation->consultation()->firstOrFail();
-
-        $blockers = collect($this->app->make(ConsultationWorkflow::class)
-            ->blockersForClosure($consultation));
-
-        $this->assertNotNull(
-            $blockers->first(fn (array $b): bool => str_contains($b['message'], 'Prescription'))['step'] ?? null,
-            'Un obstacle d’étape doit nommer l’étape à rejoindre.',
-        );
-
-        // Le diagnostic et la conduite à tenir se règlent sur place : aucun
-        // renvoi, sinon l'écran proposerait d'aller là où l'on est déjà.
-        foreach ($blockers as $blocker) {
-            if (str_contains($blocker['message'], 'Diagnostic :')
-                || str_contains($blocker['message'], 'Conduite à tenir :')) {
-                $this->assertNull($blocker['step']);
-            }
-        }
-    }
-
-    /**
-     * ADR-129 — le dossier est une étape de lecture : ne l'avoir pas « validée »
-     * ne retient plus la clôture, alors qu'il n'y a rien à y saisir.
-     */
-    public function test_an_unvalidated_dossier_step_never_blocks_closure(): void
-    {
-        $doctor = $this->doctor();
-        [, $orientation] = $this->medicineConsultation($doctor);
-        $consultation = $orientation->consultation()->firstOrFail();
-        $workflow = $this->app->make(ConsultationWorkflow::class);
-
-        $messages = collect($workflow->blockersForClosure($consultation))->pluck('message')->implode(' ');
-
-        // Non validée, et pourtant absente des obstacles ; les autres étapes
-        // restent exigées.
-        $this->assertSame(
-            ConsultationStepStatus::NotStarted,
-            $consultation->steps()->where('step', ConsultationStep::Dossier->value)->first()?->status ?? ConsultationStepStatus::NotStarted,
-        );
-        $this->assertStringNotContainsString('Dossier du passage', $messages);
-        $this->assertStringContainsString('Interrogatoire', $messages);
-    }
-
     public function test_a_paraclinical_only_encounter_owes_no_interview_or_clinical_exam(): void
     {
         $doctor = $this->doctor();

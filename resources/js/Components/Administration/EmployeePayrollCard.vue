@@ -7,7 +7,7 @@ import Card from '@/Components/Shadcn/Card.vue';
 import { formatMoney } from '@/utilities/money';
 
 /**
- * ADR-197 — la rémunération déclarée et le compte bancaire d'un dossier employé.
+ * ADR-206 — la rémunération déclarée et le compte bancaire d'un dossier employé.
  * La carte n'est rendue que si le serveur a servi ces données, c'est-à-dire à qui
  * détient `employees.payroll.view` ; aucune paie n'est calculée.
  */

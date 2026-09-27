@@ -1,5 +1,5 @@
 /**
- * ADR-197 — l'ancienneté de service, calculée depuis la date d'entrée pendant la
+ * ADR-206 — l'ancienneté de service, calculée depuis la date d'entrée pendant la
  * saisie. Le serveur fait le même calcul (`App\Support\Hr\Seniority`) pour la
  * fiche et l'impression : ce qui s'affiche ici n'est qu'un aperçu.
  */

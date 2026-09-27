@@ -9,6 +9,14 @@ export const DEFAULT_FONT_SIZE = 16;
 
 export const FONT_SIZES = [14, 15, 16, 17, 18];
 
+export const FONT_FAMILIES = [
+    { value: 'default', label: 'RIVO — par défaut', stack: 'Roboto, sans-serif' },
+    { value: 'roboto', label: 'Roboto', stack: 'Roboto, sans-serif' },
+    { value: 'nunito', label: 'Nunito', stack: 'Nunito, sans-serif' },
+    { value: 'system', label: 'Police du système', stack: 'system-ui, sans-serif' },
+    { value: 'arial', label: 'Arial', stack: 'Arial, sans-serif' },
+];
+
 export const DENSITIES = [
     { value: 'compact', label: 'Compacte', hint: 'Champs et boutons plus bas.' },
     { value: 'default', label: 'Normale', hint: 'Comme avant.' },
@@ -39,6 +47,7 @@ export function applyAppearance(effective, root = typeof document !== 'undefined
     if (! root || ! effective) return;
 
     root.dataset.density = effective.density ?? 'default';
+    root.dataset.fontFamily = FONT_FAMILIES.some((font) => font.value === effective.font_family) ? effective.font_family : 'default';
     root.dataset.radius = effective.radius ?? 'default';
     root.dataset.motion = effective.motion ?? 'system';
     root.dataset.contrast = effective.contrast ?? 'standard';

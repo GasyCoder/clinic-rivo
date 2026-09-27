@@ -25,7 +25,6 @@ import EmployeePhoto from '@/Components/Administration/EmployeePhoto.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
-import ExplorerTile from '@/Components/UI/ExplorerTile.vue';
 import ExplorerView from '@/Components/UI/ExplorerView.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import HrPagination from '../Partials/HrPagination.vue';
@@ -77,12 +76,12 @@ const frenchDate = (iso) => (iso ? iso.split('-').reverse().join('/') : null);
 const total = computed(() => Number(props.summary?.active ?? 0) + Number(props.summary?.inactive ?? 0) + Number(props.summary?.archived ?? 0));
 
 const STATUS_CARDS = [
-    { value: 'all', label: 'Tous les dossiers', hint: 'Actifs, inactifs et archivés', icon: Users, tone: 'bg-primary/10 text-primary', bar: 'bg-primary' },
-    { value: 'active', label: 'Actifs', hint: 'En poste', icon: CircleCheck, tone: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300', bar: 'bg-emerald-500' },
-    // ADR-198 — en congé aujourd'hui : toujours actifs (le dossier reste en service), mais absents.
-    { value: 'on_leave', label: 'En congé aujourd’hui', hint: 'Actifs, absents ce jour', icon: Palmtree, tone: 'bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-300', bar: 'bg-sky-500' },
-    { value: 'inactive', label: 'Inactifs', hint: 'Dossier gardé, hors poste', icon: CirclePause, tone: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300', bar: 'bg-amber-500' },
-    { value: 'archived', label: 'Archivés', hint: 'Restaurables', icon: Archive, tone: 'bg-muted text-muted-foreground', bar: 'bg-muted-foreground/60' },
+    { value: 'all', label: 'Tous', hint: 'Tous les dossiers', icon: Users, tone: 'bg-primary/10 text-primary' },
+    { value: 'active', label: 'Actifs', hint: 'En poste', icon: CircleCheck, tone: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300' },
+    // ADR-207 — en congé aujourd'hui : toujours actifs (le dossier reste en service), mais absents.
+    { value: 'on_leave', label: 'En congé', hint: 'Actifs, absents aujourd’hui', icon: Palmtree, tone: 'bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-300' },
+    { value: 'inactive', label: 'Inactifs', hint: 'Hors poste', icon: CirclePause, tone: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300' },
+    { value: 'archived', label: 'Archivés', hint: 'Restaurables', icon: Archive, tone: 'bg-muted text-muted-foreground' },
 ];
 
 const cards = computed(() => STATUS_CARDS.map((card) => {
@@ -112,10 +111,7 @@ const emptyDescription = computed(() => (total.value === 0
     ? 'Créez un premier dossier, ou importez le personnel depuis le modèle Excel.'
     : 'Changez la recherche ou le filtre d’état.'));
 
-const tileTone = (employee) => (employee.archived ? 'slate' : (employee.active ? (employee.on_leave ? 'sky' : 'emerald') : 'amber'));
-const tileBadge = (employee) => (employee.archived ? 'Archivé' : (employee.active ? (employee.on_leave ? 'En congé' : null) : 'Inactif'));
-
-// ADR-198 — les stagiaires ne sont pas des employés : la page le dit, et mène à « Stages ».
+// ADR-207 — les stagiaires ne sont pas des employés : la page le dit, et mène à « Stages ».
 const interns = computed(() => Number(props.summary?.interns ?? 0));
 </script>
 
@@ -152,37 +148,29 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
         </PageHeader>
 
         <!-- Les compteurs sont les filtres : un clic affiche ce qu'ils comptent. -->
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5" role="group" aria-label="Filtrer par état">
+        <div class="grid grid-cols-2 gap-1.5 rounded-xl border border-border bg-card p-1.5 shadow-sm sm:grid-cols-3 xl:grid-cols-5" role="group" aria-label="Filtrer par état">
             <button
                 v-for="card in cards"
                 :key="card.value"
                 type="button"
                 :aria-pressed="statusFilter === card.value"
+                :title="card.hint"
                 :class="cn(
-                    'group relative flex flex-col gap-2.5 rounded-xl border bg-card p-3.5 text-start shadow-sm transition-all',
-                    'hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-                    statusFilter === card.value ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : 'border-border hover:border-primary/40',
+                    'group relative flex min-h-14 items-center gap-2.5 rounded-lg px-2.5 py-2 text-start transition-colors',
+                    'hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    statusFilter === card.value ? 'bg-primary/10 text-primary' : 'text-foreground',
                 )"
                 @click="setStatus(card.value)"
             >
-                <span class="flex items-center gap-3">
-                    <span :class="['grid h-9 w-9 shrink-0 place-items-center rounded-lg', card.tone]">
-                        <component :is="card.icon" class="h-4.5 w-4.5" aria-hidden="true" />
-                    </span>
-                    <span class="min-w-0">
-                        <span class="block text-xl font-bold leading-none tabular-nums text-foreground">{{ card.count }}</span>
-                        <span class="mt-1 block text-xs font-medium leading-tight text-muted-foreground">{{ card.label }}</span>
-                    </span>
-                    <CircleCheck v-if="statusFilter === card.value" class="absolute end-3 top-3 h-4 w-4 text-primary" aria-hidden="true" />
+                <span :class="['grid h-8 w-8 shrink-0 place-items-center rounded-lg', card.tone]">
+                    <component :is="card.icon" class="h-4 w-4" aria-hidden="true" />
                 </span>
-                <!-- La part du total, pour lire l'effectif d'un coup d'œil. -->
-                <span v-if="card.value !== 'all'" class="flex items-center gap-2">
-                    <span class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                        <span :class="['block h-full rounded-full transition-all', card.bar]" :style="{ width: `${card.share}%` }" />
-                    </span>
-                    <span class="text-[11px] tabular-nums text-muted-foreground">{{ card.share }} %</span>
+                <span class="min-w-0 flex-1">
+                    <span class="block text-lg font-bold leading-none tabular-nums text-foreground">{{ card.count }}</span>
+                    <span class="mt-1 block truncate text-[11px] font-medium leading-none text-muted-foreground">{{ card.label }}</span>
                 </span>
-                <span v-else class="text-[11px] text-muted-foreground">{{ card.hint }}</span>
+                <span v-if="card.value !== 'all'" class="text-[10px] tabular-nums text-muted-foreground">{{ card.share }} %</span>
+                <span class="absolute inset-x-3 bottom-0 h-0.5 origin-left scale-x-0 rounded-full bg-primary transition-transform" :class="statusFilter === card.value && 'scale-x-100'" aria-hidden="true" />
             </button>
         </div>
 
@@ -196,6 +184,9 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
             storage-key="hr-employees"
             :count="count"
             count-label="employé"
+            grid-label="Cartes"
+            default-view="list"
+            grid-class="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
             empty-icon="users"
             :empty-title="emptyTitle"
             :empty-description="emptyDescription"
@@ -231,37 +222,69 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
             </template>
 
             <template #grid>
-                <ExplorerTile
+                <article
                     v-for="employee in employees.data"
                     :key="employee.uuid"
-                    :href="hrUrl(`/administration/employees/${employee.uuid}`)"
-                    icon="user"
-                    :image="employee.photo_url"
-                    :tone="tileTone(employee)"
-                    :badge="tileBadge(employee)"
-                    :title="employee.name"
-                    :subtitle="employee.job_title || 'Fonction non renseignée'"
-                    :highlight="employee.department"
-                    :meta="employee.employee_number"
-                    :muted="employee.archived"
+                    :class="cn('group flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md', employee.archived && 'opacity-75')"
                 >
-                    <template #actions>
-                        <Button v-if="!employee.archived && can('employees.update')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/edit`)" variant="outline" size="icon" :aria-label="`Modifier ${employee.name}`" title="Modifier"><Pencil class="h-4 w-4" /></Button>
-                        <Button v-if="employee.archived && can('employees.restore')" type="button" variant="outline" size="icon" :aria-label="`Restaurer ${employee.name}`" title="Restaurer" @click="restore(employee)"><RotateCcw class="h-4 w-4" /></Button>
-                    </template>
-                </ExplorerTile>
+                    <div class="flex-1 p-4">
+                        <div class="flex items-start gap-3">
+                            <Link :href="hrUrl(`/administration/employees/${employee.uuid}`)" class="flex min-w-0 flex-1 items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                                <EmployeePhoto :src="employee.photo_url" :name="employee.name" size="md" :class="employee.archived && 'grayscale'" />
+                                <span class="min-w-0">
+                                    <span class="block truncate font-semibold text-foreground transition-colors group-hover:text-primary" :title="employee.name">{{ employee.name }}</span>
+                                    <span class="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">{{ employee.employee_number }}</span>
+                                </span>
+                            </Link>
+                            <Badge v-if="employee.archived" variant="outline"><Archive class="h-3 w-3" />Archivé</Badge>
+                            <Badge v-else-if="employee.active && employee.on_leave" variant="secondary" class="bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200" :title="`${employee.on_leave.type ? `${employee.on_leave.type} · ` : ''}jusqu’au ${frenchDate(employee.on_leave.until)}`"><Palmtree class="h-3 w-3" />En congé</Badge>
+                            <Badge v-else-if="employee.active" variant="success"><CircleCheck class="h-3 w-3" />Actif</Badge>
+                            <Badge v-else variant="warning"><CirclePause class="h-3 w-3" />Inactif</Badge>
+                        </div>
+
+                        <div class="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-muted/50 p-3">
+                            <div class="min-w-0">
+                                <p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Fonction</p>
+                                <p class="mt-1 truncate text-sm font-medium text-foreground" :title="employee.job_title || 'Non renseignée'">{{ employee.job_title || 'Non renseignée' }}</p>
+                            </div>
+                            <div class="min-w-0 border-s border-border ps-3">
+                                <p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Département</p>
+                                <p class="mt-1 truncate text-sm font-medium text-foreground" :title="employee.department || 'Non renseigné'">{{ employee.department || 'Non renseigné' }}</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-3 min-h-10 space-y-1.5 text-xs">
+                            <a v-if="employee.phone" :href="`tel:${employee.phone}`" class="flex items-center gap-2 text-foreground hover:text-primary">
+                                <Phone class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /><span class="truncate">{{ employee.phone }}</span>
+                            </a>
+                            <a v-if="employee.email" :href="`mailto:${employee.email}`" class="flex items-center gap-2 text-muted-foreground hover:text-primary">
+                                <Mail class="h-3.5 w-3.5 shrink-0" aria-hidden="true" /><span class="truncate">{{ employee.email }}</span>
+                            </a>
+                            <span v-if="!employee.phone && !employee.email" class="text-muted-foreground">Aucun contact renseigné</span>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between gap-3 border-t border-border bg-muted/20 px-3 py-2">
+                        <span class="text-[11px] tabular-nums text-muted-foreground">Entrée · {{ frenchDate(employee.hire_date) || 'non renseignée' }}</span>
+                        <div class="flex items-center gap-1">
+                            <Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" variant="ghost" size="icon" :aria-label="`Voir le dossier de ${employee.name}`" title="Voir le dossier"><Eye class="h-4 w-4" /></Button>
+                            <Button v-if="!employee.archived && can('employees.update')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/edit`)" variant="ghost" size="icon" :aria-label="`Modifier ${employee.name}`" title="Modifier"><Pencil class="h-4 w-4" /></Button>
+                            <Button v-if="employee.archived && can('employees.restore')" type="button" variant="ghost" size="icon" :aria-label="`Restaurer ${employee.name}`" title="Restaurer" @click="restore(employee)"><RotateCcw class="h-4 w-4" /></Button>
+                        </div>
+                    </div>
+                </article>
             </template>
 
             <template #list>
-                <table class="w-full min-w-[900px] text-sm">
+                <table class="w-full min-w-[860px] text-sm">
                     <thead>
                         <tr class="border-b border-border bg-muted/40 text-left text-xs font-semibold text-muted-foreground">
-                            <th scope="col" class="px-5 py-3">Employé</th>
-                            <th scope="col" class="px-4 py-3">Fonction · département</th>
-                            <th scope="col" class="px-4 py-3">Contact</th>
-                            <th scope="col" class="px-4 py-3">Entrée</th>
-                            <th scope="col" class="px-4 py-3">État</th>
-                            <th scope="col" class="px-5 py-3 text-end"><span class="sr-only">Actions</span></th>
+                            <th scope="col" class="px-4 py-2.5">Employé</th>
+                            <th scope="col" class="px-4 py-2.5">Fonction · département</th>
+                            <th scope="col" class="px-4 py-2.5">Contact</th>
+                            <th scope="col" class="px-4 py-2.5">Entrée</th>
+                            <th scope="col" class="px-4 py-2.5">État</th>
+                            <th scope="col" class="px-4 py-2.5 text-end"><span class="sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-border">
@@ -270,7 +293,7 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
                             :key="employee.uuid"
                             :class="cn('transition-colors hover:bg-muted/40', employee.archived && 'text-muted-foreground')"
                         >
-                            <td class="px-5 py-3">
+                            <td class="px-4 py-2.5">
                                 <Link :href="hrUrl(`/administration/employees/${employee.uuid}`)" class="group flex items-center gap-3">
                                     <!-- ADR-194 — la photo 4 × 4, sinon les initiales. -->
                                     <EmployeePhoto :src="employee.photo_url" :name="employee.name" size="sm" :class="employee.archived && 'opacity-60 grayscale'" />
@@ -283,11 +306,11 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
                                     </span>
                                 </Link>
                             </td>
-                            <td class="px-4 py-3">
+                            <td class="px-4 py-2.5">
                                 <p class="text-foreground">{{ employee.job_title || '—' }}</p>
                                 <p class="text-xs text-muted-foreground">{{ employee.department || 'Département non renseigné' }}</p>
                             </td>
-                            <td class="px-4 py-3">
+                            <td class="px-4 py-2.5">
                                 <a v-if="employee.phone" :href="`tel:${employee.phone}`" class="flex items-center gap-1.5 text-foreground hover:text-primary">
                                     <Phone class="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />{{ employee.phone }}
                                 </a>
@@ -296,18 +319,18 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
                                 </a>
                                 <span v-if="! employee.phone && ! employee.email" class="text-muted-foreground">—</span>
                             </td>
-                            <td class="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">{{ frenchDate(employee.hire_date) || '—' }}</td>
-                            <td class="px-4 py-3">
+                            <td class="whitespace-nowrap px-4 py-2.5 tabular-nums text-muted-foreground">{{ frenchDate(employee.hire_date) || '—' }}</td>
+                            <td class="px-4 py-2.5">
                                 <Badge v-if="employee.archived" variant="outline"><Archive class="h-3 w-3" />Archivé</Badge>
                                 <Badge v-else-if="employee.active" variant="success"><CircleCheck class="h-3 w-3" />Actif</Badge>
                                 <Badge v-else variant="warning"><CirclePause class="h-3 w-3" />Inactif</Badge>
-                                <!-- ADR-198 — en service, mais en congé ce jour : les deux se lisent. -->
+                                <!-- ADR-207 — en service, mais en congé ce jour : les deux se lisent. -->
                                 <span v-if="employee.on_leave && ! employee.archived" class="mt-1 flex flex-col gap-0.5">
                                     <Badge variant="secondary" class="w-fit bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200"><Palmtree class="h-3 w-3" />En congé</Badge>
                                     <span class="text-[11px] text-muted-foreground">{{ employee.on_leave.type ? `${employee.on_leave.type} · ` : '' }}jusqu’au {{ frenchDate(employee.on_leave.until) }}</span>
                                 </span>
                             </td>
-                            <td class="px-5 py-3">
+                            <td class="px-4 py-2.5">
                                 <div class="flex justify-end gap-1">
                                     <Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" variant="ghost" size="icon" :aria-label="`Voir le dossier de ${employee.name}`" title="Voir le dossier"><Eye class="h-4 w-4" /></Button>
                                     <Button v-if="!employee.archived && can('employees.update')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/edit`)" variant="ghost" size="icon" :aria-label="`Modifier ${employee.name}`" title="Modifier"><Pencil class="h-4 w-4" /></Button>

@@ -125,3 +125,18 @@ test('le reste à payer suit la permission, pas seulement l’affichage', () => 
     assert.match(controller, /'outstanding' => \$canViewAccounts/);
     assert.match(settlements, /props\.counts\.outstanding !== null/);
 });
+
+/**
+ * Sur les tableaux des passages (Soins, Médecine, Maternité), les compteurs
+ * repoussaient la liste : ~95 px de haut pour un chiffre et un libellé. Ils
+ * passent en bande serrée ; les autres files gardent leurs cartes.
+ */
+test('les compteurs du tableau des passages sont compacts', () => {
+    assert.match(counters, /compact: \{ type: Boolean, default: false \}/);
+    assert.match(counters, /rounded-lg border bg-card px-3 py-2 text-start shadow-sm/);
+    assert.match(counters, /grid h-8 w-8 shrink-0 place-items-center rounded-md/);
+    assert.match(counters, /shrink-0 text-lg font-bold leading-none tabular-nums/);
+    // Trop étroit, le libellé passe à la ligne au lieu d'être coupé.
+    assert.match(counters, /flex min-w-0 flex-wrap items-baseline gap-x-1\.5/);
+    assert.match(board, /<QueueCounters :tiles="tiles" compact @select="selectView" \/>/);
+});

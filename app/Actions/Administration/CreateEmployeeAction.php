@@ -33,7 +33,7 @@ class CreateEmployeeAction
         unset($data['email']);
 
         Gate::forUser($actor)->authorize('create', Employee::class);
-        // ADR-197 — rémunération et compte bancaire : un droit à part, revérifié ici.
+        // ADR-206 — rémunération et compte bancaire : un droit à part, revérifié ici.
         $data = EmployeePayroll::prepare($data, $actor);
 
         $photo = $data['photo'] ?? null;

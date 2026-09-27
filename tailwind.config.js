@@ -17,8 +17,8 @@ export default {
         padding: '.5rem',
       },
       fontFamily: {
-        'body': ["Roboto", "sans-serif"],
-        'heading': ["Nunito", "sans-serif"],
+        'body': ['var(--rivo-font-body, Roboto)', 'sans-serif'],
+        'heading': ['var(--rivo-font-heading, Nunito)', 'sans-serif'],
         'nioicon': ["Nioicon"]
       },
       fontSize: {

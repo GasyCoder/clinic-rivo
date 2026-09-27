@@ -35,7 +35,7 @@ class GeneratedDocumentController extends Controller
     public function __construct(private readonly HrPresenter $presenter) {}
 
     /**
-     * ADR-199 — les documents en dossiers, comme les fournisseurs : un dossier par
+     * ADR-208 — les documents en dossiers, comme les fournisseurs : un dossier par
      * type (Contrats, Congés, Attestations…). La racine montre les dossiers ;
      * un dossier montre ses canevas (pour générer) et ses documents (actifs ou
      * archivés). Une recherche traverse tous les dossiers.
@@ -104,7 +104,7 @@ class GeneratedDocumentController extends Controller
 
         // Opened from a contract ("Imprimer" → canevas): keep only references
         // that exist in the lists the page can actually select.
-        // ADR-199 — « Modifier » un document : une nouvelle version préremplie avec
+        // ADR-208 — « Modifier » un document : une nouvelle version préremplie avec
         // ses données ; l'ancienne sera archivée à la génération.
         $replaces = filled($request->query('from'))
             ? GeneratedDocument::query()->where('uuid', (string) $request->query('from'))->first()
@@ -119,7 +119,7 @@ class GeneratedDocumentController extends Controller
         $template = collect($templates)->contains('uuid', $template) ? $template : '';
         $contract = (string) ($replaces?->employmentContract?->uuid ?? $request->query('contract', ''));
         $contract = $employee !== '' && collect($contracts[$employee] ?? [])->contains('uuid', $contract) ? $contract : '';
-        // ADR-198 — ouvert depuis un congé : la demande, et son canevas s'il n'y en a qu'un.
+        // ADR-207 — ouvert depuis un congé : la demande, et son canevas s'il n'y en a qu'un.
         $leaves = $this->leavesByEmployee();
         $leave = (string) ($replaces?->leaveRequest?->uuid ?? $request->query('leave', ''));
         $leave = $employee !== '' && collect($leaves[$employee] ?? [])->contains('uuid', $leave) ? $leave : '';
@@ -197,7 +197,7 @@ class GeneratedDocumentController extends Controller
         ]);
     }
 
-    /** ADR-199 — « Supprimer » : archiver avec un motif, jamais effacer. */
+    /** ADR-208 — « Supprimer » : archiver avec un motif, jamais effacer. */
     public function destroy(ArchiveGeneratedDocumentRequest $request, GeneratedDocument $generatedDocument, ArchiveGeneratedDocumentAction $action): RedirectResponse
     {
         $action->execute($generatedDocument, $request->validated('reason'), $request->user());
@@ -311,7 +311,7 @@ class GeneratedDocumentController extends Controller
                 $leave !== null => ['kind' => 'leave', 'uuid' => $leave->uuid, 'label' => ($leave->leaveType?->label ?? 'Congé').' · du '.$leave->starts_on?->format('d/m/Y').' au '.$leave->returns_on?->format('d/m/Y')],
                 default => null,
             },
-            // ADR-199 — archivé (motif, par qui) et chaîne des versions.
+            // ADR-208 — archivé (motif, par qui) et chaîne des versions.
             'archived' => $document->trashed(),
             'archived_at' => $document->deleted_at?->toIso8601String(),
             'archive_reason' => $document->delete_reason,

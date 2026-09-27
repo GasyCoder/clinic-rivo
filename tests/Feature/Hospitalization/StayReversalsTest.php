@@ -242,12 +242,10 @@ class StayReversalsTest extends TestCase
         $props = $this->actingAs($this->doctor)->get("/hospitalisation/{$stay->uuid}")->viewData('page')['props'];
         $this->assertCount(1, $props['openConsultations']);
         $this->assertSame('ADMISSION', $props['openConsultations'][0]['kind']);
-        $this->assertFalse($props['openConsultations'][0]['can_close']);
-        $this->assertNotEmpty($props['openConsultations'][0]['closure_blockers']);
-
-        $this->completeSteps($orientation);
-        $props = $this->actingAs($this->doctor)->get("/hospitalisation/{$stay->uuid}")->viewData('page')['props'];
+        // ADR-203 — sa conduite à tenir (l'hospitalisation)
+        // est transmise : rien d'autre ne retient la clôture, ni étape ni diagnostic.
         $this->assertTrue($props['openConsultations'][0]['can_close']);
+        $this->assertSame([], $props['openConsultations'][0]['closure_blockers']);
 
         $this->actingAs($this->doctor)->post("/hospitalisation/{$stay->uuid}/consultations/{$orientation->uuid}/cloturer")
             ->assertSessionHasNoErrors();

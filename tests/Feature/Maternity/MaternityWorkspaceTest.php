@@ -32,6 +32,7 @@ use App\Models\Role;
 use App\Models\SurgicalIntervention;
 use App\Models\SurgicalRequest;
 use App\Models\User;
+use App\Services\Maternity\PregnancyDatingService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\ProfessionalProfileSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -161,7 +162,7 @@ class MaternityWorkspaceTest extends TestCase
         $record = MaternityRecord::query()->sole();
         $performed = MaternityProcedure::query()->sole();
         $this->assertSame($episode->id, $record->episode_id);
-        $expectedAge = app(\App\Services\Maternity\PregnancyDatingService::class)
+        $expectedAge = app(PregnancyDatingService::class)
             ->gestationalAge($record->pregnancy, $episode->started_at);
         $this->assertSame($expectedAge['weeks'], $record->prenatal_data['gestational_age_weeks']);
         $this->assertSame($midwife->id, $performed->performed_by);
@@ -169,9 +170,9 @@ class MaternityWorkspaceTest extends TestCase
     }
 
     /**
-     * Les blocs prénatal/travail/accouchement/nouveau-né sont `prohibited`
-     * sans leur permission, et « prohibited » refuse un tableau non vide.
-     * L'écran envoyait pourtant les cinq blocs avec leurs valeurs par
+     * Les données longitudinales et les blocs prénatal/travail/accouchement/
+     * nouveau-né sont `prohibited` sans leur permission, et « prohibited »
+     * refuse un tableau non vide. L'écran envoyait pourtant les blocs avec leurs valeurs par
      * défaut : un compte qui pouvait écrire le dossier sans ces droits ne
      * pouvait donc rien enregistrer du tout. Ce test fixe les deux côtés du
      * contrat que l'interface respecte désormais.
@@ -191,19 +192,19 @@ class MaternityWorkspaceTest extends TestCase
         $this->actingAs($midwife)->put("/maternity/orientations/{$orientation->uuid}/record", [
             'pregnancy_choice' => 'CREATE',
             'obstetric_context' => 'Grossesse suivie.',
-            'pregnancy_data' => ['gravidity' => 2, 'parity' => 1],
             'observations' => 'À réévaluer.',
         ])->assertSessionHasNoErrors();
 
         $record = MaternityRecord::query()->sole();
         $this->assertSame($episode->id, $record->episode_id);
-        $this->assertSame(2, $record->pregnancy_data['gravidity']);
+        $this->assertNull($record->pregnancy_data['gravidity']);
 
         // Le serveur reste la protection : le bloc interdit est toujours refusé.
         $this->actingAs($midwife)->put("/maternity/orientations/{$orientation->uuid}/record", [
             'obstetric_context' => 'Grossesse suivie.',
+            'pregnancy_data' => ['gravidity' => 2, 'parity' => 1],
             'labor_data' => ['membranes_status' => 'INTACT'],
-        ])->assertSessionHasErrors('labor_data');
+        ])->assertSessionHasErrors(['pregnancy_data', 'labor_data']);
     }
 
     /**

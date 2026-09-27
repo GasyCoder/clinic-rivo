@@ -4,6 +4,7 @@ namespace App\Actions\Administration;
 
 use App\Models\HrReferenceValue;
 use App\Models\User;
+use App\Support\Hr\JobTitleAccountRole;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -19,6 +20,11 @@ class UpdateHrReferenceValueAction
         return DB::transaction(function () use ($reference, $data): HrReferenceValue {
             $departmentUuids = $data['department_uuids'] ?? null;
             unset($data['department_uuids']);
+            // ADR-199 — le rôle proposé est rangé dans les métadonnées de la fonction.
+            [$data, $metadata] = JobTitleAccountRole::takeFrom($data, $reference->metadata);
+            if ($metadata !== null) {
+                $data['metadata'] = $metadata;
+            }
             $reference->fill($data)->save();
 
             if (is_array($departmentUuids)) {

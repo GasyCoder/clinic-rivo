@@ -10,6 +10,7 @@ use App\Http\Controllers\AnesthesiaClearanceController;
 use App\Http\Controllers\AnesthesiaController;
 use App\Http\Controllers\AnesthesiaWorkspaceController;
 use App\Http\Controllers\AttentionDigestController;
+use App\Http\Controllers\Auth\AccountActivationController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
@@ -31,11 +32,13 @@ use App\Http\Controllers\InvoiceDiscountController;
 use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
+use App\Http\Controllers\MaternityPrescriptionController;
 use App\Http\Controllers\MaternityNewbornController;
 use App\Http\Controllers\Medicine\ClinicalProtocolController;
 use App\Http\Controllers\Medicine\ImagingReportTemplateController;
 use App\Http\Controllers\Medicine\ParaclinicalRequestDirectoryController;
 use App\Http\Controllers\MedicineController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PatientDiscountController;
 use App\Http\Controllers\PatientMutualCoverageAttachmentController;
@@ -72,6 +75,7 @@ use App\Http\Controllers\SuperAdmin\ProfessionalEmailController as SuperAdminPro
 use App\Http\Controllers\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\SuperAdmin\SiteHumanResourcesController;
 use App\Http\Controllers\SuperAdmin\SitePharmacyController;
+use App\Http\Controllers\SuperAdmin\StaffAccessController as SuperAdminStaffAccessController;
 use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
 use App\Http\Controllers\SuperAdmin\UserController as SuperAdminUserController;
 use App\Http\Controllers\SuperAdminController;
@@ -118,6 +122,9 @@ Route::get('/robots.txt', RobotsTxtController::class)->name('robots');
 Route::middleware(['site.type:clinic,admin', 'guest'])->group(function () {
     Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
     Route::post('/login', [AuthenticatedSessionController::class, 'store']);
+    // ADR-202 — l'adresse d'abord ; un compte qui attend sa première connexion choisit son mot de passe.
+    Route::post('/login/identifier', [AccountActivationController::class, 'identify'])->middleware('throttle:20,1')->name('login.identify');
+    Route::post('/login/premiere-connexion', [AccountActivationController::class, 'activate'])->middleware('throttle:6,1')->name('login.activate');
 
     Route::get('/forgot-password', [PasswordResetLinkController::class, 'create'])->name('password.request');
     Route::post('/forgot-password', [PasswordResetLinkController::class, 'store'])->name('password.email');
@@ -127,6 +134,15 @@ Route::middleware(['site.type:clinic,admin', 'guest'])->group(function () {
 
 Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.deployment'])->group(function () {
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
+
+    // ADR-197 — la boîte de notifications du compte, et le résumé que la cloche relit.
+    Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::get('/notifications/resume', [NotificationController::class, 'summary'])->name('notifications.summary');
+    Route::post('/notifications/actions', [NotificationController::class, 'act'])->name('notifications.act');
+    Route::post('/notifications/tout-lire', [NotificationController::class, 'readAll'])->name('notifications.read-all');
+    Route::get('/notifications/{notification}/ouvrir', [NotificationController::class, 'open'])->whereUuid('notification')->name('notifications.open');
+    // Les points d'attention (tâches en cours), aussi sur le portail (ADR-197).
+    Route::get('/points-attention', AttentionDigestController::class)->name('attention.digest');
 
     // ADR-184 — « Mon profil » : chacun lit son compte et change son mot de passe.
     Route::get('/profil', [ProfileController::class, 'show'])->name('profile.show');
@@ -303,6 +319,13 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::put('/settings/maintenance', [SuperAdminAppSettingsController::class, 'updateMaintenance'])->name('settings.maintenance.update')->middleware('can:app_maintenance.update');
         Route::post('/settings/maintenance/lift', [SuperAdminAppSettingsController::class, 'liftMaintenance'])->name('settings.maintenance.lift')->middleware('can:app_maintenance.update');
         // ADR-190 — adresses email professionnelles : le portail seul parle à l'hébergeur.
+        // ADR-197 — l'accès du personnel : adresse pro + compte RIVO en un geste, remis au RH du site.
+        Route::get('/staff-access', [SuperAdminStaffAccessController::class, 'index'])->name('staff-access.index')->middleware('can:staff_access.view');
+        Route::post('/staff-access/{site}/grant', [SuperAdminStaffAccessController::class, 'grant'])->name('staff-access.grant')->middleware(['can:staff_access.create', 'can:professional_emails.create']);
+        Route::post('/staff-access/{site}/handovers/{handover}/send', [SuperAdminStaffAccessController::class, 'send'])->whereUuid('handover')->name('staff-access.send')->middleware('can:staff_access.create');
+        Route::post('/staff-access/{site}/receivers', [SuperAdminStaffAccessController::class, 'designate'])->name('staff-access.receivers')->middleware(['can:staff_access.create', 'can:permissions.assign']);
+        Route::post('/staff-access/{site}/employees/{employee}/waive', [SuperAdminStaffAccessController::class, 'waive'])->whereUuid('employee')->name('staff-access.waive')->middleware('can:staff_access.create');
+        Route::post('/staff-access/{site}/employees/{employee}/unwaive', [SuperAdminStaffAccessController::class, 'unwaive'])->whereUuid('employee')->name('staff-access.unwaive')->middleware('can:staff_access.create');
         Route::get('/professional-emails', [SuperAdminProfessionalEmailController::class, 'index'])->name('professional-emails.index')->middleware('can:professional_emails.view');
         Route::post('/professional-emails/check', [SuperAdminProfessionalEmailController::class, 'check'])->name('professional-emails.check')->middleware('can:professional_emails.create');
         Route::post('/professional-emails/prepare', [SuperAdminProfessionalEmailController::class, 'prepare'])->name('professional-emails.prepare');
@@ -612,10 +635,9 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
 
     // Référentiel patients: administrative management, but no creation here.
     // Deletion is always audited Soft Delete through Patient::SoftDeletable.
-    // L'en-tête : recherche rapide et points d'attention. Toutes deux
-    // n'exposent que ce que le compte a déjà le droit de voir.
+    // L'en-tête : recherche rapide. Elle n'expose que ce que le compte a déjà
+    // le droit de voir (les points d'attention sont plus haut, portail compris).
     Route::get('/recherche', GlobalSearchController::class)->name('search.global')->middleware('can:patients.view');
-    Route::get('/points-attention', AttentionDigestController::class)->name('attention.digest');
 
     Route::get('/patients', [PatientController::class, 'index'])->name('patients.index')->middleware('can:patients.view');
     // ADR-133 — avant `/patients/{patient}`, qui prendrait « export » pour un UUID.
@@ -740,6 +762,16 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->middleware(['can:maternity.view', 'can:newborns.patient.create']);
     Route::get('/maternity/orientations/{episodeOrientation}', [MaternityController::class, 'show'])->name('maternity.orientations.show')->middleware('can:maternity.view');
     Route::post('/maternity/orientations/{episodeOrientation}/accept', [MaternityController::class, 'accept'])->name('maternity.orientations.accept')->middleware('can:maternity.update');
+    // ADR-204 — le parcours se choisit par un geste ; les examens partent vers le Laboratoire et l'imagerie existants.
+    Route::post('/maternity/orientations/{episodeOrientation}/parcours', [MaternityController::class, 'startEncounter'])->name('maternity.orientations.encounter.start')->middleware('can:maternity.view');
+    Route::post('/maternity/orientations/{episodeOrientation}/analyses', [MaternityController::class, 'storeLabRequest'])->name('maternity.lab-requests.store')->middleware('can:laboratory_orders.create');
+    Route::post('/maternity/orientations/{episodeOrientation}/analyses/{labRequest}/retirer', [MaternityController::class, 'cancelLabRequest'])->name('maternity.lab-requests.cancel')->middleware('can:laboratory_orders.create');
+    Route::post('/maternity/orientations/{episodeOrientation}/imagerie', [MaternityController::class, 'storeImagingRequest'])->name('maternity.imaging-requests.store')->middleware('can:imaging_orders.create');
+    Route::post('/maternity/orientations/{episodeOrientation}/imagerie/{imagingRequest}/retirer', [MaternityController::class, 'cancelImagingRequest'])->name('maternity.imaging-requests.cancel')->middleware('can:imaging_orders.create');
+    // ADR-205 — la sage-femme prescrit : mêmes droits qu'en consultation, mêmes actions.
+    Route::post('/maternity/orientations/{episodeOrientation}/ordonnances', [MaternityPrescriptionController::class, 'store'])->name('maternity.prescriptions.store')->middleware('can:prescriptions.create');
+    Route::post('/maternity/orientations/{episodeOrientation}/ordonnances/{prescription}/annuler', [MaternityPrescriptionController::class, 'cancel'])->name('maternity.prescriptions.cancel')->middleware('can:prescriptions.cancel');
+    Route::get('/maternity/orientations/{episodeOrientation}/ordonnances/{prescription}/impression', [MaternityPrescriptionController::class, 'print'])->name('maternity.prescriptions.print')->middleware('can:prescriptions.view');
     Route::put('/maternity/orientations/{episodeOrientation}/record', [MaternityController::class, 'save'])->name('maternity.orientations.record.update')->middleware('can:maternity.view');
     Route::put('/maternity/orientations/{episodeOrientation}/pregnancy/dating', [MaternityController::class, 'updatePregnancyDating'])
         ->name('maternity.orientations.pregnancy.dating.update')
@@ -860,6 +892,9 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::put('/medicine/orientations/{episodeOrientation}/draft', [MedicineController::class, 'saveDraft'])->name('medicine.orientations.draft.update')->middleware('can:consultations.view');
     Route::delete('/medicine/orientations/{episodeOrientation}/draft', [MedicineController::class, 'discardDraft'])->name('medicine.orientations.draft.destroy')->middleware('can:consultations.view');
     Route::post('/medicine/passages/{episode}/prendre-en-charge', [MedicineController::class, 'takeCharge'])->name('medicine.passages.take-charge')->middleware('can:consultations.create');
+    // ADR-177, amendement du 2026-09-27 — envoyer aux Soins avant la consultation, et l'annuler.
+    Route::post('/medicine/passages/{episode}/envoyer-aux-soins', [MedicineController::class, 'sendToCare'])->name('medicine.passages.send-to-care')->middleware('can:consultations.create');
+    Route::post('/medicine/passages/{episode}/annuler-envoi-aux-soins', [MedicineController::class, 'withdrawFromCare'])->name('medicine.passages.withdraw-from-care')->middleware('can:consultations.create');
     Route::post('/medicine/orientations/{episodeOrientation}/accept', [MedicineController::class, 'accept'])->name('medicine.orientations.accept')->middleware('can:consultations.create');
     Route::post('/medicine/orientations/{episodeOrientation}/release', [MedicineController::class, 'release'])->name('medicine.orientations.release')->middleware('can:consultations.create');
     Route::post('/medicine/orientations/{episodeOrientation}/urgence', [EpisodeEmergencyController::class, 'fromMedicine'])
@@ -878,7 +913,6 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // déclarée non nécessaire pour ce patient. Jamais un effet de bord de
     // l'ouverture d'un écran.
     Route::post('/medicine/orientations/{episodeOrientation}/complementary-exams', [MedicineController::class, 'decideComplementaryExams'])->name('medicine.complementary-exams.decide')->middleware('can:consultations.update');
-    Route::post('/medicine/orientations/{episodeOrientation}/diagnostic-timing', [MedicineController::class, 'decideDiagnosisTiming'])->name('medicine.diagnosis-timing.decide')->middleware('can:consultations.update');
     Route::post('/medicine/orientations/{episodeOrientation}/steps', [MedicineController::class, 'resolveStep'])->name('medicine.steps.resolve')->middleware('can:consultations.update');
     Route::post('/medicine/orientations/{episodeOrientation}/complete', [MedicineController::class, 'completeConsultation'])->name('medicine.consultations.complete')->middleware('can:consultations.update');
     Route::post('/medicine/orientations/{episodeOrientation}/reopen', [MedicineController::class, 'reopenConsultation'])->name('medicine.consultations.reopen')->middleware('can:consultations.reopen');

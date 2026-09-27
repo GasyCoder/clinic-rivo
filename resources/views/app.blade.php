@@ -8,6 +8,7 @@
 <html
     lang="{{ str_replace('_', '-', app()->getLocale()) }}"
     data-density="{{ $appearance['density'] }}"
+    data-font-family="{{ $appearance['font_family'] }}"
     data-radius="{{ $appearance['radius'] }}"
     data-motion="{{ $appearance['motion'] }}"
     data-contrast="{{ $appearance['contrast'] }}"

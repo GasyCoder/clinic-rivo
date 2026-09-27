@@ -40,7 +40,7 @@ final class HrOverviewService
         $today = now()->toDateString();
 
         return [
-            // ADR-198 — les stagiaires ont leurs propres écrans : ils ne comptent pas parmi les employés.
+            // ADR-207 — les stagiaires ont leurs propres écrans : ils ne comptent pas parmi les employés.
             'active_employees' => $this->staff()->where('active', true)->count(),
             'inactive_employees' => $this->staff()->where('active', false)->count(),
             'archived_employees' => $this->internships->withoutInterns(Employee::onlyTrashed())->count(),
@@ -110,7 +110,7 @@ final class HrOverviewService
             ])->values()->all();
     }
 
-    /** Les dossiers du personnel, stagiaires exclus (ADR-198). */
+    /** Les dossiers du personnel, stagiaires exclus (ADR-207). */
     private function staff(): Builder
     {
         return $this->internships->withoutInterns(Employee::query());

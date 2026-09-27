@@ -61,6 +61,7 @@ import Select from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDate, formatDateTime } from '@/utilities/date';
+import VitalsRecordedAt from '@/Components/Clinical/VitalsRecordedAt.vue';
 import { presenceCountsFromEpisodes, presenceState } from '@/utilities/episodePresence';
 import { formatMoney } from '@/utilities/money';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
@@ -1181,6 +1182,7 @@ const administrativeFields = computed(() => [
                         <div v-if="can('care.view')" class="mt-4 overflow-hidden rounded-lg border border-border">
                             <div class="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2"><UserRoundCheck class="h-3.5 w-3.5 text-muted-foreground" /><h3 class="text-xs font-bold uppercase tracking-wide text-muted-foreground">Soins de ce passage</h3></div>
                             <div v-if="episode.care_record" class="space-y-3 p-3">
+                                <p v-if="careVitalsSummary(episode.care_record).length" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">Constantes relevées le <VitalsRecordedAt :at="episode.care_record.updated_at" sr-prefix="" /></p>
                                 <dl v-if="careVitalsSummary(episode.care_record).length" class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3 lg:grid-cols-4">
                                     <div v-for="row in careVitalsSummary(episode.care_record)" :key="row.label"><dt class="text-muted-foreground">{{ row.label }}</dt><dd class="font-semibold text-foreground">{{ row.value }}</dd></div>
                                 </dl>

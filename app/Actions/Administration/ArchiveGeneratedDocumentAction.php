@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-199 — « supprimer » un document généré l'archive, avec un motif : il reste
+ * ADR-208 — « supprimer » un document généré l'archive, avec un motif : il reste
  * consultable dans son dossier (onglet Archivés) et restaurable. Jamais effacé.
  */
 class ArchiveGeneratedDocumentAction

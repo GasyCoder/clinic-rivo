@@ -146,6 +146,8 @@ class EpisodeController extends Controller
                         'alcohol' => $episode->careRecord->alcohol,
                     ] : []),
                     'allergy_snapshot' => $episode->careRecord->allergy_snapshot ?? [],
+                    // Des constantes se lisent avec leur date : l'heure seule ne dit pas le jour.
+                    'updated_at' => $episode->careRecord->updated_at,
                     'no_procedure_reason' => $episode->careRecord->no_procedure_reason,
                     'diagnostic_note' => $episode->careRecord->diagnostic_note,
                     'transmission_reason' => $episode->careRecord->transmission_reason,

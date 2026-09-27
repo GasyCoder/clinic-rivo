@@ -29,13 +29,13 @@ const props = defineProps({
     template: { type: Object, default: null },
     dataContexts: { type: Array, default: () => [] },
     families: { type: Array, default: () => [] },
-    /** ADR-199 — « Nouveau canevas » depuis un dossier : son type et son contexte. */
+    /** ADR-208 — « Nouveau canevas » depuis un dossier : son type et son contexte. */
     preset: { type: Object, default: null },
 });
 
 const isEditing = computed(() => props.template !== null);
 
-// ADR-198 — ce que le RH verra : les champs de la page 1 et où le canevas lui est proposé.
+// ADR-207 — ce que le RH verra : les champs de la page 1 et où le canevas lui est proposé.
 const selectedContext = computed(() => props.dataContexts.find((context) => context.value === form.data_context) ?? null);
 const normalizeType = (value) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
 /** Un canevas de congé ou de contrat mal réglé : il ne reprendrait pas les dates, et ne serait pas proposé au bon endroit. */
@@ -342,7 +342,7 @@ watch(() => [form.document_type, form.data_context, form.name, form.description,
     isDirty.value = true;
 });
 
-// ADR-199 — on revient au dossier du canevas (celui de son type), pas à la racine.
+// ADR-208 — on revient au dossier du canevas (celui de son type), pas à la racine.
 const backFolder = familyKey(props.template?.document_type ?? props.preset?.document_type ?? '');
 const backFolderLabel = props.families.find((family) => family.key === backFolder)?.label ?? 'Canevas de documents';
 const backUrl = `/super-admin/workspaces/document-templates?site=${props.targetSite.code}${props.template || props.preset ? `&dossier=${encodeURIComponent(backFolder)}` : ''}`;
@@ -432,7 +432,7 @@ const submit = () => {
                 </label>
             </div>
 
-            <!-- ADR-198 — ce que le RH verra, pour le contexte choisi. -->
+            <!-- ADR-207 — ce que le RH verra, pour le contexte choisi. -->
             <div v-if="selectedContext" class="mt-4 grid gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm lg:grid-cols-[2fr_1fr]">
                 <div>
                     <p class="text-xs font-bold uppercase tracking-wide text-muted-foreground">Page 1 pour le RH · remplie depuis le dossier, modifiable</p>

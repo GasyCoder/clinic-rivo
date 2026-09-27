@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'app_name', 'app_tagline', 'primary_color', 'logo_path', 'icon_path', 'search_engines_hidden',
     'theme_preset', 'light_background', 'light_foreground', 'dark_primary_color', 'dark_background', 'dark_foreground',
-    'ui_font_size', 'ui_density', 'ui_radius', 'ui_motion', 'ui_contrast',
+    'ui_font_family', 'ui_font_size', 'ui_density', 'ui_radius', 'ui_motion', 'ui_contrast',
     'patient_number_prefix', 'patient_number_year', 'patient_number_digits', 'patient_number_separator',
     'patient_number_reset', 'episode_number_digits',
     'employee_number_prefix', 'employee_number_separator', 'employee_number_digits',

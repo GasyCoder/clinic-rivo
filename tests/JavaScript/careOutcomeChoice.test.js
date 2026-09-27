@@ -13,9 +13,12 @@ test('le choix est pré-rempli selon le parcours prévu, vide pour un besoin inc
     assert.match(sheet, /<Badge variant="outline">Prévu à l’arrivée<\/Badge>/);
 });
 
-test('la suite prévue se lit seulement ; la suite non prévue se clique et demande un motif', () => {
-    // Carte prévue : un simple div, jamais un bouton.
-    assert.match(sheet, /<div\s+v-if="option\.value === plannedOutcome"\s+:aria-current=/);
+test('la suite prévue s’applique d’office ; la suite non prévue se clique et demande un motif', () => {
+    // Carte prévue : un simple div tant qu'elle s'applique ; une fois la suite changée,
+    // elle se clique pour y revenir, comme un choix radio.
+    assert.match(sheet, /:is="deviatesFromPlan \? 'button' : 'div'"\s+v-if="option\.value === plannedOutcome"/);
+    assert.match(sheet, /:aria-current="!deviatesFromPlan \? 'true' : undefined"/);
+    assert.match(sheet, /@click="deviatesFromPlan && chooseOutcome\(plannedOutcome\)"/);
     // Carte non prévue : un interrupteur qui ouvre le motif ; un second clic revient au prévu.
     assert.match(sheet, /:aria-pressed="deviatesFromPlan"[\s\S]*?@click="toggleOffPlan"/);
     assert.match(sheet, /<Badge variant="outline">Changer · motif<\/Badge>/);
@@ -86,4 +89,35 @@ test('plus aucun bandeau d’avertissement pour la reprise', () => {
     assert.doesNotMatch(sheet, /<div v-if="capabilities\.handled_by_other"/);
     // Sans le droit de reprendre, le droit manquant est nommé en texte simple.
     assert.match(sheet, /<p v-if="!capabilities\.can_take_over" class="mt-2 text-xs text-muted-foreground">/);
+});
+
+/** ADR-166, amendement du 2026-09-27 — la suite se décide en dernier, au-dessus du bouton. */
+test('la suite après les soins vient après le récapitulatif et la transmission, juste avant les boutons', () => {
+    const split = sheet.indexOf('</ResizableSplit>');
+    const choice = sheet.indexOf('<fieldset v-if="offersOutcomeChoice"');
+    const locked = sheet.indexOf('<section v-else-if="capabilities.handled_by_other');
+    const actions = sheet.indexOf('@click="finishCare"');
+
+    assert.ok(split > 0 && choice > split, 'le choix n’est plus au-dessus du récapitulatif');
+    assert.ok(locked > split, 'la suite verrouillée suit le même ordre');
+    assert.ok(actions > choice, 'le bouton qui exécute la suite vient après elle');
+    assert.equal(sheet.match(/<fieldset v-if="offersOutcomeChoice"/g).length, 1);
+});
+
+test('la conséquence du choix se lit une seule fois, sous le choix, dans sa couleur', () => {
+    // L'ancien bandeau « Après validation… » en pied de carte est fondu dans le bloc.
+    assert.doesNotMatch(sheet, /<footer v-if="activeCareOrder \|\| capabilities\.can_complete"/);
+    assert.equal(sheet.match(/\{\{ completionWarning \}\}/g).length, 1);
+    assert.match(sheet, /id="care-outcome-consequence"[\s\S]*?consequenceClasses/);
+    assert.match(sheet, /aria-describedby="care-outcome-consequence"/);
+    assert.match(sheet, /if \(offersOutcomeChoice\.value\) return \(\{ MEDICINE: 'medicine', FINISH: 'finish' \}\)\[chosenOutcome\.value\] \?\? 'warning';/);
+    // Tant que le bouton ne peut pas valider, la phrase dit ce qui manque, en ambre — jamais en vert.
+    assert.match(sheet, /if \(offersOutcomeChoice\.value && !outcomeReady\.value\) return 'warning';/);
+    assert.match(sheet, /if \(chosenOutcome\.value && !outcomeReady\.value\) \{\s+if \(deviatesFromPlan\.value\) return 'Indiquez le motif du changement pour valider cette suite\.';/);
+});
+
+test('une transmission écrite puis abandonnée par « Terminer aux Soins » est signalée, pas perdue en silence', () => {
+    assert.match(sheet, /const transmissionDropped = computed\(\(\) => offersOutcomeChoice\.value && chosenOutcome\.value === 'FINISH' && hasTransmissionText\.value\);/);
+    assert.match(sheet, /<p v-if="transmissionDropped"/);
+    assert.match(sheet, /withNote = hasTransmissionText\.value \? ' avec votre transmission' : ', sans transmission écrite'/);
 });

@@ -10,6 +10,7 @@ import {
     CircleCheck,
     CircleOff,
     Hash,
+    KeyRound,
     Layers,
     Network,
     Pencil,
@@ -29,6 +30,7 @@ import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
+import Select from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import JobTitleDepartmentsPicker from '@/Components/Administration/JobTitleDepartmentsPicker.vue';
@@ -43,6 +45,10 @@ import { hrUrl } from '@/utilities/hrUrl';
  *
  * ADR-194 — une fonction y porte aussi les départements où elle existe : le
  * dossier employé ne propose que les fonctions du département choisi.
+ *
+ * ADR-199 — et le rôle (avec son profil métier) qu'elle propose au compte de
+ * celui qui l'exerce : l'accès du personnel et l'assistant de compte le
+ * préremplissent. Une proposition, jamais un droit.
  */
 defineOptions({ layout: AppLayout });
 
@@ -51,6 +57,8 @@ const props = defineProps({
     items: { type: Array, default: () => [] },
     departmentOptions: { type: Array, default: () => [] },
     sharedJobTitles: { type: Array, default: () => [] },
+    /** ADR-199 — les rôles qu'une fonction peut proposer, et leurs profils (par code). */
+    roleOptions: { type: Array, default: () => [] },
 });
 
 const { can } = usePermissions();
@@ -126,7 +134,21 @@ const totalEmployees = computed(() => props.items.filter((item) => ! item.archiv
 const editing = ref(null);
 const dialogOpen = ref(false);
 const codeTouched = ref(false);
-const form = useForm({ label: '', code: '', position: '', active: true, department_uuids: [] });
+const form = useForm({ label: '', code: '', position: '', active: true, department_uuids: [], account_role_code: '', account_profile_code: '' });
+
+/* ADR-199 — le rôle proposé au compte ; le profil n'existe que dans son rôle. */
+const accountRoleChoices = computed(() => [
+    { value: '', label: 'Aucun rôle proposé' },
+    ...props.roleOptions.map((role) => ({ value: role.code, label: role.name })),
+]);
+const accountProfiles = computed(() => props.roleOptions.find((role) => role.code === form.account_role_code)?.profiles ?? []);
+const accountProfileChoices = computed(() => [
+    { value: '', label: 'À choisir à la création du compte' },
+    ...accountProfiles.value.map((profile) => ({ value: profile.code, label: profile.name })),
+]);
+watch(() => form.account_role_code, () => {
+    if (! accountProfiles.value.some((profile) => profile.code === form.account_profile_code)) form.account_profile_code = '';
+});
 
 /** Le code proposé depuis le libellé : la même règle que le serveur. */
 const codeFrom = (label) => String(label ?? '')
@@ -156,6 +178,8 @@ const openEdit = (item) => {
     form.position = item.position ?? '';
     form.active = item.active;
     form.department_uuids = (item.departments ?? []).map((department) => department.uuid);
+    form.account_role_code = item.account_role?.role_code ?? '';
+    form.account_profile_code = item.account_role?.profile_code ?? '';
     codeTouched.value = true;
     dialogOpen.value = true;
     focusLabel();
@@ -171,6 +195,9 @@ const submit = () => {
         position: data.position === '' ? null : data.position,
         // Les départements ne concernent qu'une fonction (ADR-194).
         department_uuids: isJobTitles.value ? data.department_uuids : undefined,
+        // Le rôle proposé ne concerne qu'une fonction (ADR-199) ; vide = aucun.
+        account_role_code: isJobTitles.value ? (data.account_role_code || null) : undefined,
+        account_profile_code: isJobTitles.value ? (data.account_profile_code || null) : undefined,
     });
 
     if (editing.value) {
@@ -293,6 +320,15 @@ const employeeLine = (item) => {
                             </template>
                             <span v-else class="text-muted-foreground">Proposée dans tous les départements</span>
                         </p>
+                        <!-- ADR-199 — le rôle proposé au compte de celui qui exerce cette fonction. -->
+                        <p v-if="isJobTitles && ! item.archived" class="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                            <KeyRound class="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                            <template v-if="item.account_role">
+                                <span class="text-muted-foreground">Compte :</span>
+                                <span class="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">{{ item.account_role.role_name }}<template v-if="item.account_role.profile_name"> · {{ item.account_role.profile_name }}</template></span>
+                            </template>
+                            <span v-else class="text-muted-foreground">Aucun rôle proposé pour le compte</span>
+                        </p>
                         <p v-else-if="! item.archived" class="mt-1 text-xs leading-5 text-muted-foreground">
                             <template v-if="item.job_titles?.length">Fonctions : {{ item.job_titles.join(', ') }}</template>
                             <template v-else>Aucune fonction reliée</template>
@@ -350,6 +386,19 @@ const employeeLine = (item) => {
                     </FormField>
                 </div>
                 <JobTitleDepartmentsPicker v-if="isJobTitles" v-model="form.department_uuids" :departments="departmentOptions" :error="form.errors.department_uuids" />
+                <!-- ADR-199 — ce que le compte de celui qui exerce cette fonction reçoit d'office, modifiable à la création. -->
+                <fieldset v-if="isJobTitles && roleOptions.length" class="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                    <legend class="flex items-center gap-1.5 px-1 text-xs font-bold uppercase tracking-wide text-primary"><KeyRound class="h-3.5 w-3.5" aria-hidden="true" />Rôle proposé pour son compte</legend>
+                    <div :class="cn('grid gap-3', accountProfiles.length && 'sm:grid-cols-2')">
+                        <FormField label="Rôle" as="div" :error="form.errors.account_role_code">
+                            <Select v-model="form.account_role_code" :options="accountRoleChoices" class="w-full" aria-label="Rôle proposé" />
+                        </FormField>
+                        <FormField v-if="accountProfiles.length" label="Profil métier" as="div" :error="form.errors.account_profile_code">
+                            <Select v-model="form.account_profile_code" :options="accountProfileChoices" class="w-full" aria-label="Profil métier proposé" />
+                        </FormField>
+                    </div>
+                    <p class="mt-3 text-xs leading-5 text-muted-foreground">Prérempli quand on crée le compte d’un employé de cette fonction, et toujours modifiable à ce moment-là. La fonction ne donne aucun droit.</p>
+                </fieldset>
                 <label v-if="editing" for="structure-active" class="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-muted/40 px-3.5 py-3">
                     <Checkbox id="structure-active" v-model="form.active" class="mt-0.5" />
                     <span>

@@ -30,14 +30,22 @@ use Illuminate\Support\Collection;
  * parce que sa désignation y passe d'ordinaire.
  *
  * ```text
- * Médecine prend un patient attendu aux Soins   CARE_FIRST   on le dit, le médecin décide
- * Soins prend un patient attendu en Médecine    MEDICINE_ONLY on le dit, et on refuse
+ * Médecine prend un patient attendu aux Soins   CARE_FIRST    on le dit, le médecin décide
+ * Soins prend un patient attendu en Médecine    MEDICINE_ONLY on le dit, les Soins décident
  * ```
  *
- * Le refus aux Soins applique l'ADR-030 — une prestation MEDICINE_DIRECT ne
- * passe pas artificiellement par les Soins — et ne vaut que si **rien** ne
- * désigne les Soins. Un soin demandé par le médecin (une vraie orientation
- * vers les Soins, en attente) et l'urgence (ADR-021) n'y sont jamais soumis.
+ * **Rien n'est refusé** (amendement du 2026-09-27 bis, qui renverse le refus
+ * des Soins posé le 2026-09-23) : tout le personnel clinique peut prendre un
+ * patient, et le système dit seulement ce qui était prévu. Un patient attendu
+ * en Médecine et pris aux Soins garde sa place chez le médecin ; à la fin des
+ * soins, la suite prévue l'y conduit (ADR-166).
+ *
+ * Il reste hors de la **file numérotée** des Soins : le n° 1 y est le prochain
+ * patient qui vient pour les Soins, pas celui qu'on peut y prendre en passant.
+ *
+ * Le rappel se tait dès que la situation l'a dépassé : un soin demandé par le
+ * médecin (une vraie orientation vers les Soins, en attente), l'urgence
+ * (ADR-021), un médecin qui a déjà le patient ou l'a déjà vu.
  *
  * Aucune donnée clinique n'est lue : seulement la suggestion, le parcours des
  * désignations et les orientations — de l'information de routage (ADR-117).
@@ -50,11 +58,11 @@ final class EpisodeEntryPath
 
     /**
      * Ce que le service qui prend le patient doit savoir, ou `null` quand rien
-     * ne s'oppose à ce qu'il le prenne. Les relations `serviceRequests`,
-     * `receptionNextSteps` et `orientations` sont lues chargées si elles le
-     * sont, interrogées sinon.
+     * n'est à rappeler. Ce n'est jamais un refus. Les relations
+     * `serviceRequests`, `receptionNextSteps` et `orientations` sont lues
+     * chargées si elles le sont, interrogées sinon.
      *
-     * @return array{code: string, blocking: bool, title: string, message: string, reasons: list<string>}|null
+     * @return array{code: string, title: string, message: string, reasons: list<string>}|null
      */
     public static function guard(Episode $episode, CatalogModule $module): ?array
     {
@@ -92,22 +100,24 @@ final class EpisodeEntryPath
             return self::careFirst($orientations, $careSuggested, $medicineSuggested, $careNeeds);
         }
 
-        return self::medicineOnly($careSuggested, $medicineSuggested, $careNeeds, $medicineNeeds);
+        return self::medicineOnly($orientations, $careSuggested, $medicineSuggested, $careNeeds, $medicineNeeds);
     }
 
     /**
-     * Le refus que les Soins opposent, écrit une fois pour l'action et l'écran.
+     * Attendu ailleurs que dans ce service : visible et possible à prendre,
+     * mais hors de sa file numérotée.
+     *
+     * @param  array{code: string}|null  $guard
      */
-    public static function refusalMessage(): string
+    public static function expectedElsewhere(?array $guard): bool
     {
-        return 'Ce patient est attendu directement en Médecine : il ne se prend pas en charge aux Soins. '
-            .'Un soin se fait ici à la demande du médecin, ou dès que le passage est classé en urgence.';
+        return ($guard['code'] ?? null) === self::MEDICINE_ONLY;
     }
 
     /**
      * @param  Collection<int, EpisodeOrientation>  $orientations
      * @param  Collection<int, EpisodeServiceRequest>  $careNeeds
-     * @return array{code: string, blocking: bool, title: string, message: string, reasons: list<string>}|null
+     * @return array{code: string, title: string, message: string, reasons: list<string>}|null
      */
     private static function careFirst(Collection $orientations, bool $careSuggested, bool $medicineSuggested, Collection $careNeeds): ?array
     {
@@ -141,7 +151,6 @@ final class EpisodeEntryPath
 
         return [
             'code' => self::CARE_FIRST,
-            'blocking' => false,
             'title' => 'Ce patient devrait d’abord passer aux Soins',
             'message' => 'Les Soins sont prévus avant la consultation (constantes, évaluation). '
                 .'Vous pouvez faire les soins vous-même, ou le consulter directement : la décision vous revient.',
@@ -150,15 +159,22 @@ final class EpisodeEntryPath
     }
 
     /**
+     * @param  Collection<int, EpisodeOrientation>  $orientations
      * @param  Collection<int, EpisodeServiceRequest>  $careNeeds
      * @param  Collection<int, EpisodeServiceRequest>  $medicineNeeds
-     * @return array{code: string, blocking: bool, title: string, message: string, reasons: list<string>}|null
+     * @return array{code: string, title: string, message: string, reasons: list<string>}|null
      */
-    private static function medicineOnly(bool $careSuggested, bool $medicineSuggested, Collection $careNeeds, Collection $medicineNeeds): ?array
+    private static function medicineOnly(Collection $orientations, bool $careSuggested, bool $medicineSuggested, Collection $careNeeds, Collection $medicineNeeds): ?array
     {
-        // Le moindre signal vers les Soins suffit : on ne refuse que ce qui
-        // n'y a clairement rien à faire.
+        // Le moindre signal vers les Soins suffit : rien n'est à rappeler.
         if ($careSuggested || $careNeeds->isNotEmpty() || (! $medicineSuggested && $medicineNeeds->isEmpty())) {
+            return null;
+        }
+
+        // Le médecin a le patient, ou l'a déjà vu : « attendu en Médecine » ne
+        // dit plus rien d'utile — un soin après la consultation est ordinaire.
+        if ($orientations->contains(fn (EpisodeOrientation $orientation) => $orientation->destination_module === CatalogModule::Medicine
+            && in_array($orientation->status, [EpisodeOrientationStatus::InProgress, EpisodeOrientationStatus::Completed], true))) {
             return null;
         }
 
@@ -166,10 +182,10 @@ final class EpisodeEntryPath
 
         return [
             'code' => self::MEDICINE_ONLY,
-            'blocking' => true,
             'title' => 'Ce patient est attendu en Médecine',
-            'message' => 'Il va directement chez le médecin et ne passe pas par les Soins. '
-                .'Un soin se fait ici à la demande du médecin, ou dès que le passage est classé en urgence.',
+            'message' => 'Il vient pour le médecin : les Soins ne sont pas prévus pour ce passage. '
+                .'Vous pouvez quand même le prendre (constantes, soin avant la consultation) : '
+                .'il garde sa place en Médecine, et à la fin des soins la suite prévue le conduit chez le médecin.',
             'reasons' => [...$reasons, ...self::needReasons($medicineNeeds)],
         ];
     }

@@ -5,9 +5,11 @@ namespace App\Http\Requests\Administration;
 use App\Enums\HrReferenceType;
 use App\Enums\HrStructureKind;
 use App\Models\HrReferenceValue;
+use App\Models\ProfessionalProfile;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * ADR-188 — un département ou une fonction, saisi depuis son module.
@@ -71,7 +73,37 @@ class HrStructureRequest extends FormRequest
                     ->where('type', HrReferenceType::Department->value)
                     ->whereNull('deleted_at'),
             ],
+            // ADR-199 — le rôle (et le profil) que cette fonction propose au compte de
+            // celui qui l'exerce. Omettre la clé laisse le réglage tel quel ; `null`
+            // dit qu'elle n'en propose aucun. Jamais SUPER_ADMIN (ADR-027).
+            'account_role_code' => [
+                Rule::excludeUnless($type === HrReferenceType::JobTitle), 'sometimes', 'nullable', 'string',
+                Rule::exists('roles', 'code')->whereNull('deleted_at')->whereNot('code', 'SUPER_ADMIN'),
+            ],
+            'account_profile_code' => [
+                Rule::excludeUnless($type === HrReferenceType::JobTitle), 'sometimes', 'nullable', 'string',
+            ],
         ];
+    }
+
+    /** Un profil n'existe que dans un rôle : il doit appartenir à celui qui est proposé. */
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            if ($this->referenceType() !== HrReferenceType::JobTitle || ! $this->filled('account_profile_code')) {
+                return;
+            }
+
+            $role = $this->input('account_role_code');
+            $belongs = is_string($role) && ProfessionalProfile::query()->active()
+                ->where('code', $this->input('account_profile_code'))
+                ->whereHas('role', fn ($query) => $query->where('code', $role))
+                ->exists();
+
+            if (! $belongs) {
+                $validator->errors()->add('account_profile_code', 'Ce profil métier n’appartient pas au rôle proposé.');
+            }
+        }];
     }
 
     public function messages(): array
@@ -90,6 +122,7 @@ class HrStructureRequest extends FormRequest
         return [
             'label' => 'libellé', 'code' => 'code', 'position' => 'ordre',
             'department_uuids' => 'départements', 'department_uuids.*' => 'département',
+            'account_role_code' => 'rôle proposé', 'account_profile_code' => 'profil proposé',
         ];
     }
 

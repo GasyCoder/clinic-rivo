@@ -10,6 +10,7 @@ use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\MedicalDischargeType;
 use App\Models\Consultation;
+use App\Models\ConsultationDraft;
 use App\Models\EpisodeOrientation;
 use App\Models\User;
 use App\Support\ConsultationWorkflow;
@@ -21,21 +22,27 @@ use Illuminate\Validation\ValidationException;
  * ordinary save paths (ADR-010): validated medical data is never silently
  * overwritten, and a later correction needs its own traced mechanism.
  *
- * Closure requires every step that is relevant *for this patient* to be
- * resolved. It deliberately requires no laboratory request, no imaging, no
- * prescription and no hospitalisation: none of those concerns every
- * encounter, and demanding them would push doctors to fabricate acts.
+ * ADR-203 — la clôture n'exige plus que la conduite
+ * à tenir. Les étapes non validées, le diagnostic et une demande choisie mais
+ * pas encore transmise ne la retiennent plus : la conduite choisie part ici,
+ * dans la même transaction (`SubmitConsultationDecisionAction`), puis la
+ * rencontre se conclut. Elle n'exige toujours ni analyse, ni imagerie, ni
+ * prescription : aucune ne concerne toutes les rencontres.
  */
 class CompleteConsultationAction
 {
     public function __construct(
         private readonly ConsultationWorkflow $workflow,
         private readonly RecordConsultationOrientationAction $recordOrientation,
+        private readonly SubmitConsultationDecisionAction $submitDecision,
     ) {}
 
-    public function execute(Consultation $consultation, User $actor): Consultation
+    /**
+     * @param  array<string, mixed>  $decision  la conduite choisie à l'écran ; vide, celle déjà enregistrée
+     */
+    public function execute(Consultation $consultation, User $actor, array $decision = []): Consultation
     {
-        return DB::transaction(function () use ($consultation, $actor): Consultation {
+        return DB::transaction(function () use ($consultation, $actor, $decision): Consultation {
             $locked = Consultation::query()
                 ->with(['episode.serviceRequests', 'steps'])
                 ->lockForUpdate()
@@ -60,6 +67,10 @@ class CompleteConsultationAction
             // Elle n'est jamais fabriquée : on rattache ce qui existe, et rien
             // d'autre ne pourrait conclure un passage médicalement sorti.
             $this->attachPronouncedDischarge($locked, $actor);
+
+            // La conduite choisie part maintenant, par l'action qui la porte :
+            // choisir puis clôturer est un seul geste pour le médecin.
+            $this->submitDecision->execute($locked, $decision, $actor);
 
             $blockers = $this->workflow->closureBlockerMessages($locked->fresh());
 
@@ -89,6 +100,11 @@ class CompleteConsultationAction
             );
 
             $this->endMedicalPathway($locked, $actor);
+
+            // ADR-073 — une saisie en cours n'a plus où aller : la conduite
+            // préparée vient de partir, et le dossier passe en lecture seule.
+            // La laisser afficherait « brouillon non versé » sur un dossier clos.
+            ConsultationDraft::query()->where('episode_orientation_id', $locked->episode_orientation_id)->delete();
 
             return $locked->fresh(['steps']);
         });

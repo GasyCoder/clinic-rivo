@@ -2,7 +2,10 @@
 
 namespace App\Actions\Medicine;
 
+use App\Enums\CatalogModule;
+use App\Enums\EpisodeOrientationStatus;
 use App\Models\Consultation;
+use App\Models\EpisodeOrientation;
 use App\Models\HospitalStay;
 use App\Models\ImagingRequest;
 use App\Models\LabRequest;
@@ -91,6 +94,40 @@ class CancelParaclinicalRequestAction
             if (! $stay->fresh()->isActive()) {
                 throw ValidationException::withMessages([
                     'request' => 'Ce séjour est terminé : ses demandes ne peuvent plus être retirées.',
+                ]);
+            }
+
+            return $this->withdraw($locked, $reason, $actor);
+        });
+    }
+
+    /**
+     * ADR-204 — la même règle, depuis la Maternité : tant que sa prise en
+     * charge est en cours et que son dossier n'est pas terminé.
+     *
+     * @throws ValidationException
+     */
+    public function executeForMaternity(
+        EpisodeOrientation $orientation,
+        LabRequest|ImagingRequest $request,
+        ?string $reason,
+        User $actor,
+    ): LabRequest|ImagingRequest {
+        return DB::transaction(function () use ($orientation, $request, $reason, $actor) {
+            $locked = $this->lock($request);
+            $record = $locked->maternityRecord()->first();
+
+            if ($record === null
+                || $orientation->destination_module !== CatalogModule::Maternity
+                || (int) $record->episode_orientation_id !== (int) $orientation->getKey()) {
+                throw ValidationException::withMessages([
+                    'request' => 'Cette demande n’a pas été faite depuis cette prise en charge Maternité.',
+                ]);
+            }
+
+            if ($orientation->fresh()->status !== EpisodeOrientationStatus::InProgress || $record->isFinalized()) {
+                throw ValidationException::withMessages([
+                    'request' => 'Ce dossier Maternité est terminé : ses demandes ne peuvent plus être retirées.',
                 ]);
             }
 

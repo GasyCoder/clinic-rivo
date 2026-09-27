@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { LayoutGrid, List } from 'lucide-vue-next';
 import EmptyState from '@/Components/UI/EmptyState.vue';
 import { cn } from '@/lib/cn';
@@ -17,6 +17,9 @@ const props = defineProps({
     emptyTitle: { type: String, default: 'Rien à afficher' },
     emptyDescription: { type: String, default: null },
     defaultView: { type: String, default: 'grid' },
+    gridLabel: { type: String, default: 'Grandes icônes' },
+    listLabel: { type: String, default: 'Liste' },
+    gridClass: { type: String, default: 'grid grid-cols-2 gap-1 p-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6' },
     // false when the list already sits inside a card.
     framed: { type: Boolean, default: true },
 });
@@ -33,10 +36,10 @@ const view = ref(props.defaultView === 'list' ? 'list' : 'grid');
 onMounted(() => {
     view.value = read() === 'list' ? 'list' : 'grid';
 });
-const OPTIONS = [
-    { value: 'grid', icon: LayoutGrid, label: 'Grandes icônes' },
-    { value: 'list', icon: List, label: 'Liste' },
-];
+const options = computed(() => [
+    { value: 'grid', icon: LayoutGrid, label: props.gridLabel },
+    { value: 'list', icon: List, label: props.listLabel },
+]);
 const setView = (value) => {
     view.value = value;
     try { localStorage.setItem(key, value); } catch { /* private window */ }
@@ -48,7 +51,7 @@ const setView = (value) => {
         <div class="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-3">
             <div class="inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Affichage">
                 <button
-                    v-for="option in OPTIONS"
+                    v-for="option in options"
                     :key="option.value"
                     type="button"
                     :title="option.label"
@@ -65,7 +68,7 @@ const setView = (value) => {
         <slot name="above" />
 
         <template v-if="count">
-            <div v-if="view === 'grid'" class="grid grid-cols-2 gap-1 p-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+            <div v-if="view === 'grid'" :class="gridClass">
                 <slot name="grid" />
             </div>
             <div v-else class="overflow-x-auto bg-card">

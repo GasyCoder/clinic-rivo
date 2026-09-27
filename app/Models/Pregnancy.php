@@ -64,6 +64,12 @@ class Pregnancy extends Model
         return $this->hasMany(MaternityRecord::class)->orderBy('created_at')->orderBy('id');
     }
 
+    /** ADR-204 — les rendez-vous programmés pour cette grossesse. */
+    public function appointments(): HasMany
+    {
+        return $this->hasMany(Appointment::class)->orderBy('scheduled_at');
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -79,9 +85,14 @@ class Pregnancy extends Model
         return $this->belongsTo(User::class, 'dating_confirmed_by');
     }
 
+    /**
+     * Référence stable : l'année où la grossesse a été ouverte dans le dossier,
+     * jamais celle de la DDR — une datation corrigée ne doit pas renommer la
+     * grossesse.
+     */
     public function reference(): string
     {
-        $year = $this->started_at?->format('Y') ?? $this->created_at?->format('Y') ?? now()->format('Y');
+        $year = $this->created_at?->format('Y') ?? $this->started_at?->format('Y') ?? now()->format('Y');
 
         return sprintf('G-%s-%04d', $year, $this->getKey());
     }

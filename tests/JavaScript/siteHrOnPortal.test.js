@@ -133,6 +133,7 @@ test('the HR home lists its sections as shadcn cards, from the one list of HR se
 
 test('the employee list offers the Excel template and is written in shadcn', () => {
     const source = fs.readFileSync('resources/js/Pages/Administration/Employees/Index.vue', 'utf8');
+    const explorer = fs.readFileSync('resources/js/Components/UI/ExplorerView.vue', 'utf8');
 
     // Le modèle à remplir, à côté de l'import qu'il prépare, et sous le même droit.
     assert.match(source, /hrUrl\('\/administration\/employees\/import-template'\)/, 'le bouton « Modèle Excel » a disparu');
@@ -140,6 +141,18 @@ test('the employee list offers the Excel template and is written in shadcn', () 
 
     // Les compteurs sont des filtres : un état « pressé » lisible au clavier.
     assert.match(source, /aria-pressed="statusFilter === card\.value"/);
+    assert.match(source, /grid grid-cols-2 gap-1\.5 rounded-xl border border-border bg-card p-1\.5/, 'les quatre compteurs restent dans un seul bandeau compact');
+    assert.match(source, /flex min-h-14 items-center gap-2\.5/, 'une tuile de compteur reste basse');
+    assert.doesNotMatch(source, /card\.bar|h-1\.5 flex-1 overflow-hidden/, 'les longues jauges ne doivent plus gonfler les compteurs');
+
+    // L'annuaire est d'abord une liste dense, avec une vraie alternative en cartes.
+    assert.match(source, /default-view="list"/);
+    assert.match(source, /grid-label="Cartes"/);
+    assert.match(source, /grid-class="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"/);
+    assert.doesNotMatch(source, /ExplorerTile/, 'les grandes icônes vides ne sont pas adaptées à un dossier employé');
+    assert.match(source, /<article[\s\S]*<EmployeePhoto[\s\S]*Fonction[\s\S]*Département[\s\S]*Aucun contact renseigné/, 'une carte employé rassemble les informations utiles');
+    assert.match(explorer, /gridLabel: \{ type: String, default: 'Grandes icônes' \}/, 'le composant partagé garde son libellé historique par défaut');
+    assert.match(explorer, /<div v-if="view === 'grid'" :class="gridClass">/, 'chaque annuaire peut adapter la densité de ses cartes');
 
     // Aucun reliquat DashWind (ADR-099).
     assert.doesNotMatch(source, /Components\/UI\/(Icon|Button|Avatar)\.vue/);
@@ -150,6 +163,7 @@ test('the employee form and its pages are written in shadcn and keep their HR ad
     const form = fs.readFileSync('resources/js/Pages/Administration/Employees/EmployeeForm.vue', 'utf8');
     const create = fs.readFileSync('resources/js/Pages/Administration/Employees/Create.vue', 'utf8');
     const edit = fs.readFileSync('resources/js/Pages/Administration/Employees/Edit.vue', 'utf8');
+    const photo = fs.readFileSync('resources/js/Components/Administration/EmployeePhotoField.vue', 'utf8');
 
     assert.match(create, /form\.post\(hrUrl\('\/administration\/employees'\)\)/);
     // ADR-194 — une photo part en multipart : un POST qui annonce PUT ; sans photo, un PUT.
@@ -167,6 +181,18 @@ test('the employee form and its pages are written in shadcn and keep their HR ad
     assert.match(fs.readFileSync('resources/js/Components/Shadcn/Select.vue', 'utf8'), /:disabled="Boolean\(option\.disabled\)"/);
     // Le résumé des erreurs mène au champ, à son étape.
     assert.match(form, /@select="focusField"/);
+
+    // La création garde le parcours guidé sans empiler des rappels identiques.
+    assert.match(create, /<HrPageHeader\s+compact/);
+    assert.match(form, /class="scroll-mt-3 space-y-3"/);
+    assert.match(form, /class="h-0\.5 bg-muted" role="progressbar"/);
+    assert.doesNotMatch(form, /Étape \{\{ currentStep \}\} sur \{\{ steps\.length \}\}/, 'la navigation nomme déjà l’étape active');
+    assert.match(form, /<EmployeePhotoField[\s\S]*v-if="currentKey === 'identity'"[\s\S]*triggerless/, 'l’étape Identité garde le recadrage sans afficher deux sélecteurs photo');
+    assert.match(form, /<Card v-else class="flex flex-col gap-3 p-3/, 'le résumé d’identité revient aux étapes suivantes');
+    assert.match(form, /lg:grid-cols-\[220px_minmax\(0,1fr\)\]/, 'la photo ne prend plus une colonne surdimensionnée');
+    assert.match(form, /sticky bottom-2[^"]*p-2/, 'les actions restent accessibles dans une barre basse et compacte');
+    assert.match(photo, /triggerless: \{ type: Boolean, default: false \}/);
+    assert.match(photo, /<div v-if="!triggerless" class="flex items-center gap-3">/);
 });
 
 test('Départements et Fonctions sont deux modules RH, servis aussi au portail (ADR-188)', () => {

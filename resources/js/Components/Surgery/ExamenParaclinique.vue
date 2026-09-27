@@ -8,7 +8,7 @@ import FormError from '@/Components/UI/FormError.vue';
 import { Activity, ArrowRight, Brain, Clock, ClipboardCheck, Droplet, Droplets, Ear, Eye, FileCheck2, FlaskConical, Gauge, Hand, HeartPulse, Info, Bean, ListChecks, MessageSquare, PackagePlus, Pill, ScanLine, ShieldCheck, Stethoscope, Syringe, TestTube, UserRound, Venus, Wind } from 'lucide-vue-next';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import AnesthesiaStepHeader from '@/Components/Surgery/AnesthesiaStepHeader.vue';
-import ClinicalSubsection from '@/Components/Surgery/ClinicalSubsection.vue';
+import ClinicalSubsection from '@/Components/Clinical/ClinicalSubsection.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import TriStateChoice from '@/Components/Surgery/TriStateChoice.vue';

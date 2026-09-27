@@ -16,6 +16,8 @@ const props = defineProps({
     notices: { type: Array, default: () => [] },
     heading: { type: String, default: 'À savoir' },
     subtitle: { type: String, default: '' },
+    // Côté d'ouverture du panneau : `start` quand le bouton est à gauche d'un bloc.
+    align: { type: String, default: 'end' },
 });
 
 const hasWarning = computed(() => props.notices.some((notice) => notice.tone === 'warning'));
@@ -26,7 +28,7 @@ const label = computed(() => {
 </script>
 
 <template>
-    <Popover v-if="notices.length" width-class="w-[min(24rem,calc(100vw-2rem))]">
+    <Popover v-if="notices.length" :align="align" width-class="w-[min(24rem,calc(100vw-2rem))]">
         <template #trigger>
             <button
                 type="button"

@@ -25,13 +25,17 @@ test('la page du séjour se lit en onglets, un par geste', () => {
 
 test('chaque geste part vers le séjour, jamais vers une consultation', () => {
     const routes = {
-        StayNotes: '/notes', StayPrescriptions: '/ordonnances', StayCareOrders: '/soins', StayExit: '/sortie',
+        StayNotes: '/notes', StayCareOrders: '/soins', StayExit: '/sortie',
     };
     for (const [name, segment] of Object.entries(routes)) {
         assert.ok(components[name].includes(`/hospitalisation/\${props.stayUuid}${segment}`), `${name} → ${segment}`);
         assert.doesNotMatch(components[name], /\/medicine\/orientations\//, `${name} ne passe pas par une consultation`);
     }
     assert.match(components.StayExams, /'analyses' : 'imagerie'/);
+    // ADR-205 — l'ordonnance sert aussi la Maternité : l'adresse du séjour reste celle par défaut.
+    assert.ok(components.StayPrescriptions.includes('props.baseUrl || `/hospitalisation/${props.stayUuid}`'));
+    assert.ok(components.StayPrescriptions.includes('`${requestBase.value}/ordonnances`'));
+    assert.doesNotMatch(components.StayPrescriptions, /\/medicine\/orientations\//);
 });
 
 test('ordonnance, examens, soins, transfert et sortie se signent (ADR-106)', () => {

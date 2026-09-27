@@ -46,7 +46,7 @@ class GeneratedDocument extends Model
         return $this->belongsTo(LeaveRequest::class);
     }
 
-    /** ADR-199 — la version que ce document remplace (archivée). */
+    /** ADR-208 — la version que ce document remplace (archivée). */
     public function replaces(): BelongsTo
     {
         return $this->belongsTo(self::class, 'replaces_document_id')->withTrashed();

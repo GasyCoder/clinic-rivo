@@ -13,7 +13,7 @@ use App\Enums\EpisodeStatus;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\User;
-use App\Support\EpisodeEntryPath;
+use App\Support\EpisodeHeldElsewhere;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
@@ -45,13 +45,17 @@ use InvalidArgumentException;
  *   reprendre en double n'est pas un geste ; une nouvelle demande passe par
  *   une vraie orientation (ordre de soins, transmission), une consultation
  *   close se rouvre (ADR-096) ;
- * - les Soins, devant un patient attendu directement en Médecine
- *   (`EpisodeEntryPath`) : son besoin et la suggestion de l'accueil ne désignent
- *   que le médecin, et une prestation MEDICINE_DIRECT ne passe pas
- *   artificiellement par les Soins (ADR-030). Un soin demandé par le médecin —
- *   une vraie orientation en attente — et l'urgence n'y sont jamais soumis. La
- *   Médecine, elle, n'est jamais refusée : devant un patient attendu aux Soins,
- *   l'écran le lui rappelle, et la décision reste la sienne.
+ * - un patient que la Médecine ou les Soins ont en ce moment
+ *   (`EpisodeHeldElsewhere`) : tous les services voient tous les passages, mais
+ *   un patient en consultation ne se « prend » pas une seconde fois depuis un
+ *   autre tableau. Une demande adressée à ce service et l'urgence n'y sont
+ *   jamais soumises.
+ *
+ * Le parcours prévu (`EpisodeEntryPath`) n'est jamais un refus (ADR-177,
+ * amendement du 2026-09-27 bis) : tout le personnel clinique peut prendre un
+ * patient. Devant un patient attendu ailleurs, l'écran le rappelle et la
+ * décision reste à celui qui le prend — les Soins peuvent prendre un patient
+ * venu pour le médecin, qui garde sa place chez lui.
  */
 class TakeChargeOfEpisodeAction
 {
@@ -101,8 +105,13 @@ class TakeChargeOfEpisodeAction
                     ]);
                 }
 
-                if (EpisodeEntryPath::guard($locked, $module)['blocking'] ?? false) {
-                    throw ValidationException::withMessages(['episode' => EpisodeEntryPath::refusalMessage()]);
+                $holder = EpisodeHeldElsewhere::holder($locked, $module, EpisodeOrientation::query()
+                    ->with('acceptedBy:id,name')
+                    ->where('episode_id', $locked->getKey())
+                    ->get());
+
+                if ($holder !== null) {
+                    throw ValidationException::withMessages(['episode' => EpisodeHeldElsewhere::message($holder)]);
                 }
 
                 $active = $this->createOrientation->execute(

@@ -1,127 +1,164 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {
+    closureAction, closureMissing, decisionIsLocked, decisionPayload, decisionSummary, followUpDate,
+} from '../../resources/js/utilities/consultationClosure.js';
 
 const page = fs.readFileSync('resources/js/Pages/Medicine/Show.vue', 'utf8');
+const panel = fs.readFileSync('resources/js/Components/Clinical/ConsultationDecisionPanel.vue', 'utf8');
 
 /**
- * L'étape « Décision & clôture » : trois temps parcourus un par un.
+ * « Décision & clôture » (ADR-203).
  *
- * Ce que ces tests protègent n'est pas la mise en page, mais deux règles que
- * l'écran doit tenir : avancer n'est jamais refusé, et un diagnostic différé
- * ne laisse pas sa saisie ouverte.
+ * Demande du propriétaire : « le bouton Clôturer ne doit dépendre d'aucune
+ * information — on clôture dès que le médecin a choisi la conduite à tenir »,
+ * « trop flou, trop de redondance, double transfert et référence », « rien de
+ * conditions avec « Le diagnostic peut-il être posé maintenant ? » ».
  */
 
-test('les trois sections sont affichées une par une', () => {
-    for (const step of [1, 2, 3]) {
-        assert.match(page, new RegExp(`v-show="closureSubStep === ${step}"`));
-    }
+test('la clôture tient sur un seul écran, sans sous-étapes ni question sur le diagnostic', () => {
+    assert.doesNotMatch(page, /closureSubStep/);
+    assert.doesNotMatch(page, /diagnosisTimingForm|decideDiagnosisTiming|diagnosisReady/);
+    assert.doesNotMatch(page, /Le diagnostic peut-il être posé maintenant/);
+
+    // Deux sections, dans l'ordre : le diagnostic (facultatif), la conduite.
+    const diagnosis = page.indexOf('id="closure-diagnosis"');
+    const decision = page.indexOf('id="closure-decision"');
+    assert.ok(diagnosis !== -1 && decision > diagnosis);
+    assert.match(page.slice(diagnosis, decision), /\(facultatif\)/);
+    assert.match(page, /<ConsultationDecisionPanel/);
+});
+
+test('seule la conduite à tenir retient « Clôturer »', () => {
+    assert.match(page, /:disabled="Boolean\(closureHint\) \|\| decisionForm\.processing"/);
+
+    // Aucun diagnostic, aucune étape validée : une conduite suffit.
+    assert.equal(closureMissing({ type: 'DISCHARGE' }), null);
+    assert.equal(closureMissing({ type: 'HOSPITALIZATION' }), null);
+    assert.equal(closureMissing({ type: null }), 'Choisissez la conduite à tenir.');
+    // Le bloc ne programme rien sans intervention (ADR-114, ADR-159).
+    assert.match(closureMissing({ type: 'SURGERY', catalog_item_uuid: '' }), /intervention/);
+    assert.equal(closureMissing({ type: 'SURGERY', catalog_item_uuid: 'uuid' }), null);
+
+    // Une conduite déjà transmise, ou une sortie déjà prononcée, suffit aussi.
+    assert.equal(closureMissing({ type: null }, { active: { status: 'SUBMITTED' } }), null);
+    assert.equal(closureMissing({ type: null }, { medicalDischarge: { type: 'NORMAL' } }), null);
+});
+
+test('ce qui part ne porte que les champs de la conduite choisie', () => {
+    const discharge = decisionPayload({
+        type: 'DISCHARGE', discharge_type: 'NORMAL', patient_condition: 'Guéri',
+        discharge_prescription: '  Amoxicilline  ', recommendations: '', follow_up_at: '2026-10-04',
+        priority: 'URGENT', notes: 'x', catalog_item_uuid: 'u', facility: 'f',
+    });
+    assert.deepEqual(discharge, {
+        type: 'DISCHARGE', discharge_type: 'NORMAL', patient_condition: 'Guéri',
+        discharge_prescription: 'Amoxicilline', recommendations: null, follow_up_at: '2026-10-04',
+    });
+
+    // Un décès : aucune consigne n'a de destinataire (ADR-107).
+    assert.deepEqual(decisionPayload({ type: 'DISCHARGE', discharge_type: 'DECEASED', recommendations: 'Repos' }), {
+        type: 'DISCHARGE', discharge_type: 'DECEASED',
+    });
+
+    assert.deepEqual(decisionPayload({ type: 'SURGERY', catalog_item_uuid: 'abc', priority: 'NORMAL', notes: ' ' }), {
+        type: 'SURGERY', priority: 'NORMAL', notes: null, catalog_item_uuid: 'abc',
+    });
+    assert.deepEqual(decisionPayload({ type: 'REFERRAL', facility: '', priority: 'URGENT', notes: '' }), {
+        type: 'REFERRAL', priority: 'URGENT', notes: null, facility: null,
+    });
+
+    // Une conduite déjà fixée ne se renvoie pas.
+    assert.deepEqual(decisionPayload({ type: 'SURGERY' }, { active: { status: 'SUBMITTED' } }), {});
+    assert.equal(decisionIsLocked({ active: { status: 'SELECTED' } }), false);
+});
+
+test('le transfert est une conduite, jamais un type de sortie', () => {
+    // Les types de sortie viennent du serveur, sans « Transfert » (forConsultation).
+    assert.match(page, /:discharge-types="options\.discharge_types \?\? \[\]"/);
+    assert.doesNotMatch(panel, /'TRANSFER'/);
+    assert.doesNotMatch(panel, /transfer_destination/);
+});
+
+test('la fenêtre de clôture relit ce qui part', () => {
+    const lines = decisionSummary(
+        { type: 'SURGERY', catalog_item_uuid: 'a1', priority: 'URGENT', notes: 'À jeun' },
+        {
+            types: [{ value: 'SURGERY', label: 'Chirurgie' }],
+            priorities: [{ value: 'URGENT', label: 'Urgent' }],
+            surgeryCatalog: [{ uuid: 'a1', name: 'Appendicectomie' }],
+        },
+    );
+    assert.deepEqual(lines, [
+        { label: 'Conduite à tenir', value: 'Chirurgie' },
+        { label: 'Intervention envisagée', value: 'Appendicectomie' },
+        { label: 'Priorité', value: 'Urgent' },
+        { label: 'Consignes', value: 'À jeun' },
+    ]);
+
+    const referral = decisionSummary({ type: 'REFERRAL', facility: '' }, { types: [{ value: 'REFERRAL', label: 'Référence / Transfert' }] });
+    assert.deepEqual(referral[1], { label: 'Établissement', value: 'À préciser dans Transferts' });
+
+    const discharge = decisionSummary({ type: 'DISCHARGE', discharge_type: 'NORMAL', follow_up_at: '2026-10-04' }, {});
+    assert.deepEqual(discharge.at(-1), { label: 'Contrôle', value: '04/10/2026' });
 });
 
 /**
- * Les onglets 1 · 2 · 3 sont la seule navigation : ils restent visibles au-dessus
- * des trois sections, donc un second jeu « Précédent / Suivant » en pied
- * refaisait le même travail et suggérait un ordre imposé. Retiré à la demande
- * du propriétaire (2026-09-17).
+ * Demande du propriétaire (2026-09-27) : transmettre le patient à un service
+ * doit se lire sur le bouton, avant la clôture finale — jamais un « Clôturer »
+ * qui tairait l'envoi. Une sortie ne transmet à personne : le libellé ne le
+ * prétend pas.
  */
-test('les onglets sont la seule navigation entre les sections', () => {
-    const closure = page.slice(page.indexOf('Étapes de la clôture'), page.indexOf('v-if="medical_discharge"'));
+test('le bouton dit ce qu’il fait : transmettre, prononcer une sortie, ou clôturer', () => {
+    const maternity = closureAction({ type: 'MATERNITY' });
+    assert.equal(maternity.transmits, true);
+    assert.equal(maternity.button, 'Transmettre et clôturer');
+    assert.equal(maternity.confirm, 'Je transmets ce patient à la Maternité et je clôture');
+    assert.match(maternity.notice, /transmis à la Maternité/);
 
-    assert.match(closure, /@click="closureSubStep = section\.step"/);
-    assert.doesNotMatch(closure, /closureSubStep \+= 1/);
-    assert.doesNotMatch(closure, /closureSubStep -= 1/);
+    assert.equal(closureAction({ type: 'SURGERY' }).confirm, 'Je transmets ce patient au bloc opératoire et je clôture');
+    assert.equal(closureAction({ type: 'REFERRAL' }).title, 'Transmettre aux Transferts et clôturer');
+
+    const discharge = closureAction({ type: 'DISCHARGE' });
+    assert.equal(discharge.transmits, false);
+    assert.equal(discharge.confirm, 'Je prononce la sortie et je clôture');
+    assert.equal(closureAction({ type: 'DISCHARGE', discharge_type: 'DECEASED' }).confirm, 'Je prononce le décès et je clôture');
+
+    // Rien à transmettre : déjà partie, ou le patient reste au lit.
+    assert.equal(closureAction({ type: 'MATERNITY' }, { active: { status: 'SUBMITTED' } }).confirm, 'Je confirme et clôture');
+    assert.equal(closureAction({ type: 'CONTINUED_HOSPITALIZATION' }).transmits, false);
+
+    // L'écran lit ces libellés, il n'en écrit aucun lui-même.
+    assert.match(page, /closureActionLabels\.button/);
+    assert.match(page, /closureActionLabels\.confirm/);
+    assert.match(page, /:title="closureActionLabels\.title"/);
+});
+
+test('un contrôle « dans N jours » se compte dans le fuseau du poste', () => {
+    assert.equal(followUpDate(7, new Date(2026, 8, 27, 23, 30)), '2026-10-04');
+});
+
+test('la conduite préparée survit à une actualisation', () => {
+    assert.match(page, /decision: decisionForm,/);
+
+    const request = fs.readFileSync('app/Http/Requests/Medicine/SaveConsultationDraftRequest.php', 'utf8');
+    assert.match(request, /'decision',/);
 });
 
 /**
- * Aucun onglet n'est condamné par l'état du dossier : un diagnostic peut
- * légitimement être différé (ADR-095) ou ne pas être dû (ADR-094). C'est la
- * clôture qui refuse, à l'étape 3, en nommant ce qui manque — jamais un bouton
- * grisé muet.
- */
-test('atteindre une section n’est jamais refusé', () => {
-    const nav = page.slice(page.indexOf('Étapes de la clôture'));
-    const markup = nav.slice(0, nav.indexOf('</nav>'));
-
-    assert.doesNotMatch(markup, /:disabled=/);
-});
-
-/** La réponse du médecin doit être suivie d'effet. */
-test('« Pas maintenant » replie la saisie du diagnostic', () => {
-    assert.match(page, /v-if="diagnosisReady !== false \|\| diagnosisEntryOpen" class="mt-3"/);
-});
-
-/**
- * Le serveur refuse à juste titre « Oui » sans diagnostic enregistré (ADR-095),
- * mais son message renvoie à « ci-dessous » — et « Pas maintenant » garde
- * précisément la saisie repliée. La consigne désignait donc un champ
- * invisible. « Oui » ouvre la saisie au lieu d'envoyer une réponse rejetée.
- */
-test('« Oui » sans diagnostic ouvre la saisie au lieu d’échouer', () => {
-    const decide = page.slice(page.indexOf('const decideDiagnosisTiming'), page.indexOf('const requiresFinalDiagnosis'));
-
-    assert.match(decide, /if \(ready && ! activeDiagnoses\.value\.length\)/);
-    assert.match(decide, /diagnosisEntryOpen\.value = true;[\s\S]{0,40}return;/);
-
-    // Et la ligne « diagnostic différé » ne contredit plus la saisie ouverte.
-    assert.match(page, /v-if="diagnosisReady === false && ! diagnosisEntryOpen"/);
-});
-
-/** Répondre reste possible : le report n’est pas définitif. */
-test('la question elle-même reste toujours visible', () => {
-    const question = page.indexOf('Le diagnostic peut-il être posé maintenant ?');
-    assert.notEqual(question, -1);
-
-    const block = page.slice(page.lastIndexOf('<div', question), question);
-    assert.doesNotMatch(block, /v-if|v-show/);
-});
-
-/**
- * ADR-081 place correction et retrait « dans la carte Diagnostic », que
- * l'ADR-089 a déplacée ici. Les endpoints existaient, l'écran ne les appelait
- * plus : une faute de frappe restait dans le dossier sans rien pour la
- * rectifier.
+ * ADR-081 — correction et retrait d'un diagnostic restent à la clôture : une
+ * faute de frappe se rectifie là où on la relit.
  */
 test('un diagnostic enregistré peut être corrigé et retiré', () => {
     const list = fs.readFileSync('resources/js/Components/Clinical/ClinicalDiagnosisList.vue', 'utf8');
 
-    // Les deux endpoints existants, jamais un second chemin d'écriture.
     assert.match(list, /\.put\(`\/medicine\/orientations\/\$\{props\.orientationUuid\}\/diagnoses`/);
     assert.match(list, /\.post\(`\/medicine\/orientations\/\$\{props\.orientationUuid\}\/diagnoses\/cancel`/);
-
-    // Réservés à l'auteur (ADR-035) : les drapeaux viennent du serveur.
     assert.match(list, /v-if="diagnosis\.can_edit"/);
     assert.match(list, /v-if="diagnosis\.can_cancel"/);
-
-    // Aucune fenêtre native ne décide d'un retrait, et on ne la ferme pas
-    // d'un clic à côté.
-    assert.doesNotMatch(list, /window\.confirm|[^.\w]confirm\(/);
     assert.match(list, /:dismissible="false"/);
-
-    // Et l'étape de clôture l'utilise réellement.
+    // Le diagnostic n'est plus exigé : rien n'avertit plus que la clôture en dépend.
+    assert.doesNotMatch(list, /requiredForClosure/);
     assert.match(page, /<ClinicalDiagnosisList/);
-});
-
-/**
- * Le diagnostic se pose à la sous-étape 1, la conduite à tenir à la 2, et on
- * lit les obstacles depuis la 3 : « déjà sur place » ne disait pas où agir.
- */
-test('chaque obstacle de la clôture mène à sa sous-étape', () => {
-    assert.match(page, /v-else-if="blocker\.closure_section"/);
-    assert.match(page, /@click="closureSubStep = blocker\.closure_section"/);
-});
-
-/**
- * ADR-081 : un diagnostic est requis pour clôturer. Retirer le dernier le dit avant
- * le clic — aux deux endroits où l'on peut le faire — plutôt que sur un bouton grisé.
- */
-test('retirer le dernier diagnostic prévient que la clôture en dépend', () => {
-    const show = page;
-    const list = fs.readFileSync('resources/js/Components/Clinical/ClinicalDiagnosisList.vue', 'utf8');
-
-    assert.match(show, /cancellingLastRequiredDiagnosis/);
-    assert.match(show, /le seul diagnostic de ce passage/);
-    assert.match(show, /:required-for-closure="requiresFinalDiagnosis"/);
-    assert.match(show, /rien à ressaisir/);
-    assert.match(list, /requiredForClosure: \{ type: Boolean/);
-    assert.match(list, /requiredForClosure && diagnoses\.length === 1/);
 });

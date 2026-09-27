@@ -2,19 +2,23 @@
 
 namespace App\Services\Episode;
 
+use App\Actions\Episode\SendEpisodeToCareAction;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Enums\ReceptionNextStep;
+use App\Models\CareOrder;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\EpisodeReceptionNextStep;
 use App\Models\User;
 use App\Support\CareRequestSummary;
 use App\Support\EpisodeEntryPath;
+use App\Support\EpisodeHeldElsewhere;
 use App\Support\EpisodeQueuePresenter;
+use Closure;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use InvalidArgumentException;
@@ -63,9 +67,10 @@ use InvalidArgumentException;
  * attendent, ils partagent donc la même file et la même numérotation.
  *
  * Par où il devrait entrer se lit sur la ligne (`pathway`, `EpisodeEntryPath`) :
- * la Médecine est prévenue qu'un patient est attendu aux Soins d'abord et
- * décide ; les Soins ne prennent pas un patient attendu directement en Médecine
- * — ce passage reste visible, mais ne tient pas de place dans leur file.
+ * la Médecine est prévenue qu'un patient est attendu aux Soins d'abord, les
+ * Soins qu'un patient est attendu en Médecine, et chacun décide — rien n'est
+ * refusé. Le patient attendu en Médecine se prend aux Soins, mais ne tient pas
+ * de place dans leur file numérotée.
  */
 final class ActiveEpisodeBoard
 {
@@ -154,13 +159,36 @@ final class ActiveEpisodeBoard
      *
      * @return array<string, int>
      */
-    public function counts(CatalogModule $module): array
+    public function counts(CatalogModule $module, ?Closure $refine = null): array
     {
         $this->ensureSupported($module);
 
         return collect(self::VIEWS)
-            ->mapWithKeys(fn (string $view): array => [$view => $this->scope($this->base(), $module, $view)->count()])
+            ->mapWithKeys(fn (string $view): array => [$view => $this->refined($this->scope($this->base(), $module, $view), $refine)->count()])
             ->all();
+    }
+
+    /** ADR-204 — le compte d'une seule vue, resserrée par un filtre propre au service. */
+    public function countIn(CatalogModule $module, string $view, ?Closure $refine = null): int
+    {
+        $this->ensureSupported($module);
+
+        return $this->refined($this->scope($this->base(), $module, $this->normalizeView($view)), $refine)->count();
+    }
+
+    /**
+     * ADR-204 — un service peut resserrer son tableau sur une notion qui lui est
+     * propre (la Maternité : consultations ou accouchements). Le filtre
+     * s'applique **après** les blocs : il ne change ni la visibilité d'un
+     * passage, ni son n° de file, qui se calcule toujours sur toute la file.
+     */
+    private function refined(Builder $query, ?Closure $refine): Builder
+    {
+        if ($refine !== null) {
+            $refine($query);
+        }
+
+        return $query;
     }
 
     /**
@@ -168,12 +196,12 @@ final class ActiveEpisodeBoard
      *
      * @return LengthAwarePaginator<int, array<string, mixed>>
      */
-    public function page(CatalogModule $module, string $view, string $search, User $user, int $perPage = 20): LengthAwarePaginator
+    public function page(CatalogModule $module, string $view, string $search, User $user, int $perPage = 20, ?Closure $refine = null): LengthAwarePaginator
     {
         $this->ensureSupported($module);
         $view = $this->normalizeView($view);
 
-        $paginator = $this->order($this->search($this->scope($this->base(), $module, $view), $search), $module, $view)
+        $paginator = $this->order($this->search($this->refined($this->scope($this->base(), $module, $view), $refine), $search), $module, $view)
             ->with([
                 'patient',
                 'serviceRequests',
@@ -252,10 +280,10 @@ final class ActiveEpisodeBoard
     }
 
     /**
-     * Les passages que ce service ne peut pas prendre parce qu'ils sont attendus
-     * ailleurs (`EpisodeEntryPath`, refus des Soins) : ils restent visibles mais
-     * ne tiennent aucune place dans sa file. Seuls les Soins refusent ; les
-     * relations sont lues en trois requêtes pour toute la file.
+     * Les passages attendus ailleurs (`EpisodeEntryPath::MEDICINE_ONLY`) : visibles
+     * et possibles à prendre, mais hors de la file numérotée de ce service — son
+     * n° 1 reste le prochain patient qui vient pour lui. Seuls les Soins sont
+     * concernés ; les relations sont lues en trois requêtes pour toute la file.
      *
      * @param  list<int>  $ids
      * @return array<int, true>
@@ -270,7 +298,7 @@ final class ActiveEpisodeBoard
             ->whereIn('id', $ids)
             ->with(['serviceRequests', 'receptionNextSteps', 'orientations'])
             ->get()
-            ->filter(fn (Episode $episode) => EpisodeEntryPath::guard($episode, $module)['blocking'] ?? false)
+            ->filter(fn (Episode $episode) => EpisodeEntryPath::expectedElsewhere(EpisodeEntryPath::guard($episode, $module)))
             ->mapWithKeys(fn (Episode $episode): array => [$episode->getKey() => true])
             ->all();
     }
@@ -429,16 +457,22 @@ final class ActiveEpisodeBoard
         $patient = $episode->patient;
         $nextSteps = $this->nextStepsOf($episode);
         // Le parcours prévu ne dépend pas du compte : un patient attendu en
-        // Médecine ne tient de place dans la file des Soins pour personne.
+        // Médecine ne tient de place dans la file des Soins pour personne — mais
+        // il s'y prend, si les Soins le décident.
         $guard = $state === self::STATE_NONE ? EpisodeEntryPath::guard($episode, $module) : null;
-        $blocked = $guard['blocking'] ?? false;
+        $expectedElsewhere = EpisodeEntryPath::expectedElsewhere($guard);
+        // Déjà pris en charge en Médecine ou aux Soins : visible, jamais repris
+        // une seconde fois d'ici. Il garde sa place dans la file, mais n'entre
+        // pas dans le garde-fou « un patient attend avant celui-ci » — on ne
+        // l'appelle pas en pleine consultation.
+        $holder = $state === self::STATE_NONE ? EpisodeHeldElsewhere::holder($episode, $module, $episode->orientations) : null;
 
         return [
             'uuid' => $episode->uuid,
             // Pour le garde-fou « un patient attend avant celui-ci » (ADR-121) :
             // tout passage en attente ici est une place dans la file — sauf
-            // celui que ce service ne peut pas prendre, attendu ailleurs.
-            'status' => $this->isWaitingState($state) && ! $blocked ? EpisodeOrientationStatus::Pending->value : $state,
+            // celui qui est attendu ailleurs, ou qu'un autre service a en ce moment.
+            'status' => $this->isWaitingState($state) && ! $expectedElsewhere && $holder === null ? EpisodeOrientationStatus::Pending->value : $state,
             'oriented_at' => $orientation?->oriented_at ?? $episode->started_at,
             'episode' => [
                 'uuid' => $episode->uuid,
@@ -484,7 +518,7 @@ final class ActiveEpisodeBoard
                 'accepted_by' => $orientation?->acceptedBy?->name,
                 'accepted_by_id' => $orientation?->accepted_by,
                 'is_mine' => $orientation !== null && $orientation->accepted_by === $user->getKey(),
-                'queue_number' => $this->isWaitingState($state) && ! $blocked ? ($queueNumbers[$episode->getKey()] ?? null) : null,
+                'queue_number' => $this->isWaitingState($state) && ! $expectedElsewhere ? ($queueNumbers[$episode->getKey()] ?? null) : null,
                 'is_waiting' => $this->isWaitingState($state),
                 'pending_reasons' => $reasons,
                 'is_waiting_on_results' => $reasons !== [],
@@ -509,7 +543,9 @@ final class ActiveEpisodeBoard
             // Par où ce patient devrait entrer, quand ce service s'apprête à le
             // prendre à contre-sens : servi seulement à qui peut le prendre.
             'pathway' => $this->pathway($guard, $episode, $module, $user),
-            'actions' => $this->actions($episode, $module, $user, $orientation, $state, $blocked),
+            // ADR-177, amendement du 2026-09-27 — le bouton devient « En cours ».
+            'held_elsewhere' => $holder ? EpisodeHeldElsewhere::present($holder) : null,
+            'actions' => $this->actions($episode, $module, $user, $orientation, $state, $holder !== null),
         ];
     }
 
@@ -519,8 +555,8 @@ final class ActiveEpisodeBoard
      * rappel s'adresse. Devant un patient attendu aux Soins, la Médecine reçoit
      * l'adresse pour les faire elle-même, si ses droits Soins le permettent.
      *
-     * @param  array{code: string, blocking: bool, title: string, message: string, reasons: list<string>}|null  $guard
-     * @return array{code: string, blocking: bool, title: string, message: string, reasons: list<string>, care_take_charge_url: ?string}|null
+     * @param  array{code: string, title: string, message: string, reasons: list<string>}|null  $guard
+     * @return array{code: string, title: string, message: string, reasons: list<string>, care_take_charge_url: ?string}|null
      */
     private function pathway(?array $guard, Episode $episode, CatalogModule $module, User $user): ?array
     {
@@ -554,12 +590,13 @@ final class ActiveEpisodeBoard
      *
      * @return array{take_charge_url: ?string, open_url: ?string, release_url: ?string, passage_url: ?string, journal_url: ?string, medical_record_url: ?string}
      */
-    private function actions(Episode $episode, CatalogModule $module, User $user, ?EpisodeOrientation $orientation, string $state, bool $blocked): array
+    private function actions(Episode $episode, CatalogModule $module, User $user, ?EpisodeOrientation $orientation, string $state, bool $heldElsewhere): array
     {
         $config = self::WORKSPACES[$module->value];
-        // Attendu ailleurs : aucune adresse de prise en charge — le serveur la
-        // refuserait de toute façon (`TakeChargeOfEpisodeAction`).
-        $canTake = ! $blocked && $this->canTake($module, $user);
+        // Un autre service a le patient en ce moment : aucune adresse de prise
+        // en charge — le serveur la refuserait de toute façon. Attendu ailleurs
+        // n'en retire aucune : le rappel est dit, la décision reste ici.
+        $canTake = ! $heldElsewhere && $this->canTake($module, $user);
 
         $openUrl = null;
 
@@ -589,6 +626,55 @@ final class ActiveEpisodeBoard
             'medical_record_url' => $state === self::STATE_COMPLETED && $user->can('patients.view')
                 ? route('passages.medical-record.print', $episode)
                 : null,
+            ...$this->careDetour($episode, $module, $user),
+        ];
+    }
+
+    /**
+     * ADR-177, amendements du 2026-09-27 — la Médecine envoie un patient aux
+     * Soins à tout moment du passage, et peut l'annuler tant que les Soins ne
+     * l'ont pas pris (`SendEpisodeToCareAction`).
+     *
+     * La règle est celle de l'action (`refusalFor`) : l'écran propose ce que le
+     * serveur accepterait, et dit d'avance ce qui suit les soins.
+     *
+     * @return array{send_to_care: array{url: string, moment: string, then: string, returns_to_medicine: bool}|null, withdraw_care_url: string|null}
+     */
+    private function careDetour(Episode $episode, CatalogModule $module, User $user): array
+    {
+        $none = ['send_to_care' => null, 'withdraw_care_url' => null];
+
+        if ($module !== CatalogModule::Medicine || ! $user->can('consultations.create')) {
+            return $none;
+        }
+
+        $orientations = $episode->orientations;
+        $sent = $orientations->first(fn (EpisodeOrientation $orientation) => $orientation->destination_module === CatalogModule::Care
+            && $orientation->status === EpisodeOrientationStatus::Pending
+            && $orientation->source_module === CatalogModule::Medicine);
+
+        if ($sent !== null) {
+            // Un ordre de soins de la consultation (ADR-055) se retire depuis la
+            // consultation, pas d'ici : seul l'envoi de ce tableau s'annule.
+            $fromBoard = ! CareOrder::query()->where('care_orientation_id', $sent->getKey())->exists();
+
+            return ['send_to_care' => null, 'withdraw_care_url' => $fromBoard ? route('medicine.passages.withdraw-from-care', $episode) : null];
+        }
+
+        if (SendEpisodeToCareAction::refusalFor($episode, $orientations) !== null) {
+            return $none;
+        }
+
+        $then = SendEpisodeToCareAction::afterCare($episode, $orientations);
+
+        return [
+            'send_to_care' => [
+                'url' => route('medicine.passages.send-to-care', $episode),
+                'moment' => SendEpisodeToCareAction::moment($orientations),
+                'then' => $then,
+                'returns_to_medicine' => $then === SendEpisodeToCareAction::THEN_MEDICINE,
+            ],
+            'withdraw_care_url' => null,
         ];
     }
 
@@ -636,17 +722,35 @@ final class ActiveEpisodeBoard
         };
     }
 
-    /** @return list<array{value: string, label: string}> */
+    /**
+     * La suggestion de l'accueil, et pour chaque étape si elle a été faite.
+     *
+     * Faite = le service a terminé une prise en charge de ce passage et n'en a
+     * aucune autre en cours ou en attente : un patient renvoyé aux Soins après
+     * une première visite n'y est pas « fait ». Lu sur les orientations déjà
+     * chargées pour la ligne — aucune requête de plus. Une étape sans
+     * orientation (Pharmacie) ne se dit jamais faite : rien ne l'atteste ici.
+     *
+     * @return list<array{value: string, label: string, done: bool, done_at: mixed}>
+     */
     private function nextStepsOf(Episode $episode): array
     {
         $values = $episode->receptionNextSteps
             ->map(fn (EpisodeReceptionNextStep $step): string => $step->module->value)
             ->all();
 
-        return array_values(array_map(
-            fn (string $value): array => ['value' => $value, 'label' => ReceptionNextStep::from($value)->label()],
-            array_intersect(ReceptionNextStep::values(), $values),
-        ));
+        return array_values(array_map(function (string $value) use ($episode): array {
+            $toward = $episode->orientations->filter(fn (EpisodeOrientation $orientation) => $orientation->destination_module->value === $value);
+            $completed = $toward->filter(fn (EpisodeOrientation $orientation) => $orientation->status === EpisodeOrientationStatus::Completed);
+            $done = $completed->isNotEmpty() && ! $toward->contains(fn (EpisodeOrientation $orientation) => $orientation->status->isActive());
+
+            return [
+                'value' => $value,
+                'label' => ReceptionNextStep::from($value)->label(),
+                'done' => $done,
+                'done_at' => $done ? $completed->max('completed_at') : null,
+            ];
+        }, array_intersect(ReceptionNextStep::values(), $values)));
     }
 
     /**

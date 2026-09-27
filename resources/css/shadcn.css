@@ -74,6 +74,17 @@
     to { opacity: 1; }
 }
 
+/* Un panneau latéral (`Sheet`) glisse depuis son bord. */
+@keyframes rivo-sheet-in-right {
+    from { opacity: 0.6; transform: translateX(100%); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes rivo-sheet-in-left {
+    from { opacity: 0.6; transform: translateX(-100%); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
 @keyframes rivo-overlay-in {
     from { opacity: 0; }
     to { opacity: 1; }

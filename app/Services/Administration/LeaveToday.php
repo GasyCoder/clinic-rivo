@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
 /**
- * ADR-198 — qui est en congé aujourd'hui : une demande acceptée dont la période
+ * ADR-207 — qui est en congé aujourd'hui : une demande acceptée dont la période
  * (premier jour → dernier jour demandé, inclus) couvre la date du jour.
  *
  * « Actif » dit que le dossier est en service ; un congé ne l'interrompt pas.

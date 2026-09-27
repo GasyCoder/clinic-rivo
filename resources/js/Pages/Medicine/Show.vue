@@ -57,8 +57,7 @@ import MedicineWorkflowNav from '@/Components/Medicine/MedicineWorkflowNav.vue';
 import ConsultationStepBar from '@/Components/Medicine/ConsultationStepBar.vue';
 import ClinicalGeneralState from '@/Components/Clinical/ClinicalGeneralState.vue';
 import ClinicalSystemsAccordion from '@/Components/Clinical/ClinicalSystemsAccordion.vue';
-import ClinicalOrientationCard from '@/Components/Clinical/ClinicalOrientationCard.vue';
-import ClinicalDischargeForm from '@/Components/Clinical/ClinicalDischargeForm.vue';
+import ConsultationDecisionPanel from '@/Components/Clinical/ConsultationDecisionPanel.vue';
 import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
 import SortableSections from '@/Components/UI/SortableSections.vue';
 import ClinicalExaminationSummary from '@/Components/Clinical/ClinicalExaminationSummary.vue';
@@ -85,6 +84,7 @@ import { editorFieldsFor, isUndosedForm } from '@/utilities/posology';
 import { checkDuplicates, checkLine, LEVELS, worstLevel } from '@/utilities/prescriptionChecks';
 import { useToastStore } from '@/stores/toast';
 import { formatDate, formatDateTime } from '@/utilities/date';
+import { closureAction, closureMissing, decisionPayload, decisionSummary } from '@/utilities/consultationClosure';
 
 defineOptions({ layout: AppLayout });
 
@@ -350,10 +350,7 @@ const currentStepPosition = computed(() => {
     return index === -1 ? null : index + 1;
 });
 
-/** What the server says still stands between here and a closed consultation. */
 const toast = useToastStore();
-
-const closureBlockers = computed(() => props.consultation?.closure_blockers ?? []);
 
 /**
  * Rouvrir une consultation clôturée (ADR-096).
@@ -377,133 +374,76 @@ const submitReopen = () => reopenForm.post(`/medicine/orientations/${props.orien
 });
 
 /**
- * « Le diagnostic peut-il être posé maintenant ? » (ADR-095).
+ * « Décision & clôture » (ADR-203).
  *
- * Trois états, jamais deux : `null` tant que le médecin n'a pas répondu —
- * aucun bouton pré-sélectionné, parce qu'une absence de réponse n'est pas
- * un report.
+ * Le médecin choisit la conduite à tenir, la précise s'il le veut, et
+ * « Clôturer » la transmet puis conclut la rencontre en un seul geste. Rien
+ * d'autre ne retient la clôture : ni diagnostic, ni étape à valider, ni
+ * question « le diagnostic peut-il être posé maintenant ? ». Le serveur rejuge
+ * tout ; l'écran ne fait que composer ce qui part (`decisionPayload`).
  *
- * Son endpoint est distinct de l'enregistrement de l'examen clinique :
- * répondre à une question ne doit jamais réécrire l'état général, la
- * conscience ou les appareils examinés.
+ * Le formulaire vit ici, pas dans le panneau : c'est la page qui l'envoie à la
+ * clôture et qui le garde dans le brouillon serveur (ADR-073).
  */
-const diagnosisReady = computed(() => props.consultation?.clinical_examination?.diagnosis_ready ?? null);
-
-/**
- * Les trois temps de la clôture, parcourus un par un.
- *
- * Les trois étaient empilés sur un même écran : le médecin devait faire
- * défiler pour savoir où il en était, et la vérification — ce qui manque
- * encore — se lisait tout en bas, après deux blocs déjà traités.
- *
- * Avancer n'est jamais bloqué. Un diagnostic peut légitimement être différé
- * (ADR-095) ou ne pas être dû du tout (ADR-094) : c'est la clôture
- * elle-même qui refuse, avec son motif, à l'étape 3. Un bouton « Suivant »
- * grisé n'expliquerait rien.
- *
- * `done` ne fait que refléter ce que le serveur dit déjà — jamais une règle
- * recalculée ici.
- */
-const closureSubStep = ref(1);
-
-const closureSections = computed(() => [
-    {
-        step: 1,
-        label: 'Diagnostic',
-        done: activeDiagnoses.value.length > 0 || !requiresFinalDiagnosis.value,
-    },
-    {
-        step: 2,
-        label: 'Conduite à tenir',
-        done: activeOrientation.value?.status === 'SUBMITTED',
-    },
-    {
-        step: 3,
-        label: 'Vérification',
-        done: closureBlockers.value.length === 0,
-    },
-]);
-const diagnosisTimingForm = useForm({ ready: false });
-
-/**
- * « Oui » cliqué alors qu'aucun diagnostic n'est enregistré n'est pas une
- * réponse : c'est l'intention d'en poser un. Le serveur refuse cette réponse
- * à juste titre (ADR-095 — une intention n'est pas un diagnostic), mais son
- * message renvoie à « ci-dessous », or « Pas maintenant » garde justement la
- * saisie repliée : le médecin lisait une consigne désignant un champ
- * invisible. La saisie s'ouvre donc, au lieu d'envoyer une réponse dont on
- * sait qu'elle sera rejetée.
- */
-const diagnosisEntryOpen = ref(false);
-
-const decideDiagnosisTiming = (ready) => {
-    if (ready && ! activeDiagnoses.value.length) {
-        diagnosisTimingForm.clearErrors();
-        diagnosisEntryOpen.value = true;
-
-        return;
-    }
-
-    diagnosisTimingForm.ready = ready;
-    diagnosisTimingForm.post(`/medicine/orientations/${props.orientation.uuid}/diagnostic-timing`, {
-        preserveScroll: true,
-        onSuccess: () => { diagnosisEntryOpen.value = ready; },
-    });
-};
-
-/**
- * Un passage venu seulement pour un ECG, une échographie ou une analyse ne
- * doit pas de diagnostic final (ADR-094). Le serveur tranche ; l'écran ne
- * fait que refléter sa réponse, et retombe sur « exigé » si elle manque —
- * c'est le comportement de toute vraie consultation.
- */
-const requiresFinalDiagnosis = computed(() => props.consultation?.requires_final_diagnosis !== false);
 const consultationIsClosed = computed(() => props.consultation?.status === 'COMPLETED');
-const completeConsultationForm = useForm({});
-const showCriticalVitalConfirm = ref(false);
+const decisionForm = useForm({
+    type: null,
+    priority: null,
+    notes: '',
+    discharge_type: 'NORMAL',
+    patient_condition: null,
+    // Repris de l'ordonnance, comme partout (§17) : corrigé, jamais recopié.
+    discharge_prescription: props.consultation_orientation?.prefill?.treatments ?? '',
+    recommendations: '',
+    follow_up_at: '',
+    catalog_item_uuid: '',
+    facility: '',
+});
 
-const submitCompleteConsultation = () => {
-    showCriticalVitalConfirm.value = false;
-    showAwaitingResultConfirm.value = false;
-    completeConsultationForm.post(
-        `/medicine/orientations/${props.orientation.uuid}/complete`,
-        { preserveScroll: true },
-    );
-};
+const decisionContext = computed(() => ({
+    types: props.options?.orientation_types ?? [],
+    dischargeTypes: props.options?.discharge_types ?? [],
+    priorities: props.options?.clinical_priorities ?? [],
+    surgeryCatalog: props.options?.surgery_catalog ?? [],
+    active: props.consultation_orientation?.active ?? null,
+    medicalDischarge: props.medical_discharge ?? null,
+}));
+/** La seule chose qui retient « Clôturer » : aucune conduite choisie. */
+const closureHint = computed(() => closureMissing(decisionForm, decisionContext.value));
+const closureSummary = computed(() => decisionSummary(decisionForm, decisionContext.value));
+/** Ce que fait réellement le bouton : transmettre, prononcer une sortie, ou seulement clôturer. */
+const closureActionLabels = computed(() => closureAction(decisionForm, decisionContext.value));
 
 /**
- * Clôturer sur une constante critique demande une confirmation.
- *
- * Ce n'est volontairement **pas** une règle serveur : le CDC n'interdit
- * nulle part de terminer une consultation sur une SpO₂ basse, et il existe
- * de bonnes raisons de le faire — le patient part en chirurgie, la valeur a
- * déjà été prise en compte, ou la mesure est simplement fausse. Inventer un
- * blocage ici fabriquerait une règle métier que personne n'a validée.
- *
- * Ce que le système peut légitimement faire, c'est refuser de laisser
- * passer la chose en silence : il nomme la constante et demande une
- * confirmation explicite. Les vrais obstacles de clôture (`closureBlockers`)
- * restent, eux, vérifiés côté serveur.
+ * Clôturer est un acte signé (ADR-106) : une seule fenêtre relit la conduite
+ * qui part, les diagnostics, et ce qui mérite d'être su avant de conclure — un
+ * résultat encore attendu, une constante critique. Ce sont des informations,
+ * jamais des blocages : le médecin peut avoir conclu sans elles.
  */
-const showAwaitingResultConfirm = ref(false);
+const closeConfirmOpen = ref(false);
 
 const completeConsultation = () => {
-    if (hasCriticalVital.value) {
-        showCriticalVitalConfirm.value = true;
+    if (closureHint.value) {
+        toast.warning(closureHint.value);
 
         return;
     }
 
-    // Clôturer alors qu'un résultat est attendu reste possible — le médecin
-    // peut avoir conclu sans lui — mais jamais en silence.
-    if (awaitingResults.value.length) {
-        showAwaitingResultConfirm.value = true;
-
-        return;
-    }
-
-    submitCompleteConsultation();
+    decisionForm.clearErrors();
+    closeConfirmOpen.value = true;
 };
+
+const submitCompleteConsultation = () => decisionForm
+    .transform(() => ({ decision: decisionPayload(decisionForm, decisionContext.value) }))
+    .post(`/medicine/orientations/${props.orientation.uuid}/complete`, {
+        preserveScroll: true,
+        onSuccess: () => { closeConfirmOpen.value = false; },
+        // Un refus se lit sous le champ concerné, pas dans une fenêtre fermée.
+        onError: () => { closeConfirmOpen.value = false; },
+    });
+
+/** Les erreurs de la décision qu'aucun champ affiché ne porte. */
+const closureError = computed(() => decisionForm.errors.consultation ?? null);
 
 /**
  * A patient who came only for an ECG, an ultrasound or a lab test has no
@@ -1396,7 +1336,7 @@ const hasPendingParaclinicalSelection = computed(() => (
 const reportingImagingItem = ref(null);
 
 // Les demandes d'orientation (chirurgie, hospitalisation, référence,
-// service) vivent maintenant dans ClinicalOrientationCard, au plus près
+// service) vivent maintenant dans ConsultationDecisionPanel, au plus près
 // du moment où la conduite à tenir est décidée (ADR-084). L'écran ne
 // porte plus ni leurs champs ni leurs formulaires.
 
@@ -1478,15 +1418,6 @@ const addManualDiagnosis = () => {
 
 const diagnosisCancellationForm = useForm({ diagnosis_id: null });
 const diagnosisToCancel = ref(null);
-/**
- * Retirer le dernier diagnostic d'une vraie consultation ramène la clôture à
- * « impossible » (CDC §33.1, ADR-081). L'exigence est maintenue ; le retrait,
- * lui, doit le dire avant le clic plutôt que le faire découvrir sur un bouton
- * grisé une étape plus loin.
- */
-const cancellingLastRequiredDiagnosis = computed(() => Boolean(diagnosisToCancel.value)
-    && requiresFinalDiagnosis.value
-    && activeDiagnoses.value.length === 1);
 const openDiagnosisCancellation = (diagnosis) => {
     diagnosisCancellationForm.clearErrors();
     diagnosisToCancel.value = diagnosis;
@@ -1902,7 +1833,6 @@ const removePrescription = () => {
 const latestFinalDiagnosisEntry = computed(() => [...(props.consultation?.diagnoses ?? [])]
     .reverse()
     .find((diagnosis) => diagnosis.type === 'FINAL' && !diagnosis.cancelled) ?? null);
-const latestFinalDiagnosis = computed(() => latestFinalDiagnosisEntry.value?.description ?? '');
 /**
  * Every diagnosis of this consultation, cancelled ones included.
  *
@@ -1915,31 +1845,6 @@ const allDiagnoses = computed(() => props.consultation?.diagnoses ?? []);
 
 const timelineEntries = computed(() => [...finalDiagnoses.value, ...associatedHypotheses.value]
     .filter((diagnosis) => diagnosis.id !== latestFinalDiagnosisEntry.value?.id));
-const activePrescriptionSummary = computed(() => (props.consultation?.prescriptions ?? [])
-    .flatMap((prescription) => prescription.lines)
-    // `posology` est composée côté serveur, voie comprise : le résumé de
-    // sortie ne doit pas non plus livrer des nombres sans unité.
-    .map((line) => [line.medication_name, line.posology].filter(Boolean).join(' — '))
-    .join('\n'));
-
-/** The same lines, one per entry, for the discharge form's checkboxes. */
-const activePrescriptionLines = computed(() => activePrescriptionSummary.value.split('\n').filter(Boolean));
-
-const dischargeForm = useForm({
-    type: 'NORMAL',
-    final_diagnosis: latestFinalDiagnosis.value,
-    patient_condition: '',
-    discharge_prescription: activePrescriptionSummary.value,
-    recommendations: '',
-    follow_up_at: '',
-    observations: '',
-    transfer_destination: '',
-    death_occurred_at: '',
-    death_place: '',
-    death_causes: '',
-    discharged_at: toLocalDateTimeInput(),
-});
-
 // ── Saisie en cours ───────────────────────────────────────────────────────
 // Everything typed across the wizard survives a reload: only an explicit
 // "Annuler la saisie", or a real save, discards it (ADR-073). Server-side
@@ -1957,7 +1862,7 @@ const draft = useFormDraft({
         care_order: careOrderForm,
         lab_request: labRequestForm,
         imaging_request: imagingRequestForm,
-        discharge: dischargeForm,
+        decision: decisionForm,
     },
 });
 
@@ -2026,30 +1931,6 @@ const prescribedLineCount = computed(() => (props.consultation?.prescriptions ??
  * simplement choisie sont deux états différents (ADR-084).
  */
 const activeOrientation = computed(() => props.consultation_orientation?.active ?? null);
-const orientationIsSubmitted = computed(() => activeOrientation.value?.status === 'SUBMITTED');
-
-/**
- * Où la conduite à tenir se décide pour CE patient.
- *
- * Un passage venu pour une seule analyse ou une échographie n'a ni
- * interrogatoire ni examen clinique (ADR-076) : l'y renvoyer pour qu'il
- * déclare sa décision n'aurait aucun sens. Le lien mène alors à la
- * Paraclinique, c'est-à-dire devant le résultat qu'il vient lire.
- */
-// ADR-089 — la conduite à tenir ne se décide plus qu'à « Décision & clôture ».
-const orientationStep = computed(() => 'cloture');
-
-
-
-// « Sortie médicale » garde son formulaire dans l'écran : c'est le seul
-// des six qui produit un acte médical, pas une demande à un service.
-// La carte d'orientation le monte dans son emplacement dédié.
-
-const submitDischarge = () => dischargeForm.post(
-    `/medicine/orientations/${props.orientation.uuid}/discharge`,
-    { preserveScroll: true },
-);
-
 const splitLines = (value) => (value ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
 
 const patientAge = computed(() => patient.value.age !== null && patient.value.age !== undefined
@@ -3429,251 +3310,114 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     <div v-else-if="!capabilities.can_view_pharmacy_availability" class="border-t border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">Votre compte ne dispose pas du droit de consulter la disponibilité Pharmacie. Aucune ordonnance ne peut être créée depuis cet écran.</div>
                 </Card>
 
-                <!-- §18 — la Clôture ne demande plus « quelle est la
-                     décision ? » : elle vérifie ce qui a été fait, signale ce
-                     qui manque, et valide. La conduite à tenir a déjà été
-                     décidée là où le médecin la connaissait. -->
-                <!-- §18 / §19 — la Clôture vérifie et valide. Elle ne
-                     redemande rien : l'orientation, le diagnostic et les
-                     demandes ont été saisis là où ils se décidaient, et les
-                     réafficher en toutes lettres ne ferait que recopier
-                     l'écran précédent. Ce qu'elle montre, c'est ce qui reste
-                     à faire — et comment y retourner. -->
+                <!-- ADR-203 — conclure en un seul écran :
+                     le diagnostic (facultatif), puis la conduite à tenir, qui
+                     part au moment de la clôture. Aucune autre condition. -->
                 <Card v-if="cardIsOpen('cloture')" class="w-full overflow-hidden border-s-4 border-s-primary shadow-sm">
-                    <!-- Un fait dérivé, pas un statut inventé, et surtout
-                         **pas un blocage** : un résultat attendu n'empêche
-                         jamais de clôturer (ADR-105) — le médecin peut avoir
-                         conclu sans lui. En ambre, au-dessus de l'étape de
-                         clôture, ce bandeau se lisait pourtant « vous ne
-                         pouvez pas conclure » : c'est ce que le propriétaire
-                         a constaté le 2026-09-17. Il est donc neutre, et il
-                         dit ce qu'il est — une information. -->
-                    <div v-if="awaitingResults.length" class="flex flex-wrap items-start gap-3 border-b border-border bg-muted/40 px-5 py-3">
-                        <Clock class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                        <div class="min-w-0 flex-1">
-                            <p class="text-sm font-semibold text-foreground">
-                                {{ awaitingResults.length }} résultat{{ awaitingResults.length > 1 ? 's' : '' }} encore attendu{{ awaitingResults.length > 1 ? 's' : '' }} — cela n’empêche pas de clôturer
-                            </p>
-                            <p class="mt-0.5 text-xs leading-5 text-muted-foreground">
-                                {{ awaitingResults.join(' · ') }}. Vous pouvez conclure maintenant, ou attendre : la consultation se retrouve depuis « Demandes d’examens » dès qu’un résultat arrive.
-                            </p>
+                    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
+                        <div class="min-w-0">
+                            <h2 class="text-sm font-bold text-foreground">Décision & clôture</h2>
+                            <p v-if="consultationIsClosed" class="mt-1 text-xs text-muted-foreground">Ce qui a été conclu pour ce passage.</p>
+                            <p v-else class="mt-1 text-xs text-muted-foreground">Choisissez la conduite à tenir, puis clôturez : elle part au même moment. Aucun encaissement ; le passage administratif reste ouvert.</p>
                         </div>
+                        <Badge v-if="consultationIsClosed" tone="success"><CircleCheck class="h-3.5 w-3.5" aria-hidden="true" />Clôturée</Badge>
+                    </div>
+
+                    <!-- Une information, jamais un blocage (ADR-105). -->
+                    <div v-if="awaitingResults.length && !consultationIsClosed" class="flex flex-wrap items-center gap-3 border-b border-border bg-muted/40 px-5 py-2.5">
+                        <Clock class="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                        <p class="min-w-0 flex-1 text-xs text-muted-foreground">
+                            <span class="font-semibold text-foreground">{{ awaitingResults.length }} résultat{{ awaitingResults.length > 1 ? 's' : '' }} attendu{{ awaitingResults.length > 1 ? 's' : '' }}</span>
+                            · {{ awaitingResults.join(' · ') }} — vous pouvez clôturer sans attendre.
+                        </p>
                         <Button :as="Link" href="/medicine/demandes-examens" size="sm" variant="white-outline">
                             <FileSearch class="me-1.5 h-4 w-4" aria-hidden="true" />Suivre les demandes
                         </Button>
                     </div>
-                    <div class="border-b border-border px-5 py-4">
-                        <h2 class="text-sm font-bold text-foreground">Décision & clôture</h2>
-                        <p class="mt-1 text-xs text-muted-foreground">La clôture ne réalise aucun encaissement et ne ferme pas le passage administratif.</p>
-                    </div>
 
-                    <div class="p-5">
-                        <!-- ADR-089 — un seul endroit pour conclure le passage :
-                             diagnostic, conduite à tenir et vérification. Les
-                             trois se parcourent un par un plutôt qu'empilés,
-                             mais restent atteignables d'un clic : revenir en
-                             arrière ne doit jamais coûter un défilement. -->
-                        <nav class="mb-4 flex flex-wrap items-center gap-1.5" aria-label="Étapes de la clôture">
-                            <button
-                                v-for="section in closureSections"
-                                :key="section.step"
-                                type="button"
-                                :aria-current="closureSubStep === section.step ? 'step' : undefined"
-                                :class="['inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-                                    closureSubStep === section.step
-                                        ? 'border-primary/30 bg-primary/10 text-primary'
-                                        : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground']"
-                                @click="closureSubStep = section.step"
-                            >
-                                <CircleCheck v-if="section.done" class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
-                                <span v-else class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-[9px] tabular-nums" aria-hidden="true">{{ section.step }}</span>
-                                {{ section.label }}
-                            </button>
-                        </nav>
-
-                        <section v-show="closureSubStep === 1" class="rounded-lg border border-border p-4">
-                            <div class="flex flex-wrap items-center justify-between gap-2">
-                                <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">1 · Diagnostic</h3>
-                                <span v-if="activeDiagnoses.length" class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"><CircleCheck class="h-4 w-4" />{{ activeDiagnoses.length }} enregistré{{ activeDiagnoses.length > 1 ? 's' : '' }}</span>
+                    <div class="divide-y divide-border">
+                        <section class="p-5" aria-labelledby="closure-diagnosis">
+                            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                <h3 id="closure-diagnosis" class="flex items-center gap-2 text-sm font-semibold text-foreground">
+                                    <span class="grid h-6 w-6 place-items-center rounded-full bg-muted text-xs font-bold text-muted-foreground" aria-hidden="true">1</span>
+                                    Diagnostic <span class="text-xs font-normal text-muted-foreground">(facultatif)</span>
+                                </h3>
+                                <Badge v-if="activeDiagnoses.length" tone="success">{{ activeDiagnoses.length }} enregistré{{ activeDiagnoses.length > 1 ? 's' : '' }}</Badge>
                             </div>
-                            <!-- ADR-081 — correction et retrait vivent dans la
-                                 carte Diagnostic, que l'ADR-089 a déplacée
-                                 ici. Les endpoints existaient, l'écran ne les
-                                 appelait plus : une faute de frappe restait
-                                 dans le dossier sans rien pour la rectifier. -->
-                            <!-- Un seul diagnostic par passage : celui de l'examen
-                                 clinique est celui d'ici, jamais un second à
-                                 ressaisir. -->
-                            <p v-if="activeDiagnoses.length" class="mt-1 text-[11px] leading-4 text-muted-foreground">
-                                Déjà consigné (à l’examen clinique ou ici) : rien à ressaisir. Il est requis pour clôturer.
-                            </p>
+                            <!-- Le diagnostic posé à l'examen clinique est celui
+                                 d'ici : rien à ressaisir (ADR-080, ADR-081). -->
                             <ClinicalDiagnosisList
                                 v-if="activeDiagnoses.length"
-                                class="mt-3"
                                 :orientation-uuid="orientation.uuid"
                                 :diagnoses="activeDiagnoses"
-                                :required-for-closure="requiresFinalDiagnosis"
                                 return-step="cloture"
                             />
-                            <p v-else class="mt-1 text-[11px] leading-4 text-muted-foreground">Aucun diagnostic encore posé : consignez la conclusion clinique de ce passage.</p>
+                            <p v-else-if="consultationIsClosed" class="text-xs text-muted-foreground">Aucun diagnostic consigné.</p>
+                            <p v-else class="text-xs text-muted-foreground">Aucun diagnostic consigné. Posez-le ici si vous le connaissez — la clôture ne l’exige pas.</p>
 
-                            <ClinicalDiagnosisSuggestions
-                                v-if="suggestions && capabilities.can_create_diagnosis"
-                                class="mt-3"
-                                :suggestions="suggestions.diagnoses"
-                                :orientation-uuid="orientation.uuid"
-                                return-step="cloture"
-                                :protocol-count="suggestions.protocol_count"
-                                :practice-cases="suggestions.practice_cases"
-                                :practice-min-cases="suggestions.practice_min_cases"
-                                :can-manage-protocols="suggestions.can_manage_protocols"
-                            />
-
-                            <!-- ADR-095 — la question est posée ici, la seule
-                                 étape que tout patient atteint : un passage
-                                 venu pour une écho n'a pas d'examen clinique
-                                 où elle aurait pu l'être (ADR-076).
-                                 « Pas maintenant » ne clôture rien : elle dit
-                                 pourquoi la consultation reste ouverte. -->
-                            <div class="mt-3 flex flex-wrap items-center gap-2.5 border-t border-border pt-3">
-                                <span class="text-xs font-semibold text-muted-foreground">Le diagnostic peut-il être posé maintenant ?</span>
-                                <span class="inline-flex rounded border border-border bg-card p-0.5" role="radiogroup" aria-label="Le diagnostic peut-il être posé maintenant ?">
-                                    <button
-                                        type="button"
-                                        role="radio"
-                                        :aria-checked="diagnosisReady === false"
-                                        :disabled="!capabilities.can_update_consultation || diagnosisTimingForm.processing"
-                                        :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', diagnosisReady === false ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/35']"
-                                        @click="decideDiagnosisTiming(false)"
-                                    >Pas maintenant</button>
-                                    <button
-                                        type="button"
-                                        role="radio"
-                                        :aria-checked="diagnosisReady === true"
-                                        :disabled="!capabilities.can_update_consultation || diagnosisTimingForm.processing"
-                                        :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', diagnosisReady === true ? 'bg-primary text-white' : 'text-muted-foreground hover:bg-muted/35']"
-                                        @click="decideDiagnosisTiming(true)"
-                                    >Oui</button>
-                                </span>
-                            </div>
-
-                            <p v-if="diagnosisReady === false && ! diagnosisEntryOpen" class="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                                <Clock class="h-4 w-4 shrink-0" />Diagnostic différé : la consultation reste ouverte, vous pourrez le poser en revenant sur ce passage.
-                            </p>
-                            <p v-else-if="diagnosisEntryOpen && ! activeDiagnoses.length" class="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                                <CirclePlus class="h-4 w-4 shrink-0" />Enregistrez la conclusion ci-dessous : la réponse « Oui » sera prise en compte une fois le diagnostic consigné.
-                            </p>
-                            <FormError class="mt-1" :message="diagnosisTimingForm.errors.ready" />
-
-                            <!-- « Pas maintenant » veut dire pas maintenant :
-                                 laisser le champ ouvert contredirait la réponse
-                                 que le médecin vient de donner. Il reste à un
-                                 clic — « Oui » le rouvre. -->
-                            <div v-if="diagnosisReady !== false || diagnosisEntryOpen" class="mt-3">
+                            <template v-if="!consultationIsClosed">
+                                <ClinicalDiagnosisSuggestions
+                                    v-if="suggestions && capabilities.can_create_diagnosis"
+                                    class="mt-3"
+                                    :suggestions="suggestions.diagnoses"
+                                    :orientation-uuid="orientation.uuid"
+                                    return-step="cloture"
+                                    :protocol-count="suggestions.protocol_count"
+                                    :practice-cases="suggestions.practice_cases"
+                                    :practice-min-cases="suggestions.practice_min_cases"
+                                    :can-manage-protocols="suggestions.can_manage_protocols"
+                                />
                                 <ClinicalDiagnosisEntry
+                                    class="mt-3"
                                     :orientation-uuid="orientation.uuid"
                                     return-step="cloture"
                                     :disabled="!capabilities.can_create_diagnosis"
                                     compact
                                 />
-                            </div>
+                            </template>
                         </section>
 
-                        <section v-show="closureSubStep === 2">
-                            <h3 class="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">2 · Conduite à tenir</h3>
-                            <ClinicalOrientationCard
+                        <section class="p-5" aria-labelledby="closure-decision">
+                            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                <h3 id="closure-decision" class="flex items-center gap-2 text-sm font-semibold text-foreground">
+                                    <span class="grid h-6 w-6 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground" aria-hidden="true">2</span>
+                                    Conduite à tenir
+                                </h3>
+                                <span v-if="!consultationIsClosed" class="text-[11px] text-muted-foreground">Elle seule est requise pour clôturer.</span>
+                            </div>
+                            <ConsultationDecisionPanel
                                 :orientation-uuid="orientation.uuid"
-                                :draft="draft"
+                                :form="decisionForm"
                                 :state="consultation_orientation ?? {}"
                                 :types="options.orientation_types ?? []"
+                                :discharge-types="options.discharge_types ?? []"
                                 :priorities="options.clinical_priorities ?? []"
                                 :surgery-catalog="options.surgery_catalog ?? []"
                                 :transfer-destinations="otherSiteOptions"
                                 :is-emergency="isEmergency"
                                 :hospital-stay="hospital_stay"
-                                return-step="cloture"
-                                :disabled="!capabilities.can_update_consultation"
-                            >
-                                <template #discharge>
-                                    <ClinicalDischargeForm
-                                        v-if="!medical_discharge"
-                                        :form="dischargeForm"
-                                        :types="options.discharge_types ?? []"
-                                        :diagnoses="activeDiagnoses"
-                                        :prescription-lines="activePrescriptionLines"
-                                        :site-options="otherSiteOptions"
-                                        :requires-diagnosis="requiresFinalDiagnosis"
-                                        :disabled="!capabilities.can_discharge"
-                                        :cancellable="false"
-                                        @submit="submitDischarge"
-                                    />
-                                    <p v-else class="text-[11px] text-emerald-700 dark:text-emerald-300">Sortie médicale déjà prononcée — son détail figure ci-dessous.</p>
-                                </template>
-                            </ClinicalOrientationCard>
+                                :medical-discharge="medical_discharge"
+                                :disabled="!capabilities.can_complete_consultation"
+                                :closed="consultationIsClosed"
+                            />
                         </section>
-
-                        <section v-show="closureSubStep === 3">
-                        <h3 class="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">3 · Vérification</h3>
-                        <!-- Ce qui manque est dit ici, avec le chemin pour y
-                             revenir — jamais un bouton grisé sans explication. -->
-                        <div v-if="closureBlockers.length" class="mt-3 rounded-md border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900 dark:bg-amber-950/20">
-                            <p class="mb-1.5 flex items-center gap-2 text-xs font-bold text-amber-800 dark:text-amber-200">
-                                <CircleAlert class="h-4 w-4" />À compléter avant la clôture
-                            </p>
-                            <ul class="space-y-1 ps-6 text-[11px] text-amber-800 dark:text-amber-200">
-                                <li v-for="(blocker, index) in closureBlockers" :key="index" class="list-disc">
-                                    {{ blocker.message }}
-                                    <!-- ADR-084 : « ce qui manque encore *et
-                                         le chemin pour y retourner* ». Sans
-                                         ce lien, l'écran énonçait l'obstacle
-                                         et laissait le médecin le chercher. -->
-                                    <Link
-                                        v-if="blocker.step"
-                                        :href="stepUrl(blocker.step)"
-                                        class="ms-1 font-bold underline underline-offset-2 hover:no-underline"
-                                    >Y aller</Link>
-                                    <!-- « Déjà sur place » ne disait pas où :
-                                         le diagnostic est à la sous-étape 1, la
-                                         conduite à tenir à la 2, et on lit cette
-                                         liste depuis la 3. -->
-                                    <button
-                                        v-else-if="blocker.closure_section"
-                                        type="button"
-                                        class="ms-1 font-bold underline underline-offset-2 hover:no-underline"
-                                        @click="closureSubStep = blocker.closure_section"
-                                    >Y aller</button>
-                                </li>
-                            </ul>
-                        </div>
-
-                        <p v-else class="mt-3 flex items-center gap-2 text-[11px] text-emerald-700 dark:text-emerald-300">
-                            <CircleCheck class="h-4 w-4" />Tout est en place : la consultation peut être clôturée.
-                        </p>
-                        </section>
-
                     </div>
 
-                    <div v-if="medical_discharge" class="p-5">
-                        <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border border-border bg-muted/35 px-4 py-3">
-                            <div class="flex items-center gap-3">
-                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><CircleCheck class="h-4 w-4" /></span>
-                                <div>
-                                    <span class="rounded bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{{ medical_discharge.type_label }}</span>
-                                    <p class="mt-1.5 text-xs text-muted-foreground">Décidée le {{ formatDateTime(medical_discharge.discharged_at) }} par {{ medical_discharge.created_by }}</p>
-                                </div>
-                            </div>
-                            <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300"><CircleAlert class="h-4 w-4" />Passage administratif toujours ouvert</span>
-                        </div>
-
+                    <div v-if="medical_discharge" class="border-t border-border p-5">
+                        <!-- La sortie est déjà nommée et datée dans « Conduite à tenir » :
+                             ici, son seul détail — sans ligne vide. -->
+                        <p class="mb-3 flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                            <CircleAlert class="h-4 w-4" aria-hidden="true" />Passage administratif toujours ouvert : la sortie se règle à la Réception.
+                        </p>
                         <div class="overflow-x-auto rounded border border-border">
                             <table class="w-full min-w-[520px] border-collapse text-sm">
                                 <caption class="sr-only">Détails de la sortie médicale</caption>
                                 <tbody class="divide-y divide-border">
-                                    <tr>
+                                    <tr v-if="medical_discharge.final_diagnosis">
                                         <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">Diagnostic final</th>
-                                        <td class="px-4 py-3 align-top font-semibold text-foreground">{{ medical_discharge.final_diagnosis }}</td>
+                                        <td class="whitespace-pre-line px-4 py-3 align-top font-semibold text-foreground">{{ medical_discharge.final_diagnosis }}</td>
                                     </tr>
-                                    <tr>
+                                    <tr v-if="medical_discharge.patient_condition">
                                         <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">État à la sortie</th>
                                         <td class="px-4 py-3 align-top text-muted-foreground">{{ medical_discharge.patient_condition }}</td>
                                     </tr>
@@ -3697,7 +3441,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                     </tr>
                                     <tr v-if="medical_discharge.follow_up_at">
                                         <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">Rendez-vous</th>
-                                        <td class="px-4 py-3 align-top text-muted-foreground">{{ formatDateTime(medical_discharge.follow_up_at) }}</td>
+                                        <td class="px-4 py-3 align-top text-muted-foreground">{{ formatDate(medical_discharge.follow_up_at) }}</td>
                                     </tr>
                                     <tr v-if="medical_discharge.transfer_destination">
                                         <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">Destination</th>
@@ -3761,31 +3505,23 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </ConsultationStepBar>
                 </Card>
 
-                <!-- La clôture est un acte à part : elle verrouille la
-                     consultation en lecture seule (ADR-010) et exige que
-                     chaque étape concernée soit résolue — validée ou
-                     déclarée non nécessaire. -->
+                <!-- La clôture verrouille la consultation en lecture seule
+                     (ADR-010) ; elle se rouvre si besoin, motif tracé (ADR-096).
+                     Seule la conduite à tenir la conditionne. -->
                 <Card v-else-if="current_step === 'cloture'" class="sticky bottom-3 z-20 overflow-hidden border-border shadow-lg">
                     <div class="flex flex-col gap-3 bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                         <Button v-if="previousStep" :as="Link" :href="stepUrl(previousStep.key)" size="rg" variant="white-outline"><ArrowLeft class="h-4 w-4 me-2" />{{ previousStep.label }}</Button>
                         <Button v-else :as="Link" href="/medicine" size="rg" variant="white-outline"><ArrowLeft class="h-4 w-4 me-2" />Retour à la file</Button>
 
                         <div class="min-w-0 flex-1 text-center">
-                            <FormError :message="completeConsultationForm.errors.consultation" />
+                            <FormError :message="closureError" />
                             <p v-if="consultationIsClosed" class="flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-300">
-                                <CircleCheck class="mx-auto h-4 w-4" />Consultation clôturée<template v-if="consultation.completed_by"> par {{ consultation.completed_by }}</template>
+                                <CircleCheck class="h-4 w-4" />Consultation clôturée<template v-if="consultation.completed_by"> par {{ consultation.completed_by }}</template>
                             </p>
-                            <ul v-else-if="closureBlockers.length" class="space-y-0.5 text-xs text-muted-foreground">
-                                <li v-for="(blocker, index) in closureBlockers" :key="index">
-                                    {{ blocker.message }}
-                                    <Link
-                                        v-if="blocker.step"
-                                        :href="stepUrl(blocker.step)"
-                                        class="ms-1 font-bold text-primary underline underline-offset-2 hover:no-underline"
-                                    >Y aller</Link>
-                                </li>
-                            </ul>
-                            <p v-else class="text-xs text-muted-foreground">Toutes les étapes sont résolues : la consultation peut être clôturée.</p>
+                            <p v-else-if="closureHint" class="text-xs text-muted-foreground">{{ closureHint }}</p>
+                            <p v-else class="text-xs text-muted-foreground">
+                                Prêt à clôturer<template v-if="closureSummary.length"> · <span class="font-semibold text-foreground">{{ closureSummary[0].value }}</span></template>
+                            </p>
                         </div>
 
                         <div class="flex flex-wrap items-center justify-end gap-2">
@@ -3809,10 +3545,10 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 type="button"
                                 size="rg"
                                 variant="success"
-                                :disabled="closureBlockers.length > 0 || completeConsultationForm.processing"
+                                :disabled="Boolean(closureHint) || decisionForm.processing"
                                 @click="completeConsultation"
                             >
-                                <CircleCheck class="h-4 w-4 me-2" />{{ completeConsultationForm.processing ? 'Clôture…' : 'Clôturer la consultation' }}
+                                <component :is="closureActionLabels.transmits ? Send : CircleCheck" class="h-4 w-4 me-2" aria-hidden="true" />{{ decisionForm.processing ? 'Clôture…' : closureActionLabels.button }}
                             </Button>
                             <Button v-else :as="Link" href="/medicine" size="rg" variant="white-outline"><List class="h-4 w-4 me-2" />Retour à la file</Button>
                         </div>
@@ -4189,10 +3925,6 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                         <Info class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />
                         <p>La saisie restera consultable dans l’historique des rectifications avec sa trace d’annulation.</p>
                     </div>
-                    <div v-if="cancellingLastRequiredDiagnosis" class="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-                        <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                        <p>C’est le seul diagnostic de ce passage : sans diagnostic, la consultation ne peut pas être clôturée. Vous pourrez en enregistrer un autre juste après.</p>
-                    </div>
                     <FormError :message="diagnosisCancellationForm.errors.diagnosis_id" />
                 </div>
                 <div class="-mx-6 -mb-5 mt-5 flex flex-col-reverse gap-2 border-t border-border bg-muted/35 px-6 py-4 sm:flex-row sm:justify-end">
@@ -4280,74 +4012,78 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
             </form>
         </ShadcnDialog>
 
-        <!-- Confirmation, pas blocage : le médecin peut avoir une raison
-             parfaitement valable de clôturer sur une constante basse. Ce
-             que le système refuse, c'est de le laisser passer sans l'avoir
-             nommé. -->
+        <!-- Clôturer est un acte signé (ADR-106) : une seule fenêtre relit la
+             conduite qui part et ce qu'il faut savoir avant de conclure. Un
+             résultat attendu ou une constante critique s'y lisent comme des
+             informations, jamais comme des blocages. -->
         <ShadcnDialog
-            :open="showAwaitingResultConfirm"
-            title="Clôturer sans attendre le résultat ?"
-            description="Un examen demandé pour ce passage n’a pas encore rendu son résultat."
-            close-label="Fermer la confirmation"
-            @update:open="value => { showAwaitingResultConfirm = value; }"
+            :open="closeConfirmOpen"
+            size="lg"
+            :title="closureActionLabels.title"
+            :description="`${patient.first_name} ${patient.last_name} · Passage ${episode.episode_number}`"
+            :dismissible="false"
+            close-label="Revenir au dossier"
+            @update:open="value => { closeConfirmOpen = value; }"
         >
             <template #icon>
-                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300" aria-hidden="true">
-                    <Clock class="h-5 w-5" />
+                <span :class="['grid h-10 w-10 shrink-0 place-items-center rounded-full', closureActionLabels.transmits ? 'bg-primary/10 text-primary' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300']" aria-hidden="true">
+                    <component :is="closureActionLabels.transmits ? Send : CircleCheck" class="h-5 w-5" />
                 </span>
             </template>
 
-            <ul class="space-y-2">
-                <li v-for="exam in awaitingResults" :key="exam" class="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm font-semibold text-foreground dark:border-amber-900/60 dark:bg-amber-950/20">
-                    {{ exam }}
-                </li>
-            </ul>
-            <p class="mt-3 text-xs leading-5 text-muted-foreground">
-                Clôturer reste possible : vous avez peut-être conclu sans ce résultat. Sinon, laissez la consultation ouverte — elle vous attendra, et « Demandes d’examens » vous signalera le résultat dès qu’il arrive.
-            </p>
+            <div class="space-y-3">
+                <dl v-if="closureSummary.length" class="divide-y divide-border overflow-hidden rounded-lg border border-border">
+                    <div v-for="line in closureSummary" :key="line.label" class="grid gap-1 px-3 py-2 sm:grid-cols-[10rem_1fr]">
+                        <dt class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{{ line.label }}</dt>
+                        <dd class="whitespace-pre-line text-sm text-foreground">{{ line.value }}</dd>
+                    </div>
+                    <div class="grid gap-1 px-3 py-2 sm:grid-cols-[10rem_1fr]">
+                        <dt class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Diagnostic</dt>
+                        <dd class="text-sm text-foreground">
+                            <template v-if="activeDiagnoses.length">{{ activeDiagnoses.map((diagnosis) => diagnosis.description).join(' · ') }}</template>
+                            <span v-else class="text-muted-foreground">Aucun — facultatif</span>
+                        </dd>
+                    </div>
+                </dl>
+
+                <p v-if="awaitingResults.length" class="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                    <Clock class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span><span class="font-semibold text-foreground">Résultat encore attendu</span> : {{ awaitingResults.join(' · ') }}. Il restera lisible dans « Demandes d’examens » ; la consultation se rouvre si besoin.</span>
+                </p>
+
+                <ul v-if="hasCriticalVital" class="space-y-2">
+                    <li v-for="alert in vitalAlerts.filter((a) => a.severity === 'danger')" :key="alert.label" class="rounded-md border border-red-200 bg-red-50/60 px-3 py-2 text-xs leading-5 dark:border-red-900 dark:bg-red-950/20">
+                        <span class="font-semibold text-foreground">{{ alert.label }}</span>
+                        <span class="mx-1.5 font-bold tabular-nums text-red-600 dark:text-red-300">{{ alert.reading }}</span>
+                        <span class="font-semibold text-muted-foreground">— {{ alert.title }}</span>
+                        <span class="block text-muted-foreground">
+                            {{ alert.message }}
+                            <template v-if="care_record?.can_correct_vitals"> Une mesure fausse se corrige depuis « Contexte clinique ».</template>
+                        </span>
+                    </li>
+                </ul>
+
+                <!-- Transmettre est un acte : la fenêtre dit à qui le patient part. -->
+                <p v-if="closureActionLabels.notice" :class="['flex items-start gap-2 rounded-md border px-3 py-2 text-xs leading-5', closureActionLabels.transmits ? 'border-primary/30 bg-primary/5 text-foreground' : 'border-border bg-muted/40 text-muted-foreground']">
+                    <component :is="closureActionLabels.transmits ? Send : Info" class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>{{ closureActionLabels.notice }}</span>
+                </p>
+
+                <p class="text-xs leading-5 text-muted-foreground">
+                    Vous {{ closureActionLabels.transmits ? 'transmettez et clôturez' : 'clôturez' }} sous votre responsabilité, en tant que
+                    <strong class="font-semibold text-foreground">{{ $page.props.auth.user.name }}</strong>.
+                    La consultation passe en lecture seule ; elle se rouvre si besoin, motif tracé.
+                </p>
+            </div>
 
             <template #footer>
-                <Button type="button" size="rg" variant="white-outline" @click="showAwaitingResultConfirm = false">
-                    Laisser ouverte
-                </Button>
-                <Button type="button" size="rg" variant="warning" :disabled="completeConsultationForm.processing" @click="submitCompleteConsultation">
-                    <CircleCheck class="me-2 h-4 w-4" aria-hidden="true" />Clôturer malgré tout
-                </Button>
-            </template>
-        </ShadcnDialog>
-
-        <ShadcnDialog
-            v-model:open="showCriticalVitalConfirm"
-            title="Constante critique non résolue"
-            description="Cette consultation va être clôturée alors qu’une constante reste hors des bornes attendues."
-        >
-            <template #icon>
-                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300">
-                    <CircleAlert class="h-5 w-5" />
-                </span>
-            </template>
-
-            <ul class="space-y-2">
-                <li v-for="alert in vitalAlerts.filter((a) => a.severity === 'danger')" :key="alert.label" class="rounded-md border border-red-200 bg-red-50/60 px-3 py-2 text-xs leading-5 dark:border-red-900 dark:bg-red-950/20">
-                    <span class="font-semibold text-foreground">{{ alert.label }}</span>
-                    <span class="mx-1.5 font-bold tabular-nums text-red-600 dark:text-red-300">{{ alert.reading }}</span>
-                    <span class="font-semibold text-muted-foreground">— {{ alert.title }}</span>
-                    <span class="block text-muted-foreground">{{ alert.message }}</span>
-                </li>
-            </ul>
-            <p class="mt-3 text-xs leading-5 text-muted-foreground">
-                Clôturer reste possible : une valeur peut avoir déjà été prise en compte, ou provenir d’une erreur de saisie.
-                <template v-if="care_record?.can_correct_vitals">
-                    Si la mesure est fausse, corrigez-la depuis « Contexte clinique » avant de clôturer.
-                </template>
-            </p>
-
-            <template #footer>
-                <Button type="button" size="rg" variant="white-outline" @click="showCriticalVitalConfirm = false">
+                <Button type="button" size="rg" variant="white-outline" :disabled="decisionForm.processing" @click="closeConfirmOpen = false">
                     Revenir au dossier
                 </Button>
-                <Button type="button" size="rg" variant="danger" :disabled="completeConsultationForm.processing" @click="submitCompleteConsultation">
-                    <CircleCheck class="me-2 h-4 w-4" />Clôturer malgré tout
+                <!-- Un libellé long (« Je transmets ce patient à l’Hospitalisation… »)
+                     passe à la ligne sur un téléphone plutôt que d'être coupé. -->
+                <Button type="button" size="rg" class="h-auto min-h-9 whitespace-normal py-2 text-center leading-5" :variant="hasCriticalVital ? 'danger' : 'success'" :disabled="decisionForm.processing" @click="submitCompleteConsultation">
+                    <component :is="closureActionLabels.transmits ? Send : CircleCheck" class="me-2 h-4 w-4" aria-hidden="true" />{{ decisionForm.processing ? 'Clôture…' : closureActionLabels.confirm }}
                 </Button>
             </template>
         </ShadcnDialog>

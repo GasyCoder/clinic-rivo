@@ -17,7 +17,7 @@ const { can } = usePermissions();
 const printPage = () => window.print();
 const formatDate = (value) => (value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '');
 
-// ADR-199 — le document dans son dossier : modifier (nouvelle version), archiver, restaurer.
+// ADR-208 — le document dans son dossier : modifier (nouvelle version), archiver, restaurer.
 const folderHref = hrUrl(`/administration/generated-documents?${new URLSearchParams({ dossier: props.document.folder })}`);
 const modifyHref = hrUrl(`/administration/generated-documents/create?from=${props.document.uuid}`);
 // Depuis un contrat : un autre canevas, ou la fiche résumé du contrat.

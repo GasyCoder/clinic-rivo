@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { router, useForm, usePage } from '@inertiajs/vue3';
+import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import {
     ArrowLeftRight, AtSign, PlugZap, Ban, CircleAlert, Clock, Copy, KeyRound, MailCheck, MailPlus, MailX, PauseCircle, PlayCircle, Plus, RotateCw, Search, Server, ShieldAlert, UserX,
 } from 'lucide-vue-next';
@@ -327,11 +327,15 @@ const submitReactivate = () => {
                 <div>
                     <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{{ scope === 'portal' ? 'Organisation' : 'Ressources humaines' }}</p>
                     <h1 class="font-heading text-2xl font-bold text-foreground">Emails professionnels</h1>
-                    <p class="mt-1 max-w-2xl text-sm text-muted-foreground">{{ scope === 'portal' ? 'Le RH de chaque site demande l’adresse depuis la fiche employé ; vous la créez ici, chez l’hébergeur.' : 'Les adresses @' + hosting.domain + ' du personnel de ce site : demandées depuis la fiche employé, créées chez l’hébergeur par qui en a reçu le droit.' }} Le mot de passe n’est montré qu’une fois.</p>
+                    <p class="mt-1 max-w-2xl text-sm text-muted-foreground">{{ scope === 'portal' ? 'Les adresses de chaque site : suspendre, réactiver, renouveler un mot de passe. Pour un nouvel employé, créez son compte et son adresse ensemble dans « Accès du personnel ».' : 'Les adresses @' + hosting.domain + ' du personnel de ce site, créées par le Super Admin avec le compte de chaque employé.' }} Le mot de passe n’est montré qu’une fois.</p>
                 </div>
             </div>
             <div class="flex flex-col items-stretch gap-2 sm:items-end">
-            <Button v-if="canCreateDirect" type="button" :disabled="! hosting.configured || ! directSites.length" :title="! hosting.configured ? 'Hébergeur non configuré' : ''" @click="openNew"><Plus class="h-4 w-4" />Nouvelle adresse</Button>
+            <div class="flex flex-wrap gap-2 sm:justify-end">
+                <!-- ADR-197 — le chemin normal d'un nouvel employé : compte et adresse ensemble. -->
+                <Button v-if="scope === 'portal' && can('staff_access.view')" :as="Link" href="/super-admin/staff-access"><KeyRound class="h-4 w-4" />Accès du personnel</Button>
+                <Button v-if="canCreateDirect" type="button" variant="white-outline" :disabled="! hosting.configured || ! directSites.length" :title="! hosting.configured ? 'Hébergeur non configuré' : 'Une adresse seule, sans compte RIVO'" @click="openNew"><Plus class="h-4 w-4" />Adresse seule</Button>
+            </div>
             <div class="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground shadow-sm">
                 <Server class="h-3.5 w-3.5" />
                 <span v-if="hosting.configured">{{ hosting.server }} · <span class="font-mono text-foreground">@{{ hosting.domain }}</span> · {{ hosting.quota_mb }} Mo par boîte · {{ hosting.auth_mode === 'token' ? 'jeton API' : 'mot de passe cPanel' }}</span>

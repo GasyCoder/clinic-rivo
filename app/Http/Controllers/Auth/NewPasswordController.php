@@ -57,6 +57,9 @@ class NewPasswordController extends Controller
                     'password' => Hash::make($request->string('password')),
                     'remember_token' => Str::random(60),
                 ])->save();
+                // ADR-202 — un mot de passe choisi par un lien reçu par email vaut première
+                // connexion : l'adresse seule n'ouvre plus le choix d'un mot de passe.
+                $user->markActivated();
 
                 DB::table(config('session.table', 'sessions'))
                     ->where('user_id', $user->id)

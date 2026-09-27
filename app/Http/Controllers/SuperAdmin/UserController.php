@@ -4,6 +4,7 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Enums\AccountKind;
 use App\Http\Controllers\Controller;
+use App\Services\StaffAccess\StaffAccessWatcher;
 use App\Services\SuperAdmin\PortalSiteApiClient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,6 +26,8 @@ class UserController extends Controller
         return Inertia::render('SuperAdmin/Users/Index', [
             'sites' => $client->usersForAllSites($request->user(), array_filter($filters)),
             'filters' => $filters,
+            // ADR-199 — l'onglet « Accès du personnel » dit combien attendent, sans relire les sites.
+            'staffAccessPending' => $request->user()->can('staff_access.view') ? array_sum(StaffAccessWatcher::pendingCounts()) : null,
         ]);
     }
 

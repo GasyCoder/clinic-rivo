@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Enums\HrReferenceType;
 use App\Models\HrReferenceValue;
+use App\Support\Hr\DefaultJobTitleAccountRoles;
 use App\Support\Hr\DefaultJobTitleDepartments;
 use Illuminate\Database\Seeder;
 
@@ -116,6 +117,8 @@ class HrReferenceSeeder extends Seeder
         // ADR-194 — relie les fonctions livrées à leurs départements, sans
         // jamais réécrire une correspondance déjà réglée.
         DefaultJobTitleDepartments::apply();
+        // ADR-199 — le rôle proposé par chaque fonction livrée, jamais par-dessus un réglage.
+        DefaultJobTitleAccountRoles::apply();
 
         foreach (array_values(self::LEAVE_TYPES) as $position => $definition) {
             $code = array_search($definition, self::LEAVE_TYPES, true);

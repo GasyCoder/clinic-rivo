@@ -153,7 +153,7 @@ class EmploymentContractController extends Controller
 
         $user = $request->user();
 
-        // ADR-199 — « Imprimer » un contrat prend le document tout seul : celui déjà
+        // ADR-208 — « Imprimer » un contrat prend le document tout seul : celui déjà
         // produit pour ce contrat, sinon le seul canevas de contrat, prérempli.
         // `?choisir=1` garde l'écran de choix (autre canevas, fiche résumé).
         if (! $request->boolean('choisir') && ! $contract->trashed()) {

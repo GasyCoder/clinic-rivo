@@ -376,7 +376,12 @@ final class EpisodePathwayTimeline
             'type' => 'PHARMACY',
             'module' => CatalogModule::Pharmacy->value,
             'label' => $dispense === null ? 'Ordonnance' : CatalogModule::Pharmacy->label(),
-            'from_label' => $dispense === null ? null : CatalogModule::Medicine->label(),
+            // D'où part l'ordonnance : la consultation, le séjour (ADR-162) ou la Maternité (ADR-205).
+            'from_label' => $dispense === null ? null : match (true) {
+                $prescription->maternity_record_id !== null => CatalogModule::Maternity->label(),
+                $prescription->hospital_stay_id !== null => CatalogModule::Hospitalization->label(),
+                default => CatalogModule::Medicine->label(),
+            },
             'qualifier' => $dispense === null ? null : 'Ordonnance',
             'state' => $state,
             'state_label' => $label,

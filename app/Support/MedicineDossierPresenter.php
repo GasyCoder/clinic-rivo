@@ -41,6 +41,7 @@ use App\Services\Medicine\ClinicPracticeAdvisor;
 use App\Services\Medicine\ClinicPracticeIndex;
 use App\Services\Medicine\ImagingReportTemplateCatalog;
 use App\Services\Pharmacy\MedicineStockService;
+use App\Support\Medicine\ConsultationOrientationPrefill;
 use App\Support\Medicine\PrescriptionSuggestions;
 use Illuminate\Support\Collection;
 
@@ -307,11 +308,6 @@ class MedicineDossierPresenter
                 // demande. Le patient est venu pour une échographie : la
                 // Paraclinique doit la proposer, pas la faire rechercher.
                 'planned_paraclinical' => $this->plannedParaclinical($consultation),
-                // ADR-094 — l'écran doit dire la même chose que le serveur :
-                // sans ce drapeau, le formulaire de sortie afficherait encore
-                // « Diagnostic final * » et son bandeau d'avertissement sur
-                // un passage où plus rien ne l'exige.
-                'requires_final_diagnosis' => $this->workflow->requiresFinalDiagnosis($consultation),
                 'reason' => $this->richText->toSafeHtml($consultation->reason),
                 'clinical_exam' => $this->richText->toSafeHtml($consultation->clinical_exam),
                 // The structured examination. Systems the doctor never looked
@@ -640,8 +636,10 @@ class MedicineDossierPresenter
                 // « Référence / transfert », et son séjour se termine au départ :
                 // la sortie « Transfert » ne lui est pas proposée (le serveur la
                 // refuse de toute façon).
-                'discharge_types' => collect(MedicalDischargeType::cases())
-                    ->reject(fn (MedicalDischargeType $type): bool => $stay !== null && $type === MedicalDischargeType::Transfer)
+                // ADR-203 — un transfert se décide par la
+                // conduite « Référence / Transfert », et par elle seule : le
+                // proposer aussi comme type de sortie le faisait choisir deux fois.
+                'discharge_types' => collect(MedicalDischargeType::forConsultation())
                     ->map(fn ($type) => [
                         'value' => $type->value,
                         'label' => $type->label(),
@@ -822,7 +820,7 @@ class MedicineDossierPresenter
                     'cancellation_reason' => $orientation->cancellation_reason,
                 ])->values(),
             'can_select' => $isActive && $user->can('consultations.update'),
-            'prefill' => $this->orientationPrefill($consultation),
+            'prefill' => ConsultationOrientationPrefill::compose($consultation),
         ];
     }
 
@@ -1090,135 +1088,6 @@ class MedicineDossierPresenter
             ->all();
     }
 
-    private function orientationPrefill(Consultation $consultation): array
-    {
-        $examination = $consultation->clinicalExamination;
-        $findings = $examination
-            ? $examination->systems()
-                ->filter(fn (array $entry): bool => $entry['status'] === ClinicalSystemStatus::Abnormal)
-                ->map(fn (array $entry): string => $entry['system']->label().' : '.trim((string) $entry['findings']))
-                ->values()
-                ->all()
-            : [];
-
-        $clinicalSummary = collect([
-            $examination?->general_condition?->label() ? 'État général : '.$examination->general_condition->label() : null,
-            $examination?->consciousness_status?->label() ? 'Conscience : '.$examination->consciousness_status->label() : null,
-            ...$findings,
-            $this->toPlainText($consultation->clinical_exam),
-        ])->filter()->implode("\n");
-
-        $paraclinical = $consultation->labRequests()
-            ->whereNull('cancelled_at')
-            ->with('items')
-            ->get()
-            ->flatMap(fn (LabRequest $request) => $request->items->map(
-                fn ($item): string => $this->paraclinicalLine($item->catalog_item_name_snapshot, $item->result_value),
-            ))
-            ->merge($consultation->imagingRequests()
-                ->whereNull('cancelled_at')
-                ->with('items')
-                ->get()
-                ->flatMap(fn (ImagingRequest $request) => $request->items->map(
-                    fn ($item): string => $this->paraclinicalLine($item->catalog_item_name_snapshot, $item->result_value),
-                )))
-            ->implode("\n");
-
-        $treatments = $consultation->prescriptions()
-            ->where('status', PrescriptionStatus::Active->value)
-            ->with('lines')
-            ->get()
-            ->flatMap(fn ($prescription) => $prescription->lines->map(fn ($line): string => trim(collect([
-                $line->medication_name,
-                $line->dosage,
-                $line->route?->shortLabel(),
-                $line->frequency,
-                $line->duration,
-            ])->filter()->implode(' · '))))
-            ->implode("\n");
-
-        return [
-            'reason' => $consultation->chief_complaint ?: $this->toPlainText($consultation->reason),
-            'clinical_summary' => $clinicalSummary !== '' ? $clinicalSummary : null,
-            'diagnosis' => $consultation->diagnoses()
-                ->whereDoesntHave('cancellation')
-                ->pluck('description')
-                ->implode("\n") ?: null,
-            'paraclinical' => $paraclinical !== '' ? $paraclinical : null,
-            'treatments' => $treatments !== '' ? $treatments : null,
-        ];
-    }
-
-    /**
-     * The rich-text fields reach a printable letter as prose, not markup:
-     * the referral is read on paper by someone with no browser.
-     */
-    /**
-     * Une ligne de résultat paraclinique, en texte.
-     *
-     * Un compte rendu d'imagerie est saisi en éditeur riche et stocké en HTML
-     * (ADR-070) ; cette ligne rejoint un `<textarea>`, où le balisage
-     * s'affiche tel quel. Le préremplissage montrait donc au médecin
-     * « UTERUS<p>• Orientation… </p><p>• Volume… » — et c'est ce texte-là
-     * qui serait parti au service d'accueil.
-     */
-    private function paraclinicalLine(string $name, ?string $result): string
-    {
-        $text = $this->toPlainText($result);
-
-        if ($text === null) {
-            return trim($name).' — en attente';
-        }
-
-        // Un compte rendu tient sur plusieurs lignes : il est présenté sous
-        // son examen plutôt que collé derrière, sinon la première ligne
-        // absorbe le nom et les suivantes flottent sans rattachement.
-        return str_contains($text, "\n")
-            ? trim($name)." :\n".$text
-            : trim($name).' : '.$text;
-    }
-
-    /**
-     * Du HTML de l'éditeur riche vers du texte lisible.
-     *
-     * Seuls `</p>` et `<br>` produisaient un retour à la ligne : une liste à
-     * puces ou des titres se retrouvaient collés en une seule phrase. Chaque
-     * fin de bloc en produit un désormais, et les lignes vides consécutives
-     * sont réduites — un compte rendu doit rester relisible, pas fidèle à
-     * une mise en page qu'un champ de texte ne rend pas.
-     */
-    private function toPlainText(?string $html): ?string
-    {
-        if ($html === null) {
-            return null;
-        }
-
-        $withBreaks = preg_replace(
-            [
-                '/<br\s*\/?>/i',
-                // L'ouverture compte autant que la fermeture : un compte rendu
-                // écrit « UTERUS<p>• Orientation… » sans fermer avant, et seule
-                // la fermeture cassant la ligne, les deux restaient collés.
-                '/<(p|div|li|h[1-6]|tr|blockquote)(\s[^>]*)?>/i',
-                '/<\/(p|div|li|h[1-6]|tr|blockquote)\s*>/i',
-            ],
-            "\n",
-            $html,
-        ) ?? $html;
-
-        $text = html_entity_decode(strip_tags($withBreaks), ENT_QUOTES | ENT_HTML5);
-        // Espaces insécables compris : l'éditeur en produit, et `trim()` seul
-        // les laisse en début de ligne.
-        $text = preg_replace('/[ \t\x{00A0}]+/u', ' ', $text) ?? $text;
-        $text = preg_replace('/ *\n */', "\n", $text) ?? $text;
-        // Une ligne vide sur deux : ouverture *et* fermeture d'un même bloc
-        // cassent la ligne, et un champ de texte n'a pas d'interlignage à
-        // restituer. Le compte rendu se lit d'un bloc, ligne à ligne.
-        $text = trim(preg_replace('/\n{2,}/', "\n", $text) ?? $text);
-
-        return $text !== '' ? $text : null;
-    }
-
     /**
      * ADR-149 — la conduite à tenir dépend de là où le patient se trouve.
      *
@@ -1231,16 +1100,6 @@ class MedicineDossierPresenter
      */
     private function orientationApplies(ConsultationOrientationType $type, ?HospitalStay $stay): bool
     {
-        if ($stay === null) {
-            return $type !== ConsultationOrientationType::ContinuedHospitalization;
-        }
-
-        // ADR-162 — pour un patient au lit, la sortie se prononce sur la page
-        // du séjour, et là seulement ; « Hospitalisation » ouvrirait un
-        // second séjour.
-        return ! in_array($type, [
-            ConsultationOrientationType::Hospitalization,
-            ConsultationOrientationType::Discharge,
-        ], true);
+        return $type->appliesTo($stay !== null);
     }
 }

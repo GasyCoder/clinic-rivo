@@ -20,7 +20,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 /**
- * ADR-198 — des RH cohérentes : un congé en cours se voit à côté de « Actif »,
+ * ADR-207 — des RH cohérentes : un congé en cours se voit à côté de « Actif »,
  * le document officiel d'un congé est un canevas, et les présences du jour
  * disent qui est là, parti, attendu ou en congé.
  */

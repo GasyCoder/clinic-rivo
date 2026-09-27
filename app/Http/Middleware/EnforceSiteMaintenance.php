@@ -28,7 +28,7 @@ class EnforceSiteMaintenance
 {
     /** @var list<string> */
     private const OPEN_PATHS = [
-        'login', 'logout', 'forgot-password', 'reset-password', 'reset-password/*',
+        'login', 'login/*', 'logout', 'forgot-password', 'reset-password', 'reset-password/*',
         'branding/*', 'robots.txt', 'up',
     ];
 

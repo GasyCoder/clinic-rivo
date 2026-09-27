@@ -37,7 +37,7 @@ defineOptions({ layout: AppLayout });
  */
 const props = defineProps({
     records: Object, employees: [Array, Object], filters: Object, summary: Object,
-    /** ADR-198 — `today` (par défaut) ou `history`. */
+    /** ADR-207 — `today` (par défaut) ou `history`. */
     view: { type: String, default: 'history' },
     /** Les présences du jour : `{ rows, counts }`, seulement pour « Aujourd'hui ». */
     board: { type: Object, default: null },
@@ -80,7 +80,7 @@ const closeNow = () => {
 };
 const closeErrors = computed(() => Object.values(closeForm.errors));
 
-// --- Aujourd'hui (ADR-198) ----------------------------------------------------
+// --- Aujourd'hui (ADR-207) ----------------------------------------------------
 // Ce qui est enregistré, pas un jugement : aucun retard ni absence n'est calculé.
 const STATES = {
     PRESENT: { label: 'Présent', hint: 'Entrée pointée, pas de sortie', icon: UserCheck, tone: 'emerald', badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200' },
@@ -144,7 +144,7 @@ const closeFromBoard = (row) => openClose({ uuid: row.open_session.uuid, started
             </template>
         </PageHeader>
 
-        <!-- ADR-198 — le jour d'abord ; l'historique garde la période, l'employé et les sessions ouvertes. -->
+        <!-- ADR-207 — le jour d'abord ; l'historique garde la période, l'employé et les sessions ouvertes. -->
         <nav class="flex w-fit gap-1 rounded-xl border border-border bg-card p-1 shadow-sm" aria-label="Présences">
             <Link :href="hrUrl('/administration/attendance')" :aria-current="view === 'today' ? 'page' : undefined" :class="cn('inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors', view === 'today' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-accent hover:text-foreground')"><UserCheck class="h-4 w-4" />Aujourd’hui</Link>
             <Link :href="hrUrl('/administration/attendance?vue=historique')" :aria-current="view === 'history' ? 'page' : undefined" :class="cn('inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors', view === 'history' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-accent hover:text-foreground')"><History class="h-4 w-4" />Historique</Link>

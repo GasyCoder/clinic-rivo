@@ -29,9 +29,19 @@ import { Pill, Plus, Printer, Search, Send, Trash2, X } from 'lucide-vue-next';
  * ADR-163 — et mêmes propositions (ADR-111) : l'ordonnance des protocoles et de
  * la pratique de la clinique pour les diagnostics du passage. « Ajouter » ne
  * prescrit rien : la ligne rejoint la préparation, modifiable avant validation.
+ *
+ * ADR-205 — le même écran sert l'ordonnance de la sage-femme en Maternité :
+ * seules l'adresse des gestes et la phrase sur la délivrance changent.
  */
 const props = defineProps({
-    stayUuid: { type: String, required: true },
+    stayUuid: { type: String, default: '' },
+    /**
+     * ADR-205 — l'adresse des gestes, quand l'ordonnance ne part pas du séjour :
+     * la Maternité (`/maternity/orientations/{uuid}`). Vide : celle du séjour.
+     */
+    baseUrl: { type: String, default: '' },
+    /** `stay` : délivrée au service sans attendre la Caisse ; `maternity` : règlement d'abord (ADR-049). */
+    context: { type: String, default: 'stay' },
     /** `null` : le compte n'a pas le droit de lire les ordonnances. */
     prescriptions: { type: Array, default: null },
     medicines: { type: Array, default: () => [] },
@@ -41,6 +51,23 @@ const props = defineProps({
     /** ADR-163 — `null` : le compte ne prescrit pas, rien n'est proposé. */
     suggestions: { type: Object, default: null },
 });
+
+const requestBase = computed(() => props.baseUrl || `/hospitalisation/${props.stayUuid}`);
+const COPY = {
+    stay: {
+        intro: 'La Pharmacie la reçoit aussitôt et délivre au service, sans attendre le passage à la Caisse.',
+        listTitle: 'Ordonnances du séjour',
+        empty: 'Aucune ordonnance depuis ce séjour.',
+        confirm: 'Relisez chaque ligne : la Pharmacie la délivrera au service.',
+    },
+    maternity: {
+        intro: 'La Pharmacie la reçoit aussitôt ; la patiente règle à la Caisse, puis la Pharmacie délivre.',
+        listTitle: 'Ordonnances de ce dossier',
+        empty: 'Aucune ordonnance depuis ce dossier.',
+        confirm: 'Relisez chaque ligne : la Pharmacie la délivrera après le règlement à la Caisse.',
+    },
+};
+const copy = computed(() => COPY[props.context] ?? COPY.stay);
 
 const page = usePage();
 /** Qui signe l'acte : le compte connecté, titré une seule fois. */
@@ -149,7 +176,7 @@ const submit = () => form
             instructions: line.instructions,
         })),
     }))
-    .post(`/hospitalisation/${props.stayUuid}/ordonnances`, {
+    .post(`${requestBase.value}/ordonnances`, {
         preserveScroll: true,
         onSuccess: () => {
             confirming.value = false;
@@ -167,7 +194,7 @@ const openCancel = (prescription) => {
     cancelForm.clearErrors();
     cancelling.value = prescription;
 };
-const submitCancel = () => cancelForm.post(`/hospitalisation/${props.stayUuid}/ordonnances/${cancelling.value.uuid}/annuler`, {
+const submitCancel = () => cancelForm.post(`${requestBase.value}/ordonnances/${cancelling.value.uuid}/annuler`, {
     preserveScroll: true,
     onSuccess: () => { cancelling.value = null; },
 });
@@ -179,7 +206,7 @@ const DISPENSE_VARIANT = { DISPENSED: 'success', PARTIALLY_DISPENSED: 'warning',
     <div class="space-y-5">
         <Card v-if="canPrescribe" class="p-5">
             <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><Pill class="h-4 w-4 text-muted-foreground" />Nouvelle ordonnance</h2>
-            <p class="mt-1 text-xs text-muted-foreground">La Pharmacie la reçoit aussitôt et délivre au service, sans attendre le passage à la Caisse.</p>
+            <p class="mt-1 text-xs text-muted-foreground">{{ copy.intro }}</p>
 
             <ClinicalPrescriptionSuggestions
                 v-if="suggestions"
@@ -263,10 +290,10 @@ const DISPENSE_VARIANT = { DISPENSED: 'success', PARTIALLY_DISPENSED: 'warning',
         </Card>
 
         <Card class="p-5">
-            <h2 class="text-sm font-semibold text-foreground">Ordonnances du séjour</h2>
+            <h2 class="text-sm font-semibold text-foreground">{{ copy.listTitle }}</h2>
             <p v-if="prescriptions === null" class="mt-3 text-xs text-muted-foreground">Non visible avec vos droits (prescriptions.view).</p>
             <p v-else-if="!prescriptions.length" class="mt-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-6 text-center text-xs text-muted-foreground">
-                Aucune ordonnance depuis ce séjour.
+                {{ copy.empty }}
             </p>
             <ul v-else class="mt-4 space-y-3">
                 <li v-for="prescription in prescriptions" :key="prescription.uuid" class="rounded-md border border-border bg-card p-3" :class="prescription.status === 'CANCELLED' ? 'opacity-60' : ''">
@@ -294,7 +321,7 @@ const DISPENSE_VARIANT = { DISPENSED: 'success', PARTIALLY_DISPENSED: 'warning',
             </ul>
         </Card>
 
-        <Dialog v-model:open="confirming" title="Valider l’ordonnance" description="Relisez chaque ligne : la Pharmacie la délivrera au service." size="lg" :dismissible="false">
+        <Dialog v-model:open="confirming" title="Valider l’ordonnance" :description="copy.confirm" size="lg" :dismissible="false">
             <ul class="space-y-2 text-sm">
                 <li v-for="line in form.lines" :key="line._key" class="rounded-md border border-border px-3 py-2">
                     <p class="font-semibold text-foreground">{{ lineName(line) }} <span class="font-normal text-muted-foreground">· qté {{ line.quantity }}</span></p>

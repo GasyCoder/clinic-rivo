@@ -5,6 +5,7 @@ namespace Tests\Feature\Episode;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Episode\SetEpisodeFinancialContextAction;
+use App\Enums\CareCompletionMode;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
@@ -21,6 +22,7 @@ use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\CareWorkflow;
 use App\Support\EpisodeEntryPath;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\ProfessionalProfileSeeder;
@@ -34,7 +36,7 @@ use Tests\TestCase;
  *
  * ```text
  * Médecine devant un patient attendu aux Soins   prévenue, décide (soins elle-même ou consultation)
- * Soins devant un patient attendu en Médecine    informés, et refusés par le serveur
+ * Soins devant un patient attendu en Médecine    prévenus, décident (amendement du 2026-09-27 bis)
  * ```
  *
  * Sur les socles de rôle réels du site : la Médecine n'a pas `care.create`
@@ -58,7 +60,7 @@ class EpisodeEntryPathTest extends TestCase
         $row = $this->row($doctor, '/medicine', $episode);
 
         $this->assertSame(EpisodeEntryPath::CARE_FIRST, $row['pathway']['code']);
-        $this->assertFalse($row['pathway']['blocking']);
+        $this->assertArrayNotHasKey('blocking', $row['pathway']);
         $this->assertContains('Besoin : CONSULT-GEN (Soins puis Médecine).', $row['pathway']['reasons']);
         // Sans le droit d'ouvrir une fiche Soins, le médecin ne se voit pas proposer d'en faire.
         $this->assertNull($row['pathway']['care_take_charge_url']);
@@ -107,7 +109,7 @@ class EpisodeEntryPathTest extends TestCase
         $this->assertNull($this->row($this->nurse(), '/care', $ecg)['pathway']);
     }
 
-    public function test_care_is_informed_and_refused_for_a_patient_expected_directly_in_medicine(): void
+    public function test_care_is_informed_and_can_still_take_a_patient_expected_in_medicine(): void
     {
         $episode = $this->arrival('ECG-REPOS', ReceptionRoutingMode::MedicineDirect, CatalogModule::Imaging);
         $nurse = $this->nurse();
@@ -115,22 +117,35 @@ class EpisodeEntryPathTest extends TestCase
         $row = $this->row($nurse, '/care', $episode);
 
         $this->assertSame(EpisodeEntryPath::MEDICINE_ONLY, $row['pathway']['code']);
-        $this->assertTrue($row['pathway']['blocking']);
         $this->assertContains('Besoin : ECG-REPOS (Médecine directement).', $row['pathway']['reasons']);
-        // Aucune adresse de prise en charge, aucune place dans la file des Soins.
-        $this->assertNull($row['actions']['take_charge_url']);
+        // Rien n'est refusé : l'adresse de prise en charge est là, le rappel est dit.
+        $this->assertSame(route('care.passages.take-charge', $episode), $row['actions']['take_charge_url']);
+        // Hors de la file numérotée des Soins : le n° 1 y reste le prochain qui vient pour eux.
         $this->assertNull($row['module']['queue_number']);
         $this->assertSame('NONE', $row['status']);
 
-        // Le serveur refuse de toute façon : l'écran n'est jamais la seule garde.
-        $this->actingAs($nurse)->post(route('care.passages.take-charge', $episode))
-            ->assertSessionHasErrors(['episode' => EpisodeEntryPath::refusalMessage()]);
-        $this->assertSame(0, EpisodeOrientation::query()->count());
+        $this->actingAs($nurse)->post(route('care.passages.take-charge', $episode))->assertSessionHasNoErrors();
+        $care = EpisodeOrientation::query()->sole();
+        $this->assertSame(CatalogModule::Care, $care->destination_module);
+        $this->assertSame(EpisodeOrientationStatus::InProgress, $care->status);
+        // À la fin des soins, la suite prévue le conduit chez le médecin (ADR-166).
+        $this->assertSame(CareCompletionMode::Medicine, app(CareWorkflow::class)->completionMode($episode->fresh()));
 
-        // Le médecin, lui, le prend sans rappel.
-        $doctorRow = $this->row($this->doctor(), '/medicine', $episode);
-        $this->assertNull($doctorRow['pathway']);
-        $this->assertSame(1, $doctorRow['module']['queue_number']);
+        // Le médecin, lui, le voyait sans rappel ; il le voit maintenant aux Soins.
+        $this->assertSame('CARE', $this->row($this->doctor(), '/medicine', $episode)['held_elsewhere']['module']);
+    }
+
+    public function test_the_medicine_reminder_goes_silent_once_the_doctor_has_the_patient_or_saw_him(): void
+    {
+        $episode = $this->arrival('ECG-REPOS', ReceptionRoutingMode::MedicineDirect, CatalogModule::Imaging);
+        $doctor = $this->doctor();
+        $this->actingAs($doctor)->post(route('medicine.passages.take-charge', $episode))->assertSessionHasNoErrors();
+
+        $consultation = EpisodeOrientation::query()->sole();
+        $consultation->complete($doctor);
+
+        // Un soin demandé après la consultation n'est plus « attendu en Médecine ».
+        $this->assertNull(EpisodeEntryPath::guard($episode->fresh(), CatalogModule::Care));
     }
 
     public function test_a_care_request_from_the_doctor_or_an_emergency_is_never_refused(): void
@@ -154,7 +169,7 @@ class EpisodeEntryPathTest extends TestCase
         $this->assertNull(EpisodeEntryPath::guard($emergency->fresh(), CatalogModule::Medicine));
     }
 
-    public function test_the_patient_expected_in_medicine_holds_no_place_in_the_care_queue(): void
+    public function test_the_patient_expected_in_medicine_holds_no_numbered_place_in_the_care_queue(): void
     {
         $ecg = $this->arrival('ECG-REPOS', ReceptionRoutingMode::MedicineDirect, CatalogModule::Imaging);
         $injection = $this->arrival('INJ-IM', ReceptionRoutingMode::CareOnly, CatalogModule::Care);

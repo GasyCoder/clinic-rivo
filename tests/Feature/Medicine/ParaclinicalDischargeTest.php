@@ -83,17 +83,22 @@ class ParaclinicalDischargeTest extends TestCase
         $this->assertSame('Stéatose hépatique', Diagnosis::query()->sole()->description);
     }
 
-    /** La garantie inverse — celle qu'un assouplissement trop large casserait. */
-    public function test_an_ordinary_consultation_still_demands_a_final_diagnosis(): void
+    /**
+     * ADR-203 — le diagnostic n'est plus une condition
+     * de la sortie prononcée en consultation, pour aucun passage. Une absence
+     * reste une absence : aucun diagnostic n'est fabriqué.
+     */
+    public function test_an_ordinary_consultation_no_longer_demands_a_final_diagnosis(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->passage($doctor, CatalogModule::Medicine, 'Consultation générale');
 
         $this->actingAs($doctor)
             ->post("/medicine/orientations/{$orientation->uuid}/discharge", $this->dischargePayload())
-            ->assertSessionHasErrors('final_diagnosis');
+            ->assertSessionHasNoErrors();
 
-        $this->assertSame(0, MedicalDischarge::query()->count());
+        $this->assertNull(MedicalDischarge::query()->sole()->final_diagnosis);
+        $this->assertSame(0, Diagnosis::query()->count());
     }
 
     /** La clôture et la sortie doivent dire la même chose, sinon l'une piège l'autre. */
@@ -110,7 +115,7 @@ class ParaclinicalDischargeTest extends TestCase
         $this->assertEmpty(array_filter($blockers, fn (array $b): bool => str_contains($b['message'], 'Diagnostic')));
     }
 
-    public function test_the_closure_still_demands_one_for_an_ordinary_consultation(): void
+    public function test_the_closure_no_longer_lists_the_diagnosis_for_an_ordinary_consultation(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->passage($doctor, CatalogModule::Medicine, 'Consultation générale');
@@ -120,7 +125,7 @@ class ParaclinicalDischargeTest extends TestCase
             ->assertOk()
             ->viewData('page')['props']['consultation']['closure_blockers'];
 
-        $this->assertNotEmpty(array_filter($blockers, fn (array $b): bool => str_contains($b['message'], 'Diagnostic')));
+        $this->assertEmpty(array_filter($blockers, fn (array $b): bool => str_contains($b['message'], 'Diagnostic')));
     }
 
     /**

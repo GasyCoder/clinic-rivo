@@ -13,11 +13,11 @@ use Symfony\Component\Mime\Email;
  * après une action, un libellé renommé — ne le paie plus. Une adresse refusée ou un
  * serveur injoignable se lit au premier usage, comme avant (bootstrap/app.php).
  */
-final class LazyMailServer implements MailServer
+final class LazyMailServer implements MailServer, OpensOnFirstUse
 {
     private ?MailServer $server = null;
 
-    /** @var array{0: string, 1: array<string, mixed>, 2: ?int, 3: bool}|null Une lecture annoncée avant la connexion. */
+    /** @var array{0: string, 1: array<string, mixed>, 2: ?int, 3: bool, 4: int}|null Une lecture annoncée avant la connexion. */
     private ?array $plan = null;
 
     /** @param Closure(): MailServer $connect */
@@ -33,16 +33,16 @@ final class LazyMailServer implements MailServer
         return $this->server()->folders($withCounts);
     }
 
-    public function plan(string $folder, array $criteria = [], ?int $uid = null, bool $markSeen = false): void
+    public function plan(string $folder, array $criteria = [], ?int $uid = null, bool $markSeen = false, int $page = 1): void
     {
         // Annoncer ce qu'on lira ensuite ne justifie pas d'ouvrir la connexion.
         if ($this->server === null) {
-            $this->plan = [$folder, $criteria, $uid, $markSeen];
+            $this->plan = [$folder, $criteria, $uid, $markSeen, $page];
 
             return;
         }
 
-        $this->server->plan($folder, $criteria, $uid, $markSeen);
+        $this->server->plan($folder, $criteria, $uid, $markSeen, $page);
     }
 
     public function messages(string $folder, int $page, int $perPage, array $criteria = []): array

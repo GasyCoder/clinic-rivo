@@ -5,7 +5,7 @@ namespace App\Support\Hr;
 use Carbon\CarbonInterface;
 
 /**
- * ADR-197 — l'ancienneté de service, calculée depuis la date d'entrée, jamais
+ * ADR-206 — l'ancienneté de service, calculée depuis la date d'entrée, jamais
  * saisie : elle est toujours à jour. Le même calcul existe à l'écran
  * (`utilities/seniority.js`) pour l'aperçu pendant la saisie.
  */

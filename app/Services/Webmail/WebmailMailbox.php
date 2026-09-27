@@ -241,12 +241,12 @@ final class WebmailMailbox
      *
      * @param  array{text?: ?string, unseen?: bool, flagged?: bool, keyword?: ?string}  $criteria
      */
-    public function expectListing(string $key, array $criteria = []): void
+    public function expectListing(string $key, array $criteria = [], int $page = 1): void
     {
         $folder = $key === self::FAVORITES ? null : $this->folder($key);
 
         if ($folder !== null && $folder['path'] !== null) {
-            $this->server->plan($folder['path'], $criteria);
+            $this->server->plan($folder['path'], $criteria, page: max(1, $page));
         }
     }
 

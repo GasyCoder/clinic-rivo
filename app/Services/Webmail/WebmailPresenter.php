@@ -36,6 +36,10 @@ final class WebmailPresenter
                 'own' => $opened->own,
                 // La boîte du portail s'ouvre sans mot de passe saisi : rien à fermer.
                 'portal' => $opened->portal,
+                // ADR-200 — sa boîte ouverte avec la connexion à RIVO se ferme avec elle :
+                // la fermer seule ferait retaper un mot de passe déjà saisi.
+                'signed_on' => $opened->own && $this->access->passwordSource($opened) === WebmailSession::VIA_LOGIN,
+                'closable' => ! $opened->portal && ! ($opened->own && $this->access->passwordSource($opened) === WebmailSession::VIA_LOGIN),
                 'can_switch' => $this->access->canOpenAny($user),
             ],
             'folders' => fn () => array_map(fn (array $folder) => collect($folder)->except('path')->all(), $box->folders()),

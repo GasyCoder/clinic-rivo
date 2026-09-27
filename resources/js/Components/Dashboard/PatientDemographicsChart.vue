@@ -12,9 +12,9 @@ const props = defineProps({
 });
 
 const colors = {
-    men: '#2563eb',
-    women: '#db2777',
-    children: '#f59e0b',
+    men: '#6384a0',
+    women: '#a97488',
+    children: '#aa8d5d',
     unclassified: '#94a3b8',
 };
 
@@ -81,10 +81,10 @@ const percentLabel = (percent) => new Intl.NumberFormat('fr-FR', {
                 </li>
             </ul>
 
-            <div v-if="demographics.children?.total" class="mt-4 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-xs dark:border-amber-900 dark:bg-amber-950/20">
+            <div v-if="demographics.children?.total" class="mt-4 rounded-lg border border-border bg-muted/35 px-3 py-2.5 text-xs">
                 <div class="flex items-center justify-between gap-3">
-                    <span class="font-semibold text-amber-900 dark:text-amber-200">Détail des enfants</span>
-                    <span class="text-amber-800/80 dark:text-amber-300">{{ demographics.children.boys }} garçon{{ demographics.children.boys > 1 ? 's' : '' }} · {{ demographics.children.girls }} fille{{ demographics.children.girls > 1 ? 's' : '' }}</span>
+                    <span class="font-semibold text-foreground">Détail des enfants</span>
+                    <span class="text-muted-foreground">{{ demographics.children.boys }} garçon{{ demographics.children.boys > 1 ? 's' : '' }} · {{ demographics.children.girls }} fille{{ demographics.children.girls > 1 ? 's' : '' }}</span>
                 </div>
             </div>
         </div>

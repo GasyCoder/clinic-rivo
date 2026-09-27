@@ -40,8 +40,9 @@ interface MailServer
      * le même aller-retour. Une simple annonce : sans elle, tout se lit comme avant.
      *
      * @param  array{text?: ?string, unseen?: bool, flagged?: bool, keyword?: ?string}  $criteria
+     * @param  int  $page  la page de la liste : sur une connexion gardée ouverte, ses en-têtes déjà servis partent aussi
      */
-    public function plan(string $folder, array $criteria = [], ?int $uid = null, bool $markSeen = false): void;
+    public function plan(string $folder, array $criteria = [], ?int $uid = null, bool $markSeen = false, int $page = 1): void;
 
     /**
      * Une page de messages, les plus récents d'abord.

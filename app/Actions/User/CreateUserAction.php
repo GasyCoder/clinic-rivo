@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Administration\EmployeeAccountLinker;
 use App\Services\Audit\Auditor;
+use App\Services\Auth\AccountActivation;
 use App\Services\Authorization\UserAdministrationGuard;
 use App\Services\Catalog\CatalogActor;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -56,21 +57,29 @@ class CreateUserAction
                 ]);
             }
 
+            // ADR-202 — accès du personnel : aucun mot de passe n'est créé ni
+            // communiqué. La personne le choisit à sa première connexion, en
+            // tapant son adresse sur la page de connexion (AccountActivation).
+            $firstLogin = (bool) ($data['activation_on_first_login'] ?? false);
+
             // No password supplied: the account is provisioned by invitation
             // instead — a random, never-communicated password satisfies the
             // column, and the real one is set by the user themselves through
             // the same reset-password link and page as "forgot password".
-            $invited = blank($data['password'] ?? null);
+            $invited = ! $firstLogin && blank($data['password'] ?? null);
 
             $user = new User([
                 'name' => $data['name'],
                 'email' => mb_strtolower($data['email']),
-                'password' => $invited ? Str::password(40) : $data['password'],
+                'password' => $invited || $firstLogin ? Str::password(40) : $data['password'],
                 'role_id' => $role->id,
                 'professional_profile_id' => $profile?->id,
                 'email_verified_at' => now(),
             ]);
-            $user->forceFill(['active' => true])->save();
+            $user->forceFill([
+                'active' => true,
+                'activation_open_until' => $firstLogin ? now()->addDays(AccountActivation::days()) : null,
+            ])->save();
 
             $profileSync = $this->syncProfilePermissions->execute(
                 $user,
@@ -97,6 +106,7 @@ class CreateUserAction
                     'professional_profile' => $profile?->code,
                     'active' => true,
                     'invited' => $invited,
+                    ...($firstLogin ? ['first_login_until' => $user->activation_open_until?->toIso8601String()] : []),
                 ],
                 module: 'administration',
                 actor: $actorUser,

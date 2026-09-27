@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * ADR-197 — la rémunération déclarée du dossier employé (salaire, indemnité ou
+ * ADR-206 — la rémunération déclarée du dossier employé (salaire, indemnité ou
  * rien, et son montant) et son compte bancaire (numéro, titulaire).
  *
  * Données sensibles : deux droits dédiés, accordés au rôle ADMINISTRATION (RH).

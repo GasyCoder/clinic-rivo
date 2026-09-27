@@ -276,10 +276,34 @@ return [
             'name' => env('RIVO_WEBMAIL_PORTAL_NAME'),
         ],
         'timeout' => (int) env('RIVO_WEBMAIL_TIMEOUT', 20),
+        // La connexion au serveur de messagerie gardée ouverte entre les clics : un petit
+        // processus par boîte ouverte, qui se ferme seul après `idle_minutes` sans usage.
+        // Seul le premier clic paie la connexion (chiffrement, identification). Sans
+        // processus possible sur le serveur, RIVO se connecte à chaque clic, comme avant.
+        'keep_alive' => [
+            'enabled' => (bool) env('RIVO_WEBMAIL_KEEP_ALIVE', true),
+            'idle_minutes' => (int) env('RIVO_WEBMAIL_KEEP_ALIVE_MINUTES', 10),
+            // Le PHP en ligne de commande qui lance ce processus (sous PHP-FPM, PHP_BINARY
+            // désigne php-fpm) : déduit s'il est vide.
+            'php' => env('RIVO_WEBMAIL_KEEP_ALIVE_PHP'),
+            // Le dossier de ses prises (sockets Unix, 108 caractères au plus) : déduit s'il est vide.
+            'path' => env('RIVO_WEBMAIL_KEEP_ALIVE_PATH'),
+            // Le temps laissé au processus pour démarrer, en secondes.
+            'start_timeout' => (float) env('RIVO_WEBMAIL_KEEP_ALIVE_START_TIMEOUT', 5),
+        ],
         'per_page' => 25,
         // Pièces jointes d'un message envoyé : par fichier et au total, en Mo.
         'attachment_max_mb' => (int) env('RIVO_WEBMAIL_ATTACHMENT_MAX_MB', 10),
         'attachments_total_mb' => (int) env('RIVO_WEBMAIL_ATTACHMENTS_TOTAL_MB', 20),
+    ],
+
+    /*
+     * ADR-202 — la première connexion d'un employé : il tape son adresse, RIVO le
+     * salue et lui demande de choisir son mot de passe. Ouverte ce nombre de jours
+     * après l'envoi de l'accès au RH ; le RH peut la rouvrir.
+     */
+    'account_activation' => [
+        'days' => (int) env('RIVO_ACCOUNT_ACTIVATION_DAYS', 14),
     ],
 
     'site_api' => [

@@ -7,7 +7,7 @@ use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 
 /**
- * ADR-197 — la rémunération déclarée et le compte bancaire d'un dossier employé.
+ * ADR-206 — la rémunération déclarée et le compte bancaire d'un dossier employé.
  *
  * Une seule règle pour la création et la modification : ces champs ne s'écrivent
  * qu'avec `employees.payroll.update` — revérifié ici, l'écran et la requête ne

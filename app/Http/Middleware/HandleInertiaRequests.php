@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Notifications\NotificationCenter;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\SiteMaintenanceState;
 use App\Services\SuperAdmin\PortalDirectory;
@@ -95,6 +96,11 @@ class HandleInertiaRequests extends Middleware
             'webmail' => fn () => [
                 'available' => app(WebmailAccess::class)->canUse($user),
                 'connected' => app(WebmailAccess::class)->password(app(WebmailAccess::class)->current($user)) !== null,
+            ],
+            // ADR-197 — le nombre de notifications non lues, pour la pastille de la cloche.
+            // Une base pas encore migrée ne fait tomber aucune page : la cloche dit 0.
+            'notifications' => fn () => [
+                'unread' => $user ? rescue(fn () => app(NotificationCenter::class)->unreadCount($user), 0, report: false) : 0,
             ],
             // ADR-191 — taille du texte, densité, arrondis, animations, contraste :
             // ceux du site, ajustés par l'utilisateur. Appliqués sur <html> dès le rendu

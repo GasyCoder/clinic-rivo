@@ -543,88 +543,29 @@ class ComplementaryExamDecisionTest extends TestCase
     }
 
     /**
-     * Saying "oui" without recording anything is an intention, not a
-     * diagnosis. La garantie est inchangée ; seul l'endroit où on répond a
-     * bougé, de l'Examen clinique à « Décision & clôture » (ADR-095).
+     * ADR-203 — l'absence de diagnostic ne retient
+     * plus la clôture : seule la conduite à tenir le fait.
      */
-    public function test_claiming_the_diagnosis_can_be_made_without_recording_one_is_refused(): void
+    public function test_a_missing_diagnosis_never_holds_the_closure(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->medicineConsultation($doctor);
 
-        $this->actingAs($doctor)
-            ->post($this->diagnosisTimingUrl($orientation), ['ready' => true])
-            ->assertSessionHasErrors('ready');
-
-        $this->assertNull(
-            $orientation->consultation()->firstOrFail()->clinicalExamination?->diagnosis_ready,
-            'Une réponse refusée ne doit rien enregistrer.',
-        );
-    }
-
-    /**
-     * A doctor waiting for results must never be pushed to conclude. The
-     * answer is kept, and the screens stay reachable to record the diagnosis
-     * once the results arrive.
-     */
-    public function test_deferring_the_diagnosis_is_recorded_and_blocks_nothing(): void
-    {
-        $doctor = $this->doctor();
-        [, $orientation] = $this->medicineConsultation($doctor);
-        $this->labRequest($orientation, $doctor);
-
-        $this->actingAs($doctor)
-            ->post($this->diagnosisTimingUrl($orientation), ['ready' => false])
-            ->assertSessionHasNoErrors();
-
-        $consultation = $orientation->consultation()->firstOrFail();
-
-        $this->assertFalse($consultation->clinicalExamination->diagnosis_ready);
-
-        // Un report n'est pas un examen : la ligne créée pour le porter ne
-        // doit pas faire croire qu'un examen clinique a eu lieu.
-        $this->assertNull($consultation->clinicalExamination->general_condition);
-
-        // Les deux écrans restent atteignables pour conclure plus tard.
-        foreach (['examen', 'cloture'] as $step) {
-            $this->actingAs($doctor)
-                ->get("/medicine/orientations/{$orientation->uuid}/{$step}")
-                ->assertOk();
-        }
-    }
-
-    /** Le report explique le blocage, au lieu de le faire passer pour un oubli. */
-    public function test_a_deferred_diagnosis_is_named_as_such_in_the_closure_blockers(): void
-    {
-        $doctor = $this->doctor();
-        [, $orientation] = $this->medicineConsultation($doctor);
-
-        $blockers = fn (): string => collect($this->actingAs($doctor)
+        $blockers = fn (): array => collect($this->actingAs($doctor)
             ->get("/medicine/orientations/{$orientation->uuid}/cloture")
-            ->viewData('page')['props']['consultation']['closure_blockers'])->pluck('message')->implode(' ');
+            ->viewData('page')['props']['consultation']['closure_blockers'])->pluck('message')->all();
 
-        $this->assertStringContainsString('aucun diagnostic enregistré', $blockers());
-
-        $this->actingAs($doctor)
-            ->post($this->diagnosisTimingUrl($orientation), ['ready' => false])
-            ->assertSessionHasNoErrors();
-
-        $this->assertStringContainsString('différé par le médecin', $blockers());
+        $this->assertSame(['Conduite à tenir : choisissez la suite de la prise en charge.'], $blockers());
     }
 
     /**
      * Un diagnostic saisi à l'examen clinique est le même que celui de « Décision & clôture » :
-     * il est servi à l'écran de clôture, ne réclame rien de plus, et un report antérieur
-     * (« Pas maintenant ») ne le rend ni invisible ni bloquant.
+     * il est servi à l'écran de clôture et ne réclame rien de plus.
      */
     public function test_a_diagnosis_recorded_at_the_exam_is_carried_to_the_closure_step(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->medicineConsultation($doctor);
-
-        $this->actingAs($doctor)
-            ->post($this->diagnosisTimingUrl($orientation), ['ready' => false])
-            ->assertSessionHasNoErrors();
 
         $this->actingAs($doctor)
             ->post("/medicine/orientations/{$orientation->uuid}/diagnoses", [
@@ -691,12 +632,6 @@ class ComplementaryExamDecisionTest extends TestCase
     private function decisionUrl(EpisodeOrientation $orientation): string
     {
         return "/medicine/orientations/{$orientation->uuid}/complementary-exams";
-    }
-
-    /** ADR-095 — « Le diagnostic peut-il être posé maintenant ? », à la clôture. */
-    private function diagnosisTimingUrl(EpisodeOrientation $orientation): string
-    {
-        return "/medicine/orientations/{$orientation->uuid}/diagnostic-timing";
     }
 
     /**

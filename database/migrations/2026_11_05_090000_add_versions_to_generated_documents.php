@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * ADR-199 — un document généré reste figé : le « modifier » produit une nouvelle
+ * ADR-208 — un document généré reste figé : le « modifier » produit une nouvelle
  * version (`replaces_document_id`) et archive l'ancienne, gardée et consultable ;
  * le « supprimer » l'archive avec un motif, restaurable. Jamais d'effacement.
  *

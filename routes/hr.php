@@ -12,6 +12,7 @@ use App\Http\Controllers\Administration\InternshipController;
 use App\Http\Controllers\Administration\LeaveController;
 use App\Http\Controllers\Administration\PlanningController;
 use App\Http\Controllers\Administration\ProfessionalMailboxController;
+use App\Http\Controllers\Administration\StaffAccessController;
 use App\Http\Controllers\Administration\StaffBlockCreditController;
 use App\Http\Controllers\AdministrationController;
 use Illuminate\Support\Facades\Route;
@@ -43,6 +44,11 @@ Route::get('/employees/{employee}/edit', [EmployeeController::class, 'edit'])->n
 // ADR-190 — l'adresse email professionnelle : le RH la demande, le Super Admin la crée depuis le portail.
 Route::post('/employees/{employee}/professional-mailbox', [ProfessionalMailboxController::class, 'store'])->name('employees.professional-mailbox.store')->middleware('can:professional_emails.request');
 Route::post('/professional-mailboxes/{mailbox}/cancel', [ProfessionalMailboxController::class, 'cancel'])->name('professional-mailboxes.cancel')->middleware('can:professional_emails.request');
+// ADR-197 / ADR-202 — les accès créés par le Super Admin, annoncés aux employés par le RH ;
+// chacun choisit son mot de passe à sa première connexion.
+Route::get('/staff-access', [StaffAccessController::class, 'index'])->name('staff-access.index')->middleware('can:staff_access.receive');
+Route::get('/staff-access/{handover}', [StaffAccessController::class, 'show'])->name('staff-access.show')->middleware('can:staff_access.receive');
+Route::post('/staff-access/{handover}/items/{item}/reopen', [StaffAccessController::class, 'reopen'])->name('staff-access.reopen')->middleware('can:staff_access.receive');
 // ADR-190 (amendement du 2026-09-25) — la page RH des adresses du site. Créer, refuser, suspendre,
 // réactiver et renouveler le mot de passe suivent le droit accordé par le Super Admin.
 Route::get('/professional-emails', [ProfessionalMailboxController::class, 'index'])->name('professional-emails.index')->middleware('can:professional_emails.view');
@@ -100,7 +106,7 @@ Route::get('/generated-documents', [GeneratedDocumentController::class, 'index']
 Route::get('/generated-documents/create', [GeneratedDocumentController::class, 'create'])->name('generated-documents.create')->middleware('can:generated_documents.create');
 Route::post('/generated-documents/preview', [GeneratedDocumentController::class, 'preview'])->name('generated-documents.preview')->middleware('can:generated_documents.create');
 Route::post('/generated-documents', [GeneratedDocumentController::class, 'store'])->name('generated-documents.store')->middleware('can:generated_documents.create');
-// ADR-199 — un document archivé reste consultable ; « supprimer » l'archive, avec un motif.
+// ADR-208 — un document archivé reste consultable ; « supprimer » l'archive, avec un motif.
 Route::get('/generated-documents/{generatedDocument}/print', [GeneratedDocumentController::class, 'print'])->name('generated-documents.print')->middleware('can:generated_documents.print')->withTrashed();
 Route::delete('/generated-documents/{generatedDocument}', [GeneratedDocumentController::class, 'destroy'])->name('generated-documents.destroy')->middleware('can:generated_documents.archive');
 Route::post('/generated-documents/{generatedDocument}/restore', [GeneratedDocumentController::class, 'restore'])->name('generated-documents.restore')->middleware('can:generated_documents.restore')->withTrashed();

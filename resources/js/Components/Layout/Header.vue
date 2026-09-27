@@ -6,7 +6,7 @@ import { UserRound } from 'lucide-vue-next';
 import Icon from '@/Components/UI/Icon.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import HeaderSearch from '@/Components/Layout/HeaderSearch.vue';
-import HeaderAttention from '@/Components/Layout/HeaderAttention.vue';
+import HeaderNotifications from '@/Components/Layout/HeaderNotifications.vue';
 import BrandLockup from '@/Components/Layout/BrandLockup.vue';
 import ThemeModeSwitcher from '@/Components/Layout/ThemeModeSwitcher.vue';
 
@@ -65,7 +65,7 @@ const logout = () => {
                              téléphone la barre n'a pas la place : le choix reste dans le menu du compte. -->
                         <ThemeModeSwitcher variant="header" class="hidden sm:inline-flex" />
                         <span class="hidden h-6 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
-                        <HeaderAttention />
+                        <HeaderNotifications />
 
                         <!-- Un filet entre la cloche et le compte : deux
                              commandes sans rapport, collées, se lisent comme

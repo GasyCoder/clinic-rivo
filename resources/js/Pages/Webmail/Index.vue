@@ -19,6 +19,7 @@ import {
     WEBMAIL_BASE,
     WEBMAIL_CACHE_TAG,
     applyActionLocally,
+    composeTarget,
     folderUrl,
     followOpening,
     forgetOpening,
@@ -119,6 +120,14 @@ watch(() => props.list, (list) => {
 let pendingHref = null;
 const stops = [];
 onMounted(() => {
+    // Arrivé depuis « Écrire » d'un autre écran : le message s'ouvre adressé, jamais envoyé.
+    const target = composeTarget(new URL(page.url, window.location.origin).search);
+    if (target) {
+        openCompose('new', { to: target });
+        const url = new URL(window.location.href);
+        url.searchParams.delete('ecrire');
+        window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    }
     stops.push(router.on('start', (event) => {
         const visit = event.detail?.visit;
         if (!visit || visit.method !== 'get' || visit.prefetch || visit.async || visit.only?.length) return;

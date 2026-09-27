@@ -28,6 +28,7 @@ use App\Models\ImagingRequest;
 use App\Models\LabRequest;
 use App\Models\MedicalReferral;
 use App\Models\Prescription;
+use App\Support\Medicine\PrescriptionDocument;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -75,45 +76,11 @@ class HospitalStayOrderController extends Controller
         $this->ensureStayPrescription($hospitalStay, $prescription);
         abort_unless($prescription->status === PrescriptionStatus::Active, 409, 'Seule une ordonnance active peut être imprimée.');
 
-        $hospitalStay->load('episode.patient');
-        $prescription->load(['prescribedBy:id,name', 'lines' => fn ($query) => $query->orderBy('id'), 'lines.medicine.catalogItem:id,unit']);
-        $episode = $hospitalStay->episode;
-        $patient = $episode->patient;
-
-        return Inertia::render('Medicine/PrescriptionPrint', [
-            'orientation' => ['uuid' => null],
-            'backHref' => "/hospitalisation/{$hospitalStay->uuid}",
-            'episode' => [
-                'episode_number' => $episode->episode_number,
-                'priority' => $episode->priority->value,
-            ],
-            'patient' => [
-                'uuid' => $patient->uuid,
-                'patient_number' => $patient->patient_number,
-                'first_name' => $patient->first_name,
-                'last_name' => $patient->last_name,
-                'sex' => $patient->sex->value,
-                'sex_label' => $patient->sex->value === 'F' ? 'Féminin' : 'Masculin',
-                'birth_date' => $patient->birth_date?->toDateString(),
-                'birth_date_is_approximate' => $patient->birth_date_is_approximate,
-                'age' => $patient->birth_date?->age ?? $patient->declared_age,
-            ],
-            'prescription' => [
-                'uuid' => $prescription->uuid,
-                'prescribed_at' => $prescription->prescribed_at ?? $prescription->created_at,
-                'prescribed_by' => $prescription->prescribedBy?->name,
-                'lines' => $prescription->lines->map(fn ($line) => [
-                    'id' => $line->getKey(),
-                    'medication_name' => $line->medication_name,
-                    'quantity' => $line->quantity,
-                    'unit' => $line->medicine?->catalogItem?->unit,
-                    'dosage' => $line->dosage,
-                    'frequency' => $line->frequency,
-                    'duration' => $line->duration,
-                    'instructions' => $line->instructions,
-                ])->values(),
-            ],
-        ]);
+        return Inertia::render('Medicine/PrescriptionPrint', PrescriptionDocument::printPage(
+            $prescription,
+            $hospitalStay->episode,
+            "/hospitalisation/{$hospitalStay->uuid}",
+        ));
     }
 
     public function storeLabRequest(StoreStayLabRequestRequest $request, HospitalStay $hospitalStay, CreateLabRequestAction $action): RedirectResponse

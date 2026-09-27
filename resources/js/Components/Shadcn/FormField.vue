@@ -24,6 +24,8 @@ const props = defineProps({
     /** Précision discrète à la suite du libellé, ex. « (facultatif) ». */
     hint: { type: String, default: '' },
     error: { type: String, default: '' },
+    /** Une icône lucide devant le libellé, facultative : elle dit de quoi parle le champ d'un coup d'œil. */
+    icon: { type: [Object, Function], default: null },
     class: { type: String, default: '' },
 });
 
@@ -33,11 +35,14 @@ const rootClass = computed(() => cn('min-w-0', props.class));
 <template>
     <component :is="as" :class="rootClass">
         <span class="mb-1.5 flex h-6 items-center justify-between gap-3">
-            <span class="truncate text-sm font-medium text-foreground">
-                <!-- Les espaces sont posés en marge, jamais dans le texte :
-                     Vue condense l'espace entre deux éléments, ce qui
-                     collait « Pièce d'identité » à « (facultatif) ». -->
-                {{ label }}<span v-if="required" class="ms-0.5 text-destructive">*</span><span v-if="hint" class="ms-1 font-normal text-muted-foreground">{{ hint }}</span>
+            <span class="flex min-w-0 items-center gap-1.5">
+                <component :is="icon" v-if="icon" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span class="truncate text-sm font-medium text-foreground">
+                    <!-- Les espaces sont posés en marge, jamais dans le texte :
+                         Vue condense l'espace entre deux éléments, ce qui
+                         collait « Pièce d'identité » à « (facultatif) ». -->
+                    {{ label }}<span v-if="required" class="ms-0.5 text-destructive">*</span><span v-if="hint" class="ms-1 font-normal text-muted-foreground">{{ hint }}</span>
+                </span>
             </span>
             <slot name="action" />
         </span>

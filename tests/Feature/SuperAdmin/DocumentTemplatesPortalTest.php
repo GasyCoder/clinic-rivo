@@ -107,7 +107,7 @@ class DocumentTemplatesPortalTest extends TestCase
             && $request->header('X-Rivo-Actor-Name')[0] === $superAdmin->name);
     }
 
-    /** ADR-199 — les canevas en dossiers : le dossier suit l'adresse. */
+    /** ADR-208 — les canevas en dossiers : le dossier suit l'adresse. */
     public function test_the_canevas_page_opens_on_the_requested_folder(): void
     {
         Http::fake(['*' => Http::response(['data' => ['templates' => [], 'summary' => ['active' => 0, 'archived' => 0], 'document_types' => []]], 200)]);

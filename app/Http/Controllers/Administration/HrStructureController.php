@@ -12,6 +12,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\ArchiveHrReferenceRequest;
 use App\Http\Requests\Administration\HrStructureRequest;
 use App\Models\HrReferenceValue;
+use App\Support\Hr\JobTitleAccountRole;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -30,6 +31,10 @@ use Inertia\Response;
  * ADR-194 — une fonction y liste aussi les départements où elle existe, et un
  * département les fonctions qui lui sont reliées : le dossier employé ne propose
  * que les fonctions du département choisi.
+ *
+ * ADR-199 — une fonction y porte aussi le rôle qu'elle propose au compte de
+ * celui qui l'exerce : l'accès du personnel et l'assistant de compte le
+ * préremplissent.
  */
 class HrStructureController extends Controller
 {
@@ -41,6 +46,7 @@ class HrStructureController extends Controller
         $isJobTitles = $kind === HrStructureKind::JobTitles;
         $relation = $isJobTitles ? 'jobTitleEmployees' : 'departmentEmployees';
 
+        $accountRoles = new JobTitleAccountRole;
         $items = HrReferenceValue::withTrashed()
             ->ofType($kind->referenceType())
             // ADR-194 — les liens fonction ↔ département, lus des deux côtés.
@@ -73,6 +79,8 @@ class HrStructureController extends Controller
                     ])->values()
                     : null,
                 'job_titles' => $isJobTitles ? null : $reference->departmentJobTitles->pluck('label')->values(),
+                // ADR-199 — le rôle que cette fonction propose au compte de celui qui l'exerce.
+                'account_role' => $isJobTitles ? $accountRoles->forJobTitle($reference) : null,
             ]);
 
         return Inertia::render('Administration/HrStructure/Index', [
@@ -89,6 +97,8 @@ class HrStructureController extends Controller
                         'archived' => $department->trashed(),
                     ])->values()
                 : [],
+            // ADR-199 — les rôles qu'une fonction peut proposer, et leurs profils.
+            'roleOptions' => $isJobTitles ? JobTitleAccountRole::options() : [],
             // Pour un département : les fonctions sans aucun département, proposées partout.
             'sharedJobTitles' => $isJobTitles ? [] : HrReferenceValue::query()->ofType(HrReferenceType::JobTitle)
                 ->whereDoesntHave('departments', fn ($query) => $query->withTrashed())->orderBy('label')->pluck('label')->values(),

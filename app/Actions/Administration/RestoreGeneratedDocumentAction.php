@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-199 — restaurer un document archivé. Une version remplacée par une plus
+ * ADR-208 — restaurer un document archivé. Une version remplacée par une plus
  * récente encore en vigueur ne revient pas : il faudrait d'abord archiver la
  * nouvelle, sinon deux versions du même document seraient actives.
  */

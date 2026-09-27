@@ -26,11 +26,11 @@ const chart = {
 };
 
 const colors = {
-    navy: '#1f5f8b',
-    ocean: '#2f83a8',
-    cyan: '#0891a6',
-    green: '#16836b',
-    yellow: '#b7791f',
+    navy: '#54758a',
+    ocean: '#6b8fa5',
+    cyan: '#65959b',
+    green: '#6c8f7f',
+    yellow: '#a4885a',
 };
 
 const dates = computed(() => props.trend?.dates ?? []);

@@ -13,7 +13,7 @@ const props = defineProps({
     employee: Object, options: Object, departments: Array, jobTitles: Array, addresses: [Array, Object],
     // ADR-194 — le couple département/fonction déjà enregistré reste choisissable.
     currentPair: { type: Object, default: null },
-    // ADR-197 — la rémunération et le compte bancaire, servis avec leur droit.
+    // ADR-206 — la rémunération et le compte bancaire, servis avec leur droit.
     payroll: { type: Object, default: null },
 });
 const { can } = usePermissions();
@@ -33,7 +33,7 @@ const form = useForm({
     phone: props.employee.phone ?? '', address_entry_uuid: props.employee.address_entry_uuid ?? '',
     new_address_label: '', observation: props.employee.observation ?? '', active: props.employee.active,
     photo: null, remove_photo: false,
-    // ADR-197 — envoyés seulement avec le droit ; omis, ils restent tels quels.
+    // ADR-206 — envoyés seulement avec le droit ; omis, ils restent tels quels.
     ...(can('employees.payroll.update') ? {
         remuneration_type: props.payroll?.remuneration_type ?? '',
         remuneration_amount: props.payroll?.remuneration_amount ?? '',
@@ -52,9 +52,9 @@ const submit = () => (form.photo
 
 <template>
     <Head :title="`Modifier ${employee.name}`" />
-    <div class="w-full space-y-5">
-        <HrPageHeader :eyebrow="`${employee.employee_number} · Parcours guidé`" :title="`Modifier ${employee.name}`" description="Les changements d’identité sont synchronisés avec le dossier Patient lié lorsqu’il existe." icon="edit">
-            <template #actions><Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" variant="outline"><ArrowLeft class="h-4 w-4" />Retour au dossier</Button></template>
+    <div class="w-full space-y-4">
+        <HrPageHeader compact :eyebrow="`${employee.employee_number} · Parcours guidé`" :title="`Modifier ${employee.name}`" description="Les changements d’identité sont synchronisés avec le dossier Patient lié lorsqu’il existe." icon="edit">
+            <template #actions><Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" variant="outline" size="sm"><ArrowLeft class="h-4 w-4" />Retour au dossier</Button></template>
         </HrPageHeader>
         <EmployeeForm
             :form="form"

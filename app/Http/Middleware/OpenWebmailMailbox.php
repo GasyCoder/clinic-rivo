@@ -2,13 +2,17 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\ProfessionalMailbox;
 use App\Services\Audit\Auditor;
+use App\Services\Webmail\MailServer;
 use App\Services\Webmail\MailServerFactory;
+use App\Services\Webmail\OpensOnFirstUse;
 use App\Services\Webmail\WebmailAccess;
 use App\Services\Webmail\WebmailAuthenticationFailed;
 use App\Services\Webmail\WebmailBox;
 use App\Services\Webmail\WebmailMailbox;
 use App\Services\Webmail\WebmailSession;
+use App\Services\Webmail\WebmailSignOn;
 use App\Services\Webmail\WebmailUnavailable;
 use Closure;
 use Illuminate\Http\Request;
@@ -18,7 +22,9 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * ADR-195 — remet aux contrôleurs la boîte choisie, avec le mot de passe gardé
  * dans la session — ou, pour la boîte du portail, celui de son .env : le Super
- * Admin n'a rien à saisir. Sans mot de passe : la page d'ouverture.
+ * Admin n'a rien à saisir. Pour sa propre boîte, celui saisi à la connexion à RIVO
+ * (ADR-200) : l'employé n'a rien à saisir non plus. Sans mot de passe : la page
+ * d'ouverture.
  *
  * La connexion au serveur n'a lieu qu'au premier usage (LazyMailServer) : une
  * requête qui ne lit rien — un rechargement partiel — ne la paie pas. Un mot de
@@ -59,7 +65,10 @@ class OpenWebmailMailbox
         app()->instance(WebmailMailbox::class, new WebmailMailbox($server, $mailbox));
 
         try {
-            return $next($request);
+            $response = $next($request);
+            $this->auditSignOn($mailbox, $server);
+
+            return $response;
         } catch (WebmailUnavailable $exception) {
             return self::failure($request, $exception, $this->session, $mailbox);
         } finally {
@@ -82,8 +91,17 @@ class OpenWebmailMailbox
         }
 
         if ($exception instanceof WebmailAuthenticationFailed) {
-            $box = $session->box();
+            $box = $mailbox ?? $session->box();
+            // ADR-200 — le mot de passe de connexion à RIVO n'est pas (ou plus) celui
+            // de la boîte : ce n'est pas un changement, c'est une première demande.
+            $fromLogin = $box !== null && $box->own && $session->passwordFor($box) === null && $session->ownVia() === WebmailSession::VIA_LOGIN;
             $session->forget();
+
+            if ($box === null || $box->own) {
+                $session->forgetOwn();
+                // Refusé : ce qui était gardé sur l'appareil ne vaut plus rien non plus.
+                app(WebmailSignOn::class)->forgetDevice();
+            }
 
             if (self::inBackground($request)) {
                 return response()->json([
@@ -93,9 +111,11 @@ class OpenWebmailMailbox
             }
 
             return redirect()->route('webmail.connect')->withErrors([
-                'password' => $box === null || $box->own
-                    ? 'Le mot de passe de votre boîte a changé : saisissez-le de nouveau.'
-                    : 'Le serveur de messagerie refuse désormais ce mot de passe (changé, ou adresse suspendue).',
+                'password' => match (true) {
+                    $fromLogin => 'Votre boîte n’a pas le même mot de passe que votre compte RIVO : saisissez celui de la boîte. Il sera gardé jusqu’à votre déconnexion.',
+                    $box === null || $box->own => 'Le mot de passe de votre boîte a changé : saisissez-le de nouveau.',
+                    default => 'Le serveur de messagerie refuse désormais ce mot de passe (changé, ou adresse suspendue).',
+                },
             ]);
         }
 
@@ -115,6 +135,32 @@ class OpenWebmailMailbox
         }
 
         return back()->withErrors(['webmail' => $exception->getMessage()]);
+    }
+
+    /**
+     * ADR-200 — sa boîte ouverte avec le mot de passe de connexion à RIVO : la
+     * première fois que le serveur l'accepte, l'audit le dit, une fois par session,
+     * comme une ouverture tapée. Jamais le mot de passe.
+     */
+    private function auditSignOn(WebmailBox $mailbox, MailServer $server): void
+    {
+        if (! $mailbox->own || $this->access->passwordSource($mailbox) !== WebmailSession::VIA_LOGIN || $this->session->ownVerified()) {
+            return;
+        }
+
+        // La page n'a rien demandé au serveur : rien n'a encore été accepté.
+        if ($server instanceof OpensOnFirstUse && ! $server->connected()) {
+            return;
+        }
+
+        $this->session->markOwnVerified();
+        $this->auditor->record('webmail.connect', entity: ProfessionalMailbox::query()->where('uuid', $mailbox->uuid)->first(), newValues: [
+            'address' => $mailbox->address,
+            'site' => $mailbox->siteCode,
+            'titular' => $mailbox->owner,
+            'own_mailbox' => true,
+            'via' => 'rivo_login',
+        ], module: 'webmail');
     }
 
     /**

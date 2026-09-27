@@ -7,6 +7,7 @@ use App\Enums\EpisodeStatus;
 use App\Models\Episode;
 use App\Models\PharmacyStockAlert;
 use App\Models\User;
+use App\Services\StaffAccess\StaffAccessWatcher;
 
 /**
  * Ce qui attend réellement quelqu'un, agrégé pour l'en-tête.
@@ -31,10 +32,12 @@ class AttentionDigest
      */
     public function forUser(User $user): array
     {
-        $items = collect([
-            $this->settlements($user),
-            $this->stockAlerts($user),
-        ])->filter()->values()->all();
+        // Le portail n'a ni passages ni stock : ce qui l'attend, ce sont les accès
+        // du personnel à créer sur les sites (ADR-197).
+        $items = collect(config('rivo.site.type') === 'admin'
+            ? [$this->staffAccess($user)]
+            : [$this->settlements($user), $this->stockAlerts($user)]
+        )->filter()->values()->all();
 
         return [
             'items' => $items,
@@ -69,6 +72,33 @@ class AttentionDigest
             // L'icône est nommée, jamais choisie par l'écran : deux panneaux
             // finiraient par illustrer la même source différemment.
             'icon' => 'wallet',
+            'tone' => 'primary',
+        ];
+    }
+
+    /**
+     * ADR-197 — portail : les employés des sites qui attendent leur accès, tels que
+     * la dernière lecture des sites les a comptés (jamais une lecture des sites à
+     * l'ouverture de la cloche).
+     *
+     * @return array<string, mixed>|null
+     */
+    private function staffAccess(User $user): ?array
+    {
+        if (! $user->can('staff_access.view')) {
+            return null;
+        }
+
+        $count = array_sum(StaffAccessWatcher::pendingCounts());
+
+        return $count === 0 ? null : [
+            'key' => 'staff_access',
+            'label' => 'Accès à créer',
+            'description' => 'Des employés ajoutés par le RH attendent leur compte et leur adresse.',
+            'count' => $count,
+            'url' => '/super-admin/staff-access',
+            'action' => 'Ouvrir l’accès du personnel',
+            'icon' => 'user-plus',
             'tone' => 'primary',
         ];
     }

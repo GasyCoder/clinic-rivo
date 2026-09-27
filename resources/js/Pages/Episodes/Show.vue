@@ -11,6 +11,7 @@ import NewbornDossiers from '@/Components/Clinical/NewbornDossiers.vue';
 import EpisodeNextStepsCard from '@/Components/Reception/EpisodeNextStepsCard.vue';
 import { FileText, NotebookPen } from 'lucide-vue-next';
 import { formatDateTime } from '@/utilities/date';
+import VitalsRecordedAt from '@/Components/Clinical/VitalsRecordedAt.vue';
 import { formatMoney } from '@/utilities/money';
 import { formatPatientName } from '@/utilities/patient';
 
@@ -186,6 +187,7 @@ const vitalsRows = computed(() => {
                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="user-check" /></span>
                 <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Fiche de Soins</h2><p class="mt-0.5 text-xs text-slate-400">Constantes, allergies et actes réalisés pendant ce passage.</p></div>
             </div>
+            <p v-if="vitalsRows.length" class="flex flex-wrap items-center gap-2 px-5 pt-4 text-xs text-muted-foreground">Constantes relevées le <VitalsRecordedAt :at="episode.care_record.updated_at" sr-prefix="" /></p>
             <dl v-if="vitalsRows.length" class="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-gray-100 px-5 py-4 text-xs sm:grid-cols-3 lg:grid-cols-5 dark:border-gray-900">
                 <div v-for="row in vitalsRows" :key="row.label"><dt class="text-slate-400">{{ row.label }}</dt><dd class="mt-0.5 font-semibold text-slate-700 dark:text-slate-200">{{ row.value }}</dd></div>
             </dl>

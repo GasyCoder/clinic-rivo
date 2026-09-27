@@ -58,6 +58,8 @@ class EpisodeControllerTest extends TestCase
                 ->where('episode.pathway.3.type', 'INVOICE')
                 ->where('episode.care_record.blood_group', 'O+')
                 ->has('episode.care_record.procedures', 1)
+                // L'horodatage accompagne toujours les constantes (l'heure seule ne dit pas le jour).
+                ->has('episode.care_record.updated_at')
                 ->has('episode.consultations', 1)
                 ->where('episode.consultations.0.reason', 'Douleur abdominale')
                 ->has('episode.consultations.0.diagnoses', 1)

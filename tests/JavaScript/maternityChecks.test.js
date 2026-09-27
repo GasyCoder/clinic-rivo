@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { maternityBundle } from './support/maternityPage.js';
 import {
     apgarHints,
     birthWeightHints,
@@ -162,7 +163,7 @@ test('le plus grave des messages donne le repère visuel', () => {
 
 /** Aucune aide ne doit empêcher d'enregistrer : rien ici ne touche à la soumission. */
 test('le dossier affiche les repères sans bloquer l’enregistrement', () => {
-    const page = fs.readFileSync('resources/js/Pages/Maternity/Show.vue', 'utf8');
+    const page = maternityBundle();
 
     assert.match(page, /maternityReference: \{ type: Object, required: true \}/);
     assert.match(page, /<ClinicalFieldHints/);

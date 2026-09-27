@@ -43,13 +43,16 @@ class RecordImagingResultRequest extends FormRequest
             return false;
         }
 
-        // ADR-162 — une demande du séjour n'a pas de consultation : elle
-        // appartient à l'orientation du séjour qui l'a émise.
+        // ADR-162, ADR-204 — une demande du séjour ou de la Maternité n'a pas
+        // de consultation : elle appartient à l'orientation qui l'a émise.
         return $item->imagingRequest()
             ->where(fn ($query) => $query
                 ->whereHas('consultation', fn ($consultation) => $consultation->where('episode_orientation_id', $orientation->getKey()))
                 ->orWhere(fn ($stay) => $stay
                     ->whereNotNull('hospital_stay_id')
+                    ->where('source_orientation_id', $orientation->getKey()))
+                ->orWhere(fn ($maternity) => $maternity
+                    ->whereNotNull('maternity_record_id')
                     ->where('source_orientation_id', $orientation->getKey())))
             ->exists();
     }

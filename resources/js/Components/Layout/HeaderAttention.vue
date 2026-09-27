@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import {
     Bell,
@@ -7,33 +7,36 @@ import {
     ChevronRight,
     Loader2,
     Package,
+    UserPlus,
     Wallet,
 } from 'lucide-vue-next';
-import Popover from '@/Components/Shadcn/Popover.vue';
 import RefreshIcon from '@/Components/Shadcn/RefreshIcon.vue';
 import { cn } from '@/lib/cn';
 
 /**
- * Les points d'attention, chargés à l'ouverture.
+ * Les points d'attention : l'onglet « À traiter » de la cloche (ADR-197).
  *
- * Ce n'est pas une boîte de réception : rien dans RIVO n'enregistre qu'un
- * compte a lu quelque chose, donc aucun « non lu » n'est affiché — ce
- * serait prétendre une lecture que personne n'a faite. Ce panneau compte
- * des **faits en cours**, et une ligne disparaît quand le travail est fait.
+ * Ce ne sont pas des notifications : ce panneau compte des **faits en cours**,
+ * et une ligne disparaît quand le travail est fait, jamais quand on l'a
+ * regardée. Aucune lecture n'y est donc enregistrée ni affichée.
  *
- * Le contenu n'est pas une prop partagée : le calculer à chaque navigation
- * ferait payer à toutes les pages un panneau rarement ouvert.
+ * Le contenu est chargé quand l'onglet s'affiche, jamais à chaque navigation :
+ * le calculer partout ferait payer à toutes les pages un panneau rarement ouvert.
  */
-const open = ref(false);
+const props = defineProps({
+    /** L'onglet est affiché : il (re)charge son contenu. */
+    active: { type: Boolean, default: false },
+});
+const emit = defineEmits(['total', 'navigate']);
+
 const loading = ref(false);
 const loaded = ref(false);
 const failed = ref(false);
 const items = ref([]);
-const total = ref(0);
 const refreshedAt = ref(null);
 
 /** L'icône est nommée par le serveur : l'écran ne choisit pas l'illustration. */
-const ICONS = { wallet: Wallet, package: Package };
+const ICONS = { wallet: Wallet, package: Package, 'user-plus': UserPlus };
 
 const iconFor = (item) => ICONS[item.icon] ?? Bell;
 
@@ -56,7 +59,7 @@ const load = async () => {
 
         const payload = await response.json();
         items.value = payload.items ?? [];
-        total.value = payload.total ?? 0;
+        emit('total', payload.total ?? 0);
         refreshedAt.value = new Date();
         loaded.value = true;
     } catch (error) {
@@ -68,43 +71,25 @@ const load = async () => {
     }
 };
 
-const toggle = (value) => {
-    open.value = value;
+// Rechargé à chaque affichage : un compteur figé depuis la connexion décrirait
+// un état qui n'existe plus.
+watch(() => props.active, (active) => {
+    if (active) load();
+}, { immediate: true });
 
-    // Rechargé à chaque ouverture : un compteur figé depuis la connexion
-    // décrirait un état qui n'existe plus.
-    if (value) load();
-};
+defineExpose({ load });
 </script>
 
 <template>
-    <Popover :open="open" width-class="w-[min(26rem,calc(100vw-2rem))]" @update:open="toggle">
-        <template #trigger>
-            <button
-                type="button"
-                class="relative inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 data-[state=open]:bg-accent data-[state=open]:text-foreground"
-                :aria-label="total > 0 ? `${total} point(s) d’attention` : 'Points d’attention'"
-            >
-                <Bell class="h-[18px] w-[18px]" aria-hidden="true" />
-                <span
-                    v-if="loaded && total > 0"
-                    class="absolute -end-0.5 -top-0.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-4 text-destructive-foreground ring-2 ring-background"
-                >{{ total > 99 ? '99+' : total }}</span>
-            </button>
-        </template>
-
-        <!-- EN-TÊTE -->
-        <div class="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-            <div class="min-w-0">
-                <p class="text-sm font-bold text-foreground">Points d’attention</p>
-                <p class="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-                    Ce qui attend une action — une ligne disparaît quand le travail est fait, pas quand on l’a lue.
-                </p>
-            </div>
+    <div>
+        <div class="flex items-start justify-between gap-3 px-4 py-2.5">
+            <p class="text-[11px] leading-4 text-muted-foreground">
+                Points d’attention — une ligne disparaît quand le travail est fait, pas quand on l’a regardée.
+            </p>
             <button
                 type="button"
                 class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                aria-label="Actualiser"
+                aria-label="Actualiser les points d’attention"
                 :disabled="loading"
                 @click="load"
             >
@@ -112,7 +97,6 @@ const toggle = (value) => {
             </button>
         </div>
 
-        <!-- CORPS -->
         <p v-if="loading && !loaded" class="flex items-center gap-2 px-4 py-6 text-xs text-muted-foreground">
             <Loader2 class="h-3.5 w-3.5 animate-spin" aria-hidden="true" />Chargement…
         </p>
@@ -124,12 +108,12 @@ const toggle = (value) => {
             </button>
         </div>
 
-        <ul v-else-if="items.length" class="max-h-[22rem] divide-y divide-border overflow-y-auto">
+        <ul v-else-if="items.length" class="max-h-[22rem] divide-y divide-border overflow-y-auto border-t border-border">
             <li v-for="item in items" :key="item.key">
                 <Link
                     :href="item.url"
                     class="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:outline-none"
-                    @click="open = false"
+                    @click="emit('navigate')"
                 >
                     <span
                         :class="cn('mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
@@ -161,7 +145,7 @@ const toggle = (value) => {
             </li>
         </ul>
 
-        <div v-else class="px-4 py-8 text-center">
+        <div v-else class="border-t border-border px-4 py-8 text-center">
             <span class="mx-auto inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400">
                 <CheckCircle2 class="h-5 w-5" aria-hidden="true" />
             </span>
@@ -171,9 +155,8 @@ const toggle = (value) => {
             </p>
         </div>
 
-        <!-- PIED -->
-        <p v-if="loaded && !failed" class="border-t border-border px-4 py-2 text-[10px] text-muted-foreground">
-            <template v-if="refreshedLabel">Relevé à {{ refreshedLabel }}</template>
+        <p v-if="loaded && !failed && refreshedLabel" class="border-t border-border px-4 py-2 text-[10px] text-muted-foreground">
+            Relevé à {{ refreshedLabel }}
         </p>
-    </Popover>
+    </div>
 </template>

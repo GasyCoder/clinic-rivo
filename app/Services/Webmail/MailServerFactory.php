@@ -2,6 +2,8 @@
 
 namespace App\Services\Webmail;
 
+use App\Services\Webmail\KeepAlive\MailboxConnectionPool;
+
 /**
  * ADR-195 — ouvre la boîte d'une adresse. En production, la vraie boîte chez
  * l'hébergeur ; les tests remplacent cette fabrique par une boîte en mémoire.
@@ -18,11 +20,19 @@ class MailServerFactory
     }
 
     /**
-     * La boîte, ouverte au premier usage seulement (LazyMailServer) : pour les
-     * requêtes de la messagerie, une fois le mot de passe vérifié à l'ouverture.
+     * La boîte des requêtes de la messagerie, une fois le mot de passe vérifié à
+     * l'ouverture : jointe par la connexion gardée ouverte entre les clics
+     * (MailboxConnectionPool) — ou, sans elle, ouverte au premier usage seulement
+     * (LazyMailServer), comme avant.
      */
     public function open(string $address, #[\SensitiveParameter] string $password): MailServer
     {
+        $pool = app(MailboxConnectionPool::class);
+
+        if ($pool->enabled()) {
+            return $pool->open($address, $password, fn () => $this->connect($address, $password));
+        }
+
         return new LazyMailServer(fn () => $this->connect($address, $password));
     }
 }

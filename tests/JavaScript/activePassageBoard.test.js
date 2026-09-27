@@ -15,7 +15,7 @@ import {
     waitTone,
 } from '../../resources/js/utilities/activePassages.js';
 import { Activity, Bandage, CircleCheck, ClipboardList, Clock, Hourglass, ScanLine, Stethoscope } from 'lucide-vue-next';
-import { orderedNextSteps, toggleNextStep } from '../../resources/js/utilities/nextSteps.js';
+import { nextStepTitle, orderedNextSteps, toggleNextStep } from '../../resources/js/utilities/nextSteps.js';
 
 const read = (file) => fs.readFileSync(file, 'utf8');
 const board = read('resources/js/Components/Clinical/ActivePassageBoard.vue');
@@ -147,20 +147,24 @@ test('prendre à contre-sens passe par la fenêtre du parcours, avant la file', 
     assert.match(board, /const requestTakeCharge = \(row\) => \{\s+if \(row\.pathway\)/);
     assert.doesNotMatch(board, /@click="skipGuard\.request\(row\)"/);
     // Consulter quand même rejoint le garde-fou de la file ; faire les soins suit l'adresse du serveur.
-    assert.match(board, /const consultAnyway = [\s\S]*?skipGuard\.request\(row\)/);
+    assert.match(board, /const proceedAnyway = [\s\S]*?if \(row\.pathway\?\.code === 'CARE_FIRST'\) \{\s+skipGuard\.request\(row\);/);
+    // Attendu en Médecine et pris aux Soins : hors de leur file, donc directement pris.
+    assert.match(board, /const proceedAnyway = [\s\S]*?takeCharge\(row\);\n\};/);
     assert.match(board, /postTakeCharge\(row, row\.pathway\?\.care_take_charge_url\)/);
-    // Attendu ailleurs : un bouton verrouillé qui informe, sans adresse de prise en charge.
-    assert.match(board, /v-else-if="row\.pathway\?\.blocking"[\s\S]*?<Lock /);
-    assert.match(board, /<EntryPathConfirm/);
+    // Plus aucun bouton verrouillé : attendu ailleurs n'est jamais un refus (amendement du 2026-09-27 bis).
+    assert.doesNotMatch(board, /pathway\?\.blocking|<Lock /);
+    assert.match(board, /row\.pathway\?\.code === 'MEDICINE_ONLY' \? 'white-outline' : 'primary'/);
+    assert.match(board, /<EntryPathConfirm[\s\S]*?@proceed="proceedAnyway"/);
 });
 
-test('la fenêtre du parcours : la Médecine décide, les Soins sont seulement informés', () => {
+test('la fenêtre du parcours : la Médecine décide, les Soins aussi', () => {
     // Titre, message et raisons viennent du serveur.
     assert.match(entryPath, /pathway\?\.title/);
     assert.match(entryPath, /pathway\.message/);
     assert.match(entryPath, /v-for="\(reason, index\) in pathway\.reasons"/);
-    // Attendu en Médecine : un seul bouton, qui ferme.
-    assert.match(entryPath, /<template v-if="blocking">\s*<Button[^>]*>Compris<\/Button>/);
+    // Attendu en Médecine : les Soins le prennent s'ils le décident — jamais un simple « Compris ».
+    assert.doesNotMatch(entryPath, /blocking|Compris/);
+    assert.match(entryPath, /<Button v-else type="button" variant="primary" :disabled="busy" @click="emit\('proceed'\)">[\s\S]*?Prendre aux Soins/);
     // Attendu aux Soins : les deux décisions, et « faire les soins » seulement avec son adresse.
     assert.match(entryPath, /v-if="pathway\?\.care_take_charge_url"/);
     assert.match(entryPath, />Faire les soins moi-même/);
@@ -236,4 +240,56 @@ test('« En attente » et une recherche vide ne s’écrivent pas dans l’adres
 test('chaque vue vide a son message, adapté au service', () => {
     assert.equal(emptyState('CARE', 'in_progress').title, 'Aucun passage pris en charge aux Soins');
     assert.equal(emptyState('MEDICINE', 'waiting').title, 'Aucun patient en attente');
+});
+
+test('une étape suggérée déjà faite passe en vert, avec sa coche et sa date', () => {
+    // Le serveur dit « fait » ; l'écran ne le devine jamais.
+    assert.match(board, /:tone="step\.done \? 'success' : ''"/);
+    assert.match(board, /<Check v-if="step\.done" class="h-3 w-3" aria-hidden="true" \/>/);
+    assert.match(board, /<span v-if="step\.done" class="sr-only"> — fait<\/span>/);
+    // Le liseré « pour moi » ne s'ajoute pas au vert d'une étape déjà faite.
+    assert.match(board, /!step\.done && step\.value === module && 'ring-1 ring-primary\/30'/);
+
+    assert.equal(nextStepTitle({ value: 'CARE', label: 'Soins', done: false }), 'Soins — suggéré par l’accueil');
+    assert.equal(nextStepTitle({ value: 'CARE', label: 'Soins', done: true, done_at: null }), 'Soins — fait');
+    assert.match(nextStepTitle({ value: 'CARE', label: 'Soins', done: true, done_at: '2026-09-27T01:10:00+03:00' }), /^Soins — fait le \d{2}\/\d{2}\/2026/);
+});
+
+test('la Médecine envoie un patient aux Soins à tout moment, et peut l’annuler', () => {
+    const dialog = read('resources/js/Components/Clinical/SendToCareConfirm.vue');
+
+    // Le serveur décide quand le geste existe : l'écran ne montre que ce qu'il reçoit.
+    assert.match(board, /v-if="row\.actions\.send_to_care"[\s\S]*?@click="openSendToCare\(row\)"/);
+    assert.match(board, /v-if="row\.actions\.withdraw_care_url"[\s\S]*?@click="withdrawFromCare\(row\)"/);
+    assert.match(board, /router\.post\(row\.actions\.send_to_care\.url, \{ note \}/);
+    assert.match(board, /<SendToCareConfirm\s+:row="sendingRow"/);
+
+    // Le dialogue dit quand et ce qui suit les soins, selon ce que sert le serveur.
+    assert.match(dialog, /const offer = computed\(\(\) => props\.row\?\.actions\?\.send_to_care \?\? null\);/);
+    assert.match(dialog, /:open="Boolean\(offer\)"/);
+    assert.match(dialog, /TITLES\[offer\.value\?\.moment\]/);
+    assert.match(dialog, /offer\.value\?\.then/);
+    for (const moment of ['BEFORE', 'DURING', 'AFTER']) assert.match(dialog, new RegExp(`${moment}: 'Envoyer aux Soins`));
+    for (const then of ["then === 'MEDICINE'", "then === 'FINISH'"]) assert.ok(dialog.includes(then), then);
+    assert.match(dialog, /id="send_to_care_note"[\s\S]*?maxlength="500"/);
+    assert.match(dialog, /Il garde sa place ici/);
+    assert.match(dialog, /Votre consultation reste ouverte/);
+    // Le bouton du tableau dit le moment.
+    assert.match(board, /:title="sendToCareTitle\(row\)"/);
+});
+
+test('un patient déjà pris en charge en Médecine ou aux Soins se lit « En cours », jamais « Prendre »', () => {
+    // Le serveur retire l'adresse de prise en charge ; l'écran ne fait que lire `held_elsewhere`.
+    assert.match(board, /v-if="row\.actions\.take_charge_url"[\s\S]*?v-else-if="row\.held_elsewhere"/);
+    assert.match(board, /<Activity class="h-3\.5 w-3\.5" aria-hidden="true" \/>En cours\n/);
+    // Le service n'est pas répété dans le bouton : il est écrit à côté, et le nom passe dessous.
+    assert.doesNotMatch(board, /En cours · \{\{/);
+    assert.match(board, />par \{\{ row\.held_elsewhere\.by \}\}</);
+    assert.match(board, /@click="explainHeld\(row\)"/);
+    assert.match(board, /const explainHeld = \(row\) => toast\.info\(row\.held_elsewhere\.message, 8000\);/);
+    assert.match(board, /:aria-label="`En cours \$\{row\.held_elsewhere\.where\}/);
+    // Qui l'a, lu à côté de l'état — sans recalculer quoi que ce soit.
+    assert.match(board, /row\.held_elsewhere\?\.module === item\.module && row\.held_elsewhere\.by/);
+    // Chaque espace ajoute ce qu'il sait du patient sous son nom.
+    assert.match(board, /<slot name="patient-details" :row="row" \/>/);
 });

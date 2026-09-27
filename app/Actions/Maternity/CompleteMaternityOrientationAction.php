@@ -6,13 +6,15 @@ use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\PregnancyStatus;
+use App\Models\Appointment;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\MaternityRecord;
 use App\Models\MaternityRecordDraft;
 use App\Models\Pregnancy;
 use App\Models\User;
-use App\Enums\PregnancyStatus;
+use App\Support\Maternity\MaternityEncounterFields;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -68,6 +70,18 @@ class CompleteMaternityOrientationAction
                 ]);
             }
 
+            // ADR-204 — une consultation ou un accouchement commencé dans le
+            // nouveau parcours appartient à une grossesse : sans elle, le suivi
+            // suivant ne le retrouverait jamais. C'est une nécessité de
+            // structure, pas un champ médical exigé.
+            if ($record->encounter_type !== null && $record->pregnancy_id === null) {
+                throw ValidationException::withMessages([
+                    'pregnancy_choice' => 'Choisissez la grossesse — continuer celle en cours ou en créer une — avant de terminer.',
+                ]);
+            }
+
+            $appointment = $this->plannedAppointment($record);
+
             // Le dossier passe en lecture seule : une saisie jamais enregistrée ne
             // doit pas rester à attendre un retour qui n'aura pas lieu.
             MaternityRecordDraft::query()->where('episode_orientation_id', $locked->getKey())->delete();
@@ -80,6 +94,7 @@ class CompleteMaternityOrientationAction
             ])->save();
 
             $this->completePregnancyIfDelivered($record, $actor);
+            $this->scheduleAppointment($record, $locked->episode, $appointment, $actor);
 
             if ($orientToMedicine) {
                 $this->orientToMedicine($locked->episode, $actor, $note);
@@ -117,6 +132,69 @@ class CompleteMaternityOrientationAction
             'ended_at' => $deliveredAt,
             'updated_by' => $actor->getKey(),
         ])->save();
+    }
+
+    /**
+     * ADR-204 — le prochain rendez-vous préparé pendant la consultation, s'il
+     * y en a un. Facultatif : son absence n'empêche jamais de terminer. Préparé,
+     * il doit être complet et à venir — un rendez-vous dans le passé ne dit rien.
+     *
+     * @return array{scheduled_at: CarbonImmutable, reason: string, notes: ?string}|null
+     */
+    private function plannedAppointment(MaternityRecord $record): ?array
+    {
+        $planned = $record->prenatal_data['next_appointment'] ?? null;
+
+        if (! is_array($planned) || ! filter_var($planned['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            return null;
+        }
+
+        if (blank($planned['scheduled_at'] ?? null)) {
+            throw ValidationException::withMessages([
+                'prenatal_data.next_appointment.scheduled_at' => 'Indiquez la date et l’heure du rendez-vous, ou décochez « Programmer un rendez-vous ».',
+            ]);
+        }
+
+        $at = CarbonImmutable::parse($planned['scheduled_at']);
+
+        if ($at->isPast()) {
+            throw ValidationException::withMessages([
+                'prenatal_data.next_appointment.scheduled_at' => 'Le rendez-vous doit être à venir.',
+            ]);
+        }
+
+        $reason = trim((string) ($planned['reason'] ?? ''));
+        $notes = trim((string) ($planned['notes'] ?? ''));
+
+        return [
+            'scheduled_at' => $at,
+            'reason' => $reason !== '' ? $reason : MaternityEncounterFields::DEFAULT_APPOINTMENT_REASON,
+            'notes' => $notes !== '' ? $notes : null,
+        ];
+    }
+
+    /**
+     * `Appointment ≠ Episode` : le rendez-vous est un événement futur, aucun
+     * passage n'est ouvert. Un par consultation (clé unique) : un second clic
+     * sur « Terminer » ne programme rien de plus.
+     *
+     * @param  array{scheduled_at: CarbonImmutable, reason: string, notes: ?string}|null  $planned
+     */
+    private function scheduleAppointment(MaternityRecord $record, Episode $episode, ?array $planned, User $actor): void
+    {
+        if ($planned === null || $record->appointment()->exists()) {
+            return;
+        }
+
+        Appointment::query()->create([
+            'patient_id' => $episode->patient_id,
+            'pregnancy_id' => $record->pregnancy_id,
+            'source_maternity_record_id' => $record->getKey(),
+            'scheduled_at' => $planned['scheduled_at'],
+            'reason' => $planned['reason'],
+            'notes' => $planned['notes'],
+            'created_by' => $actor->getKey(),
+        ]);
     }
 
     /**

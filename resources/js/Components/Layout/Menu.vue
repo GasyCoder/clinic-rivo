@@ -135,7 +135,9 @@ const adminMenu = computed(() => [
     { icon: Package, text: 'Logistique & équipements', link: '/super-admin/workspaces/logistics', permission: 'logistics.view' },
     { icon: ShieldCheck, text: 'Gardiennage', link: '/super-admin/workspaces/guarding', permission: 'guarding.view' },
     { heading: 'Accès & système' },
-    { icon: Users, text: 'Utilisateurs', link: '/super-admin/workspaces/users', permission: 'users.view' },
+    // ADR-199 — un seul module, deux onglets : « Comptes » et « Accès du personnel »
+    // (l'arrivée d'un employé : adresse pro et compte RIVO créés ensemble, ADR-197).
+    { icon: Users, text: 'Utilisateurs', link: '/super-admin/workspaces/users', permission: 'users.view', activeLinks: ['/super-admin/workspaces/users', '/super-admin/staff-access'] },
     { icon: ShieldCheck, text: 'Rôles & permissions', link: '/super-admin/workspaces/roles', permission: 'roles.view' },
     { icon: Trash2, text: 'Corbeille', link: '/super-admin/trash', permission: 'trash.view' },
     { icon: Settings, text: 'Paramètres', link: '/super-admin/settings', permission: 'settings.view' },

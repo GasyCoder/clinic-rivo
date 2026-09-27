@@ -36,6 +36,7 @@ const DETAILS = {
     'hr-contracts': { description: 'CDI, CDD, stages…', tone: 'sky', pending: 'contracts_ending_soon', pendingLabel: 'finissent ≤ 30 j' },
     'hr-internships': { description: 'Stagiaires, filières, encadrants', tone: 'violet' },
     'hr-documents': { description: 'Attestations et courriers', tone: 'violet' },
+    'hr-staff-access': { description: 'Comptes créés, à annoncer au personnel', tone: 'sky' },
     'hr-professional-emails': { description: 'Adresses @domaine du personnel', tone: 'sky' },
     'hr-attendance': { description: 'Entrées et sorties', tone: 'emerald', pending: 'open_attendance', pendingLabel: 'sans sortie' },
     'hr-leave': { description: 'Demandes et décisions', tone: 'amber', pending: 'pending_leave', pendingLabel: 'à décider' },

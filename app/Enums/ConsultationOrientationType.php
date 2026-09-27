@@ -133,6 +133,22 @@ enum ConsultationOrientationType: string
     }
 
     /** @return array<int, string> */
+    /**
+     * ADR-149, ADR-162 — la conduite dépend de là où le patient se trouve.
+     *
+     * Au lit, la sortie se prononce sur la page du séjour et « Hospitalisation »
+     * ouvrirait un second séjour ; hors séjour, « Poursuite de l'hospitalisation »
+     * ne veut rien dire. Une seule règle, pour l'écran et pour la clôture.
+     */
+    public function appliesTo(bool $hospitalized): bool
+    {
+        if (! $hospitalized) {
+            return $this !== self::ContinuedHospitalization;
+        }
+
+        return ! in_array($this, [self::Hospitalization, self::Discharge], true);
+    }
+
     public static function values(): array
     {
         return array_column(self::cases(), 'value');

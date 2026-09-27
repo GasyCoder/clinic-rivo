@@ -14,10 +14,19 @@ final class PregnancyPresenter
     public function __construct(private readonly PregnancyDatingService $dating) {}
 
     /** @return array<string, mixed> */
-    public function summary(Pregnancy $pregnancy, mixed $at = null): array
+    public function summary(Pregnancy $pregnancy, mixed $at = null, ?MaternityRecord $record = null): array
     {
         $pregnancy->loadMissing(['maternityRecords.episode.careRecord', 'maternityRecords.orientation']);
-        $age = $this->dating->gestationalAge($pregnancy, $at ?? now());
+        // Une consultation enregistrée garde le terme de son passage ; seule une
+        // consultation pas encore enregistrée le calcule depuis la datation.
+        $snapshot = $record !== null && $record->pregnancy_id === $pregnancy->getKey() && $record->gestational_age_weeks !== null;
+        $age = $snapshot
+            ? [
+                'weeks' => $record->gestational_age_weeks,
+                'days' => $record->gestational_age_days ?? 0,
+                'label' => $this->dating->label($record->gestational_age_weeks, $record->gestational_age_days ?? 0),
+            ]
+            : $this->dating->gestationalAge($pregnancy, $at ?? now());
         $last = $pregnancy->maternityRecords
             ->sortBy(fn (MaternityRecord $record) => $record->episode?->started_at?->getTimestamp() ?? $record->created_at?->getTimestamp() ?? 0)
             ->last();
@@ -38,7 +47,16 @@ final class PregnancyPresenter
             'gestational_age_weeks' => $age['weeks'] ?? null,
             'gestational_age_days' => $age['days'] ?? null,
             'gestational_age_label' => $age['label'] ?? null,
+            'gestational_age_source' => $age === null ? null : ($snapshot ? 'snapshot' : 'dating'),
             'consultations_count' => $pregnancy->maternityRecords->count(),
+            // ADR-204 — une grossesse sans datation reçoit sa première DDR/DPA
+            // par l'enregistrement ; datée, elle ne se corrige que par l'action auditée.
+            'dated' => $pregnancy->last_menstrual_period !== null || $pregnancy->estimated_due_date !== null,
+            // G/P et facteurs de risque se précisent tant que la grossesse n'a
+            // que la consultation qui l'a ouverte.
+            'details_editable' => $record !== null
+                && $record->pregnancy_id === $pregnancy->getKey()
+                && $pregnancy->maternityRecords->every(fn (MaternityRecord $other) => $other->is($record)),
             'last_consultation_at' => $last?->episode?->started_at ?? $last?->created_at,
             'delivered_at' => $pregnancy->delivered_at,
             'ended_at' => $pregnancy->ended_at,
@@ -65,6 +83,8 @@ final class PregnancyPresenter
                     $record->gestational_age_weeks ?? ($record->prenatal_data['gestational_age_weeks'] ?? null),
                     $record->gestational_age_days ?? ($record->prenatal_data['gestational_age_days'] ?? 0),
                 ),
+                'encounter_type' => $record->encounter_type?->value,
+                'completed_at' => $record->completed_at,
                 'is_current' => $current?->is($record) ?? false,
                 'read_only' => ! ($current?->is($record) ?? false),
                 'url' => $viewer->can('maternity.view') && $record->orientation
@@ -97,7 +117,7 @@ final class PregnancyPresenter
      * Résumé de grossesse par identifiant local de passage, calculé en lot
      * pour la page Maternité.
      *
-     * @param Collection<int, int> $episodeIds
+     * @param  Collection<int, int>  $episodeIds
      * @return array<int, array<string, mixed>|null>
      */
     public function forEpisodes(Collection $episodeIds): array
@@ -113,12 +133,25 @@ final class PregnancyPresenter
             $pregnancy = $episode->maternityRecord?->pregnancy
                 ?? $episode->patient?->pregnancies->sortByDesc('id')->first();
 
-            return [$episode->getKey() => $pregnancy ? $this->summary($pregnancy, $episode->started_at ?? now()) : null];
+            return [$episode->getKey() => $pregnancy
+                ? $this->summary($pregnancy, $episode->started_at ?? now()) + [
+                    // Sans dossier, le parcours n'est pas encore choisi (ADR-204) : rien n'est deviné.
+                    'visit_label' => $episode->maternityRecord
+                        ? $this->consultationLabel($episode->maternityRecord)
+                        : null,
+                ]
+                : null];
         })->all();
     }
 
     private function consultationLabel(MaternityRecord $record): string
     {
+        // ADR-204 — le parcours choisi dit ce qu'est la rencontre ; seul un
+        // dossier d'avant ce choix se lit sur son contenu.
+        if ($record->encounter_type !== null) {
+            return $record->encounter_type->label();
+        }
+
         if (filled($record->delivery_data['occurred_at'] ?? null)) {
             return 'Accouchement';
         }

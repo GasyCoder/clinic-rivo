@@ -23,6 +23,8 @@ const props = defineProps({
     linkable: { type: Boolean, default: false },
     // 'todo' = only what waits for a decision; 'all' adds the headcount group.
     show: { type: String, default: 'all' },
+    // Dans la Vue d'ensemble, le bloc vit déjà dans une Card shadcn.
+    embedded: { type: Boolean, default: false },
     // ADR-187 — where the lists live: the clinic HR space, or a site's HR
     // space on the portal (`/super-admin/sites/A/rh`).
     base: { type: String, default: HR_SITE_BASE },
@@ -52,7 +54,8 @@ const pending = (item) => item.group === 'todo' && item.value > 0;
     <div
         v-if="groups.length"
         :class="cn(
-            'grid overflow-hidden rounded-xl border border-border bg-card shadow-sm',
+            'grid overflow-hidden bg-card',
+            embedded ? 'rounded-none border-0 shadow-none' : 'rounded-xl border border-border shadow-sm',
             groups.length > 1 && 'lg:grid-cols-[3fr_5fr] lg:divide-x lg:divide-border max-lg:divide-y max-lg:divide-border',
         )"
     >

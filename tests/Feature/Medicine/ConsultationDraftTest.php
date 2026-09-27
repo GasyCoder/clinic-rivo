@@ -44,7 +44,7 @@ class ConsultationDraftTest extends TestCase
                         'clinical_exam' => '<p>Nuque',
                     ],
                     'diagnosis' => ['description' => 'Hypothèse : migraine'],
-                    'discharge' => ['recommendations' => ''],
+                    'decision' => ['type' => 'DISCHARGE', 'recommendations' => ''],
                 ],
             ])
             ->assertOk()
@@ -54,7 +54,7 @@ class ConsultationDraftTest extends TestCase
         $this->assertSame($orientation->id, $draft->episode_orientation_id);
         $this->assertSame($doctor->id, $draft->created_by);
         // Empty stays empty: the draft is a faithful snapshot of the screen.
-        $this->assertSame('', $draft->payload['discharge']['recommendations']);
+        $this->assertSame('', $draft->payload['decision']['recommendations']);
 
         $this->actingAs($doctor)
             ->get("/medicine/orientations/{$orientation->uuid}/consultation")

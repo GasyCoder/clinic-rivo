@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { CircleAlert, CircleCheck, LoaderCircle, PencilLine } from 'lucide-vue-next';
+import { CircleAlert, CircleCheck, LoaderCircle, PencilLine, RotateCcw } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import { formatTime } from '@/utilities/date';
 
@@ -21,7 +21,10 @@ const props = defineProps({
     dirty: { type: Boolean, default: false },
     /** Dernier enregistrement refusé — message serveur. */
     failed: { type: Boolean, default: false },
+    /** Un échec propose « Réessayer » (émet `retry`) : l'écran n'est jamais une impasse. */
+    retryable: { type: Boolean, default: false },
 });
+defineEmits(['retry']);
 
 const state = computed(() => {
     if (props.failed) {
@@ -50,5 +53,13 @@ const state = computed(() => {
     >
         <component :is="state.icon" :class="cn('h-3.5 w-3.5 shrink-0', state.spin && 'animate-spin')" aria-hidden="true" />
         {{ state.label }}
+        <button
+            v-if="failed && retryable"
+            type="button"
+            class="ms-1 inline-flex items-center gap-1 rounded-md border border-destructive/40 px-1.5 py-0.5 text-[11px] font-semibold hover:bg-destructive/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            @click="$emit('retry')"
+        >
+            <RotateCcw class="h-3 w-3" aria-hidden="true" />Réessayer
+        </button>
     </p>
 </template>

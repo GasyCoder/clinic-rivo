@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { familyKey, familyTone, folderDocuments, folderSummary } from '../../resources/js/utilities/documentFamilies.js';
 
-/** ADR-199 — l'écran range un type dans le même dossier que le serveur (DocumentFamily::key). */
+/** ADR-208 — l'écran range un type dans le même dossier que le serveur (DocumentFamily::key). */
 test('a document type falls in the same folder as on the server', () => {
     assert.equal(familyKey('Congé'), 'CONGE');
     assert.equal(familyKey('  décision  '), 'DECISION');

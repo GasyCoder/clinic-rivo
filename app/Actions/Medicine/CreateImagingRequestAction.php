@@ -11,11 +11,13 @@ use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\HospitalStay;
 use App\Models\ImagingRequest;
+use App\Models\MaternityRecord;
 use App\Models\User;
 use App\Services\Billing\ClinicalActBiller;
 use App\Services\Billing\ParaclinicalBillingRelease;
 use App\Services\Billing\PlannedServiceBilling;
 use App\Support\Hospitalization\StayOrderContext;
+use App\Support\Maternity\MaternityOrderContext;
 use App\Support\ParaclinicalRequestGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -62,6 +64,7 @@ class CreateImagingRequestAction
                 $medicineOrientation->episode,
                 $lockedConsultation,
                 null,
+                null,
                 $medicineOrientation,
                 $items,
                 $notes,
@@ -86,7 +89,23 @@ class CreateImagingRequestAction
         return DB::transaction(function () use ($stay, $items, $notes, $actor): ImagingRequest {
             $context = StayOrderContext::lock($stay, 'imaging_request');
 
-            return $this->write($context->episode, null, $context->stay, $context->orientation, $items, $notes, $actor);
+            return $this->write($context->episode, null, $context->stay, null, $context->orientation, $items, $notes, $actor);
+        });
+    }
+
+    /**
+     * ADR-204 — la même demande, écrite depuis une prise en charge Maternité
+     * (échographie obstétricale, morphologique…). Le compte rendu se saisit
+     * comme pour toute demande et reste la seule source de son résultat.
+     *
+     * @param  array<int, array{catalog_item_uuid: string}>  $items
+     */
+    public function executeForMaternity(EpisodeOrientation $orientation, array $items, ?string $notes, User $actor): ImagingRequest
+    {
+        return DB::transaction(function () use ($orientation, $items, $notes, $actor): ImagingRequest {
+            $context = MaternityOrderContext::lock($orientation, 'imaging_request');
+
+            return $this->write($context->episode, null, null, $context->record, $context->orientation, $items, $notes, $actor);
         });
     }
 
@@ -95,6 +114,7 @@ class CreateImagingRequestAction
         Episode $episode,
         ?Consultation $consultation,
         ?HospitalStay $stay,
+        ?MaternityRecord $maternityRecord,
         EpisodeOrientation $source,
         array $items,
         ?string $notes,
@@ -118,7 +138,7 @@ class CreateImagingRequestAction
         // Sous le verrou déjà posé sur la consultation : deux envois
         // simultanés du même examen ne peuvent pas passer tous les deux.
         ParaclinicalRequestGuard::ensureNoActiveDuplicate(
-            $consultation ?? $stay,
+            $consultation ?? $stay ?? $maternityRecord,
             $catalogItems,
             'imagingRequests',
             'imaging_request',
@@ -128,6 +148,7 @@ class CreateImagingRequestAction
             'episode_id' => $episode->getKey(),
             'consultation_id' => $consultation?->getKey(),
             'hospital_stay_id' => $stay?->getKey(),
+            'maternity_record_id' => $maternityRecord?->getKey(),
             'source_orientation_id' => $source->getKey(),
             'requested_by' => $actor->getKey(),
             'notes' => $notes,

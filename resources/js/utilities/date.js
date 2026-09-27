@@ -82,12 +82,12 @@ const RELATIVE_DIVISIONS = [
 const relativeTimeFormatter = new Intl.RelativeTimeFormat('fr-FR', { numeric: 'always' });
 
 /** "il y a 7 jours", "il y a 3 heures", ... */
-export function formatRelativeTime(value) {
+export function formatRelativeTime(value, now = Date.now()) {
     if (!value) {
         return null;
     }
 
-    let duration = (new Date(value).getTime() - Date.now()) / 1000;
+    let duration = (new Date(value).getTime() - new Date(now).getTime()) / 1000;
 
     for (const division of RELATIVE_DIVISIONS) {
         if (Math.abs(duration) < division.amount) {
@@ -95,6 +95,31 @@ export function formatRelativeTime(value) {
         }
         duration /= division.amount;
     }
+}
+
+/**
+ * Depuis quand date une mesure, **seulement si elle n'est pas du jour** :
+ * « il y a 2 mois ». Des constantes relevées la veille, ou lors d'un passage
+ * ouvert depuis des semaines, ne sont pas celles d'aujourd'hui ; celles du
+ * jour n'ont besoin que de leur heure. `null` sans date lisible.
+ */
+export function olderThanToday(value, now = new Date()) {
+    if (!value) {
+        return null;
+    }
+
+    const at = new Date(value);
+    const today = new Date(now);
+
+    if (Number.isNaN(at.getTime())) {
+        return null;
+    }
+
+    const sameDay = at.getFullYear() === today.getFullYear()
+        && at.getMonth() === today.getMonth()
+        && at.getDate() === today.getDate();
+
+    return sameDay ? null : formatRelativeTime(at, today);
 }
 
 /**

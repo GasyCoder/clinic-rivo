@@ -4,6 +4,7 @@ import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { requestedEmployeeUuid } from '@/utilities/employeeAccount';
 import {
     ArrowLeft,
+    Handshake,
     ArrowRight,
     Briefcase,
     Check,
@@ -43,19 +44,24 @@ import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
+import NoticesButton from '@/Components/Shadcn/NoticesButton.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import AccountKindPicker from '@/Components/Users/AccountKindPicker.vue';
+import UserAccessTabs from '@/Components/SuperAdmin/UserAccessTabs.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
 import { matchesSearchTerms } from '@/utilities/permissionWorkspace';
 import { roleDescription, roleInitials } from '@/utilities/roleDescriptions';
+import { proposedSelection } from '@/utilities/staffAccess';
 
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
     sites: { type: Array, default: () => [] },
     filters: { type: Object, default: () => ({}) },
+    /** ADR-199 — les employés qui attendent leur accès, pour l'onglet du module. */
+    staffAccessPending: { type: Number, default: null },
 });
 
 const { can } = usePermissions();
@@ -104,6 +110,13 @@ const canCreate = computed(() => can('users.create') && can('roles.assign'));
 const canAssignPermissions = computed(() => can('permissions.assign'));
 const canManageRoleBaselines = computed(() => can('users.manage'));
 const isEditing = computed(() => editingUser.value !== null);
+const accountNotices = [{
+    key: 'account-access',
+    icon: ShieldCheck,
+    tone: 'info',
+    title: 'Un accès propre à chaque compte',
+    text: "Le rôle fournit uniquement le socle commun du service — deux comptes du même rôle peuvent avoir des droits différents. Une interdiction individuelle est toujours prioritaire sur une autorisation. Toute attribution est exécutée et auditée directement dans la base du site, jamais en local sur le portail. Un compte n'est jamais supprimé : il est désactivé pour préserver l'historique.",
+}];
 
 const selectedSite = computed(() => props.sites.find((site) => site.site.code === selectedSiteCode.value));
 const users = computed(() => selectedSite.value?.data?.users ?? []);
@@ -117,14 +130,21 @@ const accountKindLabel = (user) => (user.account_kind === 'STAFF' ? 'Personnel c
  * saisie : un champ n'est repris que s'il est vide ou s'il vient de la fiche
  * choisie juste avant.
  */
-const prefilled = ref({ name: '', email: '' });
+const prefilled = ref({ name: '', email: '', role_id: '', profile_id: '' });
 // ADR-188 — la fiche choisie donne le nom et l'email du compte. Une saisie
 // faite à la main n'est jamais écrasée ; une valeur reprise d'une fiche
 // précédente, si : changer de personne ne garde pas l'email de l'autre.
 const onEmployeePick = (employee) => {
     if (form.name.trim() === '' || form.name === prefilled.value.name) form.name = employee.name;
     if (form.email.trim() === '' || form.email === prefilled.value.email) form.email = employee.email ?? '';
-    prefilled.value = { name: employee.name, email: employee.email ?? '' };
+    // ADR-199 — le rôle que sa fonction propose, s'il existe sur ce site ; un
+    // rôle choisi à la main n'est jamais remplacé.
+    const proposal = proposedSelection(employee, roles.value);
+    if (proposal.fromJobTitle && (form.role_id === '' || String(form.role_id) === String(prefilled.value.role_id))) {
+        form.role_id = Number(proposal.role_id);
+        form.professional_profile_id = proposal.profile_id ? Number(proposal.profile_id) : '';
+    }
+    prefilled.value = { name: employee.name, email: employee.email ?? '', role_id: proposal.role_id, profile_id: proposal.profile_id };
     emailTouched.value = false;
     // La fiche RH n'a pas d'email : c'est la seule chose qui reste à saisir.
     if (! employee.email) nextTick(() => document.getElementById('user-email')?.focus());
@@ -140,7 +160,7 @@ watch(() => form.account_kind, (kind) => {
     if (kind !== 'EXTERNAL') return;
     if (prefilled.value.name !== '' && form.name === prefilled.value.name) form.name = '';
     if (prefilled.value.email !== '' && form.email === prefilled.value.email) form.email = '';
-    prefilled.value = { name: '', email: '' };
+    prefilled.value = { name: '', email: '', role_id: '', profile_id: '' };
 });
 const kindReady = computed(() => form.account_kind === 'EXTERNAL' || (form.account_kind === 'STAFF' && form.employee_uuid !== ''));
 
@@ -233,6 +253,14 @@ const togglePassword = () => {
     }
 };
 
+/** Création : comment le compte s'active, dans le bouton « ! » de l'étape (jamais un bloc qui prend la page). */
+const invitationNotices = computed(() => [
+    { key: 'invitation', icon: Send, tone: 'info', title: 'Aucun mot de passe à saisir', text: 'Le compte s’active par invitation : la personne choisit elle-même son mot de passe.' },
+    { key: 'created', icon: UserPlus, title: '1 · Compte créé', text: `Sur ${selectedSite.value?.site.name ?? 'le site'}, avec le rôle choisi.` },
+    { key: 'email', icon: Mail, title: '2 · Email envoyé', text: `À ${emailValid.value ? form.email.trim() : 'l’adresse renseignée'}, avec l’identifiant et un lien.` },
+    { key: 'password', icon: KeyRound, title: '3 · Mot de passe choisi', text: 'Par la personne elle-même, en suivant le lien.' },
+]);
+
 const step1Valid = computed(() => {
     if (! kindReady.value) return false;
     if (form.name.trim() === '' || ! emailValid.value) return false;
@@ -265,7 +293,7 @@ const blocker = computed(() => {
 });
 
 const checklist = computed(() => [
-    { key: 'kind', label: form.account_kind === 'STAFF' ? 'Fiche employé reliée' : 'Personnel clinique ou externe', done: kindReady.value },
+    ...(isEditing.value ? [{ key: 'kind', label: form.account_kind === 'STAFF' ? 'Fiche employé reliée' : 'Personnel clinique ou externe', done: kindReady.value }] : []),
     { key: 'name', label: 'Nom complet', done: form.name.trim() !== '' },
     { key: 'email', label: 'Email professionnel valide', done: emailValid.value },
     { key: 'role', label: 'Rôle métier', done: form.role_id !== '' },
@@ -292,10 +320,15 @@ const openCreate = () => {
     form.role_id = '';
     form.professional_profile_id = '';
     resetFormHelpers();
+    // ADR-199 — un employé de la clinique reçoit son compte (et son adresse pro)
+    // depuis « Accès du personnel » ; créer ici, c'est créer le compte d'une
+    // personne extérieure. Relier un compte existant à sa fiche reste possible
+    // en modification.
+    form.account_kind = 'EXTERNAL';
     step.value = 1;
     maxStepReached.value = 1;
     view.value = 'form';
-    focusField('account-kind-staff');
+    focusField('user-name');
 };
 
 const openEdit = (user) => {
@@ -323,7 +356,7 @@ function resetFormHelpers() {
     passwordOpen.value = false;
     emailTouched.value = false;
     roleSearch.value = '';
-    prefilled.value = { name: '', email: '' };
+    prefilled.value = { name: '', email: '', role_id: '', profile_id: '' };
 }
 
 /** Le formulaire remplace la liste : on repart du haut, le curseur dans le premier champ. */
@@ -650,7 +683,7 @@ const confirmForceDelete = () => {
 const pageTitle = computed(() => {
     if (view.value === 'list') return 'Rôles & permissions';
     if (view.value === 'roles') return 'Socle des rôles';
-    return isEditing.value ? 'Modifier un utilisateur' : 'Créer un utilisateur';
+    return isEditing.value ? 'Modifier un utilisateur' : 'Créer un compte externe';
 });
 </script>
 
@@ -659,18 +692,22 @@ const pageTitle = computed(() => {
 
     <div class="w-full space-y-5">
         <template v-if="view === 'list'">
+            <!-- ADR-199 — un seul module : les comptes, et l'arrivée des nouveaux employés. -->
+            <UserAccessTabs current="accounts" :pending="staffAccessPending" />
+
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Super Administration</p>
                     <h1 class="mt-0.5 font-heading text-2xl font-bold tracking-tight text-foreground">Utilisateurs</h1>
-                    <p class="mt-1 max-w-2xl text-sm text-muted-foreground">Chaque compte appartient à un site précis et porte exactement un rôle, qui lui donne son socle de droits. Le socle lui-même et les exceptions individuelles se règlent dans <a class="font-semibold text-primary hover:underline" href="/super-admin/workspaces/roles">Rôles &amp; permissions</a>.</p>
+                    <p class="mt-1 max-w-2xl text-sm text-muted-foreground">Tous les comptes, et leur vie : changer un rôle, désactiver au départ, créer le compte d’une personne extérieure. Un employé qui arrive reçoit le sien depuis l’onglet « Accès du personnel ». Chaque compte appartient à un site précis et porte exactement un rôle, qui lui donne son socle de droits. Le socle lui-même et les exceptions individuelles se règlent dans <a class="font-semibold text-primary hover:underline" href="/super-admin/workspaces/roles">Rôles &amp; permissions</a>.</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
+                    <NoticesButton :notices="accountNotices" heading="À savoir sur les comptes" />
                     <Button v-if="canManageRoleBaselines" :as="Link" href="/super-admin/workspaces/roles" variant="outline">
                         <ShieldCheck class="h-4 w-4" />Rôles &amp; permissions
                     </Button>
                     <Button v-if="canCreate && selectedSite?.ok" type="button" variant="primary" @click="openCreate">
-                        <UserPlus class="h-4 w-4" />Nouvel utilisateur
+                        <UserPlus class="h-4 w-4" />Compte externe
                     </Button>
                 </div>
             </div>
@@ -840,15 +877,6 @@ const pageTitle = computed(() => {
                 </div>
             </Card>
 
-            <Card class="p-4 sm:px-5">
-                <div class="flex items-start gap-3">
-                    <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><ShieldCheck class="h-4.5 w-4.5" /></span>
-                    <div>
-                        <h2 class="text-sm font-bold text-foreground">Un accès propre à chaque compte</h2>
-                        <p class="mt-1 text-xs leading-5 text-muted-foreground">Le rôle fournit uniquement le socle commun du service — deux comptes du même rôle peuvent avoir des droits différents. Une interdiction individuelle est toujours prioritaire sur une autorisation. Toute attribution est exécutée et auditée directement dans la base du site, jamais en local sur le portail. Un compte n'est jamais supprimé : il est désactivé pour préserver l'historique.</p>
-                    </div>
-                </div>
-            </Card>
         </template>
 
         <template v-else-if="view === 'form'">
@@ -924,10 +952,26 @@ const pageTitle = computed(() => {
                                 <h2 ref="stepHeading" tabindex="-1" class="text-base font-bold text-foreground focus:outline-none">Informations du compte</h2>
                                 <p class="mt-0.5 text-sm text-muted-foreground">Un compte nominatif, pour une seule personne — jamais générique ni partagé.</p>
                             </div>
+                            <!-- Création : pas de mot de passe à saisir, une invitation — expliquée au besoin, sans prendre la page. -->
+                            <NoticesButton v-if="! isEditing" class="ms-auto shrink-0" :notices="invitationNotices" heading="Aucun mot de passe à saisir" subtitle="Le compte s’active par invitation." />
                         </div>
 
                         <div class="space-y-6 px-5 py-5 sm:px-6">
+                            <!-- ADR-199 — en création : une personne extérieure. Un employé passe par « Accès du personnel ». -->
+                            <div v-if="! isEditing" class="flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-4 sm:flex-row sm:items-center">
+                                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><Handshake class="h-5 w-5" /></span>
+                                <div class="min-w-0 flex-1">
+                                    <p class="text-sm font-semibold text-foreground">Compte d’une personne extérieure</p>
+                                    <p class="mt-0.5 text-xs leading-5 text-muted-foreground">
+                                        Médecin consultant, auditeur, technicien d’un fournisseur… Un employé de la clinique reçoit son compte et son adresse professionnelle ensemble, depuis « Accès du personnel ».
+                                    </p>
+                                </div>
+                                <Button :as="Link" :href="`/super-admin/staff-access?site=${selectedSiteCode}`" variant="outline" size="sm" class="shrink-0">
+                                    Accès du personnel<ArrowRight class="h-4 w-4" aria-hidden="true" />
+                                </Button>
+                            </div>
                             <AccountKindPicker
+                                v-else
                                 v-model:kind="form.account_kind"
                                 v-model:employee-uuid="form.employee_uuid"
                                 :employees="employees"
@@ -976,33 +1020,8 @@ const pageTitle = computed(() => {
                                 </div>
                             </div>
 
-                            <!-- Création : pas de mot de passe, une invitation. -->
-                            <section v-if="! isEditing" class="rounded-xl border border-border bg-muted/30 p-4" aria-labelledby="invitation-title">
-                                <div class="flex items-start gap-3">
-                                    <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><Send class="h-4 w-4" /></span>
-                                    <div class="min-w-0">
-                                        <p id="invitation-title" class="text-sm font-bold text-foreground">Aucun mot de passe à saisir</p>
-                                        <p class="mt-0.5 text-xs leading-5 text-muted-foreground">Le compte s’active par invitation : la personne choisit elle-même son mot de passe.</p>
-                                    </div>
-                                </div>
-                                <ol class="mt-4 grid gap-2 sm:grid-cols-3">
-                                    <li class="flex items-start gap-2.5 rounded-lg border border-border bg-card p-3">
-                                        <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-bold text-muted-foreground">1</span>
-                                        <span class="text-xs leading-5 text-muted-foreground"><strong class="block text-foreground">Compte créé</strong>sur {{ selectedSite?.site.name }}, avec le rôle choisi.</span>
-                                    </li>
-                                    <li class="flex items-start gap-2.5 rounded-lg border border-border bg-card p-3">
-                                        <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-bold text-muted-foreground">2</span>
-                                        <span class="min-w-0 text-xs leading-5 text-muted-foreground"><strong class="block text-foreground">Email envoyé</strong>à <span class="break-all font-medium text-foreground">{{ emailValid ? form.email.trim() : 'l’adresse renseignée' }}</span>, avec l’identifiant et un lien.</span>
-                                    </li>
-                                    <li class="flex items-start gap-2.5 rounded-lg border border-border bg-card p-3">
-                                        <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-bold text-muted-foreground">3</span>
-                                        <span class="text-xs leading-5 text-muted-foreground"><strong class="block text-foreground">Mot de passe choisi</strong>par la personne elle-même, en suivant le lien.</span>
-                                    </li>
-                                </ol>
-                            </section>
-
                             <!-- Modification : le mot de passe ne change que si on le demande. -->
-                            <section v-else class="rounded-xl border border-border">
+                            <section v-if="isEditing" class="rounded-xl border border-border">
                                 <button
                                     type="button"
                                     class="flex w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-accent/40"

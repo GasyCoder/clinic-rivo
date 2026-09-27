@@ -24,13 +24,15 @@ class RolePermissionSeeder extends Seeder
             'webmail.view',
             // ADR-192 — une remise durable accordée à un patient est une dérogation habilitée.
             'discounts.view', 'discounts.approve',
-            // ADR-190 — le RH demande l'adresse ; le Super Admin la crée.
+            // ADR-190 — le RH voit les adresses ; le Super Admin les crée (ADR-197).
             'professional_emails.view', 'professional_emails.request',
+            // ADR-197 — le RH reçoit les accès créés et les remet aux employés.
+            'staff_access.receive',
             'employees.view', 'employees.create', 'employees.update',
             'employees.delete', 'employees.restore',
             'employees.import', 'employees.export', 'employees.print',
             'employees.patient_lookup',
-            // ADR-197 — la rémunération et le compte bancaire, réservés au RH.
+            // ADR-206 — la rémunération et le compte bancaire, réservés au RH.
             'employees.payroll.view', 'employees.payroll.update',
             // ADR-133 — une liste de patients est une donnée personnelle.
             'patients.export',

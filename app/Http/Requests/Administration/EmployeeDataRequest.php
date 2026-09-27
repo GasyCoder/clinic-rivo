@@ -41,7 +41,7 @@ abstract class EmployeeDataRequest extends FormRequest
             $normalized[$field] = $value === '' ? null : $value;
         }
 
-        // ADR-197 — le compte bancaire s'écrit en majuscules, sans espaces doublés ;
+        // ADR-206 — le compte bancaire s'écrit en majuscules, sans espaces doublés ;
         // un montant saisi « 150 000,50 » se lit 150000.50.
         if (is_string($this->input('bank_account_holder'))) {
             $holder = str($this->input('bank_account_holder'))->squish()->toString();
@@ -64,7 +64,7 @@ abstract class EmployeeDataRequest extends FormRequest
     }
 
     /**
-     * ADR-197 — rémunération déclarée et compte bancaire. Sans le droit, ces
+     * ADR-206 — rémunération déclarée et compte bancaire. Sans le droit, ces
      * champs sont refusés en clair plutôt qu'ignorés.
      *
      * @return array<string, array<int, mixed>>

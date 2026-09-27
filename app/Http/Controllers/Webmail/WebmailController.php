@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Webmail;
 
 use App\Http\Controllers\Controller;
 use App\Models\WebmailLabel;
+use App\Services\Webmail\WebmailAuthenticationFailed;
 use App\Services\Webmail\WebmailMailbox;
 use App\Services\Webmail\WebmailPresenter;
-use App\Services\Webmail\WebmailAuthenticationFailed;
 use App\Services\Webmail\WebmailUnavailable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -45,7 +45,7 @@ class WebmailController extends Controller
         // même aller-retour. Un rechargement partiel qui ne la demande pas n'annonce rien.
         if (self::wants($request, 'list')) {
             try {
-                $box->expectListing($folder, $criteria);
+                $box->expectListing($folder, $criteria, (int) $request->integer('page', 1));
             } catch (WebmailAuthenticationFailed $exception) {
                 throw $exception;
             } catch (WebmailUnavailable) {

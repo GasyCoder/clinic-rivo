@@ -214,6 +214,9 @@ class ParaclinicalRequestDirectoryController extends Controller
                 // ADR-162 — la demande faite depuis le séjour.
                 'hospitalStay:id,uuid,status,episode_orientation_id',
                 'hospitalStay.episodeOrientation:id,uuid,status',
+                // ADR-204 — la demande faite depuis la Maternité.
+                'maternityRecord:id,uuid,episode_orientation_id',
+                'maternityRecord.orientation:id,uuid,status',
                 'episode:id,uuid,episode_number,patient_id',
                 'episode.patient:id,uuid,first_name,last_name,patient_number,sex,birth_date,birth_date_is_approximate,declared_age,address,address_entry_id',
                 'episode.patient.addressEntry:id,label',
@@ -231,7 +234,7 @@ class ParaclinicalRequestDirectoryController extends Controller
             // décrit plus rien d'exploitable : on l'écarte de l'écran
             // plutôt que d'y afficher des tirets.
             ->filter(fn ($request) => $request->episode?->patient !== null
-                && ($request->consultation !== null || $request->hospitalStay !== null))
+                && ($request->consultation !== null || $request->hospitalStay !== null || $request->maternityRecord !== null))
             ->map(fn ($request) => [
                 'uuid' => $request->uuid,
                 'kind' => $kind,
@@ -337,13 +340,20 @@ class ParaclinicalRequestDirectoryController extends Controller
                 // Reprendre, jamais rouvrir une seconde consultation : le
                 // lien ramène sur celle qui a émis la demande.
                 // ADR-162 — une demande du séjour ramène au séjour.
-                'consultation_url' => $request->hospitalStay
-                    ? "/hospitalisation/{$request->hospitalStay->uuid}"
-                    : ($request->consultation->orientation
+                'consultation_url' => match (true) {
+                    $request->hospitalStay !== null => "/hospitalisation/{$request->hospitalStay->uuid}",
+                    // ADR-204 — une demande de la Maternité ramène à son dossier Maternité.
+                    $request->maternityRecord !== null => $request->maternityRecord->orientation
+                        ? "/maternity/orientations/{$request->maternityRecord->orientation->uuid}"
+                        : null,
+                    default => $request->consultation?->orientation
                         ? "/medicine/orientations/{$request->consultation->orientation->uuid}/paraclinique"
-                        : null),
+                        : null,
+                },
                 'from_stay' => $request->hospitalStay !== null,
+                'from_maternity' => $request->maternityRecord !== null,
                 'orientation_uuid' => $request->hospitalStay?->episodeOrientation?->uuid
+                    ?? $request->maternityRecord?->orientation?->uuid
                     ?? $request->consultation?->orientation?->uuid,
                 // Les mêmes conditions que `CancelParaclinicalRequestAction`
                 // vérifie de son côté : l'écran n'est jamais la protection.

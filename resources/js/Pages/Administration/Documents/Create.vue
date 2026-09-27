@@ -32,7 +32,7 @@ const props = defineProps({
     prefill: { type: Object, default: () => ({}) },
     /** ADR-184 — `{ name, title, has_signature }` réglé pour le site. */
     director: { type: Object, default: () => ({ name: null, title: 'Directeur général', has_signature: false }) },
-    /** ADR-199 — « Modifier » : le document que la nouvelle version remplacera (archivé à la génération). */
+    /** ADR-208 — « Modifier » : le document que la nouvelle version remplacera (archivé à la génération). */
     replaces: { type: Object, default: null },
     /** Ouvert depuis un dossier (Contrats, Congés…) : ses canevas d'abord. */
     folder: { type: String, default: null },
@@ -167,7 +167,7 @@ const submit = () => {
 };
 
 /*
- * ADR-070 / ADR-087 / ADR-198 — à quoi sert cette page : produire un document
+ * ADR-070 / ADR-087 / ADR-207 — à quoi sert cette page : produire un document
  * administratif (attestation, contrat, courrier de congé…) à partir d'un
  * canevas composé par le Super Administrateur. Page 1 : les informations RH
  * de la personne, pré-remplies ; pages suivantes : le texte du canevas, tel
@@ -190,7 +190,7 @@ const templateGroups = computed(() => {
 
     return [...groups.entries()]
         .map(([type, items]) => ({ type, items }))
-        // Le dossier d'où l'on vient d'abord (ADR-199).
+        // Le dossier d'où l'on vient d'abord (ADR-208).
         .sort((a, b) => Number(familyKey(b.type) === props.folder) - Number(familyKey(a.type) === props.folder));
 });
 
@@ -238,7 +238,7 @@ const stepDone = computed(() => ({
 
         <form class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_440px]" @submit.prevent="submit">
             <div class="space-y-4">
-                <!-- ADR-199 — « Modifier » : une nouvelle version ; l'ancienne sera archivée, jamais effacée. -->
+                <!-- ADR-208 — « Modifier » : une nouvelle version ; l'ancienne sera archivée, jamais effacée. -->
                 <div v-if="replaces" class="flex items-start gap-3 rounded-xl border border-amber-300/60 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100" role="status">
                     <History class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                     <p>

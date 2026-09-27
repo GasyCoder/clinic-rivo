@@ -30,7 +30,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'children_details', 'badge', 'blouse', 'profession', 'phone', 'email',
     'address', 'address_entry_id', 'observation', 'active',
     'photo_path', 'photo_updated_at',
-    // ADR-197 — rémunération déclarée et compte bancaire (droits employees.payroll.*).
+    // ADR-206 — rémunération déclarée et compte bancaire (droits employees.payroll.*).
     'remuneration_type', 'remuneration_amount', 'bank_account_number', 'bank_account_holder',
 ])]
 class Employee extends Model
@@ -58,6 +58,8 @@ class Employee extends Model
             'photo_updated_at' => 'datetime',
             'remuneration_type' => EmployeeRemunerationType::class,
             'remuneration_amount' => 'decimal:2',
+            // ADR-197 — « aucun accès nécessaire », décidé par le Super Admin.
+            'access_waived_at' => 'datetime',
         ];
     }
 

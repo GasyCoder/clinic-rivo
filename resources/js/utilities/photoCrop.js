@@ -41,15 +41,43 @@ export function initialOffset(width, height, frame) {
 
 /** Changer de zoom en gardant le point au centre du cadre au même endroit. */
 export function zoomAround(offset, width, height, frame, fromZoom, toZoom) {
+    return zoomAtPoint(offset, width, height, frame, fromZoom, toZoom, { x: frame / 2, y: frame / 2 });
+}
+
+/**
+ * Changer de zoom en gardant sous le pointeur (molette, pincement) le même
+ * point de l'image : on zoome là où l'on regarde, pas au milieu du cadre.
+ */
+export function zoomAtPoint(offset, width, height, frame, fromZoom, toZoom, point) {
     const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, toZoom));
     const ratio = zoom / fromZoom;
-    const center = frame / 2;
     const next = {
-        x: center - (center - offset.x) * ratio,
-        y: center - (center - offset.y) * ratio,
+        x: point.x - (point.x - offset.x) * ratio,
+        y: point.y - (point.y - offset.y) * ratio,
     };
 
     return { zoom, offset: clampOffset(next, width, height, frame, zoom) };
+}
+
+/** Les quarts de tour permis : 0, 90, 180, 270 degrés. */
+export function normalizeRotation(degrees) {
+    return ((Math.round(degrees / 90) * 90) % 360 + 360) % 360;
+}
+
+/** Les dimensions de l'image une fois tournée : un quart de tour échange largeur et hauteur. */
+export function rotatedSize(width, height, rotation) {
+    return normalizeRotation(rotation) % 180 === 0 ? { width, height } : { width: height, height: width };
+}
+
+/**
+ * Ce que vaudra la photo envoyée : 600 px de côté au plus, jamais agrandie.
+ * Sous 360 px, elle sera floue à l'impression de la fiche (cadre 4 × 4 cm).
+ */
+export function cropQuality(side, output = 600) {
+    const pixels = Math.min(output, Math.round(side));
+    const level = pixels >= output ? 'excellent' : pixels >= 360 ? 'good' : 'low';
+
+    return { pixels, level };
 }
 
 /** Le carré à découper dans l'image d'origine, en pixels de l'image. */

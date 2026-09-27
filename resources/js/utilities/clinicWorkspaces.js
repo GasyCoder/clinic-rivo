@@ -42,6 +42,7 @@ import {
     Users,
     UsersRound,
     Wallet,
+    KeyRound,
 } from 'lucide-vue-next';
 
 /**
@@ -129,7 +130,7 @@ export const CLINIC_WORKSPACES = [
         // /administration/users stays with « Utilisateurs & accès ».
         exact: true,
         // ADR-066 — the sidebar is the HR space's only navigation (no tab bar).
-        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/internships', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/departments', '/administration/job-titles', '/administration/settings'],
+        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/internships', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/departments', '/administration/job-titles', '/administration/settings', '/administration/staff-access'],
         permission: 'employees.view',
         tone: 'navy',
         children: [
@@ -139,6 +140,8 @@ export const CLINIC_WORKSPACES = [
             // ADR-194 — les stagiaires et leurs stages (contrats de stage).
             { code: 'hr-internships', icon: GraduationCap, label: 'Stages', link: '/administration/internships', activeLinks: ['/administration/internships'], permission: 'contracts.view' },
             { code: 'hr-documents', icon: Copy, label: 'Documents', link: '/administration/generated-documents', activeLinks: ['/administration/generated-documents'], permission: 'generated_documents.view' },
+            // ADR-197 — les accès créés par le Super Admin, à remettre aux employés.
+            { code: 'hr-staff-access', icon: KeyRound, label: 'Accès du personnel', link: '/administration/staff-access', activeLinks: ['/administration/staff-access'], permission: 'staff_access.receive' },
             { code: 'hr-professional-emails', icon: AtSign, label: 'Emails professionnels', link: '/administration/professional-emails', activeLinks: ['/administration/professional-emails'], permission: 'professional_emails.view' },
             { code: 'hr-attendance', icon: Clock, label: 'Présences', link: '/administration/attendance', activeLinks: ['/administration/attendance'], permission: 'attendance.view' },
             { code: 'hr-leave', icon: CalendarDays, label: 'Congés', link: '/administration/leave', activeLinks: ['/administration/leave'], permission: 'leave.view' },

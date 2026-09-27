@@ -9,20 +9,24 @@ import {
     Briefcase,
     Building2,
     CalendarClock,
+    Camera,
     Check,
     CircleCheck,
     CircleOff,
     Coins,
     Contact,
     CreditCard,
+    Crop,
     GraduationCap,
     HandCoins,
     Hash,
     HeartHandshake,
     IdCard,
+    ImagePlus,
     Info,
     Landmark,
     ListPlus,
+    Loader2,
     Lock,
     Mail,
     MapPin,
@@ -32,6 +36,7 @@ import {
     ShieldCheck,
     Shirt,
     Sparkles,
+    Trash2,
     User,
     UserRound,
     Wallet,
@@ -43,6 +48,7 @@ import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
+import NoticesButton from '@/Components/Shadcn/NoticesButton.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import ShadSelect from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
@@ -68,7 +74,7 @@ import { seniority } from '@/utilities/seniority';
  * fonctions de ce département (module Fonctions) ; le serveur refuse de toute
  * façon un couple incohérent (JobTitleDepartmentGuard).
  *
- * ADR-197 — une étape « Rémunération » (salaire, indemnité ou rien, et le compte
+ * ADR-206 — une étape « Rémunération » (salaire, indemnité ou rien, et le compte
  * bancaire) n'existe que pour qui détient `employees.payroll.update` ; les étapes
  * sont donc repérées par leur clé, jamais par leur rang. L'ancienneté se calcule
  * depuis la date d'entrée.
@@ -96,7 +102,7 @@ const props = defineProps({
 const emit = defineEmits(['submit']);
 const { can } = usePermissions();
 
-// ADR-197 — les étapes par clé : « Rémunération » n'apparaît qu'avec son droit.
+// ADR-206 — les étapes par clé : « Rémunération » n'apparaît qu'avec son droit.
 const payrollEnabled = computed(() => can('employees.payroll.update'));
 const ALL_STEPS = [
     { key: 'identity', label: 'Identité', hint: 'Qui est la personne ?', icon: User, fields: ['sex', 'last_name', 'first_name', 'birth_date', 'birth_place', 'photo', 'remove_photo'], required: ['sex', 'last_name'] },
@@ -116,6 +122,12 @@ const currentStep = ref(1);
 const maxStepReached = ref(1);
 const addressMode = ref(props.form.new_address_label ? 'new' : 'existing');
 const photoField = ref(null);
+// ADR-194 — ce qu'il faut savoir de la photo tient derrière le bouton « ! », pas sous le cadre.
+const photoNotices = [
+    { key: 'face', icon: ScanFace, title: 'Cadrage', text: 'Visage de face, fond clair.' },
+    { key: 'crop', icon: Crop, title: 'Avant l’envoi', text: 'Recadrage, zoom et rotation avant l’envoi.' },
+    { key: 'format', icon: ShieldCheck, title: 'Fichier', text: 'JPEG, PNG ou WebP · conservée en privé.' },
+];
 const dropping = ref(false);
 const currentMeta = computed(() => steps.value[currentStep.value - 1] ?? steps.value[0]);
 const currentKey = computed(() => currentMeta.value.key);
@@ -277,10 +289,10 @@ watch(
     { deep: true },
 );
 
-// ADR-197 — l'ancienneté, lue sur la date d'entrée : un aperçu, le serveur la recalcule.
+// ADR-206 — l'ancienneté, lue sur la date d'entrée : un aperçu, le serveur la recalcule.
 const hireSeniority = computed(() => seniority(props.form.hire_date));
 
-/* ADR-197 — rémunération déclarée et compte bancaire. */
+/* ADR-206 — rémunération déclarée et compte bancaire. */
 const REMUNERATION_TYPES = [
     { value: 'SALARY', label: 'Salaire', hint: 'Salaire mensuel convenu au contrat', icon: Banknote },
     { value: 'ALLOWANCE', label: 'Indemnité', hint: 'Par exemple un stagiaire indemnisé', icon: HandCoins },
@@ -319,13 +331,13 @@ const recap = computed(() => [
 </script>
 
 <template>
-    <form id="employee-wizard" class="scroll-mt-4 space-y-4" novalidate @submit.prevent="submit">
+    <form id="employee-wizard" class="scroll-mt-3 space-y-3" novalidate @submit.prevent="submit">
         <ValidationErrorSummary :errors="form.errors" @select="focusField" />
 
         <!-- Étapes : une pastille par étape ; les libellés s'effacent sur un écran étroit,
              l'étape en cours reste nommée juste en dessous. -->
         <Card class="overflow-hidden">
-            <div class="h-1 bg-muted" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100" :aria-label="`Avancement : ${progress} %`">
+            <div class="h-0.5 bg-muted" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100" :aria-label="`Avancement : ${progress} %`">
                 <div class="h-full bg-primary transition-[width] duration-300" :style="{ width: `${progress}%` }" />
             </div>
             <nav aria-label="Étapes du dossier employé">
@@ -334,10 +346,11 @@ const recap = computed(() => [
                         <button
                             type="button"
                             :disabled="stepState(step.number) === 'locked'"
+                            :title="step.hint"
                             :aria-current="stepState(step.number) === 'current' ? 'step' : undefined"
                             :aria-label="`Étape ${step.number} : ${step.label}${stepState(step.number) === 'locked' ? ' (à venir)' : ''}`"
                             :class="cn(
-                                'flex h-full w-full items-center justify-center gap-3 px-2 py-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:justify-start md:px-4',
+                                'flex h-full w-full items-center justify-center gap-2 px-1.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:justify-start md:px-3',
                                 stepState(step.number) === 'current' ? 'bg-primary/5' : 'hover:bg-accent/60',
                                 stepState(step.number) === 'locked' && 'cursor-not-allowed opacity-50 hover:bg-transparent',
                             )"
@@ -345,7 +358,7 @@ const recap = computed(() => [
                         >
                             <span
                                 :class="cn(
-                                    'grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-bold ring-1 ring-inset',
+                                    'grid h-7 w-7 shrink-0 place-items-center rounded-full text-[11px] font-bold ring-1 ring-inset',
                                     stepState(step.number) === 'current' && 'bg-primary text-primary-foreground ring-primary',
                                     stepState(step.number) === 'done' && 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900',
                                     ['reached', 'locked'].includes(stepState(step.number)) && 'bg-muted text-muted-foreground ring-border',
@@ -357,8 +370,7 @@ const recap = computed(() => [
                                 <component :is="step.icon" v-else class="h-4 w-4" />
                             </span>
                             <span class="hidden min-w-0 md:block">
-                                <span :class="cn('block truncate text-sm font-semibold', stepState(step.number) === 'current' ? 'text-primary' : 'text-foreground')">{{ step.label }}</span>
-                                <span class="mt-0.5 block truncate text-[11px] text-muted-foreground">{{ step.hint }}</span>
+                                <span :class="cn('block truncate text-xs font-semibold', stepState(step.number) === 'current' ? 'text-primary' : 'text-foreground')">{{ step.label }}</span>
                             </span>
                         </button>
                     </li>
@@ -366,22 +378,20 @@ const recap = computed(() => [
             </nav>
         </Card>
 
-        <div class="flex items-center justify-between gap-3 px-1">
-            <div class="flex min-w-0 items-center gap-2.5">
-                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                    <component :is="currentMeta.icon" class="h-4 w-4" />
-                </span>
-                <div class="min-w-0">
-                    <p class="truncate text-sm font-semibold text-foreground">{{ currentMeta.label }}</p>
-                    <p class="text-[11px] text-muted-foreground">Étape {{ currentStep }} sur {{ steps.length }} · <span class="text-destructive">*</span> obligatoire</p>
-                </div>
-            </div>
-            <Badge variant="outline" class="tabular-nums">{{ progress }} %</Badge>
-        </div>
-
         <!-- ADR-194 — le bandeau d'identité, à chaque étape : on voit qui l'on
-             enregistre, et la photo 4 × 4 se règle d'ici à tout moment. -->
-        <Card class="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+             enregistre, et la photo 4 × 4 se règle d'ici à tout moment. L'étape
+             Identité porte déjà le grand sélecteur photo : ne pas le dupliquer. -->
+        <EmployeePhotoField
+            v-if="currentKey === 'identity'"
+            ref="photoField"
+            v-model="form.photo"
+            v-model:remove="form.remove_photo"
+            :current-url="currentPhotoUrl"
+            :name="typedName"
+            :error="form.errors.photo"
+            triggerless
+        />
+        <Card v-else class="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
             <EmployeePhotoField
                 ref="photoField"
                 v-model="form.photo"
@@ -402,37 +412,54 @@ const recap = computed(() => [
         </Card>
 
         <!-- 1 · Identité -->
-        <Card v-if="currentKey === 'identity'" class="grid overflow-hidden lg:grid-cols-[300px_minmax(0,1fr)]">
-            <aside class="border-b border-border bg-muted/40 p-5 lg:border-b-0 lg:border-e">
-                <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Photo d’identité 4 × 4</p>
-                <button
-                    type="button"
+        <Card v-if="currentKey === 'identity'" class="grid overflow-hidden lg:grid-cols-[220px_minmax(0,1fr)]">
+            <aside class="border-b border-border bg-muted/40 p-4 lg:border-b-0 lg:border-e">
+                <div class="flex items-center justify-between gap-2">
+                    <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Photo d’identité 4 × 4</p>
+                    <NoticesButton :notices="photoNotices" align="start" heading="La photo d’identité" subtitle="Facultative : le dossier s’enregistre sans elle." />
+                </div>
+                <div
                     :class="cn(
-                        'group mt-3 grid aspect-square w-full max-w-[13rem] place-items-center overflow-hidden rounded-xl border-2 border-dashed bg-card transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                        dropping ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50',
+                        'group relative mt-2.5 aspect-square w-full max-w-40 overflow-hidden rounded-xl border-2 bg-card shadow-sm transition-all',
+                        photoPreview ? 'border-transparent ring-1 ring-border' : 'border-dashed',
+                        dropping ? 'scale-[1.02] border-primary bg-primary/10 shadow-md' : !photoPreview && 'border-border hover:-translate-y-0.5 hover:border-primary/60 hover:bg-primary/5 hover:shadow-md',
                     )"
-                    aria-label="Choisir ou déposer la photo d’identité"
-                    @click="photoField?.open()"
                     @dragover.prevent="dropping = true"
                     @dragleave.prevent="dropping = false"
                     @drop.prevent="onDrop"
                 >
-                    <img v-if="photoPreview" :src="photoPreview" alt="Aperçu de la photo d’identité" class="h-full w-full object-cover">
-                    <span v-else class="flex flex-col items-center gap-2 px-4 text-center text-muted-foreground">
-                        <ScanFace class="h-9 w-9" />
-                        <span class="text-sm font-semibold text-foreground">Ajouter la photo</span>
-                        <span class="text-xs leading-5">Cliquez ou déposez une image, puis cadrez le visage.</span>
-                    </span>
-                </button>
-                <ul class="mt-4 space-y-1.5 text-xs leading-5 text-muted-foreground">
-                    <li class="flex gap-2"><Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />Visage de face, fond clair</li>
-                    <li class="flex gap-2"><Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />JPEG, PNG ou WebP</li>
-                    <li class="flex gap-2"><Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />Recadrée en carré, gardée en privé</li>
-                </ul>
+                    <!-- Avec une photo : on la voit en entier ; recadrer et changer apparaissent au survol. -->
+                    <template v-if="photoPreview">
+                        <img :src="photoPreview" alt="Aperçu de la photo d’identité" class="h-full w-full object-cover">
+                        <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 p-2 opacity-0 backdrop-blur-[1px] transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                            <Button v-if="photoField?.canRecrop" type="button" size="xs" variant="white-outline" class="w-full max-w-28" @click="photoField?.recrop()"><Crop class="h-3.5 w-3.5" />Recadrer</Button>
+                            <Button type="button" size="xs" variant="white-outline" class="w-full max-w-28" aria-label="Choisir ou déposer la photo d’identité" @click="photoField?.open()"><Camera class="h-3.5 w-3.5" />Changer</Button>
+                        </div>
+                        <span v-if="form.photo" class="pointer-events-none absolute left-1.5 top-1.5 rounded-md bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow">Nouvelle</span>
+                    </template>
+                    <button
+                        v-else
+                        type="button"
+                        class="grid h-full w-full place-items-center rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label="Choisir ou déposer la photo d’identité"
+                        :disabled="photoField?.reading"
+                        @click="photoField?.open()"
+                    >
+                        <span class="flex flex-col items-center gap-2 px-3 text-center text-muted-foreground">
+                            <span class="grid h-11 w-11 place-items-center rounded-full bg-primary/10 text-primary transition-transform group-hover:scale-110">
+                                <Loader2 v-if="photoField?.reading" class="h-5 w-5 animate-spin" />
+                                <ImagePlus v-else class="h-5 w-5" />
+                            </span>
+                            <span class="text-sm font-semibold text-foreground">{{ photoField?.reading ? 'Lecture…' : dropping ? 'Déposez ici' : 'Ajouter la photo' }}</span>
+                            <span class="text-[11px] leading-4">Cliquez ou déposez une image, puis cadrez-la</span>
+                        </span>
+                    </button>
+                </div>
+                <Button v-if="photoPreview" type="button" size="xs" variant="ghost" class="mt-1.5 text-muted-foreground hover:text-destructive" @click="photoField?.removePhoto()"><Trash2 class="h-3.5 w-3.5" />Retirer la photo</Button>
             </aside>
-            <div class="space-y-6 p-5 sm:p-6">
+            <div class="space-y-4 p-4 sm:p-5">
                 <FormField as="div" label="Genre" required :error="form.errors.sex">
-                    <div id="sex" role="radiogroup" aria-label="Genre" tabindex="-1" class="grid gap-3 focus:outline-none sm:grid-cols-2">
+                    <div id="sex" role="radiogroup" aria-label="Genre" tabindex="-1" class="grid gap-2.5 focus:outline-none sm:grid-cols-2">
                         <button
                             v-for="item in options.sexes"
                             :key="item.value"
@@ -440,13 +467,13 @@ const recap = computed(() => [
                             role="radio"
                             :aria-checked="form.sex === item.value"
                             :class="cn(
-                                'flex items-center gap-3 rounded-xl border p-3.5 text-start shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                'flex items-center gap-2.5 rounded-lg border p-2.5 text-start shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                                 form.sex === item.value ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-primary/40 hover:bg-accent/50',
                                 invalid('sex') && form.sex !== item.value && 'border-destructive/60',
                             )"
                             @click="chooseSex(item.value)"
                         >
-                            <span :class="cn('grid h-9 w-9 shrink-0 place-items-center rounded-full', form.sex === item.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')">
+                            <span :class="cn('grid h-8 w-8 shrink-0 place-items-center rounded-full', form.sex === item.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')">
                                 <Check v-if="form.sex === item.value" class="h-4 w-4" :stroke-width="3" />
                                 <User v-else class="h-4 w-4" />
                             </span>
@@ -471,26 +498,26 @@ const recap = computed(() => [
                         <IconInput id="birth_place" v-model="form.birth_place" :icon="MapPin" :class="fieldClass('birth_place')" />
                     </FormField>
                 </div>
-                <p class="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs leading-5 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
-                    <Sparkles class="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>Civilité : <strong>{{ derivedCivility }}</strong> — calculée depuis le genre et sécurisée par le serveur.</span>
+                <p class="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <Sparkles class="h-3.5 w-3.5 shrink-0 text-emerald-600" /><span>Civilité calculée : <strong class="text-foreground">{{ derivedCivility }}</strong></span>
                 </p>
             </div>
         </Card>
 
         <!-- 2 · Poste -->
-        <Card v-else-if="currentKey === 'post'" class="grid overflow-hidden lg:grid-cols-[300px_minmax(0,1fr)]">
-            <aside class="border-b border-border bg-sky-50/60 p-5 dark:bg-sky-950/15 lg:border-b-0 lg:border-e">
-                <span class="grid h-11 w-11 place-items-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"><Briefcase class="h-5 w-5" /></span>
-                <h2 class="mt-4 font-heading text-lg font-bold text-foreground">Affectation professionnelle</h2>
-                <p class="mt-2 text-sm leading-6 text-muted-foreground">Choisissez d’abord le département : la liste des fonctions ne montre ensuite que celles qui y existent. Le matricule est l’identifiant RH local.</p>
-                <p class="mt-3 text-xs leading-5 text-muted-foreground">
+        <Card v-else-if="currentKey === 'post'" class="grid overflow-hidden lg:grid-cols-[240px_minmax(0,1fr)]">
+            <aside class="border-b border-border bg-sky-50/60 p-4 dark:bg-sky-950/15 lg:border-b-0 lg:border-e">
+                <span class="grid h-9 w-9 place-items-center rounded-lg bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"><Briefcase class="h-4 w-4" /></span>
+                <h2 class="mt-3 font-heading text-base font-bold text-foreground">Affectation professionnelle</h2>
+                <p class="mt-1.5 text-xs leading-5 text-muted-foreground">Choisissez d’abord le département : seules ses fonctions seront proposées. Le matricule reste l’identifiant RH local.</p>
+                <p class="mt-2 text-[11px] leading-4 text-muted-foreground">
                     La correspondance fonctions ↔ départements se règle dans le
                     <Link v-if="can('hr_settings.view')" :href="hrUrl('/administration/job-titles')" class="font-semibold text-primary hover:underline">module Fonctions</Link>
                     <span v-else>module Fonctions</span>.
                 </p>
-                <p class="mt-4 rounded-lg border border-border bg-card/80 p-3 text-xs leading-5 text-muted-foreground">La création d’un dossier n’ouvre ni compte utilisateur ni contrat. Un compte de connexion se relie à cette fiche depuis « Utilisateurs », au moment de le créer.</p>
+                <p class="mt-3 rounded-lg border border-border bg-card/80 p-2.5 text-[11px] leading-4 text-muted-foreground">Le dossier n’ouvre ni compte utilisateur ni contrat. Le compte se relie ensuite depuis « Utilisateurs ».</p>
             </aside>
-            <div class="grid content-start gap-4 p-5 sm:grid-cols-2 sm:p-6">
+            <div class="grid content-start gap-4 p-4 sm:grid-cols-2 sm:p-5">
                 <FormField label="Matricule" required :error="form.errors.employee_number">
                     <IconInput id="employee_number" v-model="form.employee_number" :icon="Hash" autocomplete="off" :placeholder="suggestedEmployeeNumber || 'Ex. RH-2026-001'" :aria-invalid="invalid('employee_number')" :class="cn('font-mono', fieldClass('employee_number'))" />
                     <span v-if="suggestedEmployeeNumber" class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -501,7 +528,7 @@ const recap = computed(() => [
                 </FormField>
                 <FormField as="div" label="Date d’entrée" :error="form.errors.hire_date">
                     <DatePicker id="hire_date" v-model="form.hire_date" aria-label="Date d’entrée" :invalid="invalid('hire_date')" />
-                    <!-- ADR-197 — l'ancienneté se lit sur la date d'entrée, jamais saisie. -->
+                    <!-- ADR-206 — l'ancienneté se lit sur la date d'entrée, jamais saisie. -->
                     <span class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                         <CalendarClock class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                         <template v-if="hireSeniority">Ancienneté : <strong class="font-semibold text-foreground">{{ hireSeniority.label }}</strong> (calculée)</template>
@@ -530,18 +557,18 @@ const recap = computed(() => [
             </div>
         </Card>
 
-        <!-- Rémunération (ADR-197) — seulement avec employees.payroll.update. -->
-        <Card v-else-if="currentKey === 'pay'" class="grid overflow-hidden lg:grid-cols-[300px_minmax(0,1fr)]">
-            <aside class="border-b border-border bg-emerald-50/60 p-5 dark:bg-emerald-950/15 lg:border-b-0 lg:border-e">
-                <span class="grid h-11 w-11 place-items-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><Wallet class="h-5 w-5" /></span>
-                <h2 class="mt-4 font-heading text-lg font-bold text-foreground">Rémunération et banque</h2>
-                <p class="mt-2 text-sm leading-6 text-muted-foreground">Ce que la personne reçoit, et le compte où elle le reçoit. C’est une déclaration du RH : aucune paie, retenue ni net n’en est calculé.</p>
-                <p class="mt-4 flex items-start gap-2 rounded-lg border border-border bg-card/80 p-3 text-xs leading-5 text-muted-foreground">
+        <!-- Rémunération (ADR-206) — seulement avec employees.payroll.update. -->
+        <Card v-else-if="currentKey === 'pay'" class="grid overflow-hidden lg:grid-cols-[240px_minmax(0,1fr)]">
+            <aside class="border-b border-border bg-emerald-50/60 p-4 dark:bg-emerald-950/15 lg:border-b-0 lg:border-e">
+                <span class="grid h-9 w-9 place-items-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><Wallet class="h-4 w-4" /></span>
+                <h2 class="mt-3 font-heading text-base font-bold text-foreground">Rémunération et banque</h2>
+                <p class="mt-1.5 text-xs leading-5 text-muted-foreground">Ce que la personne reçoit, et le compte où elle le reçoit. C’est une déclaration du RH : aucune paie, retenue ni net n’en est calculé.</p>
+                <p class="mt-3 flex items-start gap-2 rounded-lg border border-border bg-card/80 p-2.5 text-[11px] leading-4 text-muted-foreground">
                     <ShieldCheck class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
                     <span>Données confidentielles : seuls les comptes qui ont le droit de voir la rémunération les lisent, sur la fiche comme à l’impression.</span>
                 </p>
             </aside>
-            <div class="space-y-6 p-5 sm:p-6">
+            <div class="space-y-4 p-4 sm:p-5">
                 <FormField as="div" label="Rémunération" :error="form.errors.remuneration_type">
                     <div id="remuneration_type" role="radiogroup" aria-label="Rémunération" tabindex="-1" class="grid gap-3 focus:outline-none sm:grid-cols-3">
                         <button
@@ -608,14 +635,14 @@ const recap = computed(() => [
 
         <!-- 3 · Contact -->
         <Card v-else-if="currentKey === 'contact'" class="overflow-hidden">
-            <header class="flex flex-col gap-2 border-b border-border bg-muted/40 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <header class="flex flex-col gap-2 border-b border-border bg-muted/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 class="text-sm font-bold text-foreground">Coordonnées et pièce d’identité</h2>
                     <p class="mt-1 text-xs leading-5 text-muted-foreground">Tout est facultatif à cette étape ; complétez seulement ce qui est disponible.</p>
                 </div>
                 <Badge variant="outline" class="w-fit">Étape facultative</Badge>
             </header>
-            <div class="grid gap-6 p-5 sm:p-6 lg:grid-cols-2 lg:divide-x lg:divide-border">
+            <div class="grid gap-5 p-4 sm:p-5 lg:grid-cols-2 lg:divide-x lg:divide-border">
                 <section class="space-y-4" aria-labelledby="employee-contact-title">
                     <div class="flex items-center gap-2">
                         <span class="grid h-8 w-8 place-items-center rounded-lg bg-cyan-50 text-cyan-600 dark:bg-cyan-950/50 dark:text-cyan-300"><Contact class="h-4 w-4" /></span>
@@ -666,7 +693,7 @@ const recap = computed(() => [
                         </template>
                     </FormField>
                 </section>
-                <section class="space-y-4 lg:ps-6" aria-labelledby="employee-identity-title">
+                <section class="space-y-4 lg:ps-5" aria-labelledby="employee-identity-title">
                     <div class="flex items-center gap-2">
                         <span class="grid h-8 w-8 place-items-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300"><IdCard class="h-4 w-4" /></span>
                         <div>
@@ -694,16 +721,16 @@ const recap = computed(() => [
 
         <!-- 4 · Compléments -->
         <Card v-else-if="currentKey === 'more'" class="overflow-hidden">
-            <header class="flex flex-col gap-2 border-b border-border bg-muted/40 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <header class="flex flex-col gap-2 border-b border-border bg-muted/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 class="text-sm font-bold text-foreground">Compléments du dossier</h2>
                     <p class="mt-1 text-xs leading-5 text-muted-foreground">Regroupés par usage pour éviter une longue liste de champs sans contexte.</p>
                 </div>
                 <Badge variant="outline" class="w-fit tabular-nums">{{ optionalDetailsCount }} information(s) facultative(s)</Badge>
             </header>
-            <div class="grid gap-4 p-5 sm:p-6 lg:grid-cols-3">
-                <section class="rounded-xl border border-border bg-card p-4 shadow-sm" aria-labelledby="employee-family-title">
-                    <div class="mb-4 flex items-start gap-2.5">
+            <div class="grid gap-3 p-4 lg:grid-cols-3">
+                <section class="rounded-xl border border-border bg-card p-3.5 shadow-sm" aria-labelledby="employee-family-title">
+                    <div class="mb-3 flex items-start gap-2.5">
                         <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300"><HeartHandshake class="h-4 w-4" /></span>
                         <div>
                             <h3 id="employee-family-title" class="text-sm font-bold text-foreground">Famille</h3>
@@ -722,8 +749,8 @@ const recap = computed(() => [
                         </FormField>
                     </div>
                 </section>
-                <section class="rounded-xl border border-border bg-card p-4 shadow-sm" aria-labelledby="employee-qualification-title">
-                    <div class="mb-4 flex items-start gap-2.5">
+                <section class="rounded-xl border border-border bg-card p-3.5 shadow-sm" aria-labelledby="employee-qualification-title">
+                    <div class="mb-3 flex items-start gap-2.5">
                         <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-300"><GraduationCap class="h-4 w-4" /></span>
                         <div>
                             <h3 id="employee-qualification-title" class="text-sm font-bold text-foreground">Qualification</h3>
@@ -742,8 +769,8 @@ const recap = computed(() => [
                         </FormField>
                     </div>
                 </section>
-                <section class="rounded-xl border border-border bg-card p-4 shadow-sm" aria-labelledby="employee-equipment-title">
-                    <div class="mb-4 flex items-start gap-2.5">
+                <section class="rounded-xl border border-border bg-card p-3.5 shadow-sm" aria-labelledby="employee-equipment-title">
+                    <div class="mb-3 flex items-start gap-2.5">
                         <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-300"><Shirt class="h-4 w-4" /></span>
                         <div>
                             <h3 id="employee-equipment-title" class="text-sm font-bold text-foreground">Matériel & disponibilité</h3>
@@ -775,17 +802,17 @@ const recap = computed(() => [
         <!-- 5 · Confirmer -->
         <section v-else class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
             <Card class="overflow-hidden">
-                <header class="border-b border-border bg-muted/40 px-5 py-4">
+                <header class="border-b border-border bg-muted/40 px-4 py-3">
                     <h2 class="text-sm font-bold text-foreground">Dossier prêt à enregistrer</h2>
                     <p class="mt-1 text-xs text-muted-foreground">Contrôlez les informations principales. Vous pourrez compléter le reste depuis la fiche employé.</p>
                 </header>
-                <div class="grid gap-3 p-5 sm:grid-cols-2 sm:p-6">
+                <div class="grid gap-3 p-4 sm:grid-cols-2">
                     <button
                         v-for="item in recap"
                         :key="item.step"
                         type="button"
                         :aria-label="`Modifier l’étape ${item.label}`"
-                        class="group rounded-xl border border-border bg-card p-4 text-start shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        class="group rounded-xl border border-border bg-card p-3.5 text-start shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         @click="editStep(item.step)"
                     >
                         <span class="flex items-center justify-between gap-2">
@@ -803,10 +830,10 @@ const recap = computed(() => [
                 </div>
             </Card>
             <Card class="h-fit border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/20">
-                <div class="p-5">
-                    <span class="grid h-11 w-11 place-items-center rounded-full bg-emerald-600 text-white"><Check class="h-5 w-5" :stroke-width="3" /></span>
-                    <h2 class="mt-4 font-heading text-lg font-bold text-emerald-900 dark:text-emerald-100">Ce qui sera automatisé</h2>
-                    <ul class="mt-3 space-y-2.5 text-sm leading-5 text-emerald-800 dark:text-emerald-200">
+                <div class="p-4">
+                    <span class="grid h-9 w-9 place-items-center rounded-full bg-emerald-600 text-white"><Check class="h-4 w-4" :stroke-width="3" /></span>
+                    <h2 class="mt-3 font-heading text-base font-bold text-emerald-900 dark:text-emerald-100">Ce qui sera automatisé</h2>
+                    <ul class="mt-2.5 space-y-2 text-xs leading-5 text-emerald-800 dark:text-emerald-200">
                         <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Civilité calculée depuis le genre.</span></li>
                         <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Fonction vérifiée pour le département choisi.</span></li>
                         <li class="flex gap-2"><CircleCheck class="mt-0.5 h-4 w-4 shrink-0" /><span>Photo recadrée en 4 × 4 et gardée en privé.</span></li>
@@ -816,17 +843,17 @@ const recap = computed(() => [
                     <p v-if="internshipIntent" class="mt-4 flex gap-2 rounded-lg bg-card p-3 text-xs leading-5 text-foreground ring-1 ring-border">
                         <GraduationCap class="mt-0.5 h-4 w-4 shrink-0 text-primary" />Après l’enregistrement, vous saisirez son stage : filière, école, encadrant et dates.
                     </p>
-                    <p class="mt-5 rounded-lg border border-emerald-200 bg-card/70 p-3 text-xs leading-5 text-emerald-800 dark:border-emerald-900 dark:text-emerald-200">Le compte utilisateur, le contrat et le dossier patient ne sont jamais créés implicitement : chacun possède ses propres droits et son propre audit.</p>
+                    <p class="mt-3 rounded-lg border border-emerald-200 bg-card/70 p-2.5 text-[11px] leading-4 text-emerald-800 dark:border-emerald-900 dark:text-emerald-200">Le compte utilisateur, le contrat et le dossier patient ne sont jamais créés implicitement : chacun possède ses propres droits et son propre audit.</p>
                 </div>
             </Card>
         </section>
 
-        <footer class="sticky bottom-3 z-10 flex flex-col-reverse gap-2 rounded-xl border border-border bg-card/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-            <Button :as="Link" :href="cancelHref" variant="ghost">Annuler</Button>
+        <footer class="sticky bottom-2 z-10 flex flex-col-reverse gap-2 rounded-xl border border-border bg-card/95 p-2 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+            <Button :as="Link" :href="cancelHref" variant="ghost" size="sm">Annuler</Button>
             <div class="flex items-center justify-end gap-2">
-                <Button v-if="currentStep > 1" type="button" variant="outline" @click="previousStep"><ArrowLeft class="h-4 w-4" />Précédent</Button>
-                <Button v-if="currentStep < steps.length" type="button" @click="nextStep">Continuer<ArrowRight class="h-4 w-4" /></Button>
-                <Button v-else type="submit" variant="success" :disabled="form.processing"><Check class="h-4 w-4" :stroke-width="3" />{{ form.processing ? 'Enregistrement…' : submitLabel }}</Button>
+                <Button v-if="currentStep > 1" type="button" variant="outline" size="sm" @click="previousStep"><ArrowLeft class="h-4 w-4" />Précédent</Button>
+                <Button v-if="currentStep < steps.length" type="button" size="sm" @click="nextStep">Continuer<ArrowRight class="h-4 w-4" /></Button>
+                <Button v-else type="submit" variant="success" size="sm" :disabled="form.processing"><Check class="h-4 w-4" :stroke-width="3" />{{ form.processing ? 'Enregistrement…' : submitLabel }}</Button>
             </div>
         </footer>
     </form>

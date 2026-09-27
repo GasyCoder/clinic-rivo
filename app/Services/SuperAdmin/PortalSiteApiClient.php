@@ -206,6 +206,55 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), $command ? 'POST' : 'GET', $path, $payload, $actor);
     }
 
+    /**
+     * ADR-197 — l'accès du personnel de chaque site : employés sans compte, remises
+     * au RH, rôles. Jamais un mot de passe.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function staffAccessForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/staff-access', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed> L'état d'un employé, relu juste avant de créer son accès. */
+    public function staffAccessEmployee(string $siteCode, string $employeeUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/staff-access/employees/'.rawurlencode($employeeUuid), [], $actor);
+    }
+
+    /**
+     * ADR-197 — crée le compte d'un employé (ou le vérifie seulement, `dry_run`).
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function grantStaffAccess(string $siteCode, array $payload, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/staff-access/grant', $payload, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function sendStaffAccessHandover(string $siteCode, string $handoverUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/staff-access/handovers/'.rawurlencode($handoverUuid).'/send', [], $actor);
+    }
+
+    /** @return array<string, mixed> ADR-199 — confie la remise des accès à un compte du site. */
+    public function designateStaffAccessReceiver(string $siteCode, string $userUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/staff-access/receivers', ['user_uuid' => $userUuid], $actor);
+    }
+
+    /** @return array<string, mixed> `waive` (avec un motif) ou `unwaive`. */
+    public function staffAccessWaiver(string $siteCode, string $employeeUuid, string $command, array $payload, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/staff-access/employees/'.rawurlencode($employeeUuid).'/'.$command, $payload, $actor);
+    }
+
     /** @return array<string, mixed> */
     public function createCashRegister(string $siteCode, string $name, User $actor): array
     {

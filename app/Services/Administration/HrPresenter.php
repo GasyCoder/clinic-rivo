@@ -70,7 +70,7 @@ class HrPresenter
                 ? $employee->addressEntry->active && ! $employee->addressEntry->trashed()
                 : true,
             'observation' => $employee->observation,
-            // ADR-197 — l'ancienneté, calculée depuis la date d'entrée, jamais saisie.
+            // ADR-206 — l'ancienneté, calculée depuis la date d'entrée, jamais saisie.
             'seniority' => Seniority::of($employee->hire_date),
             // ADR-194 — servi seulement quand la liste l'a calculé (withExists).
             'is_intern' => (bool) ($employee->getAttributes()['has_current_internship'] ?? false),
@@ -91,7 +91,7 @@ class HrPresenter
     }
 
     /**
-     * ADR-197 — la rémunération déclarée et le compte bancaire. Servis à part, et
+     * ADR-206 — la rémunération déclarée et le compte bancaire. Servis à part, et
      * seulement à qui détient `employees.payroll.view` : jamais dans `employee()`,
      * que lisent la liste, l'export et d'autres écrans.
      *

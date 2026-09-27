@@ -12,13 +12,17 @@ use App\Models\User;
 use App\Models\WebmailLabel;
 use App\Models\WebmailTemplate;
 use App\Services\Webmail\MailServerFactory;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Services\Webmail\WebmailSignOn;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
+use Inertia\Inertia;
 use Tests\Support\Webmail\FakeMailServer;
 use Tests\Support\Webmail\FakeMailServerFactory;
 use Tests\TestCase;
@@ -422,7 +426,7 @@ class WebmailTest extends TestCase
     {
         [$user, , $box] = $this->connected();
         $box->seed('INBOX', ['subject' => 'Bonjour']);
-        $partial = fn (string $only) => ['X-Inertia' => 'true', 'X-Inertia-Version' => (string) \Inertia\Inertia::getVersion(), 'X-Inertia-Partial-Component' => 'Webmail/Index', 'X-Inertia-Partial-Data' => $only];
+        $partial = fn (string $only) => ['X-Inertia' => 'true', 'X-Inertia-Version' => (string) Inertia::getVersion(), 'X-Inertia-Partial-Component' => 'Webmail/Index', 'X-Inertia-Partial-Data' => $only];
 
         // Une page entière se connecte une fois.
         $this->factory->connections = 0;
@@ -446,7 +450,7 @@ class WebmailTest extends TestCase
         [$user, , $box] = $this->connected();
         $uid = $box->seed('INBOX', ['subject' => 'Bonjour']);
         $draft = $box->seed('INBOX.Drafts', ['subject' => 'Brouillon', 'flags' => ['\\Draft']]);
-        $partial = fn (string $only) => ['X-Inertia' => 'true', 'X-Inertia-Version' => (string) \Inertia\Inertia::getVersion(), 'X-Inertia-Partial-Component' => 'Webmail/Index', 'X-Inertia-Partial-Data' => $only];
+        $partial = fn (string $only) => ['X-Inertia' => 'true', 'X-Inertia-Version' => (string) Inertia::getVersion(), 'X-Inertia-Partial-Component' => 'Webmail/Index', 'X-Inertia-Partial-Data' => $only];
 
         // La liste : sa recherche part avec les compteurs, critères compris.
         $box->plans = [];
@@ -476,7 +480,7 @@ class WebmailTest extends TestCase
         $box->plans = [];
         $this->actingAs($user)->get("/messagerie/dossier/reception/{$uid}")->assertOk()
             ->assertInertia(fn ($page) => $page->where('message.seen', true)->where('folders.0.unseen', 1)); // 2 non lus, un de moins
-        $this->assertSame(['folder' => 'INBOX', 'criteria' => [], 'uid' => $uid, 'markSeen' => true], $box->plans[0]);
+        $this->assertSame(['folder' => 'INBOX', 'criteria' => [], 'uid' => $uid, 'markSeen' => true, 'page' => 1], $box->plans[0]);
         $this->assertContains('\\Seen', $box->stored('INBOX', $uid)['flags']);
 
         // Un brouillon s'ouvre sans être marqué lu.
@@ -579,6 +583,194 @@ class WebmailTest extends TestCase
             ->assertSessionHasErrors(['mailbox' => 'Cette boîte n’est pas (ou plus) active.']);
     }
 
+    public function test_signing_in_to_rivo_opens_ones_own_box_without_asking_again(): void
+    {
+        [$user] = $this->titular();
+        $user->forceFill(['password' => Hash::make(self::PASSWORD)])->save();
+
+        // La connexion à RIVO n'attend pas le serveur de messagerie.
+        $this->post('/login', ['email' => $user->email, 'password' => self::PASSWORD])->assertRedirect(route('dashboard'));
+        $this->assertSame(0, $this->factory->connections);
+        $stored = session('webmail.own');
+        $this->assertIsString($stored);
+        $this->assertStringNotContainsString(self::PASSWORD, $stored, 'chiffré, jamais en clair');
+
+        // La page d'ouverture ne s'affiche pas : la boîte s'ouvre directement.
+        $this->app->forgetScopedInstances();
+        $this->get('/messagerie/connexion')->assertRedirect(route('webmail.index'));
+        $this->get('/messagerie/dossier/reception')->assertOk()->assertInertia(fn ($page) => $page
+            ->where('mailbox.address', self::ADDRESS)
+            ->where('mailbox.own', true)
+            ->where('mailbox.signed_on', true)
+            ->where('mailbox.closable', false)
+            ->where('webmail.connected', true));
+
+        // Une ouverture auditée, une seule fois par session, sans le mot de passe.
+        $this->app->forgetScopedInstances();
+        $this->get('/messagerie/dossier/reception')->assertOk();
+        $opened = AuditLog::query()->where('action', 'webmail.connect')->get();
+        $this->assertCount(1, $opened);
+        $this->assertSame('rivo_login', $opened->first()->new_values['via']);
+        $this->assertTrue($opened->first()->new_values['own_mailbox']);
+        $this->assertStringNotContainsString(self::PASSWORD, AuditLog::query()->get()->toJson(), 'jamais dans l’audit');
+
+        // La déconnexion de RIVO l'oublie.
+        $this->post('/logout');
+        $this->assertNull(session('webmail.own'));
+    }
+
+    public function test_a_remember_me_reconnection_still_opens_ones_own_box_directly(): void
+    {
+        [$user] = $this->titular();
+        $user->forceFill(['password' => Hash::make(self::PASSWORD)])->save();
+
+        // « Se souvenir de moi » : le mot de passe de sa boîte est gardé aussi sur l'appareil,
+        // chiffré, jamais en clair.
+        $login = $this->post('/login', ['email' => $user->email, 'password' => self::PASSWORD, 'remember' => 'on']);
+        $recallerName = Auth::guard('web')->getRecallerName();
+        $recaller = $login->getCookie($recallerName)?->getValue();
+        $device = $login->getCookie(WebmailSignOn::DEVICE_COOKIE);
+        $this->assertNotNull($recaller);
+        $this->assertNotNull($device);
+        $this->assertTrue($device->isHttpOnly());
+        $this->assertStringNotContainsString(self::PASSWORD, $device->getValue(), 'chiffré, jamais en clair');
+        $this->assertStringNotContainsString(self::PASSWORD, (string) $login->baseResponse->headers->get('set-cookie'));
+
+        // La session expire ; RIVO reconnecte le compte par son cookie, sans mot de passe
+        // saisi : la messagerie s'ouvre quand même directement.
+        $this->expireSession();
+        $this->withCookie($recallerName, $recaller)->withCookie(WebmailSignOn::DEVICE_COOKIE, $device->getValue())
+            ->get('/messagerie')->assertRedirect('/messagerie/dossier/reception');
+        $this->assertAuthenticatedAs($user);
+        $this->assertIsString(session('webmail.own'));
+        $this->app->forgetScopedInstances();
+        $this->get('/messagerie/dossier/reception')->assertOk()->assertInertia(fn ($page) => $page
+            ->component('Webmail/Index')
+            ->where('mailbox.address', self::ADDRESS)
+            ->where('mailbox.signed_on', true));
+
+        // Sans « Se souvenir de moi », rien ne reste sur l'appareil — ce qu'un compte précédent
+        // y a laissé part aussi.
+        $this->post('/logout');
+        $this->expireSession();
+        $plain = $this->withCookie(WebmailSignOn::DEVICE_COOKIE, $device->getValue())
+            ->post('/login', ['email' => $user->email, 'password' => self::PASSWORD]);
+        $this->assertTrue($plain->getCookie(WebmailSignOn::DEVICE_COOKIE, false)?->isCleared());
+    }
+
+    public function test_the_key_left_on_a_shared_device_never_opens_another_accounts_box(): void
+    {
+        [$soa] = $this->titular();
+        [$vola] = $this->titular('vola.rabe@cbdc.mg', 'Vola', 'Rabe');
+        $soa->forceFill(['password' => Hash::make(self::PASSWORD)])->save();
+        $vola->forceFill(['password' => Hash::make(self::PASSWORD)])->save();
+
+        $device = $this->post('/login', ['email' => $soa->email, 'password' => self::PASSWORD, 'remember' => 'on'])
+            ->getCookie(WebmailSignOn::DEVICE_COOKIE)->getValue();
+        $this->post('/logout')->assertCookieExpired(WebmailSignOn::DEVICE_COOKIE);
+
+        // Vola, reconnectée par son propre cookie, sur le poste où Soa avait laissé le sien.
+        $this->expireSession();
+        $recaller = $this->post('/login', ['email' => $vola->email, 'password' => self::PASSWORD, 'remember' => 'on'])
+            ->getCookie(Auth::guard('web')->getRecallerName())->getValue();
+        $this->expireSession();
+        $this->withCookie(Auth::guard('web')->getRecallerName(), $recaller)->withCookie(WebmailSignOn::DEVICE_COOKIE, $device)
+            ->get('/messagerie/dossier/reception')
+            ->assertRedirect('/messagerie/connexion')
+            ->assertCookieExpired(WebmailSignOn::DEVICE_COOKIE);
+        $this->assertAuthenticatedAs($vola);
+    }
+
+    public function test_a_rivo_password_that_is_not_the_boxs_is_forgotten_and_asked_once(): void
+    {
+        [$user] = $this->titular();
+        $user->forceFill(['password' => Hash::make('Rivo#Autre-2026')])->save();
+
+        $this->post('/login', ['email' => $user->email, 'password' => 'Rivo#Autre-2026'])->assertRedirect(route('dashboard'));
+        $this->app->forgetScopedInstances();
+        $this->get('/messagerie/dossier/reception')
+            ->assertRedirect('/messagerie/connexion')
+            ->assertSessionHasErrors(['password' => 'Votre boîte n’a pas le même mot de passe que votre compte RIVO : saisissez celui de la boîte. Il sera gardé jusqu’à votre déconnexion.']);
+        $this->assertNull(session('webmail.own'), 'un mot de passe refusé n’est jamais réessayé');
+        $this->assertSame(1, $this->factory->connections);
+
+        // La page reste affichée pour dire le refus, et le mot de passe de la boîte se tape une fois.
+        $this->app->forgetScopedInstances();
+        $this->get('/messagerie/connexion')->assertOk()->assertInertia(fn ($page) => $page->component('Webmail/Connect')->where('ownReady', false));
+        $this->post('/messagerie/connexion', ['password' => self::PASSWORD])->assertRedirect(route('webmail.index'));
+        $this->app->forgetScopedInstances();
+        $this->get('/messagerie/connexion')->assertRedirect(route('webmail.index'));
+        $this->get('/messagerie/dossier/reception')->assertOk()->assertInertia(fn ($page) => $page
+            ->where('mailbox.signed_on', false)
+            ->where('mailbox.closable', true));
+    }
+
+    public function test_the_login_never_fails_because_of_the_mail_server(): void
+    {
+        [$user] = $this->titular();
+        $user->forceFill(['password' => Hash::make(self::PASSWORD)])->save();
+        $this->factory->offline = true;
+
+        $this->post('/login', ['email' => $user->email, 'password' => self::PASSWORD])->assertRedirect(route('dashboard'));
+        $this->assertAuthenticatedAs($user);
+
+        // Injoignable n'est pas refusé : le mot de passe est gardé, la page le dit.
+        $this->app->forgetScopedInstances();
+        $this->get('/messagerie/dossier/reception')->assertStatus(503)->assertInertia(fn ($page) => $page->component('Webmail/Offline'));
+        $this->assertIsString(session('webmail.own'));
+
+        // Un compte sans boîte ne garde rien.
+        $this->post('/logout');
+        $plain = User::factory()->withRole()->create(['password' => Hash::make('Sans#Boite-2026')]);
+        $this->post('/login', ['email' => $plain->email, 'password' => 'Sans#Boite-2026'])->assertRedirect(route('dashboard'));
+        $this->assertNull(session('webmail.own'));
+    }
+
+    public function test_back_to_ones_own_box_from_a_colleagues_needs_no_password(): void
+    {
+        [$user] = $this->titular();
+        [, $other] = $this->titular('vola.rabe@cbdc.mg', 'Vola', 'Rabe');
+        $user = $this->allow($user, 'webmail.open_any');
+        $user->forceFill(['password' => Hash::make(self::PASSWORD)])->save();
+
+        $this->post('/login', ['email' => $user->email, 'password' => self::PASSWORD]);
+        $this->app->forgetScopedInstances();
+        $this->get('/messagerie/connexion?changer=1')->assertOk()->assertInertia(fn ($page) => $page->where('ownReady', true));
+
+        // La boîte d'un collègue demande la sienne ; la refermer ramène directement à la sienne.
+        $this->post('/messagerie/connexion', ['mailbox' => $other->uuid, 'password' => self::PASSWORD])->assertRedirect(route('webmail.index'));
+        $this->app->forgetScopedInstances();
+        $this->post('/messagerie/deconnexion')->assertRedirect(route('webmail.index'));
+        $this->assertNull(session('webmail.credentials'));
+        $this->assertIsString(session('webmail.own'));
+
+        // Choisir sa boîte à l'écran d'ouverture : rien à taper non plus.
+        $this->post('/messagerie/connexion', ['mailbox' => $other->uuid, 'password' => self::PASSWORD]);
+        $this->app->forgetScopedInstances();
+        $this->post('/messagerie/connexion', ['mailbox' => ProfessionalMailbox::query()->where('address', self::ADDRESS)->value('uuid')])
+            ->assertRedirect(route('webmail.index'));
+        $this->app->forgetScopedInstances();
+        $this->get('/messagerie/dossier/reception')->assertOk()->assertInertia(fn ($page) => $page->where('mailbox.address', self::ADDRESS));
+
+        // Sans mot de passe connu, la sienne en demande un.
+        $this->post('/logout');
+        $this->actingAs($user);
+        $this->app->forgetScopedInstances();
+        $this->post('/messagerie/connexion', [])->assertSessionHasErrors(['password' => 'Saisissez le mot de passe de la boîte.']);
+    }
+
+    public function test_changing_ones_rivo_password_says_the_box_keeps_its_own(): void
+    {
+        [$user] = $this->titular();
+        $user->forceFill(['password' => Hash::make('Ancien#Mot-2026')])->save();
+
+        $this->actingAs($user)->put('/profil/mot-de-passe', [
+            'current_password' => 'Ancien#Mot-2026',
+            'password' => 'Nouveau#Mot-2026x',
+            'password_confirmation' => 'Nouveau#Mot-2026x',
+        ])->assertSessionHasNoErrors()->assertSessionHas('status', fn (string $status) => str_contains($status, 'Votre boîte email garde son mot de passe'));
+    }
+
     public function test_the_super_admin_lands_straight_in_the_portal_box_set_in_the_env(): void
     {
         $admin = $this->portalAdmin();
@@ -674,6 +866,14 @@ class WebmailTest extends TestCase
     }
 
     /** @return array{0: User, 1: ProfessionalMailbox} */
+    /** La session expire : plus rien en mémoire, seuls les cookies de l'appareil restent. */
+    private function expireSession(): void
+    {
+        $this->flushSession();
+        $this->app['auth']->forgetGuards();
+        $this->app->forgetScopedInstances();
+    }
+
     private function titular(string $address = self::ADDRESS, string $first = 'Soa', string $last = 'Rakoto'): array
     {
         $user = $this->allow(User::factory()->withRole()->create(), 'webmail.view');

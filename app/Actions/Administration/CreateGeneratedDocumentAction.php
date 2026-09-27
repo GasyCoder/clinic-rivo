@@ -35,7 +35,7 @@ class CreateGeneratedDocumentAction
     ): GeneratedDocument {
         Gate::forUser($actor)->authorize('create', GeneratedDocument::class);
 
-        // ADR-199 — « modifier » un document : une nouvelle version pour la même
+        // ADR-208 — « modifier » un document : une nouvelle version pour la même
         // personne ; l'ancienne est archivée, gardée et consultable.
         if ($replaces) {
             Gate::forUser($actor)->authorize('delete', $replaces);

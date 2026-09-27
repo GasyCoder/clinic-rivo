@@ -54,12 +54,28 @@ final class PatientNumberFormat
 
     public function episode(string $patientNumber, int $sequence): string
     {
-        return $patientNumber.$this->separator.str_pad((string) $sequence, $this->episodeDigits, '0', STR_PAD_LEFT);
+        return $patientNumber.$this->separatorOf($patientNumber).str_pad((string) $sequence, $this->episodeDigits, '0', STR_PAD_LEFT);
     }
 
     /** Le bébé né à la clinique : le numéro de sa mère, puis B et son rang (ADR-144). */
     public function newborn(string $motherNumber, int $rank): string
     {
-        return $motherNumber.$this->separator.'B'.$rank;
+        return $motherNumber.$this->separatorOf($motherNumber).'B'.$rank;
+    }
+
+    /**
+     * Le séparateur avec lequel un numéro déjà attribué a été écrit.
+     *
+     * Un passage ou un bébé prolonge le numéro de son patient dans la forme de
+     * ce numéro : changer le séparateur ne vaut que pour les nouveaux patients,
+     * et ne fabrique jamais « A_26_001-002 ». Le préfixe n'a que des lettres et
+     * des chiffres, donc le premier autre caractère est le séparateur. Un numéro
+     * qui n'en a aucun (préfixe vide, sans année) prend celui du réglage.
+     */
+    public function separatorOf(string $number): string
+    {
+        return preg_match('/[^A-Za-z0-9]/', $number, $match) === 1 && in_array($match[0], self::SEPARATORS, true)
+            ? $match[0]
+            : $this->separator;
     }
 }

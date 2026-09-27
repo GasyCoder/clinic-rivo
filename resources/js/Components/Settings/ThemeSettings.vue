@@ -14,6 +14,7 @@ import SettingsField from '@/Components/Settings/SettingsField.vue';
 import SettingsSection from '@/Components/Settings/SettingsSection.vue';
 import ThemeSwatch from '@/Components/Settings/ThemeSwatch.vue';
 import { useToastStore } from '@/stores/toast';
+import { FONT_FAMILIES } from '@/utilities/appearance';
 import {
     COLOR_FIELDS,
     MIN_TEXT_CONTRAST,
@@ -42,6 +43,7 @@ const props = defineProps({
 });
 
 const toast = useToastStore();
+const selectedFont = computed(() => FONT_FAMILIES.find((font) => font.value === props.form.ui_font_family) ?? FONT_FAMILIES[0]);
 /** Un onglet par mode : ses trois couleurs, son aperçu et la lisibilité de son texte. */
 const MODES = [
     { mode: 'light', label: 'Mode clair', icon: Sun, description: 'Accentuation, arrière-plan et avant-plan quand l’interface est claire. Les couleurs d’alerte (rouge, ambre, vert) ne changent pas.' },
@@ -153,7 +155,7 @@ const applyImport = () => {
 </script>
 
 <template>
-    <SettingsSection id="theme" title="Thème" :description="`Les couleurs du mode clair et du mode sombre sur ${siteName}.`">
+    <SettingsSection id="theme" title="Thème" :description="`La police et les couleurs du mode clair et du mode sombre sur ${siteName}.`">
         <template #actions>
             <Button type="button" variant="outline" size="sm" title="Télécharger le thème (fichier JSON)" @click="download"><Download class="h-4 w-4" />Exporter</Button>
             <Button type="button" variant="outline" size="sm" title="Copier le thème, pour le coller sur un autre site" @click="copy"><ClipboardCopy class="h-4 w-4" />Copier</Button>

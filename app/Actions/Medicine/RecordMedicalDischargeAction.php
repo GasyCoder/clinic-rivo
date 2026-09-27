@@ -63,27 +63,7 @@ class RecordMedicalDischargeAction
             }
 
             $type = MedicalDischargeType::from($data['type']);
-            $latestFinal = $locked->consultation->diagnoses()
-                ->where('type', DiagnosisType::Final->value)
-                ->whereDoesntHave('cancellation')
-                ->latest('id')
-                ->first();
-
-            // ADR-094 — absent pour un passage paraclinique seul, où le
-            // résultat de l'examen tient lieu de conclusion. On ne fabrique
-            // alors ni diagnostic vide, ni chaîne vide : une absence reste
-            // une absence.
-            $finalDiagnosis = trim((string) ($data['final_diagnosis'] ?? ''));
-
-            if ($finalDiagnosis !== ''
-                && (! $latestFinal || trim($latestFinal->description) !== $finalDiagnosis)) {
-                Diagnosis::query()->create([
-                    'consultation_id' => $locked->consultation->getKey(),
-                    'type' => DiagnosisType::Final,
-                    'description' => $finalDiagnosis,
-                    'recorded_by' => $actor->getKey(),
-                ]);
-            }
+            $this->recordNewDiagnoses($locked, (string) ($data['final_diagnosis'] ?? ''), $actor);
 
             $discharge = MedicalDischarge::query()->create([
                 ...MedicalDischargeAttributes::from($data, $type),
@@ -109,5 +89,43 @@ class RecordMedicalDischargeAction
 
             return $discharge->fresh(['creator:id,name']);
         });
+    }
+
+    /**
+     * Le diagnostic final se lit ligne par ligne : il est composé des
+     * diagnostics déjà consignés, un par ligne. Comparer le texte entier au
+     * dernier diagnostic enregistrait la liste comme un diagnostic de plus
+     * (le défaut corrigé sur le séjour par l'ADR-162). Seule une ligne que la
+     * consultation ne connaît pas encore devient un diagnostic.
+     */
+    private function recordNewDiagnoses(EpisodeOrientation $orientation, string $finalDiagnosis, User $actor): void
+    {
+        $lines = collect(preg_split('/\R/u', $finalDiagnosis))
+            ->map(fn (string $line): string => trim($line))
+            ->filter(fn (string $line): bool => $line !== '')
+            ->unique(fn (string $line): string => mb_strtolower($line));
+
+        if ($lines->isEmpty()) {
+            return;
+        }
+
+        $known = $orientation->consultation->diagnoses()
+            ->whereDoesntHave('cancellation')
+            ->pluck('description')
+            ->map(fn (string $description): string => mb_strtolower(trim($description)))
+            ->all();
+
+        foreach ($lines as $line) {
+            if (in_array(mb_strtolower($line), $known, true)) {
+                continue;
+            }
+
+            Diagnosis::query()->create([
+                'consultation_id' => $orientation->consultation->getKey(),
+                'type' => DiagnosisType::Final,
+                'description' => $line,
+                'recorded_by' => $actor->getKey(),
+            ]);
+        }
     }
 }

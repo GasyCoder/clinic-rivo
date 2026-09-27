@@ -12,6 +12,7 @@ use Database\Seeders\RoleSeeder;
 use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Database\Events\NoPendingMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -82,6 +83,26 @@ class PortalSuperAdminPermissionsTest extends TestCase
 
         // Rejouée, elle n'a plus rien à faire : aucune seconde trace.
         event(new NoPendingMigrations('up'));
+        $this->assertSame(1, AuditLog::query()->where('action', 'role.permissions.portal_sync')->count());
+    }
+
+    /**
+     * ADR-197 — constaté en déployant : après des migrations, le Super Admin du
+     * portail ne recevait pas les nouveaux droits. L'écouteur qui vide le cache
+     * des permissions renvoyait le `false` de Cache::forget() quand la clé
+     * manquait, ce qui arrête l'événement : la synchronisation ne tournait pas.
+     */
+    public function test_the_end_of_a_migration_run_grants_even_when_the_permission_cache_is_empty(): void
+    {
+        $superAdmin = $this->portalDriftedFromTheCatalog();
+        Cache::forget(Permission::CACHE_KEY);
+        $this->assertFalse(Cache::has(Permission::CACHE_KEY));
+
+        event(new MigrationsEnded('up'));
+
+        $held = $superAdmin->fresh()->permissions()->pluck('name');
+        $this->assertContains('hospitalization.view', $held);
+        $this->assertContains('document_templates.view', $held);
         $this->assertSame(1, AuditLog::query()->where('action', 'role.permissions.portal_sync')->count());
     }
 

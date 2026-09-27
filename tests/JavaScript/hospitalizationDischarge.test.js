@@ -125,7 +125,7 @@ test('la sortie est présentée en trois sections encadrées', () => {
 
 /** ADR-149 — un patient dans un lit se signale, et sa conduite à tenir le sait. */
 test('la consultation dit que le patient est hospitalisé', () => {
-    const card = fs.readFileSync('resources/js/Components/Clinical/ClinicalOrientationCard.vue', 'utf8');
+    const card = fs.readFileSync('resources/js/Components/Clinical/ConsultationDecisionPanel.vue', 'utf8');
     const header = fs.readFileSync('resources/js/Components/Clinical/ClinicalCondensedHeader.vue', 'utf8');
     const medicine = fs.readFileSync('resources/js/Pages/Medicine/Show.vue', 'utf8');
 

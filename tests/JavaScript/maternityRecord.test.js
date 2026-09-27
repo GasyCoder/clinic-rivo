@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { maternityBundle, maternityShowPage } from './support/maternityPage.js';
 
-const page = fs.readFileSync('resources/js/Pages/Maternity/Show.vue', 'utf8');
+// ADR-204 — la page orchestre, ses composants portent les écrans : une règle
+// se vérifie sur l'ensemble. `show` ne désigne que la page.
+const page = maternityBundle();
+const show = maternityShowPage();
 const textarea = fs.readFileSync('resources/js/Components/Shadcn/Textarea.vue', 'utf8');
 
 /** ADR-099 : tout écran retouché passe à shadcn-vue. */
@@ -26,7 +30,7 @@ test('le dossier Maternité n’utilise plus DashWind', () => {
  * leurs valeurs par défaut — le dossier était donc impossible à enregistrer.
  */
 test('un bloc que le compte ne peut pas écrire n’est pas envoyé', () => {
-    assert.match(page, /if \(! props\.capabilities\.can_prenatal\) delete payload\.prenatal_data;/);
+    assert.match(page, /if \(! props\.capabilities\.can_prenatal\) \{\s*delete payload\.pregnancy_data;\s*delete payload\.prenatal_data;\s*\}/);
     assert.match(page, /if \(! props\.capabilities\.can_labor\) delete payload\.labor_data;/);
     assert.match(page, /if \(! props\.capabilities\.can_delivery\) delete payload\.delivery_data;/);
     assert.match(page, /delete payload\.newborn_data;\s*\n\s*delete payload\.baby_care_notes;/);
@@ -36,7 +40,8 @@ test('un bloc que le compte ne peut pas écrire n’est pas envoyé', () => {
 test('le nombre de nouveau-nés est borné dans l’écran', () => {
     assert.match(page, /const MAX_NEWBORNS = 5;/);
     assert.match(page, /if \(form\.newborn_data\.newborns\.length >= MAX_NEWBORNS\) return;/);
-    assert.match(page, /:disabled="form\.newborn_data\.newborns\.length >= MAX_NEWBORNS"/);
+    assert.match(page, /:max-newborns="MAX_NEWBORNS"/);
+    assert.match(page, /:disabled="form\.newborn_data\.newborns\.length >= maxNewborns"/);
 });
 
 /**
@@ -46,14 +51,16 @@ test('le nombre de nouveau-nés est borné dans l’écran', () => {
  */
 test('un dossier non modifiable est désactivé, pas seulement sans bouton', () => {
     assert.match(page, /const readOnly = computed\(\(\) => ! props\.capabilities\.can_edit\)/);
-    assert.match(page, /<fieldset class="min-w-0 space-y-5 p-5" :disabled="readOnly">/);
+    // Chaque étape désactive ses champs ; un bloc sans son droit se lit.
+    assert.match(page, /<fieldset class="space-y-5" :disabled="readOnly">/);
+    assert.match(show, /const lockedWithout = \(capability\) => readOnly\.value \|\| ! props\.capabilities\[capability\]/);
     assert.match(page, /Dossier en lecture seule/);
 });
 
-/** Six sections dont on ne voyait que celle ouverte. */
-test('chaque onglet dit s’il est déjà renseigné', () => {
-    assert.match(page, /const sectionFilled = \{/);
-    assert.match(page, /<CircleCheck v-if="section\.filled"/);
+/** ADR-204 — chaque étape du parcours dit si elle est déjà renseignée. */
+test('chaque étape dit si elle est déjà renseignée', () => {
+    assert.match(show, /filled: stepFilled\(step\.key, form/);
+    assert.match(page, /<CircleCheck v-if="step\.filled && step\.key !== current"/);
 });
 
 /**
@@ -63,14 +70,19 @@ test('chaque onglet dit s’il est déjà renseigné', () => {
  */
 test('les actes conséquents passent par une confirmation shadcn', () => {
     assert.match(page, /title="Transmettre la césarienne à Chirurgie \?"/);
-    assert.match(page, /title="Terminer la prise en charge Maternité \?"/);
+    assert.match(page, /'Terminer la consultation prénatale \?'/);
+    assert.match(page, /'Clôturer l’accouchement \?'/);
+    assert.match(page, /'Terminer la prise en charge Maternité \?'/);
     assert.doesNotMatch(page, /window\.confirm|confirm\(/);
 });
 
 /** Terminer perdrait une saisie non enregistrée : on l'empêche. */
 test('on ne peut pas clore un dossier sur des modifications non enregistrées', () => {
-    assert.match(page, /:disabled="completeForm\.processing \|\| form\.isDirty"/);
+    assert.match(show, /:dirty="form\.isDirty && pregnancyChosen"/);
+    assert.match(page, /:disabled="completeForm\.processing \|\| dirty \|\| saving"/);
     assert.match(page, /terminer maintenant les perdrait/);
+    // Ouvrir la finalisation enregistre d'abord ce qui reste.
+    assert.match(show, /autosave\.flush\(\(\) => \{ confirmingComplete\.value = true; \}/);
 });
 
 /** Quatrième recopie des mêmes classes : la zone de texte devient une primitive. */
@@ -113,23 +125,20 @@ test('terminer offre deux issues explicites, la première par défaut', () => {
     assert.match(page, /Terminer et orienter vers Médecine/);
     assert.match(page, /:clearable="false"/);
     // La note n'est envoyée que si la patiente est orientée.
-    assert.match(page, /orient_to_medicine: toMedicine\.value/);
-    assert.match(page, /medicine_note: toMedicine\.value \?/);
+    assert.match(page, /orient_to_medicine: outcome\.value === 'medicine'/);
+    assert.match(page, /medicine_note: outcome\.value === 'medicine' \?/);
     assert.match(page, /Message pour le médecin/);
 });
 
 /**
- * ADR-136 : le dossier s'adapte à l'acte demandé à la Réception. Les sections
- * mises en avant sont une aide — jamais un verrou — et viennent du serveur.
+ * ADR-204 : le parcours (consultation prénatale ou accouchement) donne les
+ * étapes. « Suivant » facilite le flux, il ne verrouille rien : le stepper
+ * ouvre n'importe quelle étape.
  */
-test('les sections mises en avant viennent du serveur et ne verrouillent rien', () => {
-    assert.match(page, /actProfile: \{ type: Object/);
-    assert.match(page, /suggested: props\.actProfile\.sections\.includes\(section\.key\)/);
-    // On ouvre sur la première section attendue et non renseignée, sinon comme avant.
-    assert.match(page, /section\.suggested && ! section\.filled/);
-    assert.match(page, /\?\? 'context'/);
-    // Une section ne se masque jamais faute d'être mise en avant : `visible` ne lit que les droits.
-    assert.doesNotMatch(page, /visible:[^\n]*suggested/);
+test('les étapes viennent du parcours et ne verrouillent rien', () => {
+    assert.match(show, /stepsFor\(workflowType\.value\)/);
+    assert.match(show, /@select="goTo"/);
+    assert.doesNotMatch(show, /disabled[^\n]*goTo|goTo[^\n]*disabled/);
 });
 
 test('un accouchement gémellaire ouvre deux fiches vides, jamais remplies', () => {
@@ -183,10 +192,11 @@ test('le panier s’enregistre d’un geste, et « Autres » exige sa précision
 test('la saisie en cours est conservée par le composable partagé', () => {
     assert.match(page, /import \{ useFormDraft \} from '@\/composables\/useFormDraft'/);
     assert.match(page, /endpoint: `\/maternity\/orientations\/\$\{props\.orientation\.uuid\}\/draft`/);
-    assert.match(page, /forms: \{ record: form, basket: basketForm, cesarean: cesareanForm \}/);
+    // ADR-204 — le dossier s'enregistre de lui-même : le brouillon ne garde plus
+    // que ce qui n'est pas encore un acte (le panier) ou une décision (la césarienne).
+    assert.match(page, /forms: \{ basket: basketForm, cesarean: cesareanForm \}/);
     assert.match(page, /enabled: Boolean\(props\.capabilities\.can_edit\)/);
-    // Un vrai enregistrement rend le brouillon caduc.
-    assert.match(page, /onSuccess: \(\) => draft\.markSaved\(\)/);
+    assert.doesNotMatch(show, /forms: \{ record: form/);
     // Effacer suspend d'abord l'enregistrement automatique : sinon il recréerait ce qu'on efface.
     assert.match(page, /draft\.suspend\(\);\s*router\.delete/);
     assert.match(page, /Effacer le brouillon/);

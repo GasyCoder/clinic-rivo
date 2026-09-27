@@ -8,6 +8,7 @@ import {
     FileText,
     Folder,
     Info,
+    KeyRound,
     LogOut,
     Pencil,
     Plus,
@@ -79,8 +80,9 @@ const counter = (folder) => (folder.role === 'drafts' ? folder.total : folder.un
                     <Button v-if="mailbox.can_switch" :as="Link" :href="`${WEBMAIL_BASE}/connexion?changer=1`" variant="ghost" size="xs" icon title="Ouvrir une autre boîte" aria-label="Ouvrir une autre boîte">
                         <ArrowLeftRight class="h-4 w-4" aria-hidden="true" />
                     </Button>
-                    <!-- La boîte du portail ne se ferme pas : son mot de passe vit dans le .env, rien n'a été saisi. -->
-                    <Button v-if="!mailbox.portal" type="button" variant="ghost" size="xs" icon :title="mailbox.own === false ? 'Fermer cette boîte (le mot de passe sera redemandé)' : 'Fermer ma boîte (le mot de passe sera redemandé)'" :aria-label="mailbox.own === false ? 'Fermer cette boîte' : 'Fermer ma boîte'" @click="emit('logout')">
+                    <!-- La boîte du portail ne se ferme pas : son mot de passe vit dans le .env, rien n'a été saisi.
+                         Sa boîte ouverte avec la connexion à RIVO se ferme avec elle (ADR-200). -->
+                    <Button v-if="mailbox.closable ?? !mailbox.portal" type="button" variant="ghost" size="xs" icon :title="mailbox.own === false ? 'Fermer cette boîte (le mot de passe sera redemandé)' : 'Fermer ma boîte (le mot de passe sera redemandé)'" :aria-label="mailbox.own === false ? 'Fermer cette boîte' : 'Fermer ma boîte'" @click="emit('logout')">
                         <LogOut class="h-4 w-4" aria-hidden="true" />
                     </Button>
                 </div>
@@ -104,6 +106,28 @@ const counter = (folder) => (folder.role === 'drafts' ? folder.total : folder.un
                     <p>
                         <strong class="block text-sm font-semibold text-foreground">Boîte du portail</strong>
                         L’adresse du Super Admin, réglée dans le .env du portail : elle s’ouvre sans mot de passe à saisir. Chaque envoi est enregistré dans l’audit à votre nom.
+                    </p>
+                </div>
+            </Popover>
+
+            <!-- ADR-200 — sa boîte, ouverte avec la connexion à RIVO : dit pourquoi rien n'a été demandé. -->
+            <Popover v-if="mailbox.signed_on" align="start" width-class="w-[min(18rem,calc(100vw-2rem))]">
+                <template #trigger>
+                    <button
+                        type="button"
+                        class="mt-2.5 inline-flex max-w-full items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
+                        aria-label="Ouverte avec votre connexion RIVO : ce que cela implique"
+                    >
+                        <KeyRound class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span class="truncate">Ouverte avec votre connexion</span>
+                        <Info class="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden="true" />
+                    </button>
+                </template>
+                <div class="flex items-start gap-2.5 p-4 text-xs leading-5 text-muted-foreground">
+                    <ShieldCheck class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                    <p>
+                        <strong class="block text-sm font-semibold text-foreground">Rien à retaper</strong>
+                        Votre boîte s’est ouverte avec le mot de passe saisi à votre connexion à RIVO, gardé chiffré le temps de votre session. Elle se ferme quand vous vous déconnectez de RIVO.
                     </p>
                 </div>
             </Popover>

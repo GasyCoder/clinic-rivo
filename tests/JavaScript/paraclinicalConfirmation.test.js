@@ -138,16 +138,17 @@ test('la posologie de la fenêtre suit la même composition que l’éditeur', (
  * pourtant comme un verrou. Il est neutre et dit ce qu'il est.
  */
 test('les résultats attendus ne se présentent pas comme un blocage', () => {
-    const start = page.indexOf('v-if="awaitingResults.length"');
+    const start = page.indexOf('v-if="awaitingResults.length && !consultationIsClosed"');
     const banner = page.slice(start, page.indexOf('Suivre les demandes', start));
 
     assert.doesNotMatch(banner, /amber/);
     assert.match(banner, /bg-muted\/40/);
-    assert.match(banner, /n’empêche pas de clôturer/);
+    assert.match(banner, /vous pouvez clôturer sans attendre/);
 
-    // Et le blocage réel, lui, n'est jamais un résultat manquant.
-    const blockers = page.slice(page.indexOf('const closureBlockers'), page.indexOf('const closureBlockers') + 900);
-    assert.doesNotMatch(blockers, /awaitingResults/);
+    // Et ce qui retient « Clôturer » n'est jamais un résultat manquant :
+    // seule la conduite à tenir (ADR-203).
+    const hint = page.slice(page.indexOf('const closureHint'), page.indexOf('const closureSummary'));
+    assert.doesNotMatch(hint, /awaitingResults/);
 });
 
 /**

@@ -109,7 +109,7 @@ const employeeNumber = computed(() => (employeeExact.value
                         <template #leading="{ option }"><NumberingOptionIcon kind="year" :value="option.value" :year="year" /></template>
                     </Select>
                 </SettingsField>
-                <SettingsField label="Séparateur" for="reglage-patient-separator" description="Entre le préfixe, l’année, le compteur et le rang du passage." :error="form.errors.patient_number_separator">
+                <SettingsField label="Séparateur" for="reglage-patient-separator" description="Pour les nouveaux patients. Un patient déjà numéroté garde son séparateur, pour ses passages et ses bébés aussi." :error="form.errors.patient_number_separator">
                     <Select id="reglage-patient-separator" :model-value="patient.separator" :options="separators" class="w-full" :disabled="readonly" @update:model-value="choose('patient_number_separator', $event, patientDefaults.separator)">
                         <template #leading="{ option }"><NumberingOptionIcon kind="separator" :value="option.value" /></template>
                     </Select>

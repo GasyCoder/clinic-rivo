@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Actions\User\ChangeOwnPasswordAction;
 use App\Http\Requests\UpdateOwnPasswordRequest;
 use App\Models\Permission;
+use App\Services\Webmail\WebmailAccess;
 use App\Support\Settings\UiOptions;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -75,12 +76,20 @@ class ProfileController extends Controller
         return back()->with('status', $preferences ? 'Apparence enregistrée.' : 'Apparence du site rétablie.');
     }
 
-    public function updatePassword(UpdateOwnPasswordRequest $request, ChangeOwnPasswordAction $action): RedirectResponse
+    public function updatePassword(UpdateOwnPasswordRequest $request, ChangeOwnPasswordAction $action, WebmailAccess $webmail): RedirectResponse
     {
         $closed = $action->execute($request->user(), $request->string('password')->toString(), $request->session()->getId());
 
-        return back()->with('status', $closed > 0
+        $status = $closed > 0
             ? "Mot de passe changé. {$closed} autre".($closed > 1 ? 's sessions ouvertes ont été fermées.' : ' session ouverte a été fermée.')
-            : 'Mot de passe changé.');
+            : 'Mot de passe changé.';
+
+        // ADR-200 — la boîte email garde son propre mot de passe chez l'hébergeur : à la
+        // prochaine connexion, il ne sera plus le même que celui de RIVO. On le dit.
+        if ($webmail->ownRecord($request->user()) !== null) {
+            $status .= ' Votre boîte email garde son mot de passe : la messagerie vous le demandera une fois, à votre prochaine connexion.';
+        }
+
+        return back()->with('status', $status);
     }
 }

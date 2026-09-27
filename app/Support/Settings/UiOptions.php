@@ -16,6 +16,8 @@ final class UiOptions
 
     public const DEFAULT_FONT_SIZE = 16;
 
+    public const FONT_FAMILIES = ['default', 'roboto', 'nunito', 'system', 'arial'];
+
     /** Hauteur des champs et des boutons. */
     public const DENSITIES = ['compact', 'default', 'comfortable'];
 
@@ -29,6 +31,7 @@ final class UiOptions
     public const CONTRASTS = ['standard', 'high', 'max'];
 
     public const DEFAULTS = [
+        'font_family' => 'default',
         'font_size' => self::DEFAULT_FONT_SIZE,
         'density' => 'default',
         'radius' => 'default',
@@ -43,6 +46,7 @@ final class UiOptions
     public static function clean(string $key, mixed $value): int|string|null
     {
         return match ($key) {
+            'font_family' => in_array($value, self::FONT_FAMILIES, true) ? $value : null,
             'font_size' => in_array((int) $value, self::FONT_SIZES, true) ? (int) $value : null,
             'density' => in_array($value, self::DENSITIES, true) ? $value : null,
             'radius' => in_array($value, self::RADII, true) ? $value : null,

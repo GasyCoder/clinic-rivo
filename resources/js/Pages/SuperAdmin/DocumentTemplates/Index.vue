@@ -21,7 +21,7 @@ import { familyKey, familyTone } from '@/utilities/documentFamilies';
 defineOptions({ layout: AppLayout });
 
 /**
- * ADR-199 — les canevas d'un site, rangés en dossiers comme les fournisseurs :
+ * ADR-208 — les canevas d'un site, rangés en dossiers comme les fournisseurs :
  * un dossier par type (Contrats, Congés, Attestations…). Les canevas de tous
  * les sites sont déjà là : ouvrir un dossier ou changer de site ne rappelle
  * aucun site, l'adresse suit seulement (`?site=A&dossier=CONTRAT`).
@@ -79,7 +79,7 @@ const folderSubtitle = (folder) => {
 const folderMeta = (folder) => (folder.documents ? `${folder.documents} document${folder.documents > 1 ? 's' : ''}` : 'Aucun document');
 
 /**
- * ADR-198 — un canevas de contrat ou de congé réglé sur un autre contexte ne reprend pas les dates et n'est pas
+ * ADR-207 — un canevas de contrat ou de congé réglé sur un autre contexte ne reprend pas les dates et n'est pas
  * proposé à l'impression : on le signale, sans rien bloquer. Renvoie le contexte attendu, sinon null.
  */
 const contextMismatch = (template) => {

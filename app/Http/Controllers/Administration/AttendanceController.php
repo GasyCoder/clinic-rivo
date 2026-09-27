@@ -46,7 +46,7 @@ class AttendanceController extends Controller
             ->latest('started_at')->paginate(30)->withQueryString()
             ->through(fn ($record) => $this->presenter->attendance($record));
 
-        // ADR-198 — « Aujourd'hui » par défaut ; l'historique dès qu'une période,
+        // ADR-207 — « Aujourd'hui » par défaut ; l'historique dès qu'une période,
         // un employé ou les sessions ouvertes sont demandés (liens des chiffres RH).
         $view = $request->query('vue') === 'historique'
             || $request->hasAny(['from', 'to', 'employee', 'open'])

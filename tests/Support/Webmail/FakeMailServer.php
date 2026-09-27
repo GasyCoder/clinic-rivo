@@ -75,9 +75,9 @@ final class FakeMailServer implements MailServer
     public array $plans = [];
 
     /** Une boîte en mémoire n'a pas d'aller-retour à épargner : l'annonce est seulement retenue. */
-    public function plan(string $folder, array $criteria = [], ?int $uid = null, bool $markSeen = false): void
+    public function plan(string $folder, array $criteria = [], ?int $uid = null, bool $markSeen = false, int $page = 1): void
     {
-        $this->plans[] = compact('folder', 'criteria', 'uid', 'markSeen');
+        $this->plans[] = compact('folder', 'criteria', 'uid', 'markSeen', 'page');
     }
 
     public function folders(bool $withCounts = true): array

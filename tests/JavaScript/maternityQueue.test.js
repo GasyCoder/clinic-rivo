@@ -36,7 +36,7 @@ test('la prise en charge est un POST, pas un bouton dans un bouton', () => {
     for (const source of [queue, board]) {
         assert.doesNotMatch(markup(source), /<Link[^>]*as="button"[\s\S]{0,120}<Button/);
     }
-    assert.match(board, /router\.post\(url, \{\}/);
+    assert.match(board, /router\.post\(url, data, \{/);
     assert.match(board, /postTakeCharge\(row, row\.actions\?\.take_charge_url\)/);
     // Un double clic n’ouvre pas deux prises en charge.
     assert.match(board, /if \(taking\.value \|\| !url\) return;/);
@@ -87,6 +87,45 @@ test('l’en-tête est celui, partagé, du module Soins', () => {
 
 /** ADR-177 — la Maternité lit le même tableau des passages que les Soins et la Médecine. */
 test('la Maternité lit le tableau partagé des passages', () => {
-    assert.match(queue, /<ActivePassageBoard module="MATERNITY" base-url="\/maternity"/);
+    assert.match(queue, /<ActivePassageBoard\s+module="MATERNITY"\s+base-url="\/maternity"/);
     assert.doesNotMatch(queue, /orientations\.data|props\.filter/);
+});
+
+/**
+ * ADR-204 — deux parcours filtrés par onglet (Tous / Consultations /
+ * Accouchements), et le parcours se choisit à la prise en charge : la
+ * suggestion de la Réception présélectionne, elle ne décide jamais.
+ */
+test('les onglets de parcours et le choix explicite à la prise en charge', () => {
+    for (const label of ['Tous', 'Consultations', 'Accouchements']) {
+        assert.match(queue, new RegExp(`label: '${label}'`));
+    }
+    assert.match(queue, /typeCounts\[tab\.value\]/);
+    // Le filtre survit à un changement de vue ou de recherche du tableau.
+    assert.match(queue, /:extra-params="extraParams"/);
+    assert.match(board, /\{ \.\.\.params, \.\.\.props\.extraParams \}/);
+    // Le tableau délègue le geste ; la page demande le parcours, puis le poste.
+    assert.match(queue, /intercept-take-charge/);
+    assert.match(board, /emit\('take-charge', \{ row, proceed:/);
+    assert.match(queue, /choosing\.value\.proceed\(\{ encounter_type: type \}\)/);
+    assert.match(queue, /:suggested="choosingEncounter\?\.type \?\? choosingEncounter\?\.suggested \?\? null"/);
+    // La fenêtre nomme la patiente et le passage, lus sur la ligne du tableau.
+    assert.match(queue, /formatPatientName\(choosing\.row\.episode\?\.patient\)/);
+    assert.match(queue, /choosing\.row\.episode\?\.episode_number/);
+});
+
+/**
+ * Le parcours filtre toute la page (cartes et liste) : il se lit avec le titre,
+ * pas comme une seconde barre d'onglets empilée au-dessus des cartes. Ses
+ * comptes sont ceux du bloc ouvert, et l'écran le dit.
+ */
+test('le filtre de parcours vit dans l’en-tête et dit ce qu’il compte', () => {
+    const header = queue.slice(queue.indexOf('<SoinsWorkspaceHeader'), queue.indexOf('</SoinsWorkspaceHeader>'));
+    assert.match(header, /<TabsList[^>]*aria-labelledby="maternity-type-label"/);
+    assert.match(header, /Parcours <span[^>]*>· \{\{ viewScope \}\}<\/span>/);
+    assert.match(queue, /in_progress: 'en cours chez moi'/);
+    assert.match(queue, /:title="typeTitle\(tab\)"/);
+    // Le compte de l'onglet actif se distingue ; celui d'un onglet inactif ne disparaît plus sur le fond.
+    assert.match(header, /type === tab\.value\s*\? 'bg-rose-100 text-rose-700/);
+    assert.doesNotMatch(header, /bg-muted px-1\.5 text-\[10px\]/);
 });

@@ -76,6 +76,10 @@ class PermissionSeeder extends Seeder
         'professional_emails.update' => 'Réinitialiser le mot de passe d’une adresse email professionnelle',
         'webmail.view' => 'Utiliser la messagerie professionnelle (ouvrir sa propre boîte)',
         'webmail.open_any' => 'Ouvrir la boîte professionnelle d’un autre employé (avec son mot de passe)',
+        // ADR-197 — l'accès du personnel : compte RIVO et adresse pro créés ensemble, remis au RH.
+        'staff_access.view' => 'Voir les employés qui attendent leur accès (compte et adresse)',
+        'staff_access.create' => 'Créer l’accès d’un employé (compte et adresse) et l’envoyer au RH',
+        'staff_access.receive' => 'Recevoir et remettre les accès créés pour le personnel (mots de passe)',
         'employees.view' => 'Voir les employés',
         'employees.create' => 'Créer un employé',
         'employees.update' => 'Modifier un employé',
@@ -84,7 +88,7 @@ class PermissionSeeder extends Seeder
         'employees.import' => 'Importer les employés',
         'employees.export' => 'Exporter les employés',
         'employees.print' => 'Imprimer une fiche employé',
-        // ADR-197 — rémunération déclarée et compte bancaire : données sensibles, droits à part.
+        // ADR-206 — rémunération déclarée et compte bancaire : données sensibles, droits à part.
         'employees.payroll.view' => 'Voir la rémunération et le compte bancaire d’un employé',
         'employees.payroll.update' => 'Modifier la rémunération et le compte bancaire d’un employé',
         // Vue volontairement minimale du dossier RH pour relier un membre du

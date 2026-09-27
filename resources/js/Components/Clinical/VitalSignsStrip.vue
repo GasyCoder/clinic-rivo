@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, useId } from 'vue';
 import { Activity, ArrowDown, ArrowUp, ChevronDown, CircleCheck, Gauge, HeartPulse, ShieldAlert, Thermometer, TriangleAlert, Wind } from 'lucide-vue-next';
-import { formatTime } from '@/utilities/date';
+import VitalsRecordedAt from '@/Components/Clinical/VitalsRecordedAt.vue';
 import { cn } from '@/lib/cn';
 
 /**
@@ -25,6 +25,9 @@ import { cn } from '@/lib/cn';
  *    n'est pas un moteur de diagnostic : ce sont des alertes de sécurité.
  * 3. **Le moment compte.** « à l'arrivée » n'est pas un détail : ces
  *    valeurs ont été relevées par les Soins, pas pendant la consultation.
+ *    Elles portent donc toujours leur **date et leur heure** — jamais l'heure
+ *    seule, qui ne dit pas si c'était ce matin ou il y a deux mois — et un
+ *    relevé d'un autre jour le dit en ambre (« il y a 2 mois »).
  *
  * **Une ligne, pas un panneau** (2026-09-21, demande du propriétaire). Deux
  * rangées de tuiles à trois lignes occupaient ~150 px au-dessus de chaque
@@ -39,7 +42,7 @@ const props = defineProps({
     bloodPressure: { type: String, default: null },
     /** Allergies du dossier permanent, résumées en fin de bandeau. */
     allergies: { type: Array, default: () => [] },
-    /** Horodatage du relevé — `null` masque le repère plutôt que d'en inventer un. */
+    /** Horodatage du relevé (dernier enregistrement de la fiche Soins) — jamais inventé : sans lui, l'écran dit « date inconnue ». */
     recordedAt: { type: String, default: null },
 });
 
@@ -171,10 +174,12 @@ const TONE = {
         <!-- Une seule ligne : titre, constantes, allergies, anomalies. Elle
              passe à la ligne sur un écran étroit, sans rien masquer. -->
         <div class="flex flex-wrap items-center gap-x-2.5 gap-y-2 px-3 py-2">
-            <p class="flex w-full shrink-0 items-center gap-1.5 text-sm font-semibold text-foreground sm:w-auto">
+            <p class="flex w-full shrink-0 flex-wrap items-center gap-1.5 text-sm font-semibold text-foreground sm:w-auto">
                 <Activity class="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                 Constantes
-                <span class="text-xs font-normal text-muted-foreground">à l’arrivée<template v-if="recordedAt"> · {{ formatTime(recordedAt) }}</template></span>
+                <span class="text-xs font-normal text-muted-foreground">à l’arrivée</span>
+                <!-- Toujours la date avec l'heure : un patient peut revenir des semaines plus tard. -->
+                <VitalsRecordedAt :at="recordedAt" />
             </p>
 
             <span class="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />

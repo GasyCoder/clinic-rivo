@@ -8,7 +8,7 @@ import CardBody from '@/Components/Shadcn/CardContent.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import { ArrowRight, CalendarClock, CheckCircle2, NotebookPen, PackageOpen, Plus, ShieldCheck, Syringe, Trash2, UserRound } from 'lucide-vue-next';
 import AnesthesiaStepHeader from '@/Components/Surgery/AnesthesiaStepHeader.vue';
-import ClinicalSubsection from '@/Components/Surgery/ClinicalSubsection.vue';
+import ClinicalSubsection from '@/Components/Clinical/ClinicalSubsection.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';

@@ -126,7 +126,7 @@ class LeaveController extends Controller
 
         return Inertia::render('Administration/Leave/Print', [
             'leave' => $this->presenter->leave($leave),
-            // ADR-198 — comme pour un contrat (ADR-070) : le document officiel du congé
+            // ADR-207 — comme pour un contrat (ADR-070) : le document officiel du congé
             // est un canevas du Super Admin, rempli pour ce congé. La fiche de demande
             // reste imprimable telle quelle.
             'templates' => $user->can('generated_documents.create') && $leave->status !== LeaveRequestStatus::Cancelled

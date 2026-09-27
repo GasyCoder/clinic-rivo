@@ -10,6 +10,7 @@ use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeFinancialMode;
+use App\Enums\EpisodeMedicalStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
@@ -333,6 +334,206 @@ class ReceptionNextStepAndBoardTest extends TestCase
         $this->assertSame('Soins', $row['module']['source_label']);
         $this->assertSame(1, $row['module']['queue_number']);
         $this->assertSame('PENDING', $row['status']);
+    }
+
+    // ── 16. Une étape suggérée déjà faite se dit faite ───────────────────
+
+    public function test_a_suggested_step_already_done_is_marked_done_and_a_reopened_one_is_not(): void
+    {
+        $episode = $this->arrival('CONSULT-GEN', ReceptionRoutingMode::CareThenMedicine, CatalogModule::Medicine);
+        $this->confirm($episode, 'CONSULT-GEN', [ReceptionNextStep::Care->value, ReceptionNextStep::Medicine->value]);
+        $nurse = $this->nurse();
+
+        // Rien n'est fait tant que personne n'a terminé.
+        $steps = collect($this->row($this->doctor(), '/medicine', $episode)['next_steps'])->keyBy('value');
+        $this->assertFalse($steps['CARE']['done']);
+        $this->assertFalse($steps['MEDICINE']['done']);
+
+        // Les Soins terminent et transmettent : Soins est fait, Médecine ne l'est pas.
+        $this->actingAs($nurse)->post(route('care.passages.take-charge', $episode));
+        EpisodeOrientation::query()->sole()->complete($nurse);
+        app(CreateEpisodeOrientationAction::class)
+            ->execute($episode, CatalogModule::Care, CatalogModule::Medicine, $nurse, 'Transmission des Soins.');
+
+        $steps = collect($this->row($this->doctor(), '/medicine', $episode)['next_steps'])->keyBy('value');
+        $this->assertTrue($steps['CARE']['done']);
+        $this->assertNotNull($steps['CARE']['done_at']);
+        $this->assertFalse($steps['MEDICINE']['done']);
+        $this->assertNull($steps['MEDICINE']['done_at']);
+
+        // Renvoyé aux Soins par le médecin : l'étape n'est plus « faite » tant qu'il y attend.
+        app(CreateEpisodeOrientationAction::class)
+            ->execute($episode, CatalogModule::Medicine, CatalogModule::Care, $this->doctor(), 'Soin demandé par le médecin.');
+
+        $steps = collect($this->row($this->doctor(), '/medicine', $episode)['next_steps'])->keyBy('value');
+        $this->assertFalse($steps['CARE']['done']);
+    }
+
+    // ── 17. La Médecine envoie aux Soins un patient venu directement pour elle ──
+
+    public function test_medicine_sends_a_direct_patient_to_care_who_comes_back_after_the_care(): void
+    {
+        $episode = $this->arrival('CONSULT-SPE', ReceptionRoutingMode::MedicineDirect, CatalogModule::Medicine);
+        $this->confirm($episode, 'CONSULT-SPE')->assertSessionHasNoErrors();
+        $doctor = $this->doctor();
+        $nurse = $this->nurse();
+
+        // Venu directement pour le médecin : les Soins peuvent le prendre d'eux-mêmes,
+        // mais il ne tient aucune place dans leur file (ADR-177, amendement du 2026-09-27 bis).
+        $careWaiting = $this->row($nurse, '/care', $episode);
+        $this->assertNotNull($careWaiting['actions']['take_charge_url']);
+        $this->assertNull($careWaiting['module']['queue_number']);
+        $offer = $this->row($doctor, '/medicine', $episode)['actions'];
+        $this->assertSame(route('medicine.passages.send-to-care', $episode), $offer['send_to_care']['url']);
+        $this->assertSame('BEFORE', $offer['send_to_care']['moment']);
+        $this->assertSame('MEDICINE', $offer['send_to_care']['then']);
+        $this->assertTrue($offer['send_to_care']['returns_to_medicine']);
+        $this->assertNull($offer['withdraw_care_url']);
+
+        $this->actingAs($doctor)->post(route('medicine.passages.send-to-care', $episode), ['note' => 'Constantes et poids avant la consultation.'])
+            ->assertSessionHasNoErrors();
+
+        $sent = EpisodeOrientation::query()->where('destination_module', CatalogModule::Care)->sole();
+        $this->assertSame(EpisodeOrientationStatus::Pending, $sent->status);
+        $this->assertSame(CatalogModule::Medicine, $sent->source_module);
+        $this->assertStringContainsString('Constantes et poids avant la consultation.', $sent->reason);
+        $this->assertStringStartsWith('Envoyé aux Soins par le médecin, avant la consultation.', $sent->reason);
+        $this->assertTrue(AuditLog::query()->where('action', 'episode.sent_to_care')->exists());
+
+        // Le patient garde sa place en Médecine ; l'envoi s'annule, il ne se double pas.
+        $row = $this->row($doctor, '/medicine', $episode);
+        $this->assertSame(1, $row['module']['queue_number']);
+        $this->assertNull($row['actions']['send_to_care']);
+        $this->assertSame(route('medicine.passages.withdraw-from-care', $episode), $row['actions']['withdraw_care_url']);
+        $this->actingAs($doctor)->post(route('medicine.passages.send-to-care', $episode))->assertSessionHasErrors('episode');
+
+        // Les Soins le prennent comme toute demande, orientée par Médecine.
+        $careRow = $this->row($nurse, '/care', $episode);
+        $this->assertSame('REQUESTED', $careRow['module']['state']);
+        $this->assertSame('Médecine', $careRow['module']['source_label']);
+        $this->actingAs($nurse)->post(route('care.passages.take-charge', $episode))->assertSessionHasNoErrors();
+        $this->assertSame(EpisodeOrientationStatus::InProgress, $sent->fresh()->status);
+
+        // Pris par les Soins : l'envoi ne s'annule plus.
+        $this->assertNull($this->row($doctor, '/medicine', $episode)['actions']['withdraw_care_url']);
+        $this->actingAs($doctor)->post(route('medicine.passages.withdraw-from-care', $episode))->assertSessionHasErrors('episode');
+
+        // Les soins terminés, le patient revient chez le médecin, orienté par les Soins.
+        $sent->fresh()->complete($nurse);
+        app(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Care, CatalogModule::Medicine, $nurse, 'Transmission des Soins.');
+        $back = $this->row($doctor, '/medicine', $episode);
+        $this->assertSame('REQUESTED', $back['module']['state']);
+        // Les Soins l'ont déjà vu : le renvoyer reste possible, c'est une nouvelle demande.
+        $this->assertSame('BEFORE', $back['actions']['send_to_care']['moment']);
+        $this->assertSame('MEDICINE', $back['actions']['send_to_care']['then']);
+    }
+
+    public function test_sending_to_care_is_withdrawn_while_care_has_not_taken_the_patient(): void
+    {
+        $episode = $this->arrival('CONSULT-SPE', ReceptionRoutingMode::MedicineDirect, CatalogModule::Medicine);
+        $this->confirm($episode, 'CONSULT-SPE');
+        $doctor = $this->doctor();
+
+        $this->actingAs($doctor)->post(route('medicine.passages.send-to-care', $episode))->assertSessionHasNoErrors();
+        $this->actingAs($doctor)->post(route('medicine.passages.withdraw-from-care', $episode))->assertSessionHasNoErrors();
+
+        // Annulée, jamais supprimée : la ligne reste, et le geste redevient possible.
+        $this->assertSame(EpisodeOrientationStatus::Cancelled, EpisodeOrientation::query()->sole()->status);
+        $this->assertTrue(AuditLog::query()->where('action', 'episode.sent_to_care.withdraw')->exists());
+        $this->assertNotNull($this->row($doctor, '/medicine', $episode)['actions']['send_to_care']);
+        // Sans la demande, il redevient « attendu en Médecine » : les Soins le prennent s'ils le décident.
+        $careRow = $this->row($this->nurse(), '/care', $episode);
+        $this->assertSame('MEDICINE_ONLY', $careRow['pathway']['code']);
+        $this->assertNotNull($careRow['actions']['take_charge_url']);
+    }
+
+    public function test_medicine_sends_to_care_at_any_moment_and_says_what_follows(): void
+    {
+        $doctor = $this->doctor();
+
+        // Suggéré aux Soins par l'accueil : le médecin peut en faire une vraie demande.
+        $suggested = $this->arrival('CONSULT-SPE', ReceptionRoutingMode::MedicineDirect, CatalogModule::Medicine);
+        $this->confirm($suggested, 'CONSULT-SPE', [ReceptionNextStep::Care->value]);
+        $this->assertSame('MEDICINE', $this->row($doctor, '/medicine', $suggested)['actions']['send_to_care']['then']);
+
+        // Venu pour un soin seul : il s'envoie aussi, et le dit — les soins terminent son parcours.
+        $injection = $this->arrival('INJ-IM', ReceptionRoutingMode::CareOnly, CatalogModule::Care);
+        $this->confirm($injection, 'INJ-IM');
+        $offer = $this->row($doctor, '/medicine', $injection)['actions']['send_to_care'];
+        $this->assertSame('FINISH', $offer['then']);
+        $this->assertFalse($offer['returns_to_medicine']);
+
+        // Pendant la consultation : elle reste ouverte, le patient revient chez le médecin.
+        $direct = $this->arrival('CONSULT-SPE', ReceptionRoutingMode::MedicineDirect, CatalogModule::Medicine);
+        $this->confirm($direct, 'CONSULT-SPE');
+        $this->actingAs($doctor)->post(route('medicine.passages.take-charge', $direct));
+        $during = $this->row($doctor, '/medicine?view=in_progress', $direct)['actions']['send_to_care'];
+        $this->assertSame('DURING', $during['moment']);
+        $this->assertSame('MEDICINE', $during['then']);
+        $this->actingAs($doctor)->post(route('medicine.passages.send-to-care', $direct))->assertSessionHasNoErrors();
+
+        $medicine = EpisodeOrientation::query()->where('episode_id', $direct->id)->where('destination_module', CatalogModule::Medicine)->sole();
+        $this->assertSame(EpisodeOrientationStatus::InProgress, $medicine->status);
+        $care = EpisodeOrientation::query()->where('episode_id', $direct->id)->where('destination_module', CatalogModule::Care)->sole();
+        $this->assertStringStartsWith('Envoyé aux Soins par le médecin, pendant la consultation.', $care->reason);
+
+        // Les Soins le prennent malgré la consultation en cours : c'est une demande adressée à eux.
+        $this->actingAs($this->nurse())->post(route('care.passages.take-charge', $direct))->assertSessionHasNoErrors();
+        $this->assertSame(EpisodeOrientationStatus::InProgress, $care->fresh()->status);
+
+        // Déjà aux Soins : rien à envoyer, ni depuis l'écran ni par le serveur.
+        $this->assertNull($this->row($doctor, '/medicine?view=in_progress', $direct)['actions']['send_to_care']);
+        $this->actingAs($doctor)->post(route('medicine.passages.send-to-care', $direct))
+            ->assertSessionHasErrors(['episode' => 'Les Soins ont déjà ce patient en charge.']);
+
+        // Sans le droit de prendre en Médecine, le geste n'existe pas.
+        $other = $this->arrival('CONSULT-SPE', ReceptionRoutingMode::MedicineDirect, CatalogModule::Medicine);
+        $this->confirm($other, 'CONSULT-SPE');
+        $this->actingAs($this->nurse())->post(route('medicine.passages.send-to-care', $other))->assertForbidden();
+    }
+
+    public function test_after_the_consultation_the_patient_goes_back_in_care_instead_of_waiting_for_settlement(): void
+    {
+        $doctor = $this->doctor();
+        $episode = $this->arrival('CONSULT-SPE', ReceptionRoutingMode::MedicineDirect, CatalogModule::Medicine);
+        $this->confirm($episode, 'CONSULT-SPE');
+        $this->actingAs($doctor)->post(route('medicine.passages.take-charge', $episode));
+
+        // La consultation est close : le passage n'attend plus que la Réception.
+        EpisodeOrientation::query()->where('episode_id', $episode->id)->sole()->complete($doctor);
+        $episode->forceFill(['administrative_status' => EpisodeAdministrativeStatus::PendingSettlement])->save();
+
+        $after = $this->row($doctor, '/medicine?view=completed', $episode)['actions']['send_to_care'];
+        $this->assertSame('AFTER', $after['moment']);
+        $this->assertSame('FINISH', $after['then']);
+
+        $this->actingAs($doctor)->post(route('medicine.passages.send-to-care', $episode), ['note' => 'Injection oubliée.'])
+            ->assertSessionHasNoErrors();
+
+        // Le patient repart en soins : il quitte « à régler » le temps des soins.
+        $this->assertSame(EpisodeAdministrativeStatus::InCare, $episode->fresh()->administrative_status);
+        $audit = AuditLog::query()->where('action', 'episode.sent_to_care')->sole();
+        $this->assertSame('AFTER', $audit->new_values['moment']);
+        $this->assertSame(EpisodeAdministrativeStatus::PendingSettlement->value, $audit->old_values['administrative_status']);
+        $this->assertSame(EpisodeAdministrativeStatus::InCare->value, $audit->new_values['administrative_status']);
+    }
+
+    public function test_a_deceased_patient_or_a_closed_passage_is_never_sent_to_care(): void
+    {
+        $doctor = $this->doctor();
+
+        $deceased = $this->arrival('CONSULT-SPE', ReceptionRoutingMode::MedicineDirect, CatalogModule::Medicine);
+        $this->confirm($deceased, 'CONSULT-SPE');
+        $deceased->forceFill(['medical_status' => EpisodeMedicalStatus::Deceased])->save();
+        $this->assertNull($this->row($doctor, '/medicine', $deceased)['actions']['send_to_care']);
+        $this->actingAs($doctor)->post(route('medicine.passages.send-to-care', $deceased))->assertSessionHasErrors('episode');
+
+        $closed = $this->arrival('CONSULT-SPE', ReceptionRoutingMode::MedicineDirect, CatalogModule::Medicine);
+        $this->confirm($closed, 'CONSULT-SPE');
+        $closed->forceFill(['status' => EpisodeStatus::Closed])->save();
+        $this->actingAs($doctor)->post(route('medicine.passages.send-to-care', $closed))->assertSessionHasErrors('episode');
+
+        $this->assertSame(0, EpisodeOrientation::query()->where('destination_module', CatalogModule::Care)->count());
     }
 
     // ── Aides ────────────────────────────────────────────────────────────

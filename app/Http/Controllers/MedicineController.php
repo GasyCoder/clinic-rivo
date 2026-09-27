@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Episode\SendEpisodeToCareAction;
 use App\Actions\Episode\TakeChargeOfEpisodeAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Actions\Medicine\CancelCareOrderItemAction;
@@ -21,7 +22,6 @@ use App\Actions\Medicine\CreatePrescriptionAction;
 use App\Actions\Medicine\CreateServiceReferralAction;
 use App\Actions\Medicine\CreateSurgicalReferralAction;
 use App\Actions\Medicine\DecideComplementaryExamsAction;
-use App\Actions\Medicine\DecideDiagnosisTimingAction;
 use App\Actions\Medicine\RecordConsultationOrientationAction;
 use App\Actions\Medicine\RecordDiagnosisAction;
 use App\Actions\Medicine\RecordImagingResultAction;
@@ -44,9 +44,9 @@ use App\Http\Requests\CancelMedicineDiagnosisRequest;
 use App\Http\Requests\CancelMedicinePrescriptionRequest;
 use App\Http\Requests\CorrectImagingResultRequest;
 use App\Http\Requests\Medicine\CancelParaclinicalRequestRequest;
+use App\Http\Requests\Medicine\CompleteConsultationRequest;
 use App\Http\Requests\Medicine\CorrectCareRecordVitalsRequest;
 use App\Http\Requests\Medicine\DecideComplementaryExamsRequest;
-use App\Http\Requests\Medicine\DecideDiagnosisTimingRequest;
 use App\Http\Requests\Medicine\ReopenConsultationRequest;
 use App\Http\Requests\Medicine\ResolveConsultationStepRequest;
 use App\Http\Requests\Medicine\SaveConsultationDraftRequest;
@@ -125,6 +125,33 @@ class MedicineController extends Controller
             ->with('status', $orientation->accepted_by === $request->user()->getKey()
                 ? 'Patient pris en charge en Médecine.'
                 : 'Ce patient est déjà en consultation avec '.($orientation->acceptedBy?->name ?? 'un autre médecin').'.');
+    }
+
+    /**
+     * ADR-177, amendements du 2026-09-27 — envoyer un patient aux Soins, à tout
+     * moment du passage : avant, pendant ou après la consultation.
+     */
+    public function sendToCare(Request $request, Episode $episode, SendEpisodeToCareAction $action): RedirectResponse
+    {
+        $validated = $request->validate(
+            ['note' => ['nullable', 'string', 'max:500']],
+            ['note.max' => 'La consigne tient en 500 caractères au plus.'],
+        );
+
+        $action->execute($episode, $request->user(), $validated['note'] ?? null);
+
+        return back()->with('status', match (SendEpisodeToCareAction::afterCare($episode, $episode->orientations()->get())) {
+            SendEpisodeToCareAction::THEN_MEDICINE => 'Patient envoyé aux Soins : il revient ensuite chez le médecin.',
+            SendEpisodeToCareAction::THEN_FINISH => 'Patient envoyé aux Soins : les soins terminent son parcours clinique.',
+            default => 'Patient envoyé aux Soins : à la fin des soins, l’infirmier choisit la suite.',
+        });
+    }
+
+    public function withdrawFromCare(Request $request, Episode $episode, SendEpisodeToCareAction $action): RedirectResponse
+    {
+        $action->withdraw($episode, $request->user());
+
+        return back()->with('status', 'Envoi aux Soins annulé : le patient reste en file Médecine.');
     }
 
     public function accept(
@@ -427,16 +454,26 @@ class MedicineController extends Controller
             ->with('status', $status);
     }
 
-    /** Closes the encounter once every relevant step is resolved. */
+    /**
+     * ADR-203 — clôture la rencontre, et transmet au
+     * même moment la conduite à tenir choisie : la seule condition.
+     */
     public function completeConsultation(
-        Request $request,
+        CompleteConsultationRequest $request,
         EpisodeOrientation $episodeOrientation,
         CompleteConsultationAction $action,
     ): RedirectResponse {
         abort_unless($episodeOrientation->destination_module === CatalogModule::Medicine, 404);
         abort_unless($episodeOrientation->consultation, 409);
 
-        $action->execute($episodeOrientation->consultation, $request->user());
+        $consultation = $action->execute($episodeOrientation->consultation, $request->user(), $request->decision());
+
+        // ADR-107 — un décès a une suite propre : l'acte de constatation.
+        if ($consultation->medicalDischarge()->first()?->type === MedicalDischargeType::Deceased
+            && $request->user()?->can('death_records.view')) {
+            return redirect()->route('deaths.index')
+                ->with('status', 'Consultation clôturée et décès prononcé. Établissez l’acte de constatation depuis ce registre.');
+        }
 
         return back()->with('status', 'Consultation clôturée.');
     }
@@ -521,28 +558,6 @@ class MedicineController extends Controller
         return redirect()
             ->route('medicine.orientations.step', [$episodeOrientation, $step->value])
             ->with('status', $status);
-    }
-
-    /**
-     * ADR-095 — « Le diagnostic peut-il être posé maintenant ? », désormais
-     * posée à « Décision & clôture ».
-     *
-     * Elle ne déplace personne : le médecin reste sur l'étape où il conclut.
-     * « Pas maintenant » n'autorise aucune clôture ; elle explique seulement
-     * pourquoi la consultation reste ouverte.
-     */
-    public function decideDiagnosisTiming(
-        DecideDiagnosisTimingRequest $request,
-        EpisodeOrientation $episodeOrientation,
-        DecideDiagnosisTimingAction $decision,
-    ): RedirectResponse {
-        $ready = $request->boolean('ready');
-
-        $decision->execute($episodeOrientation->consultation()->firstOrFail(), $ready, $request->user());
-
-        return back()->with('status', $ready
-            ? 'Diagnostic validé pour ce passage.'
-            : 'Diagnostic différé : la consultation reste ouverte.');
     }
 
     /**

@@ -2,31 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-    applyActionLocally,
-    filterBoxes,
-    folderActions,
-    reloadAfterSending,
-    folderUrl,
-    formatListDate,
-    formatSize,
-    forwardSubject,
-    frameDocument,
-    initialsOf,
-    messageUrl,
-    parseRecipients,
-    quotaPercent,
-    quotedReply,
-    recipientSuggestions,
-    replyRecipients,
-    replySubject,
-    WEBMAIL_NAVIGATION,
-    WEBMAIL_STATIC_PROPS,
-    canReturnByHistory,
-    followOpening,
-    forgetOpening,
-    parseWebmailPath,
-    rememberOpening,
-    toFormData,
+    WEBMAIL_NAVIGATION, WEBMAIL_STATIC_PROPS, applyActionLocally, canReturnByHistory, composeHref, composeTarget, filterBoxes, folderActions, folderUrl, followOpening, forgetOpening, formatListDate, formatSize, forwardSubject, frameDocument, initialsOf, messageUrl, parseRecipients, parseWebmailPath, quotaPercent, quotedReply, recipientSuggestions, reloadAfterSending, rememberOpening, replyRecipients, replySubject, toFormData,
 } from '../../resources/js/utilities/webmail.js';
 import { buildClinicMenu, visibleMenu } from '../../resources/js/utilities/clinicMenu.js';
 
@@ -283,6 +259,22 @@ test('the connect page is full width and the pending states say what is loading'
     assert.match(view, /:on-before="goBack"/);
 });
 
+test('the unavailable page is a guided, permission-aware shadcn state', () => {
+    const unavailable = readFileSync(new URL('../../resources/js/Pages/Webmail/Unavailable.vue', import.meta.url), 'utf8');
+
+    assert.match(unavailable, /import Card from '@\/Components\/Shadcn\/Card\.vue'/);
+    assert.match(unavailable, /<Card class="w-full overflow-hidden">/);
+    assert.match(unavailable, /<Badge variant="secondary" class="w-fit">Configuration requise<\/Badge>/);
+    assert.match(unavailable, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(22rem,420px\)\]/);
+    assert.match(unavailable, /xl:grid-cols-\[minmax\(0,1fr\)_480px\]/);
+    assert.match(unavailable, /Messagerie professionnelle/);
+    assert.ok(!unavailable.includes('max-w-5xl'), 'la page occupe toute la largeur disponible');
+    assert.match(unavailable, /const canLinkAccount = computed\(\(\) => props\.reason === 'unlinked' && can\('users\.view'\) && can\('users\.update'\)\)/);
+    assert.match(unavailable, /v-if="canLinkAccount"[\s\S]*href="\/administration\/users"/);
+    assert.match(unavailable, /v-for="\(step, index\) in content\.steps"/);
+    assert.ok(!unavailable.includes('py-16 text-center'), 'l’état vide ne flotte plus seul au milieu de la page');
+});
+
 test('the filter counters follow an action at once', () => {
     const props = {
         list: {
@@ -311,4 +303,43 @@ test('the filter counters follow an action at once', () => {
     // Une liste sans compteurs (les favoris réunis) n'en invente pas.
     const favourites = applyActionLocally({ ...props, list: { ...props.list, counts: null } }, { action: 'read', items: [{ folder: 'reception', uid: 3 }] });
     assert.equal(favourites.list.counts, null);
+});
+
+test('écrire depuis une fiche : un message déjà adressé, jamais une adresse glissée', () => {
+    assert.equal(composeHref('Emilien TSARAHASINA', 'emilien.tsarahasina@cbdc.mg'),
+        '/messagerie/dossier/reception?ecrire=' + encodeURIComponent('Emilien TSARAHASINA <emilien.tsarahasina@cbdc.mg>'));
+    assert.equal(composeHref('', 'a@b.mg'), '/messagerie/dossier/reception?ecrire=' + encodeURIComponent('a@b.mg'));
+    // Un nom ne peut pas fabriquer une seconde adresse.
+    assert.equal(composeHref('X <pirate@evil.com>', 'a@b.mg'), '/messagerie/dossier/reception?ecrire=' + encodeURIComponent('X pirate@evil.com <a@b.mg>'));
+    assert.equal(composeHref('Sans adresse', ''), null);
+    assert.equal(composeHref('Mauvaise', 'pas-une-adresse'), null);
+
+    assert.equal(composeTarget('?ecrire=' + encodeURIComponent('Hery <hery@cbdc.mg>')), 'Hery <hery@cbdc.mg>');
+    assert.equal(composeTarget('?ecrire=hery%40cbdc.mg'), 'hery@cbdc.mg');
+    assert.equal(composeTarget('?ecrire=' + encodeURIComponent('a@b.mg, c@d.mg')), null, 'une seule adresse');
+    assert.equal(composeTarget('?ecrire=' + encodeURIComponent('a@b.mg\nBcc: x@y.mg')), null);
+    assert.equal(composeTarget('?ecrire=nimporte-quoi'), null);
+    assert.equal(composeTarget(''), null);
+});
+
+test('sa boîte s’ouvre avec la connexion RIVO : rien à retaper, et la page dit pourquoi quand elle demande', () => {
+    const connect = readFileSync(new URL('../../resources/js/Pages/Webmail/Connect.vue', import.meta.url), 'utf8');
+    assert.match(connect, /ownReady: \{ type: Boolean, default: false \}/);
+    // Le mot de passe n'est demandé que s'il n'est pas connu pour sa boîte.
+    assert.match(connect, /const needsPassword = computed\(\(\) => !\(chosen\.value\?\.own && props\.ownReady\)\)/);
+    assert.match(connect, /<template v-else>[\s\S]*id="webmail-password"/);
+    assert.match(connect, /Rien à taper/);
+    assert.match(connect, /:disabled="\(needsPassword && !form\.password\) \|\| form\.processing"/);
+    // Demandé quand même : la phrase dit pourquoi, sauf si le serveur a déjà parlé.
+    assert.match(connect, /if \(!chosen\.value\?\.own \|\| props\.ownReady \|\| passwordError\.value\) return null;/);
+    // Un refus arrivé par redirection est lu dans les erreurs de la page, pas du formulaire.
+    assert.match(connect, /usePage\(\)\.props\.errors\?\.password/);
+    assert.match(connect, /:error="passwordError"/);
+    assert.match(connect, /connexion à RIVO/);
+    assert.ok(!connect.includes('pas celui de RIVO'), 'depuis l’ADR-197, c’est le même mot de passe');
+
+    // Ouverte avec la connexion : une pastille l'explique, et elle se ferme avec la session.
+    const sidebar = readFileSync(new URL('../../resources/js/Components/Webmail/WebmailSidebar.vue', import.meta.url), 'utf8');
+    assert.match(sidebar, /v-if="mailbox\.signed_on"/);
+    assert.match(sidebar, /v-if="mailbox\.closable \?\? !mailbox\.portal"/);
 });

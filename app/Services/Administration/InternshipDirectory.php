@@ -62,7 +62,7 @@ class InternshipDirectory
     }
 
     /**
-     * ADR-198 — un stagiaire n'est pas un employé. Est stagiaire le dossier dont
+     * ADR-207 — un stagiaire n'est pas un employé. Est stagiaire le dossier dont
      * le contrat qui compte aujourd'hui est un stage :
      *
      *   - un contrat en cours ou à venir existe → stagiaire si ce sont tous des stages ;
@@ -97,7 +97,7 @@ class InternshipDirectory
                         ->whereColumn('later.ends_on', '>=', 'employment_contracts.ends_on')))));
     }
 
-    /** ADR-198 — les employés, stagiaires exclus. */
+    /** ADR-207 — les employés, stagiaires exclus. */
     public function withoutInterns(Builder $employees): Builder
     {
         return $employees->whereNot(fn (Builder $query) => $this->interns($query));

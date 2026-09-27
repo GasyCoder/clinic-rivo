@@ -5,7 +5,7 @@ namespace App\Http\Requests\Administration;
 use App\Models\GeneratedDocument;
 use Illuminate\Foundation\Http\FormRequest;
 
-/** ADR-199 — archiver un document généré : un motif, jamais d'effacement. */
+/** ADR-208 — archiver un document généré : un motif, jamais d'effacement. */
 class ArchiveGeneratedDocumentRequest extends FormRequest
 {
     protected function prepareForValidation(): void

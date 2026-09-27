@@ -20,6 +20,7 @@ import {
     Minus,
     Package,
     Plus,
+    Route,
     Save,
     Search,
     Send,
@@ -1187,6 +1188,12 @@ const hasSomethingToRecord = computed(() => form.procedures.length > 0
 const needsSaving = computed(() => (props.careRecord
     ? recordSnapshot(form.data()) !== savedRecordSnapshot.value || form.procedures.length > 0 || form.consumables.length > 0
     : hasSomethingToRecord.value));
+// Choisir « Terminer aux Soins » après avoir écrit une transmission : elle ne
+// part pas (le serveur la refuserait), mais reste dans le formulaire si l'on
+// revient au médecin. La suite se choisit désormais sous la transmission, donc
+// l'écran doit le dire au lieu de la laisser disparaître en silence.
+const hasTransmissionText = computed(() => richTextHasContent(form.diagnostic_note) || richTextHasContent(form.transmission_reason));
+const transmissionDropped = computed(() => offersOutcomeChoice.value && chosenOutcome.value === 'FINISH' && hasTransmissionText.value);
 const chooseOutcome = (value) => {
     if (!props.capabilities.can_edit) return;
     form.care_outcome = value;
@@ -1234,18 +1241,49 @@ const completionWarning = computed(() => {
         return 'La fin du travail Soins ne ferme pas la prise en charge Médecine.';
     }
     if (offersOutcomeChoice.value) {
-        if (deviatesFromPlan.value && chosenOutcome.value === 'MEDICINE') return 'Après validation, le patient sera orienté vers Médecine. Le motif l’accompagne et reste au dossier.';
-        if (chosenOutcome.value === 'MEDICINE') return 'Après validation, le patient sera orienté vers Médecine.';
-        if (deviatesFromPlan.value) return 'Après validation, le patient est terminé aux Soins, sans passer en Médecine. Le motif reste au dossier.';
-        if (chosenOutcome.value === 'FINISH') return 'Après validation, le parcours Soins sera terminé.';
+        // Ce qui manque encore, tant que le bouton ne peut pas valider cette suite.
+        if (chosenOutcome.value && !outcomeReady.value) {
+            if (deviatesFromPlan.value) return 'Indiquez le motif du changement pour valider cette suite.';
 
-        return 'Choisissez la suite après les soins : transmettre au médecin, ou terminer aux Soins.';
+            return plannedOutcome.value === 'FINISH'
+                ? 'Enregistrez au moins un acte réalisé (étape « Actes et matériel ») avant de terminer aux Soins.'
+                : 'Enregistrez un acte réalisé, ou le motif « aucun acte », avant de terminer aux Soins.';
+        }
+        if (chosenOutcome.value === 'MEDICINE') {
+            const withNote = hasTransmissionText.value ? ' avec votre transmission' : ', sans transmission écrite';
+
+            return deviatesFromPlan.value
+                ? `Après validation, le patient rejoint la file Médecine${withNote} ; le motif du changement l’accompagne et reste au dossier.`
+                : `Après validation, le patient rejoint la file Médecine${withNote}.`;
+        }
+        if (deviatesFromPlan.value) return 'Après validation, les soins sont terminés sans passer en Médecine ; le motif du changement reste au dossier.';
+        if (chosenOutcome.value === 'FINISH') return 'Après validation, les soins sont terminés : le patient ne passe pas en Médecine.';
+
+        return 'Choisissez la suite : transmettre au médecin, ou terminer aux Soins.';
     }
     if (activeCareOrder.value?.requires_return_to_medicine || episode.value.care_completion_mode === 'MEDICINE') {
         return 'Après validation, le patient sera réorienté vers Médecine.';
     }
     return 'Après validation, le parcours Soins sera terminé.';
 });
+
+// La phrase « Après validation… » dans la couleur de la suite retenue : ambre
+// tant qu'il reste une décision ou un acte demandé à régler.
+const consequenceTone = computed(() => {
+    if (careOrderUnresolvedCount.value > 0) return 'warning';
+    if (isEmergency.value && props.hasActiveMedicineOrientation) return 'medicine';
+    if (offersOutcomeChoice.value && !outcomeReady.value) return 'warning';
+    if (offersOutcomeChoice.value) return ({ MEDICINE: 'medicine', FINISH: 'finish' })[chosenOutcome.value] ?? 'warning';
+    if (activeCareOrder.value) return activeCareOrder.value.requires_return_to_medicine ? 'medicine' : 'finish';
+
+    return episode.value.care_completion_mode === 'MEDICINE' ? 'medicine' : 'finish';
+});
+const consequenceClasses = computed(() => ({
+    warning: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200',
+    medicine: 'border-primary/30 bg-primary/5 text-foreground',
+    finish: 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-200',
+})[consequenceTone.value]);
+const consequenceIcon = computed(() => ({ warning: CircleAlert, medicine: Stethoscope, finish: CircleCheck })[consequenceTone.value]);
 
 const procedureSourceLabel = (source) => ({
     RECEPTION: 'Accueil',
@@ -2099,149 +2137,6 @@ const finishCare = () => (needsSaving.value ? submitAndComplete() : completeWith
                     <span v-if="isEmergency" class="shrink-0 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">Urgence</span>
                 </header>
 
-                <!-- ADR-166 — la suite des Soins se décide ici, pré-remplie
-                     selon le parcours prévu : le soin peut suffire à un
-                     patient attendu en Médecine, et un patient venu pour un
-                     soin peut avoir besoin du médecin. -->
-                <fieldset v-if="offersOutcomeChoice" class="border-b border-border px-5 py-4" :disabled="!capabilities.can_edit">
-                    <legend id="care-outcome-title" class="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Suite après les soins</legend>
-
-                    <!-- Un parcours prévu : sa suite s'applique d'office et se lit
-                         seulement ; l'autre est un changement, qui demande un motif. -->
-                    <div v-if="plannedOutcome" class="grid gap-2 sm:grid-cols-2">
-                        <template v-for="option in outcomeOptions" :key="option.value">
-                            <div
-                                v-if="option.value === plannedOutcome"
-                                :aria-current="!deviatesFromPlan ? 'true' : undefined"
-                                :class="['flex items-start gap-3 rounded-lg border px-3.5 py-3', !deviatesFromPlan ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card opacity-70']"
-                            >
-                                <span :class="['mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md', !deviatesFromPlan ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground']">
-                                    <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
-                                </span>
-                                <span class="min-w-0">
-                                    <span class="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
-                                        {{ option.title }}
-                                        <Badge variant="outline">Prévu à l’arrivée</Badge>
-                                    </span>
-                                    <span class="mt-0.5 block text-xs text-muted-foreground">{{ option.text }}</span>
-                                </span>
-                            </div>
-                            <button
-                                v-else
-                                type="button"
-                                :aria-pressed="deviatesFromPlan"
-                                :class="['flex items-start gap-3 rounded-lg border px-3.5 py-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60', deviatesFromPlan ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-dashed border-border bg-card hover:border-primary/50 hover:bg-muted/40']"
-                                @click="toggleOffPlan"
-                            >
-                                <span :class="['mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md', deviatesFromPlan ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground']">
-                                    <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
-                                </span>
-                                <span class="min-w-0">
-                                    <span class="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
-                                        {{ option.title }}
-                                        <Badge variant="outline">Changer · motif</Badge>
-                                    </span>
-                                    <span class="mt-0.5 block text-xs text-muted-foreground">{{ option.text }}</span>
-                                </span>
-                            </button>
-                        </template>
-                    </div>
-
-                    <!-- Besoin inconnu : rien de prévu, les deux suites se choisissent. -->
-                    <div v-else class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-labelledby="care-outcome-title">
-                        <button
-                            v-for="option in outcomeOptions"
-                            :key="option.value"
-                            type="button"
-                            role="radio"
-                            :aria-checked="form.care_outcome === option.value"
-                            :class="['flex items-start gap-3 rounded-lg border px-3.5 py-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60', form.care_outcome === option.value ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:bg-muted/40']"
-                            @click="chooseOutcome(option.value)"
-                        >
-                            <span :class="['mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md', form.care_outcome === option.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground']">
-                                <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
-                            </span>
-                            <span class="min-w-0">
-                                <span class="block text-sm font-bold text-foreground">{{ option.title }}</span>
-                                <span class="mt-0.5 block text-xs text-muted-foreground">{{ option.text }}</span>
-                            </span>
-                        </button>
-                    </div>
-
-                    <FormError class="mt-2" :message="form.errors.care_outcome" />
-                    <FormField
-                        v-if="deviatesFromPlan"
-                        as="div"
-                        class="mt-3"
-                        label="Motif du changement"
-                        required
-                        :error="form.errors.care_outcome_reason"
-                    >
-                        <Textarea
-                            id="care_outcome_reason"
-                            v-model="form.care_outcome_reason"
-                            rows="2"
-                            maxlength="1000"
-                            :placeholder="outcomeReasonPlaceholder(chosenOutcome)"
-                        />
-                        <div class="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                            <span>{{ chosenOutcome === 'FINISH' ? 'La consultation prévue n’aura pas lieu : ce motif reste au dossier du passage.' : 'Seuls des soins étaient prévus : ce motif accompagne le patient chez le médecin et reste au dossier.' }}</span>
-                            <button type="button" class="font-semibold text-primary hover:underline" @click="chooseOutcome(plannedOutcome)">Garder la suite prévue</button>
-                        </div>
-                    </FormField>
-                </fieldset>
-                <!-- ADR-167 — la suite n'est pas masquée à qui ne peut pas la
-                     décider : elle se montre verrouillée, avec le nom de qui
-                     la décide et le moyen de la reprendre. -->
-                <section v-else-if="capabilities.handled_by_other && !activeCareOrder && !medicineAlreadyInvolved" class="border-b border-border px-5 py-4" aria-labelledby="care-outcome-locked-title">
-                    <h3 id="care-outcome-locked-title" class="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-                        <Lock class="h-3.5 w-3.5" aria-hidden="true" />Suite après les soins
-                    </h3>
-                    <div class="grid gap-2 sm:grid-cols-2">
-                        <template v-for="option in outcomeOptions" :key="option.value">
-                            <!-- La suite prévue se lit seulement ; l'autre ouvre, en un
-                                 seul geste, la reprise et le changement de suite. -->
-                            <div
-                                v-if="option.value === plannedOutcome"
-                                aria-current="true"
-                                class="flex items-center gap-3 rounded-lg border border-primary bg-primary/5 px-3.5 py-3 ring-1 ring-primary"
-                            >
-                                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                                    <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
-                                </span>
-                                <span class="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-bold text-foreground">
-                                    {{ option.title }}
-                                    <Badge variant="outline">Prévu à l’arrivée</Badge>
-                                </span>
-                                <Lock class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                            </div>
-                            <button
-                                v-else
-                                type="button"
-                                :disabled="!capabilities.can_take_over"
-                                :aria-label="plannedOutcome ? `${option.title} — changer la suite prévue` : `${option.title} — reprendre d’abord la prise en charge`"
-                                :title="capabilities.can_take_over ? (plannedOutcome ? 'Changer la suite prévue : un motif vous sera demandé' : 'Reprenez la prise en charge pour choisir cette suite') : 'Seul le soignant qui a pris le patient décide la suite'"
-                                class="flex items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-3.5 py-3 text-start transition-colors hover:border-primary/50 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:border-border disabled:hover:bg-muted/30"
-                                @click="openTakeOver(option.value)"
-                            >
-                                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                                    <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
-                                </span>
-                                <span class="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-bold text-muted-foreground">
-                                    {{ option.title }}
-                                    <Badge v-if="plannedOutcome" variant="outline">Changer · motif</Badge>
-                                </span>
-                                <Lock class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                            </button>
-                        </template>
-                    </div>
-                    <!-- Qui a le patient se lit dans l'en-tête (« Pris en charge … par ») :
-                         plus de bandeau ici. Sans le droit de reprendre, on le nomme. -->
-                    <p v-if="!capabilities.can_take_over" class="mt-2 text-xs text-muted-foreground">
-                        La suite revient au soignant qui a pris le patient en charge ; la reprendre demande le droit « care.complete ».
-                    </p>
-                </section>
-
                 <!-- Content on the left, context on the right: a single wide
                      column left "Aucun" floating in empty space and gave the
                      alerts the same visual weight as the data. -->
@@ -2397,10 +2292,184 @@ const finishCare = () => (needsSaving.value ? submitAndComplete() : completeWith
                     </template>
                 </ResizableSplit>
 
-                <footer v-if="activeCareOrder || capabilities.can_complete" :class="['flex items-start gap-2 border-t px-5 py-3 text-xs font-semibold', careOrderUnresolvedCount > 0 ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200' : 'border-border bg-muted/30 text-foreground']">
-                    <component :is="careOrderUnresolvedCount > 0 ? CircleAlert : ArrowRight" class="mt-px h-4 w-4 shrink-0" />
-                    <span>{{ completionWarning }}</span>
-                </footer>
+                <!-- ADR-166, amendement du 2026-09-27 — la suite se décide en dernier,
+                     juste au-dessus du bouton qui l'exécute : on relit ce qui sera
+                     enregistré, on écrit la transmission, puis on dit où va le patient.
+                     Sa conséquence se lit ici, une seule fois. -->
+                <div
+                    v-if="offersOutcomeChoice || (capabilities.handled_by_other && !activeCareOrder && !medicineAlreadyInvolved) || activeCareOrder || capabilities.can_complete"
+                    id="care-next-step"
+                    class="scroll-mt-24 space-y-3 border-t border-border bg-muted/20 px-5 py-4"
+                >
+                    <fieldset v-if="offersOutcomeChoice" :disabled="!capabilities.can_edit" aria-describedby="care-outcome-consequence">
+                        <legend id="care-outcome-title" class="flex items-center gap-2 text-sm font-bold text-foreground">
+                            <span class="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary"><Route class="h-4 w-4" aria-hidden="true" /></span>
+                            Suite après les soins
+                        </legend>
+                        <p class="mb-3 mt-1 text-xs text-muted-foreground">
+                            {{ plannedOutcome ? 'La suite prévue à l’arrivée s’applique ; la changer demande un motif.' : 'Rien n’était prévu à l’arrivée : choisissez où va le patient.' }}
+                        </p>
+
+                        <!-- Un parcours prévu : sa suite s'applique d'office. L'autre est un
+                             changement, qui demande un motif ; une fois changée, la carte
+                             prévue se clique pour y revenir, comme un choix radio. -->
+                        <div v-if="plannedOutcome" class="grid gap-2 sm:grid-cols-2">
+                            <template v-for="option in outcomeOptions" :key="option.value">
+                                <component
+                                    :is="deviatesFromPlan ? 'button' : 'div'"
+                                    v-if="option.value === plannedOutcome"
+                                    :type="deviatesFromPlan ? 'button' : undefined"
+                                    :aria-current="!deviatesFromPlan ? 'true' : undefined"
+                                    :title="deviatesFromPlan ? 'Revenir à la suite prévue à l’arrivée' : undefined"
+                                    :class="['flex items-start gap-3 rounded-lg border px-3.5 py-3 text-start transition-colors', !deviatesFromPlan ? 'border-primary bg-card ring-1 ring-primary' : 'border-border bg-card opacity-75 hover:border-primary/50 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring']"
+                                    @click="deviatesFromPlan && chooseOutcome(plannedOutcome)"
+                                >
+                                    <span :class="['mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md', !deviatesFromPlan ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground']">
+                                        <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
+                                    </span>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
+                                            {{ option.title }}
+                                            <Badge variant="outline">Prévu à l’arrivée</Badge>
+                                        </span>
+                                        <span class="mt-0.5 block text-xs text-muted-foreground">{{ option.text }}</span>
+                                    </span>
+                                    <CircleCheck v-if="!deviatesFromPlan" class="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                                </component>
+                                <button
+                                    v-else
+                                    type="button"
+                                    :aria-pressed="deviatesFromPlan"
+                                    :class="['flex items-start gap-3 rounded-lg border px-3.5 py-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60', deviatesFromPlan ? 'border-primary bg-card ring-1 ring-primary' : 'border-dashed border-border bg-card hover:border-primary/50 hover:bg-muted/40']"
+                                    @click="toggleOffPlan"
+                                >
+                                    <span :class="['mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md', deviatesFromPlan ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground']">
+                                        <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
+                                    </span>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
+                                            {{ option.title }}
+                                            <Badge variant="outline">Changer · motif</Badge>
+                                        </span>
+                                        <span class="mt-0.5 block text-xs text-muted-foreground">{{ option.text }}</span>
+                                    </span>
+                                    <CircleCheck v-if="deviatesFromPlan" class="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                                </button>
+                            </template>
+                        </div>
+
+                        <!-- Besoin inconnu : rien de prévu, les deux suites se choisissent. -->
+                        <div v-else class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-labelledby="care-outcome-title">
+                            <button
+                                v-for="option in outcomeOptions"
+                                :key="option.value"
+                                type="button"
+                                role="radio"
+                                :aria-checked="form.care_outcome === option.value"
+                                :class="['flex items-start gap-3 rounded-lg border px-3.5 py-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60', form.care_outcome === option.value ? 'border-primary bg-card ring-1 ring-primary' : 'border-border bg-card hover:bg-muted/40']"
+                                @click="chooseOutcome(option.value)"
+                            >
+                                <span :class="['mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md', form.care_outcome === option.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground']">
+                                    <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
+                                </span>
+                                <span class="min-w-0 flex-1">
+                                    <span class="block text-sm font-bold text-foreground">{{ option.title }}</span>
+                                    <span class="mt-0.5 block text-xs text-muted-foreground">{{ option.text }}</span>
+                                </span>
+                                <CircleCheck v-if="form.care_outcome === option.value" class="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                            </button>
+                        </div>
+
+                        <FormError class="mt-2" :message="form.errors.care_outcome" />
+                        <FormField
+                            v-if="deviatesFromPlan"
+                            as="div"
+                            class="mt-3"
+                            label="Motif du changement"
+                            required
+                            :error="form.errors.care_outcome_reason"
+                        >
+                            <Textarea
+                                id="care_outcome_reason"
+                                v-model="form.care_outcome_reason"
+                                rows="2"
+                                maxlength="1000"
+                                :placeholder="outcomeReasonPlaceholder(chosenOutcome)"
+                            />
+                            <div class="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                                <span>{{ chosenOutcome === 'FINISH' ? 'La consultation prévue n’aura pas lieu : ce motif reste au dossier du passage.' : 'Seuls des soins étaient prévus : ce motif accompagne le patient chez le médecin et reste au dossier.' }}</span>
+                                <button type="button" class="font-semibold text-primary hover:underline" @click="chooseOutcome(plannedOutcome)">Garder la suite prévue</button>
+                            </div>
+                        </FormField>
+                    </fieldset>
+                    <!-- ADR-167 — la suite n'est pas masquée à qui ne peut pas la
+                         décider : elle se montre verrouillée, avec le nom de qui
+                         la décide et le moyen de la reprendre. -->
+                    <section v-else-if="capabilities.handled_by_other && !activeCareOrder && !medicineAlreadyInvolved" aria-labelledby="care-outcome-locked-title">
+                        <h3 id="care-outcome-locked-title" class="mb-3 flex items-center gap-2 text-sm font-bold text-foreground">
+                            <span class="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground"><Lock class="h-4 w-4" aria-hidden="true" /></span>Suite après les soins
+                        </h3>
+                        <div class="grid gap-2 sm:grid-cols-2">
+                            <template v-for="option in outcomeOptions" :key="option.value">
+                                <!-- La suite prévue se lit seulement ; l'autre ouvre, en un
+                                     seul geste, la reprise et le changement de suite. -->
+                                <div
+                                    v-if="option.value === plannedOutcome"
+                                    aria-current="true"
+                                    class="flex items-center gap-3 rounded-lg border border-primary bg-primary/5 px-3.5 py-3 ring-1 ring-primary"
+                                >
+                                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                                        <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
+                                    </span>
+                                    <span class="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-bold text-foreground">
+                                        {{ option.title }}
+                                        <Badge variant="outline">Prévu à l’arrivée</Badge>
+                                    </span>
+                                    <Lock class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                                </div>
+                                <button
+                                    v-else
+                                    type="button"
+                                    :disabled="!capabilities.can_take_over"
+                                    :aria-label="plannedOutcome ? `${option.title} — changer la suite prévue` : `${option.title} — reprendre d’abord la prise en charge`"
+                                    :title="capabilities.can_take_over ? (plannedOutcome ? 'Changer la suite prévue : un motif vous sera demandé' : 'Reprenez la prise en charge pour choisir cette suite') : 'Seul le soignant qui a pris le patient décide la suite'"
+                                    class="flex items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-3.5 py-3 text-start transition-colors hover:border-primary/50 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:border-border disabled:hover:bg-muted/30"
+                                    @click="openTakeOver(option.value)"
+                                >
+                                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                                        <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
+                                    </span>
+                                    <span class="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-bold text-muted-foreground">
+                                        {{ option.title }}
+                                        <Badge v-if="plannedOutcome" variant="outline">Changer · motif</Badge>
+                                    </span>
+                                    <Lock class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                                </button>
+                            </template>
+                        </div>
+                        <!-- Qui a le patient se lit dans l'en-tête (« Pris en charge … par ») :
+                             plus de bandeau ici. Sans le droit de reprendre, on le nomme. -->
+                        <p v-if="!capabilities.can_take_over" class="mt-2 text-xs text-muted-foreground">
+                            La suite revient au soignant qui a pris le patient en charge ; la reprendre demande le droit « care.complete ».
+                        </p>
+                    </section>
+
+                    <!-- Ce que la validation va faire, dans la couleur de la suite retenue ;
+                         en ambre tant qu'il reste une décision ou un acte à régler. -->
+                    <p
+                        v-if="activeCareOrder || capabilities.can_complete"
+                        id="care-outcome-consequence"
+                        role="status"
+                        :class="['flex items-start gap-2 rounded-md border px-3 py-2 text-xs font-semibold', consequenceClasses]"
+                    >
+                        <component :is="consequenceIcon" class="mt-px h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span>{{ completionWarning }}</span>
+                    </p>
+                    <p v-if="transmissionDropped" class="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-200">
+                        <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>La transmission écrite ne partira pas : le patient ne passe pas en Médecine. Elle reste dans le formulaire si vous revenez à « Transmettre au médecin ».</span>
+                    </p>
+                </div>
             </section>
 
             <div class="flex flex-col-reverse gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">

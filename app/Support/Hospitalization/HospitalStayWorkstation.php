@@ -7,7 +7,6 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicalDischargeType;
 use App\Enums\MedicalRequestStatus;
-use App\Enums\PrescriptionStatus;
 use App\Models\CareOrder;
 use App\Models\CatalogItem;
 use App\Models\Diagnosis;
@@ -20,15 +19,15 @@ use App\Models\Prescription;
 use App\Models\User;
 use App\Services\Care\CareRecordReadModel;
 use App\Services\Medicine\ClinicalProtocolMatcher;
-use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Medicine\ClinicPracticeAdvisor;
 use App\Services\Medicine\ClinicPracticeIndex;
 use App\Services\Medicine\ImagingReportTemplateCatalog;
 use App\Services\Pharmacy\MedicineStockService;
 use App\Support\CareRequestSummary;
 use App\Support\ClinicSites;
-use App\Support\ImagingReportDocument;
+use App\Support\Medicine\PrescriptionDocument;
 use App\Support\Medicine\PrescriptionSuggestions;
+use App\Support\Paraclinical\ParaclinicalRequestPresenter;
 
 /**
  * ADR-162 — ce que la page du séjour sert au poste de travail du patient
@@ -45,10 +44,10 @@ final class HospitalStayWorkstation
         private readonly MedicineStockService $medicineStock,
         private readonly CareRecordReadModel $careRecordReadModel,
         private readonly ImagingReportTemplateCatalog $templates,
-        private readonly ClinicalRichTextSanitizer $richText,
         private readonly ClinicalProtocolMatcher $protocols,
         private readonly ClinicPracticeAdvisor $practice,
         private readonly PrescriptionSuggestions $prescriptionSuggestions,
+        private readonly ParaclinicalRequestPresenter $paraclinical,
     ) {}
 
     /** @return array<string, mixed> */
@@ -152,113 +151,54 @@ final class HospitalStayWorkstation
     /** @return list<array<string, mixed>> */
     private function prescriptions(HospitalStay $stay, User $user): array
     {
-        $routes = collect(AdministrationRoute::cases())->mapWithKeys(fn (AdministrationRoute $route) => [$route->value => $route->shortLabel()]);
+        $canCancel = $stay->isActive() && $user->can('prescriptions.cancel');
 
         return Prescription::query()
             ->where('hospital_stay_id', $stay->getKey())
-            ->with(['prescribedBy:id,name', 'lines' => fn ($query) => $query->orderBy('id'), 'pharmacyDispense:id,prescription_id,status,invoice_id'])
+            ->with([...PrescriptionDocument::RELATIONS, 'lines'])
             ->orderByDesc('prescribed_at')
             ->orderByDesc('id')
             ->get()
-            ->map(fn (Prescription $prescription): array => [
-                'uuid' => $prescription->uuid,
-                'status' => $prescription->status->value,
-                'prescribed_at' => $prescription->prescribed_at,
-                'prescribed_by' => $prescription->prescribedBy?->name,
-                'cancel_reason' => $prescription->cancel_reason,
-                'dispense_status' => $prescription->pharmacyDispense?->status?->value,
-                'dispense_status_label' => $prescription->pharmacyDispense?->status?->label(),
-                'lines' => $prescription->lines->map(fn ($line): array => [
-                    'id' => $line->getKey(),
-                    'name' => $line->medication_name,
-                    'is_manual' => (bool) $line->is_manual_entry,
-                    'quantity' => $line->quantity,
-                    'posology' => collect([$line->dosage, $routes[$line->route?->value] ?? null, $line->frequency, $line->duration])
-                        ->filter()->implode(' · '),
-                    'instructions' => $line->instructions,
-                ])->values()->all(),
-                // Une ordonnance déjà facturée par la Pharmacie ne s'annule plus
-                // depuis le séjour (même règle qu'en consultation).
-                'can_cancel' => $stay->isActive()
-                    && $user->can('prescriptions.cancel')
-                    && $prescription->status === PrescriptionStatus::Active
-                    && $prescription->pharmacyDispense?->invoice_id === null,
-                'print_url' => $prescription->status === PrescriptionStatus::Active
-                    ? "/hospitalisation/{$stay->uuid}/ordonnances/{$prescription->uuid}/impression"
-                    : null,
-            ])
+            ->map(fn (Prescription $prescription): array => PrescriptionDocument::listItem(
+                $prescription,
+                $canCancel,
+                "/hospitalisation/{$stay->uuid}/ordonnances/{$prescription->uuid}/impression",
+            ))
             ->all();
     }
 
     /** @return list<array<string, mixed>> */
     private function labRequests(HospitalStay $stay, User $user): array
     {
+        // ADR-163 — retirable depuis le séjour tant qu'aucun résultat n'est
+        // saisi (même règle qu'en consultation, ADR-079).
         $canCancel = $stay->isActive() && $user->can('laboratory_orders.create');
 
         return LabRequest::query()
             ->where('hospital_stay_id', $stay->getKey())
-            ->with(['items', 'requestedBy:id,name'])
+            ->with(ParaclinicalRequestPresenter::LAB_RELATIONS)
             ->orderByDesc('requested_at')
             ->get()
-            ->map(fn (LabRequest $request): array => [
-                'uuid' => $request->uuid,
-                'status' => $request->displayStatus(),
-                'requested_at' => $request->requested_at,
-                'requested_by' => $request->requestedBy?->name,
-                'notes' => $request->notes,
-                'cancel_reason' => $request->cancel_reason,
-                // ADR-163 — retirable depuis le séjour tant qu'aucun résultat
-                // n'est saisi (même règle qu'en consultation, ADR-079).
-                'can_cancel' => $canCancel && $this->withdrawable($request),
-                'items' => $request->items->map(fn ($item): array => [
-                    'uuid' => $item->uuid,
-                    'exam' => $item->catalog_item_name_snapshot,
-                    'resulted_at' => $item->resulted_at,
-                    'result' => $item->result_value,
-                ])->values()->all(),
-            ])
+            ->map(fn (LabRequest $request): array => $this->paraclinical->lab($request, $canCancel))
             ->all();
     }
 
     /** @return list<array<string, mixed>> */
     private function imagingRequests(HospitalStay $stay, User $user): array
     {
-        $canRecord = $user->can('imaging_results.create');
-        $canCorrect = $user->can('imaging_results.update');
         $canCancel = $stay->isActive() && $user->can('imaging_orders.create');
 
         return ImagingRequest::query()
             ->where('hospital_stay_id', $stay->getKey())
-            ->with([
-                'items.catalogItem:id,imaging_modality',
-                'requestedBy:id,name',
-                'episode.patient.addressEntry:id,label',
-            ])
+            ->with(ParaclinicalRequestPresenter::IMAGING_RELATIONS)
             ->orderByDesc('requested_at')
             ->get()
-            ->map(fn (ImagingRequest $request): array => [
-                'uuid' => $request->uuid,
-                'status' => $request->displayStatus(),
-                'requested_at' => $request->requested_at,
-                'requested_by' => $request->requestedBy?->name,
-                'notes' => $request->notes,
-                'cancel_reason' => $request->cancel_reason,
-                'can_cancel' => $canCancel && $this->withdrawable($request),
-                'items' => $request->items->map(fn ($item): array => [
-                    'uuid' => $item->uuid,
-                    'exam' => $item->catalog_item_name_snapshot,
-                    'resulted_at' => $item->resulted_at,
-                    'report_raw' => $item->result_value,
-                    'notes_raw' => $item->result_notes,
-                    'default_template_key' => $this->templates->defaultKeyFor($item),
-                    'document' => $item->resulted_at !== null
-                        ? ImagingReportDocument::for($item->setRelation('imagingRequest', $request), $this->richText)
-                        : null,
-                    'print_url' => $item->resulted_at !== null ? "/medicine/imaging-requests/{$item->uuid}/compte-rendu" : null,
-                    'can_record' => $canRecord && $item->resulted_at === null && $request->cancelled_at === null,
-                    'can_correct' => $canCorrect && $item->resulted_at !== null && $request->cancelled_at === null,
-                ])->values()->all(),
-            ])
+            ->map(fn (ImagingRequest $request): array => $this->paraclinical->imaging(
+                $request,
+                $user->can('imaging_results.create'),
+                $user->can('imaging_results.update'),
+                $canCancel,
+            ))
             ->all();
     }
 
@@ -313,12 +253,6 @@ final class HospitalStayWorkstation
     }
 
     /** Une demande encore en cours, sans aucun résultat : le médecin peut y renoncer. */
-    private function withdrawable(LabRequest|ImagingRequest $request): bool
-    {
-        return $request->cancelled_at === null
-            && $request->items->every(fn ($item) => $item->resulted_at === null);
-    }
-
     /**
      * ADR-163 — les propositions d'ordonnance pour les diagnostics du passage.
      *

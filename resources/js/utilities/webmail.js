@@ -44,6 +44,33 @@ export function parseRecipients(value) {
 }
 
 /**
+ * Écrire à quelqu'un depuis un autre écran (la fiche d'un employé) : l'adresse
+ * de la messagerie qui ouvre un nouveau message déjà adressé. Rien ne part
+ * seul : on relit, on écrit, on envoie.
+ */
+export function composeHref(name, email) {
+    if (!isEmail(email)) return null;
+    const clean = String(name ?? '').replace(/[<>"\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
+    const to = clean ? `${clean} <${String(email).trim()}>` : String(email).trim();
+
+    return `${WEBMAIL_BASE}/dossier/reception?ecrire=${encodeURIComponent(to)}`;
+}
+
+/**
+ * Le destinataire demandé par `?ecrire=` : une seule adresse valable, « Nom
+ * <adresse> » accepté ; tout le reste est ignoré plutôt que glissé dans un message.
+ *
+ * @returns {string|null}
+ */
+export function composeTarget(search) {
+    const value = new URLSearchParams(String(search ?? '')).get('ecrire');
+    if (!value || value.length > 320 || /[\n\r]/.test(value)) return null;
+    const { valid, invalid } = parseRecipients(value);
+
+    return valid.length === 1 && invalid.length === 0 ? value.trim() : null;
+}
+
+/**
  * ADR-195 — ce que le champ « À » propose pendant la frappe : les collègues qui
  * correspondent (six au plus) et, quand ce qui est tapé est une adresse valable
  * qui n'est ni déjà ajoutée ni celle d'un collègue, « Écrire à … » en tête —

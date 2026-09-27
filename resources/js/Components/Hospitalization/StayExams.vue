@@ -28,7 +28,17 @@ import { Eye, FlaskConical, Hourglass, CircleCheck, Pencil, Printer, ScanLine, S
  * compte du patient est annulé.
  */
 const props = defineProps({
-    stayUuid: { type: String, required: true },
+    stayUuid: { type: String, default: '' },
+    /**
+     * ADR-204 — l'adresse des demandes. Le séjour (ADR-162) et la Maternité
+     * partagent ce composant : seule l'origine change, jamais la règle.
+     */
+    baseUrl: { type: String, default: '' },
+    /** `lab` ou `imaging` pour n'afficher qu'une famille (onglets de la Maternité). */
+    only: { type: String, default: '' },
+    /** « du séjour », « de cette prise en charge »… */
+    scopeLabel: { type: String, default: 'du séjour' },
+    emptySource: { type: String, default: 'ce séjour' },
     labRequests: { type: Array, default: null },
     imagingRequests: { type: Array, default: null },
     labCatalog: { type: Array, default: () => [] },
@@ -42,6 +52,8 @@ const props = defineProps({
 });
 
 const page = usePage();
+const requestBase = computed(() => props.baseUrl || `/hospitalisation/${props.stayUuid}`);
+const shows = (kind) => ! props.only || props.only === kind;
 /** Qui signe l'acte : le compte connecté, titré une seule fois. */
 const signer = computed(() => doctorName(page.props.auth?.user?.name));
 const fold = (value) => String(value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -76,7 +88,7 @@ const submit = () => {
 
     picker.form
         .transform((data) => ({ items: [...picker.chosen.value].map((uuid) => ({ catalog_item_uuid: uuid })), notes: data.notes }))
-        .post(`/hospitalisation/${props.stayUuid}/${path}`, {
+        .post(`${requestBase.value}/${path}`, {
             preserveScroll: true,
             onSuccess: () => {
                 picker.chosen.value = new Set();
@@ -106,11 +118,23 @@ const openWithdraw = (request, kind) => {
 const submitWithdraw = () => {
     const { request, kind } = withdrawing.value;
 
-    withdrawForm.post(`/hospitalisation/${props.stayUuid}/${kind === 'lab' ? 'analyses' : 'imagerie'}/${request.uuid}/retirer`, {
+    withdrawForm.post(`${requestBase.value}/${kind === 'lab' ? 'analyses' : 'imagerie'}/${request.uuid}/retirer`, {
         preserveScroll: true,
         onSuccess: () => { withdrawing.value = null; },
     });
 };
+
+/**
+ * ADR-204 — un rappel « Demander » ajoute l'examen à la sélection : il reste à
+ * confirmer comme toute demande (ADR-106), jamais envoyé d'un clic.
+ */
+const select = (kind, uuid) => {
+    const picker = kind === 'lab' ? lab : imaging;
+    const next = new Set(picker.chosen.value);
+    next.add(uuid);
+    picker.chosen.value = next;
+};
+defineExpose({ select });
 
 // ── Compte rendu d'imagerie : la même fenêtre qu'en consultation ────────────
 const reporting = ref(null);
@@ -120,8 +144,8 @@ const viewing = ref(null);
 
 <template>
     <div class="space-y-5">
-        <div v-if="canRequestLab || canRequestImaging" class="grid gap-5 xl:grid-cols-2">
-            <template v-for="picker in [canRequestLab ? lab : null, canRequestImaging ? imaging : null].filter(Boolean)" :key="picker.kind">
+        <div v-if="(canRequestLab && shows('lab')) || (canRequestImaging && shows('imaging'))" :class="only ? 'grid gap-5' : 'grid gap-5 xl:grid-cols-2'">
+            <template v-for="picker in [canRequestLab && shows('lab') ? lab : null, canRequestImaging && shows('imaging') ? imaging : null].filter(Boolean)" :key="picker.kind">
                 <Card class="flex min-w-0 flex-col p-5">
                     <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground">
                         <component :is="picker.kind === 'lab' ? FlaskConical : ScanLine" class="h-4 w-4 text-muted-foreground" />
@@ -154,10 +178,10 @@ const viewing = ref(null);
             </template>
         </div>
 
-        <Card class="p-5">
-            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><FlaskConical class="h-4 w-4 text-muted-foreground" />Analyses du séjour</h2>
+        <Card v-if="shows('lab')" class="p-5">
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><FlaskConical class="h-4 w-4 text-muted-foreground" />Analyses {{ scopeLabel }}</h2>
             <p v-if="labRequests === null" class="mt-3 text-xs text-muted-foreground">Non visible avec vos droits (laboratory_orders.view).</p>
-            <p v-else-if="!labRequests.length" class="mt-3 text-xs text-muted-foreground">Aucune analyse demandée depuis ce séjour.</p>
+            <p v-else-if="!labRequests.length" class="mt-3 text-xs text-muted-foreground">Aucune analyse demandée depuis {{ emptySource }}.</p>
             <ul v-else class="mt-3 space-y-2">
                 <li v-for="request in labRequests" :key="request.uuid" class="rounded-md border border-border bg-card p-3">
                     <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -179,10 +203,10 @@ const viewing = ref(null);
             </ul>
         </Card>
 
-        <Card class="p-5">
-            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><ScanLine class="h-4 w-4 text-muted-foreground" />Imagerie du séjour</h2>
+        <Card v-if="shows('imaging')" class="p-5">
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><ScanLine class="h-4 w-4 text-muted-foreground" />Imagerie {{ scopeLabel }}</h2>
             <p v-if="imagingRequests === null" class="mt-3 text-xs text-muted-foreground">Non visible avec vos droits (imaging_orders.view).</p>
-            <p v-else-if="!imagingRequests.length" class="mt-3 text-xs text-muted-foreground">Aucun examen d’imagerie demandé depuis ce séjour.</p>
+            <p v-else-if="!imagingRequests.length" class="mt-3 text-xs text-muted-foreground">Aucun examen d’imagerie demandé depuis {{ emptySource }}.</p>
             <ul v-else class="mt-3 space-y-2">
                 <li v-for="request in imagingRequests" :key="request.uuid" class="rounded-md border border-border bg-card p-3">
                     <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">

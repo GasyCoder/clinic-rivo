@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\PharmacySupplierController;
 use App\Http\Controllers\Api\V1\SuperAdmin\ProfessionalMailboxController;
 use App\Http\Controllers\Api\V1\SuperAdmin\ReportController as SuperAdminReportController;
 use App\Http\Controllers\Api\V1\SuperAdmin\RoleController as SuperAdminRoleController;
+use App\Http\Controllers\Api\V1\SuperAdmin\StaffAccessController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
 use App\Http\Controllers\Api\V1\SuperAdmin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -51,6 +52,16 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/professional-mailboxes/{mailboxUuid}/reject', [ProfessionalMailboxController::class, 'reject'])->name('professional-mailboxes.reject');
         Route::post('/professional-mailboxes/{mailboxUuid}/suspend', [ProfessionalMailboxController::class, 'suspend'])->name('professional-mailboxes.suspend');
         Route::post('/professional-mailboxes/{mailboxUuid}/reactivate', [ProfessionalMailboxController::class, 'reactivate'])->name('professional-mailboxes.reactivate');
+
+        // ADR-197 — l'accès du personnel : compte et adresse créés ensemble, remis au RH.
+        Route::get('/staff-access', [StaffAccessController::class, 'index'])->name('staff-access.index');
+        Route::post('/staff-access/grant', [StaffAccessController::class, 'grant'])->name('staff-access.grant');
+        Route::get('/staff-access/employees/{employeeUuid}', [StaffAccessController::class, 'employee'])->name('staff-access.employee');
+        Route::post('/staff-access/employees/{employeeUuid}/waive', [StaffAccessController::class, 'waive'])->name('staff-access.waive');
+        Route::post('/staff-access/employees/{employeeUuid}/unwaive', [StaffAccessController::class, 'unwaive'])->name('staff-access.unwaive');
+        Route::post('/staff-access/handovers/{handoverUuid}/send', [StaffAccessController::class, 'send'])->name('staff-access.send');
+        // ADR-199 — confier la remise à un compte du site quand personne ne le peut.
+        Route::post('/staff-access/receivers', [StaffAccessController::class, 'designateReceiver'])->name('staff-access.receivers');
 
         Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
         Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore');

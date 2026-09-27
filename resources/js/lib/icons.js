@@ -79,7 +79,7 @@ const ICONS = {
     building: Building2,
     capsule: Pill,
     'check-circle': CircleCheck,
-    // ADR-198 — en congé.
+    // ADR-207 — en congé.
     sun: Palmtree,
     // Valeur par défaut de `FormSection` : sans elle, chaque bloc de
     // formulaire qui n'en précise aucune retomberait sur le repère neutre.

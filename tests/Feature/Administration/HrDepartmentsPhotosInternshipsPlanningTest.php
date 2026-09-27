@@ -362,7 +362,7 @@ class HrDepartmentsPhotosInternshipsPlanningTest extends TestCase
             ->get('/administration/internships?status=all&field='.$this->ref(HrReferenceType::InternshipField, 'Infirmier')->uuid)
             ->assertInertia(fn (Assert $page) => $page->has('internships.data', 1)->where('internships.data.0.employee.uuid', $former->uuid));
 
-        // ADR-198 — un stagiaire n'est pas un employé : ni le stagiaire en cours, ni
+        // ADR-207 — un stagiaire n'est pas un employé : ni le stagiaire en cours, ni
         // l'ancien stagiaire (dernier contrat = stage) ne figurent dans « Employés ».
         $this->actingAs($this->administration)->get('/administration/employees')
             ->assertInertia(fn (Assert $page) => $page

@@ -30,7 +30,7 @@ const form = useForm({
     // ADR-194 — la photo 4 × 4 part avec le dossier (multipart).
     photo: null, remove_photo: false,
     after: props.internshipIntent ? 'internship' : '',
-    // ADR-197 — rémunération et compte bancaire : envoyés seulement avec leur droit.
+    // ADR-206 — rémunération et compte bancaire : envoyés seulement avec leur droit.
     ...(can('employees.payroll.update') ? { remuneration_type: '', remuneration_amount: '', bank_account_number: '', bank_account_holder: '' } : {}),
 });
 
@@ -40,8 +40,9 @@ const submit = () => form.post(hrUrl('/administration/employees'));
 
 <template>
     <Head :title="internshipIntent ? 'Nouveau stagiaire' : 'Nouvel employé'" />
-    <div class="w-full space-y-5">
+    <div class="w-full space-y-4">
         <HrPageHeader
+            compact
             :eyebrow="internshipIntent ? 'Stages · Dossier du stagiaire' : 'Dossier personnel · Parcours guidé'"
             :title="internshipIntent ? 'Nouveau stagiaire' : 'Créer un employé'"
             :description="internshipIntent
@@ -49,7 +50,7 @@ const submit = () => form.post(hrUrl('/administration/employees'));
                 : 'Avancez étape par étape. Le dossier est enregistré uniquement après votre vérification finale et aucun compte de connexion n’est créé.'"
             :icon="internshipIntent ? GraduationCap : 'user-add'"
         >
-            <template #actions><Button :as="Link" :href="back" variant="outline"><ArrowLeft class="h-4 w-4" />{{ internshipIntent ? 'Retour aux stages' : 'Retour aux employés' }}</Button></template>
+            <template #actions><Button :as="Link" :href="back" variant="outline" size="sm"><ArrowLeft class="h-4 w-4" />{{ internshipIntent ? 'Retour aux stages' : 'Retour aux employés' }}</Button></template>
         </HrPageHeader>
         <EmployeeForm
             :form="form"

@@ -39,14 +39,23 @@ class SaveMaternityRecordAction
 
             $record = $locked->episode->maternityRecord;
 
+            // ADR-204 — un enregistrement automatique arrivé après la fin de la
+            // consultation n'y écrit jamais : un dossier terminé est clos, même
+            // si une nouvelle prise en charge Maternité s'ouvre sur ce passage.
+            if ($record?->isFinalized()) {
+                throw ValidationException::withMessages(['maternity_record' => 'Ce dossier Maternité est terminé : il n’est plus modifiable.']);
+            }
+
             $pregnancy = $this->pregnancies->resolve($locked, $record, $data, $actor);
-            $pregnancy = $this->pregnancies->syncClinicalDetails(
-                $pregnancy,
-                is_array($data['pregnancy_data'] ?? null) ? $data['pregnancy_data'] : [],
-                $actor,
-            );
+            $pregnancyData = is_array($data['pregnancy_data'] ?? null) ? $data['pregnancy_data'] : [];
+            $pregnancy = $this->pregnancies->syncInitialDating($pregnancy, $pregnancyData, $actor);
+            $pregnancy = $this->pregnancies->syncClinicalDetails($pregnancy, $pregnancyData, $actor);
 
             unset($data['pregnancy_choice'], $data['pregnancy_uuid']);
+            // Un enregistrement peut porter le parcours, jamais l'effacer (ADR-204).
+            if (array_key_exists('encounter_type', $data) && $data['encounter_type'] === null) {
+                unset($data['encounter_type']);
+            }
             $data['pregnancy_id'] = $pregnancy->getKey();
             // Compatibilité progressive : le JSON historique reste lisible,
             // mais sa valeur vient désormais de la Pregnancy longitudinale.
@@ -80,13 +89,12 @@ class SaveMaternityRecordAction
                 ]);
             }
 
-            // La saisie est devenue un vrai dossier : son brouillon n'a plus de
-            // raison de survivre, et ne doit jamais être restauré par-dessus
-            // ce qui vient d'être enregistré (ADR-073).
-            MaternityRecordDraft::query()
-                ->where('episode_orientation_id', $locked->getKey())
-                ->where('created_by', $actor->getKey())
-                ->delete();
+            // La saisie est devenue un vrai dossier : sa section de brouillon
+            // n'a plus de raison de survivre, et ne doit jamais être restaurée
+            // par-dessus ce qui vient d'être enregistré (ADR-073). Les autres
+            // sections — le panier d'actes, la césarienne — restent : un
+            // enregistrement automatique du dossier ne les emporte pas (ADR-204).
+            MaternityRecordDraft::forgetSection($locked->getKey(), $actor->getKey(), 'record');
 
             return $record->fresh(['procedures.performer']);
         });

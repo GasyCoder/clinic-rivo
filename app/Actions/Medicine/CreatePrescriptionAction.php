@@ -8,6 +8,7 @@ use App\Enums\PrescriptionLineReviewStatus;
 use App\Enums\PrescriptionStatus;
 use App\Models\ClinicalProtocol;
 use App\Models\Consultation;
+use App\Models\EpisodeOrientation;
 use App\Models\HospitalStay;
 use App\Models\Prescription;
 use App\Models\User;
@@ -15,6 +16,7 @@ use App\Services\Medicine\ClinicalProtocolMatcher;
 use App\Services\Medicine\ClinicPracticeAdvisor;
 use App\Services\Pharmacy\MedicineStockService;
 use App\Support\Hospitalization\StayOrderContext;
+use App\Support\Maternity\MaternityOrderContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -156,6 +158,57 @@ class CreatePrescriptionAction
             ]);
 
             $this->addLines($prescription, $lines, $lockedMedicines, $origins, $actor);
+            $this->createDispenseRequest->execute($prescription);
+
+            return $prescription->fresh(['lines.stockReservations', 'pharmacyDispense.lines']);
+        });
+    }
+
+    /**
+     * ADR-205 — l'ordonnance de la sage-femme, écrite depuis le dossier Maternité.
+     *
+     * Même document qu'en consultation : réservation FEFO, lignes hors
+     * référentiel, relecture (ADR-110, ADR-128), demande de délivrance à la
+     * Pharmacie. Chaque validation est une ordonnance nouvelle, comme au séjour :
+     * aucune n'est étendue après coup, si bien qu'une ligne ne rejoint jamais une
+     * délivrance déjà facturée. La délivrance suit la règle ordinaire (ADR-049) :
+     * la patiente règle à la Caisse, puis la Pharmacie délivre.
+     *
+     * Les propositions de protocoles (ADR-111) ne s'appliquent pas ici : elles
+     * partent d'un diagnostic, que le dossier Maternité ne pose pas. Une origine
+     * envoyée par le navigateur n'est donc jamais retenue.
+     *
+     * @param  array<int, array<string, mixed>>  $lines
+     */
+    public function executeForMaternity(EpisodeOrientation $orientation, array $lines, User $actor): Prescription
+    {
+        return DB::transaction(function () use ($orientation, $lines, $actor): Prescription {
+            $context = MaternityOrderContext::lock($orientation, 'prescription');
+
+            $catalogUuids = collect($lines)
+                ->filter(fn (array $line) => ! ($line['manual'] ?? false))
+                ->pluck('medicine_uuid')
+                ->all();
+            $lockedMedicines = $this->stock->lockPrescribableMedicines($catalogUuids);
+
+            foreach ($lines as $index => $line) {
+                if (! ($line['manual'] ?? false) && ! $lockedMedicines->has($line['medicine_uuid'])) {
+                    throw ValidationException::withMessages([
+                        "lines.{$index}.medicine_uuid" => 'Ce médicament n’est plus disponible dans le référentiel Pharmacie.',
+                    ]);
+                }
+            }
+
+            $prescription = Prescription::query()->create([
+                'episode_id' => $context->episode->getKey(),
+                'maternity_record_id' => $context->record->getKey(),
+                'consultation_id' => null,
+                'status' => PrescriptionStatus::Active,
+                'prescribed_by' => $actor->getKey(),
+                'prescribed_at' => now(),
+            ]);
+
+            $this->addLines($prescription, $lines, $lockedMedicines, [], $actor);
             $this->createDispenseRequest->execute($prescription);
 
             return $prescription->fresh(['lines.stockReservations', 'pharmacyDispense.lines']);

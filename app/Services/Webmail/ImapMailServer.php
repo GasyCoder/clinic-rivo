@@ -2,13 +2,10 @@
 
 namespace App\Services\Webmail;
 
+use App\Services\Webmail\KeepAlive\KeepsConnectionOpen;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
-use Symfony\Component\Mailer\Transport\Smtp\Auth\LoginAuthenticator;
-use Symfony\Component\Mailer\Transport\Smtp\Auth\PlainAuthenticator;
-use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
 use Symfony\Component\Mime\Email;
 use Throwable;
 use Webklex\PHPIMAP\Address;
@@ -34,7 +31,7 @@ use Webklex\PHPIMAP\Message;
  * exceptions de la bibliothèque sont remplacées par une phrase, sans la pile
  * d'appels qui pourrait porter les arguments de connexion.
  */
-final class ImapMailServer implements MailServer
+final class ImapMailServer implements KeepsConnectionOpen, MailServer
 {
     /** Une image incorporée au-delà de cette taille n'est pas affichée dans le corps. */
     private const INLINE_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
@@ -58,7 +55,7 @@ final class ImapMailServer implements MailServer
     /** Ce que un FETCH de message demande : drapeaux, en-têtes et corps, sans marquer lu. */
     private const MESSAGE_ITEMS = ['UID', 'FLAGS', 'RFC822.HEADER', 'BODY.PEEK[TEXT]'];
 
-    /** @var array{folder: string, criteria: array<string, mixed>, uid: ?int, markSeen: bool}|null La lecture annoncée (plan). */
+    /** @var array{folder: string, criteria: array<string, mixed>, uid: ?int, markSeen: bool, page: int}|null La lecture annoncée (plan). */
     private ?array $plan = null;
 
     /** @var array<string, list<int>> Les recherches déjà reçues dans le lot des compteurs, sur cette connexion. */
@@ -69,6 +66,16 @@ final class ImapMailServer implements MailServer
 
     /** @var array<string, true> Les messages déjà marqués lus dans ce lot, par « dossier:uid ». */
     private array $markedSeen = [];
+
+    /** @var array<string, array<string, mixed>> Les en-têtes d'une liste reçus dans ce lot, par « dossier:uid ». */
+    private array $headers = [];
+
+    /**
+     * @var array<string, list<int>> La dernière page servie de chaque liste, par recherche.
+     *                               Sur une connexion gardée ouverte (MailboxWorker), la page suivante demande ses
+     *                               en-têtes avec les compteurs : un aller-retour au lieu de deux.
+     */
+    private array $lastPage = [];
 
     private function __construct(
         private readonly string $address,
@@ -147,9 +154,9 @@ final class ImapMailServer implements MailServer
         }
     }
 
-    public function plan(string $folder, array $criteria = [], ?int $uid = null, bool $markSeen = false): void
+    public function plan(string $folder, array $criteria = [], ?int $uid = null, bool $markSeen = false, int $page = 1): void
     {
-        $this->plan = ['folder' => $folder, 'criteria' => $criteria, 'uid' => $uid, 'markSeen' => $markSeen];
+        $this->plan = ['folder' => $folder, 'criteria' => $criteria, 'uid' => $uid, 'markSeen' => $markSeen, 'page' => max(1, $page)];
     }
 
     public function folders(bool $withCounts = true): array
@@ -213,11 +220,26 @@ final class ImapMailServer implements MailServer
                 return ['total' => $total, 'items' => []];
             }
 
-            // Seuls les messages de la page, sans leur corps : drapeaux et en-têtes en une commande.
-            $data = $this->protocol()->fetch(['UID', 'FLAGS', 'RFC822.HEADER'], $pageIds, null, IMAP::ST_UID)->validatedData();
+            // Seuls les messages de la page, sans leur corps : drapeaux et en-têtes en une commande —
+            // sauf ceux déjà reçus avec les compteurs (même page qu'à la requête précédente).
+            $data = [];
+            $missing = [];
+            foreach ($pageIds as $uid) {
+                if (isset($this->headers[$folder.':'.$uid])) {
+                    $data[$uid] = $this->headers[$folder.':'.$uid];
+                } else {
+                    $missing[] = $uid;
+                }
+            }
+
+            if ($missing !== []) {
+                $data += (array) $this->protocol()->fetch(['UID', 'FLAGS', 'RFC822.HEADER'], $missing, null, IMAP::ST_UID)->validatedData();
+            }
+
+            $this->lastPage[$this->searchKey($folder, $criteria).'#'.max(1, $page)] = array_map('intval', $pageIds);
 
             $items = [];
-            foreach ((array) $data as $uid => $item) {
+            foreach ($data as $uid => $item) {
                 $flags = self::flagsOf($item);
                 $items[] = $this->summary($this->build((int) $uid, (string) ($item['RFC822.HEADER'] ?? ''), '', $flags), $flags);
             }
@@ -406,7 +428,10 @@ final class ImapMailServer implements MailServer
 
     public function quota(): ?array
     {
-        return Cache::remember($this->cacheKey('quota'), self::QUOTA_SECONDS, fn () => $this->readQuota());
+        // Un serveur sans quota répond « rien » : gardé aussi (false), sinon redemandé à chaque page.
+        $quota = Cache::remember($this->cacheKey('quota'), self::QUOTA_SECONDS, fn () => $this->readQuota() ?? false);
+
+        return is_array($quota) ? $quota : null;
     }
 
     /** @return array{used: int, limit: int}|null */
@@ -436,46 +461,48 @@ final class ImapMailServer implements MailServer
 
     public function send(Email $email): void
     {
-        $smtp = config('rivo.webmail.smtp');
-
-        if (blank($smtp['host'] ?? null)) {
-            throw WebmailUnavailable::because('L’envoi n’est pas configuré sur ce site (RIVO_WEBMAIL_SMTP_HOST).');
-        }
-
-        $port = (int) ($smtp['port'] ?? 465);
-        // 465 : TLS dès la connexion ; sinon STARTTLS, que Symfony active quand le serveur le propose.
-        $transport = new EsmtpTransport((string) $smtp['host'], $port, ($smtp['encryption'] ?? 'ssl') === 'ssl' || $port === 465);
-        // PLAIN d'abord : un seul aller-retour, contre trois pour LOGIN.
-        $transport->setAuthenticators([new PlainAuthenticator, new LoginAuthenticator]);
-        $transport->setUsername($this->address);
-        $transport->setPassword($this->password);
-        $transport->getStream()->setTimeout((float) (config('rivo.webmail.timeout') ?? 20));
-
-        if (($smtp['encryption'] ?? 'ssl') === 'none') {
-            $transport->setAutoTls(false);
-        }
-
-        try {
-            $transport->send($email);
-        } catch (TransportExceptionInterface $exception) {
-            $this->closeSmtp($transport);
-            $this->log('envoi refusé', $exception);
-
-            throw WebmailUnavailable::because(str_contains(strtolower($exception->getMessage()), 'auth')
-                ? 'Le serveur d’envoi refuse ce mot de passe.'
-                : 'Le message n’a pas pu être envoyé : le serveur d’envoi ne répond pas. Il est gardé dans le formulaire.');
-        }
-
-        // Le message est parti : le « QUIT » attend la fin de la requête, pas l'écran.
-        app()->terminating(fn () => $this->closeSmtp($transport));
+        SmtpSender::send($this->address, $this->password, $email);
     }
 
-    private function closeSmtp(EsmtpTransport $transport): void
+    /**
+     * Une nouvelle requête sur une connexion gardée ouverte (MailboxConnectionPool) :
+     * ce qui a été lu d'avance pour la précédente ne vaut plus. Le dossier sélectionné,
+     * lui, reste sélectionné sur le serveur : on ne le resélectionne pas.
+     */
+    public function beginRequest(): void
     {
-        try {
-            $transport->stop();
-        } catch (Throwable) {
+        $this->plan = null;
+        $this->markedSeen = [];
+        $this->forgetReads();
+    }
+
+    /**
+     * La connexion tient toujours, sans aller-retour : le serveur qui l'a fermée (délai
+     * d'inactivité, « * BYE ») l'a dit dans le flux. Ce qu'il a pu y laisser d'autre
+     * (« * 3 EXISTS ») est lu et écarté, pour ne pas fausser la commande suivante.
+     */
+    public function alive(): bool
+    {
+        $stream = $this->client->connection?->getStream();
+
+        if (! is_resource($stream) || feof($stream)) {
+            return false;
         }
+
+        stream_set_blocking($stream, false);
+        $pending = '';
+
+        try {
+            while (($chunk = @fread($stream, 8192)) !== false && $chunk !== '') {
+                $pending .= $chunk;
+            }
+        } finally {
+            if (is_resource($stream)) {
+                stream_set_blocking($stream, true);
+            }
+        }
+
+        return is_resource($stream) && ! feof($stream) && ! preg_match('/^\* BYE/mi', $pending);
     }
 
     public function disconnect(): void
@@ -598,6 +625,17 @@ final class ImapMailServer implements MailServer
             };
         }
 
+        // La même liste déjà servie sur cette connexion (MailboxWorker) : ses en-têtes partent
+        // aussi. Les nouveaux messages, s'il y en a, seront demandés ensuite.
+        if ($plan['uid'] === null && ($previous = $this->lastPage[$this->searchKey($folder, $plan['criteria']).'#'.$plan['page']] ?? []) !== []) {
+            $commands[] = ['UID FETCH', [self::set($previous), '(UID FLAGS RFC822.HEADER)']];
+            $readers[] = function (?array $lines) use ($folder): void {
+                foreach ($lines === null ? [] : self::fetchItems($lines) as $uid => $item) {
+                    $this->headers[$folder.':'.$uid] = $item;
+                }
+            };
+        }
+
         if (($uid = $plan['uid']) !== null) {
             $commands[] = ['UID FETCH', [$uid.':'.$uid, '('.implode(' ', self::MESSAGE_ITEMS).')']];
             $readers[] = function (?array $lines) use ($folder, $uid): void {
@@ -624,6 +662,7 @@ final class ImapMailServer implements MailServer
     {
         $this->searched = [];
         $this->fetched = [];
+        $this->headers = [];
     }
 
     /**

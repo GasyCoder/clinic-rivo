@@ -2,8 +2,7 @@
 
 namespace Tests\Feature\Medicine;
 
-use App\Support\MedicineDossierPresenter;
-use ReflectionMethod;
+use App\Support\Medicine\ConsultationOrientationPrefill;
 use Tests\TestCase;
 
 /**
@@ -17,10 +16,7 @@ class OrientationPrefillTextTest extends TestCase
 {
     private function convert(?string $html): ?string
     {
-        $method = new ReflectionMethod(MedicineDossierPresenter::class, 'toPlainText');
-        $method->setAccessible(true);
-
-        return $method->invoke($this->app->make(MedicineDossierPresenter::class), $html);
+        return ConsultationOrientationPrefill::toPlainText($html);
     }
 
     public function test_it_turns_a_rich_text_report_into_readable_lines(): void

@@ -267,6 +267,7 @@ export const PERMISSION_CATEGORIES = {
     hr_reports: { label: 'Rapports RH', module: 'hr', icon: ChartPie },
     hr_settings: { label: 'Paramètres RH (services, fonctions…)', module: 'hr', icon: SlidersHorizontal },
     professional_emails: { label: 'Adresses email professionnelles', module: 'hr', icon: AtSign },
+    staff_access: { label: 'Accès du personnel', module: 'hr', icon: KeyRound },
     webmail: { label: 'Messagerie professionnelle', module: 'hr', icon: Inbox },
 
     // Logistique & sécurité
@@ -297,7 +298,7 @@ export const PERMISSION_CATEGORIES = {
  */
 export const PERMISSION_RESOURCES = {
     'patients.medical_history': 'Antécédents et allergies',
-    // ADR-197 — données sensibles du dossier employé.
+    // ADR-206 — données sensibles du dossier employé.
     'employees.payroll': 'Rémunération et compte bancaire',
     'episodes.settlement': 'Passages à régler (sorties)',
 

@@ -27,7 +27,7 @@ class StoreGeneratedDocumentRequest extends FormRequest
             'form_data.*' => ['nullable', 'string', 'max:2000'],
             // ADR-184 — signature du directeur général, au bas du document.
             'with_director_signature' => ['sometimes', 'boolean'],
-            // ADR-199 — « modifier » : la nouvelle version remplace ce document, archivé.
+            // ADR-208 — « modifier » : la nouvelle version remplace ce document, archivé.
             'replaces_uuid' => ['nullable', 'uuid', Rule::exists('generated_documents', 'uuid')],
         ];
     }

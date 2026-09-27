@@ -72,7 +72,7 @@ test('the appearance offers light, system and dark', () => {
     }
     assert.match(switcher, /role="radiogroup"/);
     const header = read('resources/js/Components/Layout/Header.vue');
-    assert.match(header, /<ThemeModeSwitcher variant="header" class="hidden sm:inline-flex" \/>\s*<span class="hidden h-6 w-px shrink-0 bg-border sm:block" aria-hidden="true" \/>\s*<HeaderAttention \/>/, 'dans la barre, séparé de la cloche par un trait');
+    assert.match(header, /<ThemeModeSwitcher variant="header" class="hidden sm:inline-flex" \/>\s*<span class="hidden h-6 w-px shrink-0 bg-border sm:block" aria-hidden="true" \/>\s*<HeaderNotifications \/>/, 'dans la barre, séparé de la cloche par un trait');
     assert.match(header, /<li class="px-7 py-2\.5 sm:hidden">/, 'le menu du compte ne le garde que sur téléphone');
     assert.match(header, /<ThemeModeSwitcher variant="menu" \/>/);
     assert.match(read('resources/js/Layouts/GuestLayout.vue'), /<ThemeModeSwitcher variant="floating"/);

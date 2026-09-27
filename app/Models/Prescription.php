@@ -19,7 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * `prescriptions.cancel`, not delete — see cancel() below, same pattern as
  * Episode::cancel().
  */
-#[Fillable(['episode_id', 'hospital_stay_id', 'consultation_id', 'prescribed_by', 'status', 'prescribed_at', 'cancel_reason', 'cancelled_at'])]
+#[Fillable(['episode_id', 'hospital_stay_id', 'maternity_record_id', 'consultation_id', 'prescribed_by', 'status', 'prescribed_at', 'cancel_reason', 'cancelled_at'])]
 class Prescription extends Model
 {
     use Auditable, HasUuid;
@@ -52,6 +52,12 @@ class Prescription extends Model
     public function hospitalStay(): BelongsTo
     {
         return $this->belongsTo(HospitalStay::class);
+    }
+
+    /** ADR-205 — l'ordonnance écrite par la sage-femme depuis le dossier Maternité. */
+    public function maternityRecord(): BelongsTo
+    {
+        return $this->belongsTo(MaternityRecord::class);
     }
 
     protected static function booted(): void

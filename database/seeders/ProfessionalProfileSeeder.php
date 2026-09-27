@@ -34,6 +34,9 @@ class ProfessionalProfileSeeder extends Seeder
                     'maternity.procedures.manage',
                     // ADR-177 — le bébé né ici devient patient depuis la Maternité.
                     'newborns.patient.create',
+                    // ADR-205 — la sage-femme prescrit (CDC §9 et §15) : recommandé, jamais accordé d'office.
+                    'prescriptions.view', 'prescriptions.create', 'prescriptions.cancel',
+                    'medicines.view', 'stock.availability.view',
                 ],
             ],
             'ANESTHETIST' => [

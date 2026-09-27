@@ -1,5 +1,5 @@
 /**
- * ADR-199 — les dossiers de documents, côté écran : la teinte de chaque dossier
+ * ADR-208 — les dossiers de documents, côté écran : la teinte de chaque dossier
  * connu. Leur liste, leur libellé et la règle « type → dossier » vivent côté
  * serveur (App\Support\Documents\DocumentFamily) ; un dossier inconnu (type
  * libre) prend la teinte neutre.

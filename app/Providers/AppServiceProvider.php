@@ -8,9 +8,13 @@ use App\Models\User;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\SiteMaintenanceState;
 use App\Services\Webmail\WebmailAccess;
+use App\Services\Webmail\WebmailSignOn;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
 use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Database\Events\NoPendingMigrations;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
@@ -43,7 +47,14 @@ class AppServiceProvider extends ServiceProvider
         // refusait l'accès (403) à des rôles qui la détenaient pourtant.
         // Vider ce cache à la fin de chaque migration couvre toutes les
         // migrations, passées et futures, sans compter sur chacune d'elles.
-        Event::listen(MigrationsEnded::class, fn () => Cache::forget(Permission::CACHE_KEY));
+        //
+        // Jamais `fn () => Cache::forget(...)` : sans clé en cache, forget()
+        // renvoie false, et un écouteur qui renvoie false arrête l'événement —
+        // la synchronisation du Super Admin ci-dessous ne s'exécutait alors
+        // jamais après des migrations (ADR-197).
+        Event::listen(MigrationsEnded::class, function (): void {
+            Cache::forget(Permission::CACHE_KEY);
+        });
 
         // ADR-186 — sur le portail, le Super Admin détient toutes les
         // permissions : chaque `php artisan migrate` le rétablit, même sans
@@ -53,6 +64,25 @@ class AppServiceProvider extends ServiceProvider
             [MigrationsEnded::class, NoPendingMigrations::class],
             fn () => app(SyncPortalSuperAdminPermissionsAction::class)->execute(),
         );
+
+        // ADR-200 — reconnecté par « Se souvenir de moi », sans mot de passe saisi :
+        // celui de sa boîte, gardé sur l'appareil, revient dans la session. Déconnecté,
+        // il quitte l'appareil. Des closures qui ne renvoient rien : un écouteur qui
+        // renvoie false arrêterait l'événement.
+        Event::listen(Login::class, function (Login $event): void {
+            if ($event->guard === 'web' && $event->user instanceof User && Auth::guard('web')->viaRemember()) {
+                app(WebmailSignOn::class)->restoreFromDevice($event->user);
+            }
+        });
+        Event::listen(Logout::class, function (Logout $event): void {
+            $signOn = app(WebmailSignOn::class);
+
+            if ($event->user instanceof User) {
+                $signOn->stopConnections($event->user);
+            }
+
+            $signOn->forgetDevice();
+        });
 
         // ADR-009 / CDC §11: the three columns every SoftDeletable model
         // needs, declared once so they can never drift between migrations.

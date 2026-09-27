@@ -4,7 +4,9 @@ namespace App\Http\Requests;
 
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\MaternityEncounterType;
 use App\Models\EpisodeOrientation;
+use App\Support\Maternity\MaternityEncounterFields as Fields;
 use App\Support\MaternityReference as Ref;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -37,8 +39,14 @@ class UpdateMaternityRecordRequest extends FormRequest
         return [
             'pregnancy_choice' => [Rule::requiredIf($needsPregnancyChoice), 'nullable', Rule::in(['CONTINUE', 'CREATE'])],
             'pregnancy_uuid' => [Rule::requiredIf($needsPregnancyChoice && $this->input('pregnancy_choice') === 'CONTINUE'), 'nullable', 'uuid'],
+            // ADR-204 — le parcours se choisit par son propre geste ; un
+            // enregistrement peut le porter, jamais le deviner.
+            'encounter_type' => ['sometimes', 'nullable', Rule::enum(MaternityEncounterType::class)],
             'obstetric_context' => ['nullable', 'string', 'max:5000'],
-            'pregnancy_data' => ['nullable', 'array'],
+            // DDR, DPA, G/P et facteurs de risque sont des données cliniques
+            // longitudinales : maternity.create/update seul ne permet pas de
+            // contourner le droit prénatal.
+            'pregnancy_data' => [Rule::prohibitedIf(! $canPrenatal), 'nullable', 'array'],
             'pregnancy_data.gravidity' => ['nullable', 'integer', 'min:0', 'max:30'],
             'pregnancy_data.parity' => ['nullable', 'integer', 'min:0', 'max:30'],
             'pregnancy_data.last_menstrual_period' => ['nullable', 'date', 'before_or_equal:today'],
@@ -50,6 +58,26 @@ class UpdateMaternityRecordRequest extends FormRequest
             'prenatal_data.fundal_height_cm' => ['nullable', 'numeric', 'min:0', 'max:'.Ref::FUNDAL_HEIGHT_MAX_CM],
             'prenatal_data.fetal_heart_rate' => ['nullable', 'integer', 'min:'.Ref::FETAL_HEART_RATE_MIN, 'max:'.Ref::FETAL_HEART_RATE_MAX],
             'prenatal_data.notes' => ['nullable', 'string', 'max:5000'],
+            // ADR-204 — la consultation prénatale structurée. Rien n'est
+            // obligatoire : « non évalué » est une réponse, une case vide aussi.
+            'prenatal_data.visit_reason' => ['nullable', Rule::in(Fields::keys(Fields::VISIT_REASONS))],
+            'prenatal_data.visit_reason_details' => ['nullable', 'string', 'max:1000'],
+            'prenatal_data.reported_since_last' => ['nullable', 'array', 'max:'.count(Fields::REPORTED_SINCE_LAST)],
+            'prenatal_data.reported_since_last.*' => ['string', 'distinct', Rule::in(Fields::keys(Fields::REPORTED_SINCE_LAST))],
+            'prenatal_data.interval_notes' => ['nullable', 'string', 'max:5000'],
+            'prenatal_data.fetal_movements' => ['nullable', Rule::in(Fields::keys(Fields::FETAL_MOVEMENTS))],
+            'prenatal_data.contractions' => ['nullable', Rule::in(Fields::keys(Fields::CONTRACTIONS))],
+            'prenatal_data.presentation' => ['nullable', Rule::in(Fields::keys(Fields::PRESENTATIONS))],
+            'prenatal_data.clinical_summary' => ['nullable', 'string', 'max:5000'],
+            'prenatal_data.watch_points' => ['nullable', 'string', 'max:3000'],
+            'prenatal_data.plan' => ['nullable', 'string', 'max:5000'],
+            // Le prochain rendez-vous reste facultatif : il n'est créé qu'à la
+            // fin de la consultation, jamais par un enregistrement automatique.
+            'prenatal_data.next_appointment' => ['nullable', 'array'],
+            'prenatal_data.next_appointment.enabled' => ['nullable', 'boolean'],
+            'prenatal_data.next_appointment.scheduled_at' => ['nullable', 'date'],
+            'prenatal_data.next_appointment.reason' => ['nullable', 'string', 'max:190'],
+            'prenatal_data.next_appointment.notes' => ['nullable', 'string', 'max:1000'],
             'labor_data' => [Rule::prohibitedIf(! $canLabor), 'nullable', 'array'],
             'labor_data.started_at' => ['nullable', 'date'],
             'labor_data.membranes_status' => ['nullable', Rule::in(['INTACT', 'RUPTURED', 'UNKNOWN'])],

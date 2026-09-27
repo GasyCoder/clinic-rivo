@@ -5,6 +5,7 @@ import fs from 'node:fs';
 const header = fs.readFileSync('resources/js/Components/Layout/Header.vue', 'utf8');
 const search = fs.readFileSync('resources/js/Components/Layout/HeaderSearch.vue', 'utf8');
 const bell = fs.readFileSync('resources/js/Components/Layout/HeaderAttention.vue', 'utf8');
+const notifications = fs.readFileSync('resources/js/Components/Layout/HeaderNotifications.vue', 'utf8');
 
 /** Le code seul : les commentaires de ces fichiers citent les mêmes termes. */
 const code = (source) => source
@@ -12,9 +13,22 @@ const code = (source) => source
     .replace(/(^|[^:])\/\/.*$/gm, '$1')
     .replace(/<!--[\s\S]*?-->/g, '');
 
-test('l’en-tête porte la recherche et les points d’attention', () => {
+test('l’en-tête porte la recherche et la cloche (notifications et points d’attention)', () => {
     assert.match(header, /<HeaderSearch \/>/);
-    assert.match(header, /<HeaderAttention \/>/);
+    assert.match(header, /<HeaderNotifications \/>/);
+    assert.match(notifications, /<HeaderAttention :active=/, 'les points d’attention sont l’onglet « À traiter » de la cloche');
+});
+
+/**
+ * ADR-197 — la cloche compte les notifications non lues : celles-ci sont
+ * enregistrées (table `notifications`), la lecture est donc un fait. Le compte
+ * vient du serveur, jamais d'un calcul local sur la liste affichée.
+ */
+test('la pastille de la cloche compte les non lues que le serveur renvoie', () => {
+    assert.match(code(notifications), /page\.props\.notifications\?\.unread/);
+    assert.match(code(notifications), /payload\.unread \?\? 0/);
+    assert.match(notifications, /Voir toutes les notifications/);
+    assert.match(code(notifications), /onMounted\(/, 'la relecture ne démarre qu’une fois la page reprise');
 });
 
 /** La marque est déjà dans le bandeau latéral ; la répéter volait la place. */
@@ -24,10 +38,10 @@ test('la marque n’est plus répétée sur grand écran', () => {
 });
 
 /**
- * Le panneau n'est pas une boîte de réception : rien n'enregistre qu'un
- * compte a lu quoi que ce soit, donc aucun « non lu » n'est affiché.
+ * Les points d'attention ne sont pas des notifications : ils comptent des
+ * faits en cours, et aucune lecture n'y est enregistrée ni affichée.
  */
-test('le panneau ne prétend aucune lecture', () => {
+test('les points d’attention ne prétendent aucune lecture', () => {
     assert.doesNotMatch(code(bell), /non lue?s?|unread/i);
     assert.match(bell, /Points d’attention/);
 });
@@ -61,9 +75,10 @@ test('la cloche est séparée du menu du compte', () => {
 });
 
 /** Rechargé à chaque ouverture : un compteur figé décrirait un état périmé. */
-test('le panneau se recharge à chaque ouverture', () => {
-    const toggle = code(bell).slice(code(bell).indexOf('const toggle'));
+test('la cloche et ses points d’attention se rechargent à chaque ouverture', () => {
+    const toggle = code(notifications).slice(code(notifications).indexOf('const toggle'));
     assert.match(toggle.slice(0, toggle.indexOf('};')), /if \(value\) load\(\)/);
+    assert.match(code(bell), /watch\(\(\) => props\.active, \(active\) => \{\s*if \(active\) load\(\);/);
 });
 
 /**

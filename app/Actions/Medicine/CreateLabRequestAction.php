@@ -13,11 +13,13 @@ use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\HospitalStay;
 use App\Models\LabRequest;
+use App\Models\MaternityRecord;
 use App\Models\User;
 use App\Services\Billing\ClinicalActBiller;
 use App\Services\Billing\ParaclinicalBillingRelease;
 use App\Services\Billing\PlannedServiceBilling;
 use App\Support\Hospitalization\StayOrderContext;
+use App\Support\Maternity\MaternityOrderContext;
 use App\Support\ParaclinicalRequestGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -65,6 +67,7 @@ class CreateLabRequestAction
                 $medicineOrientation->episode,
                 $lockedConsultation,
                 null,
+                null,
                 $medicineOrientation,
                 CatalogModule::Medicine,
                 'Analyses demandées en consultation.',
@@ -104,9 +107,38 @@ class CreateLabRequestAction
                 $context->episode,
                 null,
                 $context->stay,
+                null,
                 $context->orientation,
                 CatalogModule::Hospitalization,
                 'Analyses demandées pendant l’hospitalisation.',
+                $items,
+                $notes,
+                $actor,
+            );
+        });
+    }
+
+    /**
+     * ADR-204 — la même demande, écrite depuis une prise en charge Maternité.
+     * Elle se rattache au dossier Maternité (`maternity_record_id`), jamais à
+     * une consultation Médecine qui n'existe pas. Le Laboratoire reste la
+     * source de vérité de ses résultats : rien n'est recopié dans le dossier.
+     *
+     * @param  array<int, array{catalog_item_uuid: string}>  $items
+     */
+    public function executeForMaternity(EpisodeOrientation $orientation, array $items, ?string $notes, User $actor): LabRequest
+    {
+        return DB::transaction(function () use ($orientation, $items, $notes, $actor): LabRequest {
+            $context = MaternityOrderContext::lock($orientation, 'lab_request');
+
+            return $this->write(
+                $context->episode,
+                null,
+                null,
+                $context->record,
+                $context->orientation,
+                CatalogModule::Maternity,
+                'Analyses demandées en Maternité.',
                 $items,
                 $notes,
                 $actor,
@@ -119,6 +151,7 @@ class CreateLabRequestAction
         Episode $episode,
         ?Consultation $consultation,
         ?HospitalStay $stay,
+        ?MaternityRecord $maternityRecord,
         EpisodeOrientation $source,
         CatalogModule $sourceModule,
         string $orientationReason,
@@ -144,7 +177,7 @@ class CreateLabRequestAction
         // Sous le verrou déjà posé sur la consultation : deux envois
         // simultanés du même examen ne peuvent pas passer tous les deux.
         ParaclinicalRequestGuard::ensureNoActiveDuplicate(
-            $consultation ?? $stay,
+            $consultation ?? $stay ?? $maternityRecord,
             $catalogItems,
             'labRequests',
             'lab_request',
@@ -162,6 +195,7 @@ class CreateLabRequestAction
             'episode_id' => $episode->getKey(),
             'consultation_id' => $consultation?->getKey(),
             'hospital_stay_id' => $stay?->getKey(),
+            'maternity_record_id' => $maternityRecord?->getKey(),
             'source_orientation_id' => $source->getKey(),
             'lab_orientation_id' => $labOrientation->getKey(),
             'requested_by' => $actor->getKey(),

@@ -25,8 +25,8 @@ export const SETTINGS_SECTIONS = Object.freeze([
     },
     {
         id: 'theme', group: 'apparence', label: 'Thème', icon: Palette,
-        description: 'Couleurs du mode clair et du mode sombre.',
-        fields: ['theme_preset', 'primary_color', 'light_background', 'light_foreground', 'dark_primary_color', 'dark_background', 'dark_foreground'],
+        description: 'Police des textes et couleurs du mode clair et du mode sombre.',
+        fields: ['ui_font_family', 'theme_preset', 'primary_color', 'light_background', 'light_foreground', 'dark_primary_color', 'dark_background', 'dark_foreground'],
     },
     {
         id: 'avance', group: 'apparence', label: 'Affichage avancé', icon: SlidersHorizontal,

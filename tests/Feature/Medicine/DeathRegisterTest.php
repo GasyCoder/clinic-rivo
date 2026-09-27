@@ -13,6 +13,7 @@ use App\Models\CatalogItem;
 use App\Models\DeathRecord;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
+use App\Models\MedicalDischarge;
 use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
@@ -276,8 +277,12 @@ class DeathRegisterTest extends TestCase
         ])->assertSessionHasErrors(['discharge_prescription', 'recommendations', 'follow_up_at']);
     }
 
-    /** Une sortie ordinaire continue d'exiger l'état du patient (CDC §33.1). */
-    public function test_an_ordinary_discharge_still_demands_the_patient_condition(): void
+    /**
+     * ADR-203 — en consultation, l'état du patient à
+     * la sortie devient facultatif : non renseigné, il reste absent (`null`),
+     * jamais une chaîne vide.
+     */
+    public function test_an_ordinary_discharge_leaves_an_unstated_patient_condition_empty(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->passage($doctor);
@@ -287,7 +292,9 @@ class DeathRegisterTest extends TestCase
             'final_diagnosis' => 'Angine',
             'patient_condition' => '',
             'discharged_at' => now()->subMinute()->format('Y-m-d H:i:s'),
-        ])->assertSessionHasErrors('patient_condition');
+        ])->assertSessionHasNoErrors();
+
+        $this->assertNull(MedicalDischarge::query()->sole()->patient_condition);
     }
 
     private function dischargeAsDeceased(User $doctor, EpisodeOrientation $orientation): void

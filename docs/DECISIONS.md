@@ -3811,7 +3811,7 @@ contrôle de permission et rejette une décision forgée par le navigateur.
 
 # ADR-076 — Machine à états réelle des étapes de Consultation
 
-**Status:** ACCEPTED (2026-09-12 — exigence explicite du propriétaire)
+**Status:** ACCEPTED (2026-09-12 — exigence explicite du propriétaire) ; **amendée par l'ADR-203** (2026-09-27) : plus aucune étape non validée ne retient la clôture.
 
 Jusqu'ici l'avancement du parcours Médecine n'existait que dans le
 navigateur : `Medicine/Show.vue` déduisait « cette étape est terminée » de
@@ -4330,7 +4330,7 @@ Aucune permission nouvelle : `consultations.update` pour répondre,
 # ADR-081 — Étape Diagnostic retirée de l'assistant
 
 **Status:** ACCEPTED (2026-09-12 — exigence explicite du propriétaire, après
-l'ADR-080)
+l'ADR-080) ; **amendée par l'ADR-203** (2026-09-27) : le diagnostic n'est plus exigé pour clôturer (divergence CDC §33.1 signalée).
 
 L'ADR-080 avait conservé l'étape Diagnostic tout en permettant de conclure
 depuis l'Examen clinique. Le propriétaire, l'ayant utilisée, demande de la
@@ -4998,7 +4998,7 @@ Aucune permission nouvelle.
 
 # ADR-089 — Une seule étape pour conclure : « Décision & clôture »
 
-**Status:** ACCEPTED (2026-09-13 — validation explicite du propriétaire)
+**Status:** ACCEPTED (2026-09-13 — validation explicite du propriétaire) ; **amendée par l'ADR-203** (2026-09-27) : un seul écran sans sous-étapes, la conduite part avec « Clôturer ».
 
 **Amende l'ADR-084** sur sa section « Décidée aux trois moments où elle peut
 l'être », et l'ADR-080 pour le lieu de saisie du diagnostic d'un passage sans
@@ -5538,6 +5538,26 @@ portail sans rejouer ce seeder, qui écraserait les socles personnalisés.
 
 ---
 
+## Amendement du 2026-09-27 — des constantes se lisent toujours avec leur date
+
+Demande du propriétaire : la bande des constantes disait « à l'arrivée · 01:10 », l'heure seule. Un
+passage peut rester ouvert des semaines, un patient revenir deux mois plus tard : l'heure ne dit pas si
+c'était ce matin.
+
+```text
+toujours      date et heure du relevé (« 27/07/2026 01:10 »), jamais l'heure seule ; sans date connue,
+              l'écran écrit « Date inconnue » plutôt que d'en inventer une
+autre jour    un repère ambre dit depuis quand : « il y a 2 mois » (olderThanToday, heure locale)
+où            la bande des constantes (Médecine, Maternité, Hospitalisation — qui ne recevait pas
+              l'horodatage), le détail du passage et le dossier patient (onglet Passages) :
+              un seul composant, VitalsRecordedAt
+```
+
+L'horodatage est celui du dernier enregistrement de la fiche Soins (`updated_at`), le seul que la base
+porte : une correction ultérieure le déplace. Le détail du passage le reçoit désormais
+(`care_record.updated_at`). Aucune règle, permission ni migration.
+
+
 # ADR-094 — Diagnostic final facultatif pour un passage paraclinique seul
 
 **Status:** ACCEPTED (2026-09-15 — arbitrage explicite du propriétaire, après
@@ -5634,7 +5654,7 @@ Aucune permission nouvelle.
 
 # ADR-095 — « Le diagnostic peut-il être posé maintenant ? » rejoint Décision & clôture
 
-**Status:** ACCEPTED (2026-09-15 — exigence explicite du propriétaire)
+**Status:** ACCEPTED (2026-09-15 — exigence explicite du propriétaire) ; **retirée par l'ADR-203** (2026-09-27) : la question n'est plus posée, son endpoint est supprimé.
 
 **Amende l'ADR-080** (la question était posée dans l'Examen clinique) et
 **l'ADR-089**, qui avait déjà rassemblé la conclusion sur la dernière étape
@@ -13909,6 +13929,41 @@ La carte non prévue (« Changer · motif ») est un interrupteur qui ouvre le m
 suite prévue », ou un second clic, revient au parcours prévu. Le parcours du passage et la fiche
 terminée disent dans quel sens la suite a changé (`EpisodeOrientation::offPlanOutcome()`).
 
+## Amendement du 2026-09-27 — la suite se décide en dernier, juste au-dessus du bouton
+
+Demande du propriétaire : « Suite après les soins » était en tête de l'étape Terminer, alors que
+sa conséquence (« Après validation… ») et le bouton qui l'exécute étaient tout en bas. On
+décidait où va le patient avant d'avoir relu ce qui serait enregistré, puis on descendait
+relire la conséquence de ce choix loin de lui.
+
+L'étape se lit désormais dans l'ordre du travail :
+
+```text
+1  À enregistrer maintenant   actes, matériel, allergies, constantes, points de vigilance
+2  Transmission à Médecine    à droite, seulement si la suite choisie est Médecine
+3  Suite après les soins      les deux cartes, le motif si la suite change, puis la conséquence
+4  Précédent · Enregistrer · [bouton de la suite choisie]
+```
+
+```text
+une phrase     la conséquence n'est plus répétée dans un bandeau de pied de carte : elle se lit
+               une fois, sous le choix, dans la couleur de la suite retenue (Médecine / Soins),
+               en ambre tant que le bouton ne peut pas valider — et elle dit alors ce qui manque
+               (motif du changement, acte réalisé), jamais « Après validation… » en vert
+               au-dessus d'un bouton grisé
+précise        « rejoint la file Médecine avec votre transmission » ou « sans transmission écrite »
+retour         une fois la suite changée, la carte prévue se clique pour y revenir, comme un
+               choix radio ; « Garder la suite prévue » reste
+transmission   choisir « Terminer aux Soins » après avoir écrit une transmission le dit : elle ne
+               part pas (le serveur la refuserait) mais reste dans le formulaire si l'on revient
+               au médecin — le choix étant désormais sous la transmission, elle ne doit plus
+               disparaître en silence
+verrouillée    la suite tenue par un collègue (ADR-167) suit le même ordre
+```
+
+Présentation seulement : ni route, ni permission, ni règle serveur ne change ; `care_outcome` et
+`care_outcome_reason` partent comme avant.
+
 ---
 
 # ADR-167 — Reprendre la prise en charge Soins d'un collègue
@@ -15334,6 +15389,9 @@ Anesthésie             non concernée : elle suit la demande chirurgicale (ADR-
 
 ## Amendement du 2026-09-23 — par où le passage devrait entrer
 
+> Le refus des Soins est **retiré** par l'amendement du 2026-09-27 (bis) : ils sont prévenus, puis
+> décident. La fenêtre côté Médecine est inchangée.
+
 Demande du propriétaire : un médecin qui prend un patient attendu aux Soins doit en être prévenu,
 et les Soins ne doivent pas prendre un patient attendu directement chez le médecin. Deux
 arbitrages : la Médecine décide (« Soins ou consulter »), les Soins sont informés et refusés.
@@ -15372,6 +15430,139 @@ verrouillé et ouvre l'information. Côté Médecine, « Consulter quand même �
 Aucune permission nouvelle, aucune migration. Aucune donnée n'est déduite : un besoin inconnu sans
 suggestion ne déclenche rien, dans un sens comme dans l'autre.
 
+
+## Amendement du 2026-09-27 — une étape suggérée déjà faite se lit en vert
+
+Demande du propriétaire : sur le tableau des passages, la suggestion « Soins · Médecine » restait
+grise alors que les Soins avaient déjà terminé et transmis le patient au médecin.
+
+```text
+faite        le service a terminé une prise en charge de ce passage (orientation COMPLETED)
+             et n'en a aucune autre en attente ou en cours : pastille verte, coche, infobulle
+             « Soins — fait le 27/09/2026 01:10 », « — fait » pour les lecteurs d'écran
+pas faite    tout le reste : un patient renvoyé aux Soins par le médecin n'y est plus « fait »
+             tant qu'il y attend ; la suggestion reste indicative et grise
+pour moi     le liseré « suggéré pour ce service » ne s'ajoute pas au vert d'une étape faite
+```
+
+`ActiveEpisodeBoard::nextStepsOf()` sert `done` et `done_at` par étape, lus sur les orientations
+déjà chargées pour la ligne — aucune requête de plus. Une étape sans orientation (Pharmacie) ne se
+dit jamais faite : rien ne l'atteste sur le passage. La suggestion ne décide toujours rien : ni
+visibilité, ni prise en charge. Aucune permission, route ni migration.
+
+## Amendement du 2026-09-27 — la Médecine envoie aux Soins, avant la consultation, un patient venu pour elle
+
+> Élargi par l'amendement du 2026-09-27 (bis) : « Aux Soins » s'offre à tout moment — avant, pendant
+> ou après la consultation, même si les Soins ont déjà vu le patient.
+
+Demande du propriétaire : un patient venu directement pour le médecin (consultation
+spécialisée, aucune suggestion de l'accueil vers les Soins) n'avait aucun chemin vers les Soins
+avant d'être pris. Les Soins ne peuvent pas le prendre d'eux-mêmes (`EpisodeEntryPath`,
+amendement du 2026-09-23), et l'ordre de soins (ADR-055) exige une consultation ouverte. Le
+médecin devait donc le prendre en consultation pour demander un simple relevé de constantes.
+
+« Aux Soins », sur la ligne du tableau Médecine (`SendEpisodeToCareAction`,
+`POST /medicine/passages/{uuid}/envoyer-aux-soins`), crée une **vraie orientation**
+Médecine → Soins, avec une consigne facultative (500 caractères) et l'audit
+`episode.sent_to_care`.
+
+```text
+proposé      Médecine ne l'a pas encore pris, pas d'urgence, aucune orientation Soins
+             (ni en file, ni en cours, ni terminée), rien ne le destine déjà aux Soins
+             (`EpisodeEntryPath` muet : sinon « Soins d'abord » s'en charge) et une suite
+             prévue aux Soins qui n'est pas « terminer aux Soins »
+aux Soins    une demande comme une autre, « orientée par Médecine » : la prise en charge
+             n'est pas refusée, puisqu'une vraie orientation l'attend
+en Médecine  le patient garde sa place et son n° ; la ligne dit « Soins d'abord » et
+             « Soins · orienté, en attente » ; « Prendre » rappelle qu'il est aux Soins
+retour       à la fin des soins, « Transmettre au médecin » est la suite prévue d'un
+             besoin « Médecine directe » (ADR-166) : il revient orienté par les Soins
+annuler      « Annuler l'envoi » tant que les Soins ne l'ont pas pris : l'orientation est
+             annulée, jamais supprimée (audit `episode.sent_to_care.withdraw`)
+refusé       par le serveur, sous verrou : passage clos ou en attente de règlement, accueil
+             non terminé, urgence, Médecine a déjà pris ou terminé le passage, Soins déjà
+             en file, en cours ou passés
+```
+
+Aucune permission nouvelle : c'est la même autorité que prendre le patient en Médecine
+(`consultations.create`), vérifiée par la route. Aucune migration.
+
+## Amendement du 2026-09-27 — un patient déjà pris en charge en Médecine ou aux Soins se lit « En cours »
+
+Constat du propriétaire, sur Jeanine FANJAMALALA : en consultation chez le Dr Eliot TSARAMANANA,
+elle restait « En attente » avec un bouton « Prendre » dans le tableau des Soins — seul « Actuellement
+: Médecine » disait qu'elle était occupée. Tous les services voyant tous les passages, deux
+services pouvaient se retrouver responsables du même patient au même moment.
+
+`App\Support\EpisodeHeldElsewhere` porte la règle une seule fois, lue par le tableau et par
+`TakeChargeOfEpisodeAction` :
+
+```text
+tient le patient   une orientation Médecine ou Soins EN COURS, d'un autre service
+à l'écran          « Prendre » devient « En cours » ; le clic dit en toutes lettres
+                   « Ce patient est déjà pris en charge en Médecine par … depuis … » (toast) ;
+                   « Actuellement : Médecine », puis « par Dr … » dessous, sous l'état — le service
+                   n'est pas répété dans le bouton : « En cours · Médecine » poussait le tableau
+                   des Soins hors d'un écran de 1 440 px
+serveur            la prise en charge est refusée avec le même message (clé `episode`), sous verrou
+file               le patient garde son n° — il reviendra —, mais ne compte plus pour le garde-fou
+                   « un patient attend avant celui-ci » (ADR-121)
+jamais bloqués     une demande adressée à ce service (ordre de soins ADR-055/088, transmission des
+                   Soins, envoi aux Soins) : le travail parallèle y est voulu ; une urgence (ADR-021)
+```
+
+Seules la Médecine et les Soins tiennent le patient, comme la demande les nomme : une patiente
+suivie en Maternité ou hospitalisée reste atteignable par ailleurs. Aucune permission, route ni
+migration.
+
+## Amendement du 2026-09-27 (bis) — tout le personnel clinique prend un patient ; le médecin l'envoie aux Soins à tout moment
+
+Demande du propriétaire, après avoir vu les Soins devant un « Prendre » verrouillé (« Attendu en
+Médecine ») pour deux patients venus en consultation spécialisée : « tous les personnels médicaux
+peuvent prendre un patient […] si le patient a besoin d'une consultation spéciale mais que les
+Soins ou la Maternité le prennent en premier, ils peuvent toujours le prendre ; et le médecin peut
+renvoyer le patient aux Soins à tout moment ».
+
+**Renverse l'amendement du 2026-09-23** sur un point, signalé et non masqué : les Soins n'y étaient
+qu'« informés et refusés » devant un patient attendu directement en Médecine. Ce refus était un
+arbitrage du propriétaire ; il le retire lui-même.
+
+```text
+Soins devant un patient     une fenêtre dit pourquoi il est attendu en Médecine, puis « Prendre
+attendu en Médecine         aux Soins » ; plus aucun refus serveur (`refusalMessage()` retiré)
+dans la file des Soins      il reste hors de la file numérotée : le n° 1 y est le prochain patient
+                            qui vient pour les Soins ; on le prend donc sans le garde-fou
+                            « un patient attend avant celui-ci » (ADR-121)
+après les soins             il garde sa place en Médecine ; la suite prévue d'un besoin
+                            « Médecine directe » est « Transmettre au médecin » (ADR-166)
+le rappel se tait           dès que le médecin a le patient ou l'a déjà vu
+```
+
+La Médecine garde sa fenêtre « Soins d'abord » (`CARE_FIRST`), qui n'a jamais refusé. La Maternité
+n'a jamais été soumise au rappel. Ce qui reste refusé n'est pas le parcours, c'est la cohérence :
+un patient que la Médecine ou les Soins ont **en ce moment** (`EpisodeHeldElsewhere`, amendement
+précédent) ne se prend pas une seconde fois.
+
+**« Aux Soins », à tout moment.** L'amendement du 2026-09-27 ne l'offrait qu'avant la
+consultation, et seulement si les Soins n'avaient jamais vu le patient. `SendEpisodeToCareAction::
+refusalFor()` porte désormais la règle, lue par le tableau et par l'action :
+
+```text
+avant la consultation      le patient garde sa place en Médecine
+pendant la consultation    elle reste ouverte (ADR-088) : il revient chez le médecin
+après la consultation      un soin oublié : un passage « en attente de règlement » repasse
+                           « en soins » (même règle que la réouverture, ADR-096), audité
+refusé                     les Soins l'ont déjà en file ou en charge ; passage clos ou pas
+                           encore accueilli ; patient décédé ou parti en transfert
+```
+
+Avoir déjà vu les Soins n'empêche plus rien : c'est une nouvelle demande. La fenêtre dit le moment
+(`send_to_care.moment` : BEFORE, DURING, AFTER) et ce qui suit les soins (`send_to_care.then`,
+`SendEpisodeToCareAction::afterCare()`) : retour chez le médecin s'il l'attend ou l'a en
+consultation, fin du parcours clinique s'il l'a déjà vu, sinon la suite prévue du besoin. Le motif
+de l'orientation dit le moment (« Envoyé aux Soins par le médecin, pendant la consultation. »), et
+l'audit `episode.sent_to_care` le porte. « Annuler l'envoi » ne s'offre plus pour un ordre de soins
+de la consultation, que l'action refusait ensuite. Aucune permission, route ni migration.
 ---
 
 # ADR-178 — « Rôles & permissions » devient un centre de gestion : modules, grille d'actions, un seul enregistrement
@@ -16499,6 +16690,8 @@ Les pages hors mise en page principale (connexion, feuilles plein écran) n'en o
 # ADR-186 — Le Super Admin du portail détient réellement toutes les permissions
 
 **Status:** ACCEPTED (2026-09-25 — signalement du propriétaire : « le Super Admin contrôle tout, pourquoi ne voit-il pas certains modules ? »)
+; **corrigée par l'ADR-197** (2026-09-26) : après des migrations, la synchronisation ne s'exécutait que si le
+cache des permissions était rempli — l'écouteur qui le vidait renvoyait `false` et arrêtait l'événement.
 
 **Rend vraie** une règle que les ADR-025, ADR-027 et ADR-064 affirmaient déjà : sur `admin.rivo.mg`, le rôle
 `SUPER_ADMIN` reçoit automatiquement toutes les permissions. Aucune règle de résolution ne change
@@ -16919,6 +17112,11 @@ place. Aucune permission nouvelle, aucune migration.
 # ADR-190 — Adresses email professionnelles : le RH demande, le Super Admin crée chez l'hébergeur
 
 **Status:** ACCEPTED (2026-09-25 — demande du propriétaire, quatre arbitrages explicites)
+; **amendée par l'ADR-197** (2026-09-26) : pour un nouvel employé, l'adresse et le compte RIVO se créent ensemble
+depuis « Accès du personnel », avec un seul mot de passe gardé chiffré sur le site le temps de la remise au RH ; le
+RH ne demande plus l'adresse depuis la fiche. « Adresse seule » reste possible ; **amendée par l'ADR-202**
+(2026-09-27) : la boîte d'un nouvel employé est créée avec un mot de passe que personne ne voit, puis reçoit, à sa
+première connexion, celui qu'il choisit.
 
 Le CDC ne décrit aucune adresse email professionnelle : les règles ci-dessous sont celles du propriétaire.
 L'hébergeur est o2switch (cPanel) ; le domaine de test est `cbdc.mg`, remplacé par le domaine officiel de la
@@ -17329,6 +17527,28 @@ cartes, chacune avec son icône et un état appliqué / non appliqué. Les outil
 (Google Search Console, Bing Webmaster Tools) sont des liens. Ce que le site sert — robots.txt et l'en-tête
 X-Robots-Tag — se lit dans deux encadrés côte à côte, chacun avec un bouton « Copier ». Présentation seulement.
 
+
+## Amendement du 2026-09-27 — un patient déjà numéroté garde son séparateur, pour tout ce qui en dérive
+
+Constat du propriétaire : après avoir passé le séparateur de « _ » à « - », le patient
+`A_26_001` et son passage `A_26_001_001` restaient au tiret bas dans la file Médecine.
+
+C'est la règle, et elle ne change pas : un réglage ne vaut que pour les **nouveaux** patients —
+le prochain est `A-26-002` —, et un numéro déjà attribué n'est jamais réécrit (ADR-030). Il est
+imprimé sur les documents remis, encodé dans le QR de la fiche de sortie (ADR-116), cité dans
+l'audit et dans les échanges : le changer ferait perdre la trace de ce qui porte l'ancien.
+
+Le constat a révélé un vrai défaut : le passage suivant d'un patient déjà numéroté prenait le
+**nouveau** séparateur — `A_26_001-002`, deux séparateurs dans un même numéro —, et son bébé
+aussi (`A_26_001-B1`). `PatientNumberFormat::separatorOf()` lit désormais le séparateur avec
+lequel le numéro du patient a été écrit (le préfixe n'a que des lettres et des chiffres, donc
+le premier autre caractère), et le passage comme le bébé le prolongent dans cette forme :
+`A_26_001_002`, `A_26_001_B1`. Un numéro sans séparateur (préfixe vide, sans année) prend celui
+du réglage. Les numéros déjà écrits ne bougent pas ; le rang d'un passage se relit toujours quel
+que soit son séparateur.
+
+La phrase d'aide du champ « Séparateur » le dit désormais : il vaut pour les nouveaux patients.
+Aucune permission, route ni migration.
 ---
 
 # ADR-192 — Remises : une par facture, la plus avantageuse, sur la part patient
@@ -17646,6 +17866,44 @@ gardes et disponibilité    la disponibilité d'un chirurgien au bloc (ADR-168) 
                            service et garde confondus
 ```
 
+## Amendement du 2026-09-26 — l'envoi de la photo réparé, et un vrai recadrage avant l'envoi
+
+Signalement du propriétaire : « l'uploader image ne fonctionne pas », et demande d'un recadrage soigné avant l'envoi.
+
+**La panne.** Pour ne pas afficher deux sélecteurs à l'étape Identité, le petit déclencheur du champ photo avait été
+masqué (`triggerless`) — et l'`input` fichier avec lui : le grand cadre de l'étape n'avait plus rien à ouvrir.
+L'`input` est désormais monté hors du bloc masqué (correction amorcée par Codex, gardée par un test). Vérifié dans le
+navigateur sur une copie de la base : choisir, cadrer, enregistrer, en création comme en modification ; la photo
+arrive sur le disque privé et paraît sur la fiche. Il manquait aussi des imports d'icônes dans le formulaire
+(`Camera`, `ImagePlus` : rien ne s'affichait à leur place) ; un test vérifie désormais que tout composant utilisé
+dans le dossier employé est importé.
+
+**Le recadrage** (`EmployeePhotoField`, calculs purs dans `utilities/photoCrop.js`, testés) :
+
+```text
+scène         sombre, à la taille de la place disponible (220 à 360 px), repères du visage (ovale et
+              tiers) qu'on peut masquer, coins du carré conservé ; déposer une autre image la remplace
+gestes        glisser ; zoom à la molette ou au pincement, sous le pointeur (zoomAtPoint) ; curseur
+              shadcn (nouveau Shadcn/Slider, reka-ui) ; quart de tour à gauche ou à droite ; double-clic
+              pour recentrer ; clavier : flèches, + / −, R (Maj + R), 0
+aperçu        tel qu'il paraîtra : la fiche (4 × 4) et les listes (rond)
+qualité       ce que vaudra le carré envoyé, 600 px au plus, jamais agrandi : excellente, bonne, ou
+              faible sous 360 px (floue à l'impression) — un avertissement, pas un refus
+recadrer      l'image choisie reste en mémoire le temps de la page : « Recadrer » rouvre le même cadrage
+              sans redemander le fichier ; une photo déjà enregistrée se change, elle ne se recadre pas
+étape 1       le grand cadre montre la photo entière, « Recadrer » et « Changer » au survol, une
+              étiquette « Nouvelle », et « Retirer la photo » dessous
+```
+
+Rien ne change côté serveur : le carré part en JPEG 600 px, le fichier d'origine jamais ; `EmployeePhotoStore`
+relit et réencode comme avant. La rotation se fait dans le canevas, avec la même géométrie que l'aperçu.
+
+Même jour, second retour du propriétaire : l'ovale était trop petit. Sur une photo d'identité, la tête occupe 70 à
+80 % de la hauteur (ICAO) : l'ovale passe de 50 × 62 % à **64 × 80 %** du cadre. Les conseils (« Visage de face,
+fond clair », « Recadrage, zoom et rotation avant l'envoi », « JPEG, PNG ou WebP · conservée en privé ») quittent le
+dessous du cadre pour le bouton « ! » à côté du titre ; ceux de la fenêtre de recadrage et la mention de
+confidentialité aussi. `NoticesButton` accepte `align` pour s'ouvrir du bon côté.
+
 ---
 
 # ADR-195 — Messagerie : la boîte professionnelle de son titulaire, lue en direct
@@ -17655,7 +17913,8 @@ DashWind, complète, avec UI et UX », quatre arbitrages explicites)
 ; **amendé le même jour** : la messagerie dépend des permissions (`webmail.view`, `webmail.open_any`) et
 le Super Admin ouvre toute boîte depuis le portail, puis une boîte qui répond en une ou deux secondes au lieu
 d'une minute — voir les amendements en fin d'ADR ; **amendé le 2026-09-26 (ter)** : le portail a sa propre
-boîte, réglée dans son .env, ouverte directement — il n'ouvre plus la boîte d'un employé
+boîte, réglée dans son .env, ouverte directement — il n'ouvre plus la boîte d'un employé ; **amendé par
+l'ADR-200** (2026-09-26) : sa propre boîte s'ouvre avec le mot de passe saisi à la connexion à RIVO
 
 **Complète l'ADR-190** (adresses email professionnelles) : les adresses existaient, on ne pouvait pas s'en
 servir depuis RIVO. Le CDC ne décrit aucune messagerie : les règles ci-dessous sont celles du propriétaire.
@@ -18034,6 +18293,64 @@ Aucune permission nouvelle, aucune migration. Signalé, non tranché : la boîte
 les Super Admins (une seule adresse) ; des boîtes nominatives par Super Admin demanderaient un mot de passe par
 compte, donc une saisie — à décider si le besoin apparaît.
 
+## Amendement du 2026-09-26 (quater) — la connexion au serveur de mail reste ouverte entre les clics
+
+Constat du propriétaire : « /messagerie/dossier/reception est trop lente ». Ce n'est pas Vue (l'écran se dessine
+en quelques millisecondes) : mesuré depuis Madagascar vers o2switch, un aller-retour coûte 220 à 300 ms (parfois
+2 s), et chaque clic rouvrait une connexion complète — liaison, chiffrement, identification : 0,8 à 4,3 s avant de
+lire un seul message. PHP ne garde rien d'une requête à l'autre. C'est le « plancher » signalé par l'amendement
+du 2026-09-26 : il demandait un service qui garde les connexions ouvertes. Il est construit ici.
+
+```text
+un processus par boîte   `php artisan rivo:webmail-worker` (caché), lancé par la messagerie, jamais à la main,
+                         détaché de la requête (`setsid -f`) ; il garde la connexion IMAP et sert les
+                         requêtes une à une ; seul le premier usage paie la connexion
+fermé seul               après 10 min sans usage (RIVO_WEBMAIL_KEEP_ALIVE_MINUTES), à la déconnexion de RIVO,
+                         quand on ferme la boîte, quand le serveur refuse le mot de passe, sur SIGTERM
+mot de passe             remis par un tube (jamais sur la ligne de commande, que `ps` montre), gardé dans la
+                         mémoire du processus seulement — jamais en base, jamais dans un journal
+joint par                une prise Unix locale (storage/framework/webmail, dossier 0700, prise 0600) et un
+                         jeton HMAC(clé de l'application, site, adresse, mot de passe) : seul qui connaît le
+                         mot de passe trouve la prise et calcule le jeton ; un autre mot de passe = un autre
+                         processus
+trames                   longueur + tableau sérialisé, relu sans jamais recréer d'objet (allowed_classes false)
+reprise                  une connexion coupée par le serveur est vue sans aller-retour (`alive()`) et rouverte ;
+                         une lecture interrompue se refait directement ; une écriture interrompue n'est jamais
+                         rejouée (l'écran dit de vérifier)
+repli                    sans processus possible (proc_open interdit, démarrage trop lent), connexion à chaque
+                         clic comme avant, et plus d'essai pendant 10 min ; RIVO_WEBMAIL_KEEP_ALIVE=false le coupe
+d'avance                 à la connexion à RIVO (ADR-200), au retour par « Se souvenir de moi », à l'ouverture
+                         tapée : le processus démarre et lit la première page de la réception pendant que
+                         l'employé est ailleurs ; le premier clic la trouve prête
+envoi                    pas par le processus : SMTP a sa propre connexion (SmtpSender), dans la requête
+```
+
+**Une page en un seul aller-retour.** Sur une connexion gardée ouverte, la même page déjà servie (même dossier,
+même recherche, même numéro de page — `plan()` reçoit désormais la page) envoie la demande de ses en-têtes avec
+les compteurs des dossiers : un aller-retour au lieu de deux. Les nouveaux messages sont demandés en plus ; les
+drapeaux sont relus à chaque fois. Le processus ne garde d'une requête à l'autre que les numéros (UID) de la
+dernière page servie et le dossier sélectionné — jamais un en-tête, un corps ni un objet : « rien n'est copié »
+tient. Au passage, un serveur sans quota le redemandait à chaque page (null n'était jamais mis en cache).
+
+Mesuré sur un banc local (GreenMail derrière un relais à 260 ms d'aller-retour, comme Madagascar ↔ o2switch) :
+
+| Geste | Avant | Après |
+|---|---|---|
+| Une page de liste, IMAP chiffré (TLS) | 1,7 s | 0,33 s |
+| Clic « Messagerie » → liste (navigateur) | 1,9 s | 0,35 s côté serveur, 0,87 s à l'écran au premier chargement de la page |
+| Ouvrir un message | 1,1 s | 0,45 s |
+| Changer de dossier / revenir à la réception | 1,9 à 2,5 s | 0,3 s |
+| Recharger la page (F5) | 1,5 s | 0,55 s |
+| Connexion coupée par le serveur | — | reconnexion seule, sans erreur (1,7 s), puis 0,33 s |
+
+Aucune permission, aucune migration. `MailServer::plan()` reçoit la page (`int $page = 1`).
+
+**Signalé, non tranché.** En production, l'hébergement doit permettre `proc_open` et des processus de fond ; sous
+PHP-FPM, le PHP en ligne de commande est cherché à côté de php-fpm (sinon RIVO_WEBMAIL_KEEP_ALIVE_PHP). Si RIVO est
+hébergé près du serveur de mail (même centre de données qu'o2switch), l'aller-retour tombe à quelques ms et tout
+devient instantané, processus ou pas. En local, `php artisan serve` n'a qu'un processus : un préchargement au
+survol y bloque le clic suivant ; `PHP_CLI_SERVER_WORKERS=4 php artisan serve --no-reload` l'évite.
+
 # ADR-196 — Navigation compacte et sidebar redimensionnable du portail
 
 **Status:** ACCEPTED (2026-09-26 — demande explicite du propriétaire)
@@ -18063,7 +18380,1119 @@ le mode compact garde son rail de 74 px. Aucune permission, route, API, donnée 
 
 ---
 
-# ADR-197 — Rémunération déclarée, compte bancaire et ancienneté du dossier employé
+# ADR-197 — Accès du personnel en un geste, remis au RH ; module Notifications
+
+**Status:** ACCEPTED (2026-09-26 — demande du propriétaire : « fusionner la création email pro et utilisateur […]
+le SP reçoit la notification, crée email pro + utilisateur, envoie au RH tous les comptes ; RH notifié […] un
+module de notification pour voir les notifications récentes, anciennes, archivées » ; trois arbitrages explicites)
+; **amendée par l'ADR-199** (2026-09-26) : le rôle arrive prérempli par la fonction de l'employé, et « Accès du
+personnel » devient un onglet du module « Utilisateurs » (une seule entrée de menu) ; **amendée par l'ADR-202**
+(2026-09-27) : plus aucun mot de passe n'est généré ni remis — l'employé choisit le sien à sa première connexion,
+et la remise au RH devient une annonce.
+
+**Amende l'ADR-190** (le RH ne demande plus l'adresse depuis la fiche ; le mot de passe peut être gardé chiffré le
+temps de la remise) et **l'ADR-188** (le compte d'un nouvel employé se crée avec son adresse, depuis le portail).
+**Corrige l'ADR-186** (voir « Défaut trouvé en déployant »). Le CDC ne décrit ni la remise des accès ni une boîte de
+notifications : les règles ci-dessous sont celles du propriétaire.
+
+## Le constat
+
+Pour qu'un nouvel employé travaille, trois gestes sans lien se suivaient : le RH demandait une adresse depuis la
+fiche (ADR-190), le Super Admin la créait dans « Emails professionnels », puis créait le compte RIVO dans
+« Utilisateurs » (ADR-188), avec un second mot de passe. Personne ne prévenait personne, et rien ne disait comment
+les identifiants arrivaient jusqu'à l'employé.
+
+## Les arbitrages du propriétaire
+
+```text
+mot de passe     un seul, pour RIVO et pour la messagerie
+remise           « révélés puis effacés » : gardés chiffrés sur le site le temps que le RH les affiche ou
+                 les imprime, effacés dès la remise confirmée — et au plus tard 7 jours après l'envoi, ou
+                 24 heures après le premier affichage ; chaque affichage audité
+destinataires    les comptes du site qui ont le nouveau droit staff_access.receive (ADMINISTRATION)
+```
+
+## Le parcours
+
+```text
+1. RH du site     ajoute l'employé (fiche RH, rien de nouveau)
+2. portail        le Super Admin est prévenu dans la cloche : « N employés attendent leur accès »
+3. portail        « Accès du personnel » : il coche les employés, règle adresse, rôle et profil, et crée
+                  les accès — adresse chez l'hébergeur + compte RIVO, un mot de passe par employé
+4. portail        « Envoyer au RH de <site> » : la remise part au site
+5. site           le RH est prévenu dans la cloche, ouvre la remise, imprime les fiches d'accès (ou
+                  affiche les mots de passe), les remet, confirme « Accès remis » : tout est effacé
+```
+
+## Créer l'accès : l'hébergeur ne voit rien tant que le site n'a pas dit oui
+
+`StaffAccessProvisioner` (portail), pour chaque employé, dans cet ordre :
+
+```text
+1. relire l'employé sur le site         en poste, pas encore de compte, adresse ni suspendue
+2. demander au site de vérifier         dry_run : rôle, profil, adresse libre — sans mot de passe
+3. la boîte chez l'hébergeur            créée ; déjà ouverte : un nouveau mot de passe (« renouvelé »)
+4. le compte sur le site                avec le mot de passe de la boîte, gardé chiffré dans la remise
+```
+
+Un refus aux étapes 1 ou 2 n'appelle jamais l'hébergeur. Si l'étape 4 échoue, recommencer ne recrée pas la boîte
+(registre de l'ADR-190) : elle reçoit un nouveau mot de passe, que le compte reprend. Une adresse suspendue n'est
+jamais réutilisée en silence : il faut la réactiver d'abord. Le mot de passe est rendu une fois, dans la réponse du
+portail ; il n'est écrit ni dans une base du portail, ni dans un audit, ni dans une notification.
+
+Côté site, `GrantStaffAccessAction` crée le compte par le chemin habituel (`CreateUserAction` : droits, rôle,
+profil, lien « Personnel clinique » à la fiche, ADR-188) et range l'accès dans une **remise**
+(`staff_access_handovers`, une par envoi au RH ; `staff_access_handover_items`, une ligne par employé). Une remise
+déjà envoyée n'accepte plus d'accès : les suivants vont dans une nouvelle. L'API du site
+(`/api/v1/super-admin/staff-access*`) exige `staff_access.create`, plus `users.create` et `roles.assign` pour créer
+un compte ; le rôle `SUPER_ADMIN` n'est jamais proposé (ADR-027). L'écran du portail enchaîne les employés un par
+un, montre l'avancement, laisse corriger puis réessayer une ligne refusée, et groupe les accès par remise.
+
+Un employé qui n'aura pas d'accès (agent d'entretien, par exemple) se marque « Aucun accès nécessaire » avec un
+motif (`employees.access_waived_*`) : il quitte la liste et n'y revient que si on le rétablit. Créer son accès
+plus tard efface cette mention.
+
+## Le mot de passe, le temps de la remise
+
+C'est l'amendement de l'ADR-190 (« jamais enregistré ») : pour la remise seulement, le mot de passe est gardé
+
+```text
+où          staff_access_handover_items.secret, sur le site — cast Laravel `encrypted`, attribut caché,
+            jamais sérialisé, jamais dans une réponse sauf « Afficher »
+combien     remise créée ou envoyée : 7 jours ; premier affichage : 24 heures au plus
+effacé      à « Accès remis », à l'échéance (à chaque lecture, et par rivo:staff-access:purge chaque
+            heure) ; la liste des comptes créés reste lisible, seuls les mots de passe partent
+audit       staff_access.grant, .send, .reveal (le nombre d'accès, jamais un mot de passe), .deliver
+```
+
+Une fois effacés, le Super Admin en donne de nouveaux séparément : celui de l'adresse dans « Emails
+professionnels », celui du compte dans « Utilisateurs » (ils ne sont alors plus forcément identiques).
+
+## Remettre : au site, par le RH
+
+`/administration/staff-access` (`staff_access.receive`) liste les remises reçues ; une remise ouverte montre les
+comptes sans mot de passe. « Afficher les mots de passe » et « Imprimer les fiches d'accès » les chargent à la
+demande (`POST …/reveal`, limité à 20 par minute) ; une fiche par employé : adresse de connexion, identifiant,
+mot de passe, messagerie, et le rappel de le changer dans « Mon profil ». « Accès remis » efface tout. Une remise
+non encore envoyée reste invisible au RH (404).
+
+Ces pages sont aussi servies au portail (ADR-187). Le Super Admin y suit la remise, mais **afficher, imprimer et
+confirmer se font au site** : les deux routes portent `rivo.site-only:staff_access` et refusent le Super Admin
+distant, même avec le droit (même règle de lieu que l'ADR-189) ; l'écran du portail montre ces gestes verrouillés
+avec leur raison. Ainsi un mot de passe ne repasse jamais par le portail après sa création. `rivo.site-only`
+accepte désormais un contexte (message propre à la remise ; `pharmacy` par défaut, ADR-189 inchangé).
+
+## Prévenir sans que les sites parlent au portail
+
+Les sites n'appellent pas le portail (ADR-004). C'est le portail qui relit leur API
+(`StaffAccessWatcher`) :
+
+```text
+à l'ouverture de la cloche ou des pages     après la réponse, au plus toutes les deux minutes
+tâche planifiée                              rivo:staff-access:sync, toutes les cinq minutes
+une fois par employé                         staff_access_notices (site, employé) unique : deux lectures
+                                             qui se croisent ne notifient pas deux fois
+qui                                          les comptes actifs du portail avec staff_access.view ; celui
+                                             qui regarde déjà la liste n'est pas prévenu
+```
+
+« À traiter » (points d'attention) existe aussi sur le portail : « Accès à créer », compté à la dernière lecture —
+jamais une lecture des sites à l'ouverture de la cloche.
+
+## Le module Notifications
+
+Une boîte par compte, sur les sites comme sur le portail, sur la table standard `notifications` de Laravel
+(+ `archived_at`) :
+
+```text
+cloche          pastille des non lues (prop partagée notifications.unread) ; deux onglets :
+                « Notifications » (les 8 dernières, lire / non lue / archiver, « Tout marquer lu ») et
+                « À traiter » (les points d'attention d'avant) ; relue chaque minute, onglet visible
+/notifications  Toutes · Non lues · Archivées, avec leurs comptes ; recherche (accents ignorés, sur les
+                1 000 dernières), catégorie, sélection multiple ; regroupées par jour
+ouvrir          GET /notifications/{id}/ouvrir : marquée lue, puis son lien — interne seulement
+                (NotificationCenter::safeUrl : chemin qui commence par « / », jamais « // »)
+```
+
+Aucune permission : chacun ne voit que ses propres notifications (`UserNotification::scopeFor`). Deux notifications
+existent : `staff_access.pending` (portail, vers « Accès du personnel » du site) et `staff_access.ready` (site, vers
+la remise). Aucune ne porte un mot de passe.
+
+Une base dont les migrations n'ont pas été jouées n'a pas la table : la page et le résumé de la cloche le disent
+(`NotificationCenter::installed()`, « jouez les migrations ») au lieu d'une erreur 500, comme les Paramètres
+(ADR-184). Constaté le 2026-09-26 sur la base locale du portail.
+
+## Ce qui change ailleurs
+
+```text
+fiche employé            la demande d'adresse du RH est retirée ; la carte explique le parcours et mène
+                         aux remises. La route POST /administration/employees/{employee}/professional-mailbox
+                         reste (tests, anciens écrans) mais n'est plus proposée
+Emails professionnels    « Accès du personnel » en tête ; « Nouvelle adresse » devient « Adresse seule » :
+                         une adresse sans compte reste possible
+menus                    portail : « Accès du personnel » (KeyRound, staff_access.view) ; site : rubrique RH
+                         « Accès du personnel » (staff_access.receive)
+Utilisateurs (ADR-188)   inchangé : un compte « Personnel clinique » ou « Externe » se crée toujours à la main
+```
+
+## Défaut trouvé en déployant (corrige l'ADR-186)
+
+Sur une copie du portail, un `migrate` appliquait bien les migrations mais le Super Admin ne recevait **pas** les
+nouveaux droits ; il ne les recevait qu'au `migrate` suivant (« Nothing to migrate »). Cause : le premier écouteur
+de `MigrationsEnded` était `fn () => Cache::forget(Permission::CACHE_KEY)`. Sans clé en cache, `forget()` renvoie
+`false` ; or un écouteur Laravel qui renvoie `false` arrête l'événement — la synchronisation de l'ADR-186 ne
+s'exécutait donc que si la clé se trouvait en cache par hasard. L'écouteur ne renvoie plus rien ; un test le fixe
+(cache vide, fin de migrations, droits accordés).
+
+## Droits et données
+
+```text
+staff_access.view      voir les employés sans accès et les remises          SUPER_ADMIN (portail)
+staff_access.create    créer les accès, envoyer au RH, « aucun accès »      SUPER_ADMIN (portail)
+staff_access.receive   recevoir et remettre les accès sur le site           ADMINISTRATION
+```
+
+Créer un accès exige aussi `professional_emails.create` (l'hébergeur). Migrations
+`2026_11_07_090000_create_notifications_table` et `2026_11_07_091000_create_staff_access_tables`, à jouer sur
+chaque site et sur le portail ; le Super Admin reçoit les trois droits par l'ADR-186 au même `migrate`. Le
+planificateur (`schedule:run`) doit tourner sur le portail (synchronisation) et sur chaque site (effacement).
+
+## Signalé, non tranché
+
+```text
+ancienne demande du RH     la route reste ; la retirer (et ses tests) est à décider
+boîte de notifications     aucune purge automatique des notifications anciennes ou archivées
+nouveaux mots de passe     après effacement, adresse et compte se renouvellent séparément : un geste
+                           « redonner l'accès » (un seul mot de passe, nouvelle remise) reste à construire
+notifications en direct    relues chaque minute ; pas de diffusion instantanée (websocket)
+```
+
+## Amendement du 2026-09-26 — la liste des remises dit ce qui presse
+
+Demande du propriétaire : « mettre à jour cette page, UI et UX » (`/administration/staff-access`). La liste empilait
+les remises en lignes identiques, avec un bandeau « N remises à faire » qui ne disait ni laquelle, ni pour quand.
+Présentation et lecture seulement : aucun droit, aucune règle de remise, aucun mot de passe servi.
+
+```text
+cartes-filtres     À remettre (ambre, rouge sous 3 h ; indice : le délai le plus proche) · Remis ·
+                   Effacés (délai dépassé) · Toutes — comptées par le serveur, la recherche comprise ;
+                   la carte est le filtre (?vue=a-remettre|remis|effaces|toutes, inconnue = toutes)
+recherche          nom, matricule, identifiant ou adresse d'un employé (?q=, « % » et « _ » littéraux)
+tri                ce qui attend d'abord, le délai d'effacement le plus court en tête ; puis le plus récent
+une carte          StaffAccessReceivedCard : ce que la remise attend (« Remettre les accès » ; « Confirmer
+par remise         la remise » une fois les fiches consultées ; « Voir » sinon), le délai d'effacement
+                   coloré (expiryUrgency : neutre, ambre sous 24 h, rouge sous 3 h), la frise Envoyés →
+                   Consultés → Remis (handoverSteps, sans « Créés »), les employés avec fonction, matricule
+                   et identifiant — 6 au plus, « +N autres » ouvre la remise
+guide              « Imprimez · Remettez en main propre · Confirmez », seulement quand quelque chose attend
+à savoir           le bouton « ! » : mots de passe protégés, délai, mot de passe perdu, et depuis le
+                   portail, que la remise se fait au site
+```
+
+`waiting` reste servi (compté hors recherche). Tests : `SiteStaffAccessTest` (vues, comptes, tri, recherche,
+brouillons invisibles), `staffAccess.test.js` (urgence, libellé d'action, aucun mot de passe dans la liste).
+
+---
+
+# ADR-198 — Fiche employé en shadcn, badge professionnel et « écrire » depuis la fiche
+
+**Status:** ACCEPTED (2026-09-26 — demande du propriétaire : « mettre à jour cette page, UI et UX complète avec
+shadcn ; ajouter une enveloppe pour envoyer un email en haut, et un bouton pour voir son badge »)
+
+**Complète l'ADR-066** (dossier RH), **l'ADR-194** (photo 4 × 4) et **l'ADR-195** (messagerie). Présentation
+seulement côté serveur : aucune route, permission, donnée ni migration nouvelle.
+
+## La fiche
+
+`Pages/Administration/Employees/Show.vue` quitte DashWind (`Icon`, `Button`, `Input` de `Components/UI`, couleurs
+`slate`/`gray`, `<select>` et `<textarea>` natifs) pour les primitives shadcn et lucide (ADR-099). Servie aussi au
+portail (ADR-187) : toute adresse RH passe par `hrUrl()`.
+
+```text
+en-tête      bandeau aux couleurs du thème ; seule la photo déborde dessus, le texte reste dessous ; matricule,
+             statut (Actif / Inactif / Archivé), compte RIVO relié ; fonction et service
+actions      Écrire (enveloppe) · Badge · Fiche (impression) · Modifier ou Restaurer
+l'essentiel  date d'entrée et ancienneté, téléphone (lien d'appel), email, compte RIVO
+blocs        identité administrative, coordonnées (copier le téléphone ou l'email), congés, planning à
+             venir, présences récentes, contrats, documents privés (dépôt par glisser-déposer)
+archiver     une fenêtre avec motif obligatoire, au lieu d'un volet dépliant
+```
+
+**Congés, présences et planning étaient déjà servis** par le contrôleur, chacun sous son droit
+(`leave.view`, `attendance.view`, `planning.view`), mais la page ne les affichait pas. Ils le sont désormais ; un
+bloc sans droit n'est pas servi, donc pas affiché (ADR-102). Les soldes s'écrivent « 30 », « 2,5 », jamais « 30.00 ».
+
+## Écrire à l'employé
+
+L'enveloppe écrit à l'adresse de la fiche (l'adresse pro, ADR-190) :
+
+```text
+le compte a une boîte RIVO (webmail.available)   /messagerie/dossier/reception?ecrire=Nom <adresse>
+sinon                                            mailto:, la messagerie du poste
+pas d'adresse                                    bouton visible, désactivé, qui dit pourquoi
+```
+
+La messagerie lit `?ecrire=` (`composeTarget`, `utilities/webmail.js`) : une seule adresse valable, « Nom
+<adresse> » accepté, sinon rien. Elle ouvre un **nouveau message déjà adressé, jamais envoyé** — on relit, on
+écrit, on envoie. Le paramètre est retiré de la barre d'adresse. Le nom ne peut pas fabriquer une seconde adresse
+(`composeHref` retire `<`, `>`, guillemets et retours à la ligne). Une boîte fermée garde la cible : l'ouverture
+revient à l'adresse demandée (`redirect()->guest()` puis `intended()`). Sur le portail, c'est la boîte du portail.
+
+## Le badge professionnel
+
+`Components/Administration/EmployeeBadge.vue` : une carte au format CR80 (54 × 85,6 mm), la même à l'écran et à
+l'impression.
+
+```text
+contenu      marque et site, « Carte professionnelle », photo 4 × 4, nom, prénom, fonction, service,
+             matricule, n° de badge s'il est renseigné (champ `badge` du dossier)
+QR           le matricule, et rien d'autre du dossier
+écran        miniature dans la colonne de droite, et « Badge » en grand dans une fenêtre
+impression   « Imprimer le badge » : sur A4, à taille réelle, dans un cadre de découpe (ou sur une
+             imprimante de cartes) ; seul le badge sort (feuille montée le temps d'imprimer)
+droit        voir : l'accès à la fiche ; imprimer : `employees.print`
+inactif      un dossier archivé ou inactif montre sa carte barrée « Archivé » / « Inactif », et
+             l'impression est refusée à l'écran
+```
+
+## Signalé, non tranché
+
+```text
+dossier inactif          ne pas imprimer son badge est un choix d'écran, pas une règle du CDC : à confirmer
+marque sur le portail    comme les autres pages imprimées relayées (ADR-187), la marque vient des paramètres
+                         du portail ; le nom du site, lui, est celui du site
+QR                       aucun écran ne le lit encore ; il ne porte que le matricule
+validité du badge        aucune date de validité n'existe au dossier : la carte n'en affiche pas
+```
+
+---
+
+# ADR-199 — La fonction propose le rôle du compte ; Comptes et Accès du personnel forment un seul module
+
+**Status:** ACCEPTED (2026-09-26 — demande du propriétaire : « un employé créé par le RH a déjà son département et
+sa fonction : pourquoi choisir encore le rôle ? », « à quoi sert le module Utilisateurs si on a Accès du personnel ? »,
+et une fenêtre « Créer les accès » jugée trop large et peu soignée)
+
+**Complète l'ADR-188** (module Fonctions, lien compte ↔ fiche), **l'ADR-194** (fonctions par département) et
+**l'ADR-197** (accès du personnel). Aucune permission nouvelle.
+
+## Le rôle vient de la fonction
+
+Une fonction porte, dans ses métadonnées, le rôle — et s'il le faut le profil métier — qu'elle propose au compte de
+celui qui l'exerce (`account_role`, `account_profile`, par **code** : le code d'un rôle ou d'un profil ne change
+jamais, ADR-100). `App\Support\Hr\JobTitleAccountRole` le résout sur les rôles du site ; un rôle archivé ou absent
+ne propose rien, `SUPER_ADMIN` n'est jamais proposé (ADR-027).
+
+```text
+réglé dans     RH › Fonctions, encadré « Rôle proposé pour son compte » (hr_settings.update, comme la fonction)
+               omettre la clé laisse le réglage ; vide = « aucun rôle proposé » ; un profil doit appartenir au rôle
+prérempli      « Créer les accès » (portail) et l'assistant « Nouvel utilisateur › Personnel clinique » :
+               le rôle choisi à la main n'est jamais remplacé
+jamais         un droit : c'est une proposition que celui qui crée le compte voit et peut changer
+```
+
+**La proposition de départ** (`DefaultJobTitleAccountRoles`) est lue sur le CDC §9 « Fonctions internes », affinée par
+l'ADR-033 et l'ADR-168 : Admin → Administration ; Médecin → Médecine ; Infirmier généraliste → Soins · Infirmier ;
+Sage-femme → Soins · Sage-femme ; Infirmier anesthésiste → Soins · Anesthésiste ; Infirmier de bloc → Chirurgie ·
+Infirmier de bloc ; Laborantin → Laboratoire ; Pharmacien → Pharmacie ; Gardien → Support · Gardien ; Servante →
+Support · Agent d'entretien. **Aucune proposition** pour les fonctions que le CDC ne rattache à aucun rôle (Gérant,
+Jardinier, Chauffeur, Maintenance, Lingerie, Serveur, Dentiste, Assistant Dentisterie) : rien n'est inventé. Elle
+ne règle qu'une fonction sur laquelle rien n'a été décidé ; « aucun rôle proposé » est une décision, jamais réécrite.
+Migration `2026_11_08_090000_propose_account_roles_for_job_titles` (sites et portail) et `HrReferenceSeeder`.
+
+## Un seul module : « Comptes » et « Accès du personnel »
+
+```text
+Comptes              /super-admin/workspaces/users — tous les comptes et leur vie : changer un rôle, désactiver
+                     au départ (ADR-022), nouveau mot de passe, compte d'une personne extérieure (ADR-188)
+Accès du personnel   /super-admin/staff-access — l'arrivée d'un employé : adresse pro + compte RIVO en un geste,
+                     un seul mot de passe, remis au RH (ADR-197)
+```
+
+Une barre d'onglets commune (`Components/SuperAdmin/UserAccessTabs.vue`) relie les deux pages ; chacune garde son
+adresse et sa permission (même principe que Soins, ADR-134), un onglet sans droit est verrouillé, jamais masqué
+(ADR-158). L'onglet « Accès du personnel » dit combien d'employés attendent (compteur déjà gardé par le portail,
+ADR-197). Le menu n'a plus qu'une entrée, « Utilisateurs », allumée sur les deux adresses.
+
+## La fenêtre « Créer les accès »
+
+56 rem au lieu de toute la largeur ; ce que crée un accès en trois étapes (adresse pro, compte RIVO, remise au RH) ;
+une carte par employé, libellés au-dessus des champs, adresse et rôle côte à côte (puis adresse et mot de passe une
+fois créés), statut « Prêt » / « À compléter » ; le rôle prérempli porte « selon sa fonction ». « Envoyer au RH »
+reste grisé tant qu'aucun compte du site n'a `staff_access.receive`, avec la marche à suivre. Aucune erreur n'est affichée à l'ouverture : un manque ne se dit qu'après un geste ou un
+refus du serveur ; le pied de la fenêtre dit combien d'employés restent à compléter. « Même rôle pour tous » reste
+possible et remplace les propositions.
+
+## Désigner, depuis le portail, qui remet les accès au site
+
+« Aucun compte de ce site n'a le droit staff_access.receive » ne disait pas l'essentiel : le Super Admin a bien le
+droit d'envoyer, mais personne **au site** ne peut recevoir. Les mots de passe ne repassent jamais par le portail
+(ADR-197) : c'est une personne du site — le RH, en général — qui les affiche, les imprime et les remet. Constaté
+sur Ambondromamy : ses comptes sont Réception, Laboratoire et Médecine, aucun RH.
+
+Le bloc d'envoi (fenêtre et onglet « Accès créés ») le dit désormais en clair et propose de **désigner** la personne
+du site qui remettra : une liste des comptes actifs (ceux qui reçoivent déjà, puis l'Administration, puis les
+autres), « Désigner », et « Envoyer au RH » devient actif. `DesignateStaffAccessReceiverAction` ajoute au compte
+une exception `ALLOW` sur `staff_access.receive` par l'action des exceptions (ADR-100) : ses autres exceptions
+restent intactes, un refus nominatif sur ce seul droit cède à la désignation, et l'audit garde
+`user.permissions.assign`. Exige `staff_access.create` **et** `permissions.assign` (ADR-022), revérifiés par le site
+(`POST /api/v1/super-admin/staff-access/receivers`) ; le portail relaie par `POST /super-admin/staff-access/{site}/receivers`.
+Un compte désactivé ou Super Admin ne se désigne pas.
+
+## L'onglet « Accès créés » se lit d'un coup d'œil
+
+Chaque remise est une carte (`StaffAccessHandoverCard`) : ce qu'elle attend en une phrase, une frise
+Créés → Envoyés au RH → Consultés par le RH → Remis aux employés avec date et auteur (`handoverSteps()` : une étape
+sautée ne redevient jamais « à venir », une remise effacée s'arrête sur « Mots de passe effacés »), le délai avant
+effacement, puis les comptes en colonnes sur grand écran et empilés sur téléphone. Filtres Toutes / À envoyer /
+Chez le RH / Remises / Expirées ; ce qui attend un geste passe en tête. Aucun mot de passe n'y est servi.
+
+## Le portail ne crée plus que des comptes externes
+
+Question du propriétaire : « Personnel clinique » double « Accès du personnel ». Oui : sur le portail, l'assistant
+« Compte externe » (onglet « Comptes ») ne crée plus que le compte d'une personne extérieure (médecin consultant,
+auditeur, technicien d'un fournisseur) ; un encadré renvoie les employés vers « Accès du personnel », qui crée leur
+compte et leur adresse pro ensemble. Le terme reste « Externe » plutôt qu'« Invité » : un compte externe porte un
+vrai rôle, et « invité » se confondrait avec l'activation du compte par invitation. **En modification**, relier un
+compte existant à sa fiche RH (« Personnel clinique », ADR-188) reste possible : des comptes ont été créés avant, et
+la disponibilité d'un chirurgien au bloc lit ce lien (ADR-168). L'écran « Utilisateurs » d'un site et l'API gardent
+les deux choix ; seule la création sur le portail change.
+
+## Une notification suit ce qu'elle annonce
+
+« 4 nouveaux employés attendent leur accès » restait affichée une fois les accès créés : elle ne gardait que le
+site et le nombre. `NewEmployeesAwaitingAccess` retient désormais ses employés (`meta.employee_uuids`) ; à chaque
+relecture des sites (page, cloche, tâche planifiée), `StaffAccessWatcher::resolve()` compte ceux qui attendent
+encore (`meta.waiting`, affiché « 1 sur 4 attend encore ») et, quand plus aucun n'attend — compte créé ici ou au
+site, « aucun accès nécessaire », départ —, la marque « Traité » et lue. Rien n'est effacé : le titre reste ce
+qui a été annoncé. Une notification d'avant cette règle retrouve ses employés dans `staff_access_notices` (ceux
+relevés à la même lecture, à la minute près), seulement si leur nombre est exactement celui annoncé.
+
+## Signalé, non tranché
+
+```text
+qui règle la proposition   hr_settings.update (le RH) : c'est une suggestion, le Super Admin décide en créant
+                           le compte ; la réserver à un droit du portail est possible si on le souhaite
+département seul           le rôle ne se déduit que de la fonction, jamais du département (un département mêle
+                           plusieurs métiers)
+```
+
+---
+
+# ADR-200 — Déjà connecté à RIVO : sa boîte email s'ouvre sans retaper son mot de passe
+
+**Status:** ACCEPTED (2026-09-26 — demande du propriétaire : « un utilisateur déjà connecté sur son compte, on
+ne peut pas exiger de lui saisir encore le mot de passe lorsqu'il consulte ses emails ; il accède directement à
+la boîte de réception ») ; **complétée par l'ADR-202** : le mot de passe choisi à la première connexion est posé
+sur la boîte, qui s'ouvre alors sans le retaper.
+
+**Amende l'ADR-195** (le mot de passe de la boîte, tapé à l'écran d'ouverture) et **précise l'ADR-190**
+(« RIVO ne connaît pas le mot de passe de la boîte »). Aucune permission nouvelle, aucune migration.
+
+## Le constat
+
+Depuis l'ADR-197, l'adresse professionnelle et le compte RIVO d'un employé reçoivent **le même mot de passe**.
+L'employé l'a donc déjà tapé pour entrer dans RIVO — et `/messagerie/connexion` le lui redemandait à chaque
+session. Le serveur de messagerie exige bien un mot de passe (IMAP/SMTP) ; ce n'est pas une raison pour le
+faire taper deux fois.
+
+## La règle
+
+À la connexion à RIVO, le mot de passe saisi est gardé **chiffré, dans la session seulement**, et ouvre SA boîte
+directement : `/messagerie` et `/messagerie/connexion` mènent tout droit à la boîte de réception.
+
+```text
+quand         à la connexion (AuthenticatedSessionController → WebmailSignOn), sur un site, pour un compte
+              qui a une adresse professionnelle active et le droit de l'ouvrir (WebmailAccess::ownBox)
+où            session, clé webmail.own, chiffrée (Crypt) et liée à l'adresse — jamais en base, jamais dans un
+              journal ni dans l'audit ; oubliée à la déconnexion de RIVO
+vérifié       pas à la connexion : RIVO n'attend pas le serveur de messagerie et n'échoue jamais à cause de lui.
+              Le serveur juge au premier usage de la messagerie
+accepté       première ouverture auditée une fois par session : webmail.connect, via « rivo_login »
+refusé        le mot de passe de RIVO n'est pas (ou plus) celui de la boîte : il est oublié aussitôt, jamais
+              réessayé, et celui de la boîte est demandé une fois — « Votre boîte n'a pas le même mot de passe
+              que votre compte RIVO… » ; tapé, il est gardé pour la session
+injoignable   la page « Messagerie indisponible », le mot de passe gardé
+```
+
+Ce que cette règle ne change pas : la boîte d'un **autre** employé (`webmail.open_any`) demande toujours son
+mot de passe, et son ouverture reste auditée à votre nom ; le portail garde sa boîte réglée dans son .env.
+
+## Deux places dans la session
+
+`webmail.credentials` (la boîte choisie à l'écran d'ouverture) et `webmail.own` (le mot de passe de SA boîte,
+venu de la connexion ou tapé une fois). Ouvrir la boîte d'un collègue ne perd plus le sien : la refermer ramène
+directement à sa boîte, et choisir « Ma boîte » à l'écran d'ouverture ne demande rien quand son mot de passe est
+connu (`ownReady`). `WebmailAccess::passwordSource()` dit d'où vient un mot de passe (`portal`, `session`,
+`login`, `typed`).
+
+## L'écran
+
+- La page d'ouverture ne s'affiche plus pour sa boîte, sauf si le mot de passe n'est pas connu (connexion
+  mémorisée par « se souvenir de moi », boîte fermée) ou refusé ; une phrase dit alors pourquoi il est demandé.
+  La mise en page pleine largeur de l'ADR-195 est gardée.
+- Sa boîte connue : « Rien à taper » à la place du champ.
+- Dans la messagerie, une pastille « Ouverte avec votre connexion » explique qu'aucun mot de passe n'a été
+  demandé ; le bouton « Fermer ma boîte » disparaît pour elle — elle se ferme avec la session RIVO (le fermer
+  seul ferait retaper un mot de passe déjà saisi). Il reste pour une boîte tapée et pour celle d'un collègue.
+- « Mon profil » : changer son mot de passe RIVO dit que la boîte garde le sien, et qu'il sera demandé une fois
+  à la prochaine connexion.
+
+## Ce qui change pour ADR-190
+
+RIVO ne garde toujours aucun mot de passe de boîte en base. Il garde, le temps d'une session, celui que
+l'employé vient de taper pour entrer dans RIVO — exactement comme il gardait celui tapé à l'écran d'ouverture.
+Conséquence assumée : quand les deux mots de passe diffèrent, le mot de passe RIVO est présenté une fois au
+serveur de messagerie de la clinique (en TLS), qui le refuse ; il n'est jamais réessayé dans la session.
+
+## Signalé, non tranché
+
+```text
+mot de passe changé dans    la boîte garde le sien chez l'hébergeur : à chaque connexion suivante, il sera
+« Mon profil »              demandé une fois. Changer aussi celui de la boîte (API cPanel, site doté des accès
+                            à l'hébergeur, ADR-190) est possible — à décider
+« se souvenir de moi »      traité par l'amendement ci-dessous
+```
+
+## Amendement du 2026-09-26 — cliquer « Messagerie » ouvre la boîte de réception, même après « Se souvenir de moi »
+
+Constat du propriétaire : « Messagerie » affichait encore « Ouvrir ma boîte ». Cause vérifiée : la session d'Angela
+NANDRASANA avait été ouverte à 21:49, avant la mise en place de cette règle (22:00) — RIVO n'avait jamais reçu son
+mot de passe. Une reconnexion suffit pour ce cas. Mais le même écran serait revenu à chaque session expirée (deux
+heures sans activité) pour tout compte connecté avec « Se souvenir de moi » : RIVO le reconnecte par son cookie, sans
+mot de passe saisi.
+
+```text
+« Se souvenir de moi »  le mot de passe de sa boîte est gardé aussi sur l'appareil, dans un cookie chiffré
+                        (`rivo_webmail_key` : chiffré par RIVO puis par le chiffrement des cookies, HttpOnly,
+                        même durée que le cookie de RIVO), lié au compte et à l'adresse
+reconnexion             à la reconnexion par le cookie de RIVO (événement Login, viaRemember), il revient dans
+                        la session (`WebmailSignOn::restoreFromDevice`) : la boîte s'ouvre directement
+poste partagé           un cookie laissé par un autre compte, ou pour une adresse qui n'est plus la sienne, est
+                        ignoré et effacé ; une connexion sans « Se souvenir de moi » l'efface aussi
+effacé                  à la déconnexion (événement Logout, tous chemins), quand le serveur refuse le mot de
+                        passe, quand on ferme sa boîte
+tapé une fois           (boîte au mot de passe différent) gardé aussi sur l'appareil si « Se souvenir de moi »
+                        y est actif
+```
+
+**Divergence signalée avec l'ADR-190/200** (« dans la session seulement ») : le mot de passe peut désormais vivre
+sur l'appareil, chiffré, le temps de « Se souvenir de moi ». Il n'est toujours jamais en base, jamais dans un journal
+ni dans l'audit. Le risque reste celui du cookie de RIVO lui-même, qui ouvre déjà la messagerie à qui le détient.
+
+La page d'ouverture ne reste que pour deux cas où RIVO ne peut pas connaître le mot de passe : une session ouverte
+avant cette règle (se reconnecter une fois), et une boîte dont le mot de passe n'est pas celui de RIVO (tapé une
+fois). Aucune permission, aucune migration.
+
+---
+
+# ADR-201 — Une grossesse relie plusieurs consultations Maternité
+
+**Status:** ACCEPTED (2026-09-26 — exigence explicite du propriétaire) ; affichage revu le 2026-09-27 (amendement
+en fin d'ADR : un seul choix, suivi à onglets, terme instantané pour le passé, écarts servis par le serveur)
+
+**Amende l'ADR-137** : la prévisualisation Vue reste une aide immédiate, mais la DPA et le terme enregistrés ne sont
+plus de simples propositions acceptées par le navigateur. Laravel les calcule depuis la datation de référence de la
+grossesse. Les autres seuils de l'ADR-137 restent des repères non bloquants à faire valider par la clinique.
+
+## Modèle métier
+
+```text
+Patient != Pregnancy != Episode != MaternityRecord
+
+Patient
+  └─ Pregnancy (suivi longitudinal)
+       ├─ MaternityRecord du passage 1 (snapshot)
+       ├─ MaternityRecord du passage 2 (snapshot)
+       └─ MaternityRecord d'accouchement (snapshot + nouveau-nés)
+            └─ Episode (passage administratif et clinique, toujours conservé)
+```
+
+`Pregnancy` porte UUID, patiente, statut `ONGOING|DELIVERED|ENDED`, DDR, DPA, méthode de datation
+`LMP|ULTRASOUND|MANUAL_CORRECTION`, confirmation, G/P, facteurs de risque, début/fin/accouchement et auteurs. Elle
+est auditée et n'est pas supprimée : sa fin est un état métier. `MaternityRecord` garde l'Épisode, les sections JSON,
+les actes et les nouveau-nés de CE passage ; `pregnancy_id` relie seulement la consultation à son longitudinal.
+
+G/P restent saisis cliniquement sur la grossesse : compter les seules grossesses connues de RIVO mentirait sur une
+histoire suivie ailleurs. Chaque consultation conserve aussi `pregnancy_data` comme snapshot compatible avec les
+lecteurs existants. Les anciennes structures ne sont ni supprimées ni réinterprétées.
+
+## Rattachement explicite et concurrence
+
+À la première sauvegarde d'un dossier non lié, l'utilisateur doit choisir : continuer une grossesse `ONGOING` de
+cette patiente, ou en créer une quand aucune n'est active. Aucune heuristique « même patiente = même grossesse » et
+aucune création silencieuse. `ActivePregnancyResolver`, dans la transaction de sauvegarde, verrouille l'orientation,
+la patiente et la grossesse ; une soumission concurrente ou répétée ne crée pas deux grossesses actives. Une
+grossesse `DELIVERED` ou `ENDED` n'est jamais proposée comme active.
+
+La migration ajoute `pregnancies`, puis à `maternity_records` un `pregnancy_id` nullable et les snapshots
+`gestational_age_weeks` / `gestational_age_days`. **Aucun backfill automatique** : les dossiers antérieurs restent
+lisibles et non liés. Les grouper par patiente ou par proximité de dates inventerait une preuve médicale inexistante.
+
+## Datation, snapshots et historique
+
+`PregnancyDatingService` est la source de vérité. Pour une DDR, la DPA enregistrée est recalculée sur le serveur avec
+`MaternityReference::PREGNANCY_TERM_DAYS`; le terme à la date réelle du passage est enregistré en semaines + jours.
+Modifier ensuite la datation ne réécrit jamais ces snapshots. Une correction est un geste distinct, permis pendant
+la prise en charge avec `maternity.update` + `maternity.prenatal.manage`, et audite acteur, heure, anciennes/nouvelles
+valeurs et motif éventuel. La prévisualisation JS lit la même référence, mais ne décide rien.
+
+Le serveur sert le résumé (DDR, DPA, terme, nombre et dernière consultation), les seules consultations de cette
+grossesse, et séparément les grossesses précédentes. Les consultations terminées se rouvrent par leur route existante
+en lecture seule sous `maternity.view`. `PrenatalComparisonPresenter` compare factuellement le précédent snapshot au
+passage courant (terme, poids, TA, hauteur utérine, BCF) et ne produit aucun diagnostic.
+
+## Accouchement et nouveau-né
+
+Terminer une prise en charge contenant `delivery_data.occurred_at` fait passer la grossesse à `DELIVERED`, avec
+`delivered_at` et `ended_at` égaux à cette heure clinique — jamais à `now()`. Sans accouchement consigné, terminer une
+consultation ne clôt pas la grossesse. Une naissance multiple produit plusieurs fiches dans `newborn_data`, mais une
+seule Pregnancy. `CreateNewbornPatientAction` et `PatientNewbornLink` restent attachés au dossier d'accouchement et
+ne changent pas.
+
+`ENDED` réserve une fin sans accouchement, mais aucun geste clinique n'est ajouté tant que la clinique n'en a pas
+défini la validation, l'auteur et le motif. Aucune permission nouvelle ; les permissions Maternité existantes restent
+la vérité serveur.
+
+## Amendement du 2026-09-27 — le suivi se lit d'un coup d'œil, et le passé reste le passé
+
+Revue du module sur une patiente à trois passages (deux consultations prénatales, puis le jour de l'accouchement).
+Aucune règle de l'ADR ne change ; ce qui suit corrige ce que l'écran disait mal.
+
+```text
+un seul choix          une seule grossesse active : le résumé devient « Grossesse active trouvée » et porte
+                       lui-même « Continuer cette grossesse » ; la carte de sélection, qui répétait la même
+                       grossesse, ne s'affiche plus que pour « Créer » ou plusieurs choix. Le choix reste
+                       explicite, jamais automatique, et le serveur le revérifie sous verrou
+suivi à onglets        « Suivi de la grossesse » : Consultations de cette grossesse · N, Comparaison,
+                       Grossesses précédentes · N — trois ensembles distincts, jamais mêlés ; l'empilement
+                       repoussait le dossier du jour sous la ligne de flottaison
+terme du passé         une consultation relue affiche le terme enregistré avec elle (gestational_age_source
+                       « snapshot »), jamais le terme recalculé depuis la datation actuelle
+comparaison            écarts signés, unités et intervalle calculés par PrenatalComparisonPresenter
+                       (« +1,5 kg », « −3 bpm », « 6 semaines et 2 jours plus tard ») ; « Aujourd’hui »
+                       seulement le jour même, « Ce passage » ensuite ; TA sans écart (deux nombres) ; une
+                       valeur absente d'un côté ne produit aucun écart. Vue met en forme (virgule
+                       décimale), ne calcule rien
+référence stable       G-AAAA-NNNN prend l'année de création de la fiche, plus celle du début de grossesse,
+                       qu'une correction de datation pouvait déplacer
+onglet « renseigné »   seulement par une saisie du passage : les champs de terme calculés par le serveur
+                       ne cochent plus « Grossesse & prénatal », et les données de grossesse ne cochent
+                       « Contexte » que lorsqu'une grossesse est créée par ce passage
+lecture seule          « La prise en charge Maternité de ce passage est terminée » (et non un statut brut)
+```
+
+Décidé, et non construit : **pas d'enum de type de consultation**. Le libellé (Accouchement, Évaluation du
+travail, Consultation prénatale, Consultation Maternité) se lit sur ce que le passage contient
+(`PregnancyPresenter::consultationLabel`) ; un type saisi pourrait contredire le dossier, et aucune règle ne
+dépend encore de lui. G/P, DDR, DPA et facteurs de risque appartiennent à la grossesse ; chaque consultation en
+garde l'instantané dans `pregnancy_data`. Aucune migration, aucune permission nouvelle.
+
+---
+
+# ADR-202 — Aucun mot de passe créé : l'employé choisit le sien à sa première connexion
+
+**Status:** ACCEPTED (2026-09-27 — demande du propriétaire : « lorsque le Super Admin crée l'accès d'un
+personnel, le système n'a pas besoin de générer un mot de passe […] le RH communique l'adresse et dit que le
+compte est créé, connectez-vous via ce lien […] l'utilisateur tape son email, le système récupère son nom et
+demande Nouveau mot de passe et Confirmer […] s'il s'est déjà connecté : Email → Continuer → Mot de passe ») ;
+risque signalé avant l'implémentation (ci-dessous) et maintenu par le propriétaire.
+
+**Amende l'ADR-197** (plus aucun mot de passe généré, gardé, affiché, imprimé ni remis : la remise au RH
+devient une annonce), **l'ADR-190** (la boîte d'un nouvel employé reçoit, à sa première connexion, le mot de
+passe qu'il choisit) et **complète l'ADR-200** (ce mot de passe ouvre aussi sa messagerie, sans le retaper).
+Le CDC ne décrit ni la remise des accès ni la première connexion.
+
+## La connexion en deux temps
+
+La page de connexion demande **l'adresse d'abord**, puis « Continuer » (`POST /login/identifier`, 20 par
+minute). Le serveur dit l'étape suivante, jamais l'écran :
+
+```text
+compte qui attend sa première connexion   « Bonjour Vola — vous êtes médecin · Ambondromamy », puis
+                                          « Nouveau mot de passe » et « Confirmer votre mot de passe »
+tout le reste                             « Mot de passe », comme d'habitude — compte déjà utilisé,
+                                          adresse inconnue, compte désactivé, délai passé : la même
+                                          réponse, l'écran ne dit jamais qu'une adresse n'existe pas
+```
+
+La fonction lue est celle de la fiche employé, sinon le profil métier, sinon le rôle (`AccountActivation`).
+Si la vérification ne répond pas, le mot de passe est demandé : la page ne reste jamais bloquée. Un lien du RH
+peut porter l'adresse (`/login?email=…`), déjà écrite. Les règles du mot de passe (12 caractères, majuscule et
+minuscule, chiffre, symbole — `SecurePassword`) se cochent pendant la frappe (`utilities/passwordRules.js`) ;
+le serveur tranche.
+
+## Ce que la première connexion fait
+
+`ActivateAccountAction` (`POST /login/premiere-connexion`, 6 par minute) :
+
+```text
+1. relit le compte sous verrou : il doit attendre encore sa première connexion — un second essai,
+   ou deux onglets, sont refusés (« connectez-vous avec votre mot de passe »)
+2. pose le mot de passe choisi, `activated_at`, efface `activation_open_until`
+3. pose le même mot de passe sur sa boîte professionnelle chez l'hébergeur (UAPI passwd_pop), si ce
+   site y a accès — après la transaction ; un refus ou une panne n'empêche jamais d'entrer
+4. connecte la personne ; si sa boîte a reçu le mot de passe, la messagerie s'ouvrira sans le
+   redemander (ADR-200)
+5. l'accueille (cloche : « Bienvenue sur RIVO — consultez votre messagerie »), lui envoie « Votre
+   compte est validé » dans sa boîte (file d'attente), et prévient le RH du site
+```
+
+Audit `user.activate` : adresse IP, navigateur, boîte, `mailbox_synced` et la raison d'un échec — **jamais le
+mot de passe**. `activated_at` est aussi posé à la première connexion ordinaire d'un compte plus ancien et
+quand un mot de passe est choisi par « Mot de passe oublié » : l'adresse seule n'ouvre plus jamais le choix d'un
+mot de passe sur un compte déjà utilisé.
+
+## Qui attend sa première connexion
+
+`users.activation_open_until` et `users.activated_at` (migration `2026_11_09_090000`). Un compte l'attend s'il
+est actif, jamais activé, jamais connecté, et dans le délai : **14 jours** (`RIVO_ACCOUNT_ACTIVATION_DAYS`),
+comptés depuis la création puis **depuis l'envoi au RH**, puisque c'est de là que l'employé peut apprendre que
+son compte existe. Passé ce délai, le RH le rouvre d'un clic (`staff_access.receive`, audit
+`staff_access.activation.reopen`), depuis le site ou le portail.
+
+## « Créer les accès » : plus aucun mot de passe
+
+Portail : `StaffAccessProvisioner` crée la boîte avec un mot de passe aléatoire **que personne ne voit ni ne
+garde** ; une boîte déjà ouverte est reprise telle quelle (plus de renouvellement). Site : `GrantStaffAccessAction`
+crée le compte par `CreateUserAction` (`activation_on_first_login`), sans mot de passe utilisable ; l'API refuse
+un champ `password` en le nommant. La fenêtre du portail ne montre plus que l'adresse et « en attente de sa
+première connexion ».
+
+## La remise au RH devient une annonce
+
+Une remise se lit sur ses employés (`StaffAccessHandover::status()`) : **à envoyer**, **délai dépassé**, **en
+attente de connexion**, **tous connectés** ; chaque employé : connecté (avec la date), première connexion
+attendue (jusqu'au…), délai dépassé, compte désactivé. La page RH (`/administration/staff-access`) filtre par ces
+états (vues exclusives, ce qui demande un geste en tête). Une remise ouverte propose, par employé, **« Copier le
+message »** (adresse, lien avec l'adresse déjà écrite, délai — à coller dans un SMS, WhatsApp ou un email),
+**« Fiche »** à imprimer avec le **QR code** du lien, et **« Rouvrir »** quand le délai est passé. Le RH est
+prévenu dans la cloche à chaque première connexion.
+
+Retirés : l'affichage et l'impression des mots de passe, « Accès remis », leur effacement programmé
+(`rivo:staff-access:purge`), `RevealStaffAccessAction`, `DeliverStaffAccessAction` et la règle de lieu
+`rivo.site-only:staff_access` — il n'y a plus de secret à garder au site. La migration efface les mots de
+passe encore gardés, marque « activé » tout compte déjà connecté et ouvre la première connexion des comptes
+remis mais jamais utilisés.
+
+## Le risque, signalé et maintenu
+
+Choisir son mot de passe avec la seule adresse, c'est permettre à **quiconque connaît l'adresse** d'un nouvel
+employé de prendre son compte avant lui, pendant le délai. Un lien envoyé dans sa boîte ne l'empêcherait pas :
+cette boîte n'est pas encore ouverte. Le propriétaire a gardé le parcours tel qu'il l'a décrit. Ce qui limite le
+risque, sans rien ajouter à l'écran :
+
+```text
+délai            14 jours, puis plus rien sans le RH
+une seule fois   la première connexion faite, l'adresse seule ne sert plus jamais
+bruit            le RH est prévenu de chaque activation ; l'employé reçoit « Votre compte est validé »
+                 et la fiche comme le message disent de prévenir le RH si ce n'était pas lui
+trace            IP et navigateur dans l'audit ; essais limités (20/min pour l'adresse, 6/min pour
+                 l'activation)
+```
+
+## Droits et données
+
+Aucune permission nouvelle (`staff_access.receive` pour rouvrir). Notifications `WelcomeToPlatform` (catégorie
+« Mon compte »), `StaffAccessActivated` (catégorie « Accès du personnel »), `AccountActivatedMail` (email).
+Jouer la migration sur chaque site et sur le portail.
+
+## Signalé, non tranché
+
+```text
+accès à l'hébergeur sur les sites   sans RIVO_MAIL_HOSTING_* sur le site, la boîte garde son mot de
+                                    passe aléatoire : l'employé entre dans RIVO mais pas dans sa
+                                    messagerie ; la cloche le lui dit et le RH est prévenu
+compte « Personnel clinique »       l'assistant « Utilisateurs » garde l'invitation par email (ADR-188) ;
+créé hors « Accès du personnel »    la première connexion guidée ne vaut que pour « Accès du personnel »
+nom affiché                         « Bonjour <prénom> » : un prénom absent de la fiche donne le nom du compte
+```
+
+---
+
+# ADR-203 — « Décision & clôture » : la conduite à tenir est la seule condition
+
+**Status:** ACCEPTED (2026-09-27 — exigence explicite du propriétaire : « le bouton Clôturer ne doit
+dépendre d'aucune information, on peut clôturer si le médecin choisit la conduite à tenir », « étape trop
+floue, trop de redondance dans la sortie médicale, on a double transfert et référence », « refonte pour plus
+claire, simple, rien de conditions pour la clôture », « rien de conditions avec Le diagnostic peut-il être
+posé maintenant ? »)
+
+**Amende l'ADR-076** (les étapes du parcours), **l'ADR-081** (diagnostic exigé à la clôture),
+**l'ADR-084 / ADR-089** (conduite à tenir transmise puis clôture) et **l'ADR-106** (une confirmation par
+demande) ; **retire l'ADR-095** (« Le diagnostic peut-il être posé maintenant ? »).
+
+## Divergences signalées
+
+```text
+CDC §33.1     « Le médecin renseigne : date et heure, diagnostic final, état du patient… » et range
+              « Référence / transfert » parmi les types de sortie médicale
+ADR-081       le propriétaire avait maintenu le diagnostic exigé le 2026-09-20
+maintenant    ni diagnostic final ni état du patient ne sont exigés à la clôture d'une consultation ;
+              le transfert est une conduite, jamais un type de sortie en consultation
+```
+
+Le propriétaire revient sur son arbitrage du 2026-09-20. Les données restent : un diagnostic posé part
+comme diagnostic final de la sortie, un état saisi est enregistré ; seul leur caractère obligatoire tombe.
+
+## La règle
+
+« Décision & clôture » tient sur un seul écran, sans sous-étapes :
+
+```text
+1 · Diagnostic        facultatif — liste, correction, retrait (ADR-081), suggestions, saisie
+2 · Conduite à tenir  un choix parmi les conduites permises au compte, puis ce qui le précise
+Clôturer              actif dès qu'une conduite est choisie ; la transmet et conclut en un geste
+```
+
+```text
+seule condition       une conduite à tenir choisie (ou déjà transmise, ou une sortie déjà prononcée)
+chirurgie             l'intervention reste exigée (ADR-114, ADR-159) : sans elle le bloc ne programme rien
+ne retiennent plus    diagnostic, étape non validée (Dossier, Interrogatoire, Examen, Prescription),
+                      report du diagnostic, résultat attendu, constante critique
+```
+
+`ConsultationWorkflow::blockersForClosure()` ne renvoie plus que « Conduite à tenir : choisissez la suite de
+la prise en charge. ». Un résultat attendu et une constante critique se lisent dans la fenêtre de clôture,
+comme des informations (ADR-105), jamais comme des blocages.
+
+## Une seule transmission, signée
+
+Plus aucun bouton « Transmettre la demande » par destination, plus de second formulaire de sortie dans la
+consultation. `CompleteConsultationRequest` reçoit `decision` (type, priorité, consignes, type de sortie,
+état, traitement de sortie, conseils, contrôle, intervention, établissement) ;
+`SubmitConsultationDecisionAction` fait partir la conduite par l'action qui la porte déjà — sortie médicale,
+hospitalisation, chirurgie, transfert, Maternité, Pédiatrie — dans la transaction de la clôture. Ce que le
+médecin n'a pas saisi est repris du dossier (`ConsultationOrientationPrefill`, §17), jamais inventé. Le
+droit de la destination et sa pertinence (patient hospitalisé ou non) sont revérifiés.
+
+```text
+sortie médicale     type (Normale par défaut, À la demande, Refus, Décès) ; le reste replié et facultatif ;
+                    diagnostic final = diagnostics posés, un par ligne, jamais recréés ; un décès mène au
+                    registre (ADR-107), l'heure, le lieu et les causes s'y établissent
+transfert           une conduite seulement : « Transfert » n'est plus un type de sortie en consultation
+                    (`MedicalDischargeType::forConsultation()`, refus serveur nommé) ; établissement :
+                    un site de la clinique, un autre, ou « à préciser » dans Transferts
+déjà transmise      lue telle quelle (module, document) ; « Changer de conduite » l'annule d'abord,
+                    après confirmation — jamais remplacée en silence (refus serveur `decision.type`)
+confirmation        une seule fenêtre non fermable : conduite, détails, diagnostics, informations,
+                    responsabilité nominative (ADR-106)
+```
+
+`medical_discharges.patient_condition` devient nullable (migration `2026_11_10_090000`) : un état non
+constaté reste vide, jamais « Stable » par défaut (ADR-077).
+
+## Ce qui est retiré
+
+La question « Le diagnostic peut-il être posé maintenant ? » (ADR-095) : son écran, sa route
+`POST …/diagnostic-timing`, `DecideDiagnosisTimingAction` et sa requête. La colonne
+`clinical_examinations.diagnosis_ready` et les réponses déjà enregistrées restent, sans usage. Retirés
+aussi : `ClinicalOrientationCard`, le drapeau `requires_final_diagnosis`, l'avertissement « retirer le
+dernier diagnostic bloque la clôture ». `ClinicalDischargeForm` reste, pour l'Hospitalisation et la
+Pédiatrie, qui ne changent pas.
+
+La conduite préparée survit à une actualisation (section `decision` du brouillon, ADR-073) ; la clôture
+efface les brouillons de la consultation, qui passe en lecture seule. Composants :
+`Components/Clinical/ConsultationDecisionPanel.vue`, règles d'écran dans
+`utilities/consultationClosure.js`. Aucune permission nouvelle.
+
+## Hors périmètre
+
+La sortie d'un patient hospitalisé reste sur la page du séjour (ADR-162). La réouverture tracée (ADR-096)
+ne change pas.
+
+## Amendement du 2026-09-27 — le bouton dit qu'il transmet
+
+Demande du propriétaire : « il faut toujours avoir le bouton Transmettre avant la clôture finale ».
+Le geste reste unique (la conduite part au moment de la clôture), mais son libellé dit désormais ce qu'il
+fait, selon la conduite choisie (`closureAction()`, `utilities/consultationClosure.js`) :
+
+```text
+service (Hospitalisation, Chirurgie,   barre : « Transmettre et clôturer »
+Maternité, Pédiatrie, Transfert)       fenêtre : « Transmettre à la Maternité et clôturer »,
+                                       une ligne « Le patient est transmis à … », et le bouton
+                                       « Je transmets ce patient à la Maternité et je clôture »
+sortie médicale                        « Je prononce la sortie et je clôture » (« … le décès … »)
+déjà transmise, poursuite de           « Je confirme et clôture » : il n'y a personne à qui
+l'hospitalisation                      transmettre, le libellé ne le prétend pas
+```
+
+Un libellé long passe à la ligne sur un téléphone plutôt que d'être coupé. Aucune règle serveur ne change.
+
+---
+
+# ADR-204 — Maternité : consultation prénatale et accouchement, deux parcours liés à la même grossesse
+
+**Status:** ACCEPTED (2026-09-27 — exigence explicite du propriétaire)
+
+**Complète l'ADR-201** (grossesse longitudinale), **remplace pour la Maternité l'ADR-136** (sections
+mises en avant par l'acte → étapes du parcours choisi), **amende l'ADR-073/136** (le brouillon ne garde
+plus que le panier d'actes et la césarienne : le dossier s'enregistre de lui-même), **l'ADR-135** (la
+finalisation porte le nom du parcours et un récapitulatif) et **l'ADR-177** (prendre en charge en Maternité
+demande le parcours). Le CDC ne décrit ni les étapes d'une consultation prénatale, ni un rendez-vous, ni un
+calendrier d'examens de grossesse : les règles ci-dessous sont celles du propriétaire. Le document de référence
+du calendrier prénatal (PDF) n'a pas été fourni : le calendrier est une proposition à valider.
+
+## Deux parcours, une grossesse
+
+```text
+Patient ≠ Pregnancy ≠ Episode ≠ MaternityRecord ≠ Appointment
+
+MaternityRecord.encounter_type   PRENATAL | DELIVERY (MaternityEncounterType), nullable
+consultation prénatale           Vue d'ensemble · Interrogatoire · Examen · Paraclinique · Synthèse · Rendez-vous
+                                 → « Terminer la consultation »
+accouchement                     Admission · Travail · Surveillance · Accouchement · Nouveau-né · Transmission
+                                 → « Clôturer l’accouchement »
+```
+
+Le parcours se **choisit**, il n'est jamais deviné : à l'ouverture du dossier (`POST
+/maternity/orientations/{o}/parcours`, `StartMaternityEncounterAction`, `maternity.create` ou `.update`) ou à la
+prise en charge depuis la file (`encounter_type` facultatif, seulement pour qui vient de prendre la patiente).
+La suggestion de la Réception (actes `MAT-CONSULT-PRENATAL*`, `MAT-DOPPLER` → prénatal ;
+`MAT-DELIVERY-*` → accouchement, qui l'emporte) **présélectionne**, jamais plus. Changer de parcours ne
+supprime rien : seules les étapes proposées changent. Un dossier d'avant ce choix (`encounter_type` nul) se lit
+dans le parcours déduit de son contenu (`effectiveEncounterType()`, affichage seulement) et peut être confirmé.
+
+Les deux parcours restent reliés à la même grossesse (ADR-201) : le jour de l'accouchement, l'en-tête montre DPA,
+terme, consultations, examens et résultats en attente, et tout le suivi s'ouvre dans un panneau latéral
+(`PregnancyHistorySheet`, `Shadcn/Sheet`) sans quitter l'étape. Des jumeaux restent une grossesse.
+
+## Enregistrer n'est pas terminer
+
+```text
+enregistrement automatique   useAutosave : même route PUT …/record, mêmes droits, même validation, même audit,
+                             ~1,5 s après la dernière saisie ; état Enregistré / Enregistrement… / Modifié /
+                             Échec + « Réessayer » (ClinicalSaveStatus retryable)
+tant que la grossesse        rien ne part : le serveur exigerait ce choix (ADR-201) ; l'écran le dit sur chaque étape
+n'est pas choisie
+Précédent                    aucune perte : les étapes partagent le même dossier
+Suivant                      enregistre ce qui reste, puis passe ; un refus garde l'étape et montre l'erreur
+stepper                      toute étape reste ouverte — une aide au flux, jamais un tunnel ; adresse #examen
+finalisation                 seul geste qui clôt : enregistre d'abord, puis confirmation avec récapitulatif
+```
+
+`SaveMaternityRecordAction` refuse tout dossier terminé (`completed_at`), même si une nouvelle orientation
+Maternité s'ouvre sur le passage ; une orientation terminée est refusée avant (403). Un enregistrement tardif
+n'écrit donc jamais dans un dossier clos.
+
+## Consultation prénatale structurée
+
+`prenatal_data` reçoit, validés contre `MaternityEncounterFields` (valeurs inconnues refusées) : motif
+(`SCHEDULED_FOLLOW_UP`, `COMPLAINT`, `RESULT_REVIEW`, `OTHER`) et précision, ce que la patiente rapporte depuis la
+dernière consultation (liste à cocher) et notes, mouvements fœtaux, contractions, présentation, synthèse
+clinique, éléments à surveiller, conduite à tenir. **Aucun diagnostic n'est produit.** Les constantes générales
+sont celles de la fiche Soins, lues et jamais ressaisies (ADR-054) ; le terme est celui de la grossesse datée.
+Une grossesse créée sans DDR peut recevoir sa première datation une seule fois (`syncInitialDating`) ; ensuite
+elle se corrige par le geste audité de l'ADR-201.
+
+## Examens : Laboratoire et Imagerie, rattachés au dossier
+
+`lab_requests.maternity_record_id` et `imaging_requests.maternity_record_id` (nullables, FK) rattachent une
+demande à son dossier Maternité sans détourner `consultation_id`. Les demandes partent par
+`executeForMaternity` des actions existantes : même garde anti-doublon, même facturation à la demande
+(ADR-105/109), même confirmation signée, même fenêtre de compte rendu (`StayExams`, partagé avec le séjour),
+orientation `MATERNITY → LABORATORY`. Les résultats restent ceux du Laboratoire et de l'Imagerie : la Maternité
+les lit (`PregnancyParaclinicalHistory`, par grossesse et par consultation), n'en garde aucune copie. **Un
+résultat en attente ne bloque ni « Suivant », ni la finalisation.** Droits : ceux de toute demande
+(`laboratory_orders.create`, `imaging_orders.create`, `imaging_results.*`) — ils ne sont **pas** au socle
+`NURSE` et s'accordent au compte d'une sage-femme si la clinique le décide.
+
+`PrenatalProtocolAdvisor` propose, selon le terme, les examens usuels de la période
+(`PrenatalFollowUpReference`, `VALIDATED = false`, « à valider par la clinique ») avec ce qui est déjà fait ou
+demandé. Une suggestion ne crée aucune demande et ne bloque rien ; « Demander » ne fait que présélectionner
+l'examen, à confirmer.
+
+## Rendez-vous : Appointment ≠ Episode
+
+`appointments` (UUID, patiente, grossesse, dossier source unique, date, motif, note, `SCHEDULED | COMPLETED |
+CANCELLED | NO_SHOW`). Le prochain rendez-vous est **facultatif** ; il se prépare à l'étape Rendez-vous et n'est
+créé qu'à la finalisation (date future exigée). Il n'ouvre aucun passage : le jour venu, la Réception ouvre le
+passage, la nouvelle consultation rejoint la même grossesse et retrouve le rendez-vous.
+
+## Accouchement
+
+Admission (rattachement, constantes, contexte), travail, surveillance (et examens pendant le travail),
+accouchement (heure, voie, délivrance, complications, décision de césarienne confirmée — ADR-067), nouveau-nés
+(fiches, dossiers des bébés — ADR-139/144/146), transmission (soins de la mère, observations, actes et matériel —
+ADR-138/142). La clôture ferme la grossesse `DELIVERED` **à l'heure consignée**, jamais à l'heure du clic ; sans
+heure d'accouchement, la grossesse reste en cours et le récapitulatif le dit.
+
+## File Maternité
+
+Onglets **Tous · Consultations · Accouchements** (`?type=`, comptes du serveur), posés après les blocs de
+l'ADR-177 : ils ne changent ni la visibilité ni le n° de file. Chaque ligne dit son parcours, ou la suggestion
+(« Accouchement ? »). « Prendre » ouvre le choix du parcours (`ActivePassageBoard` : `intercept-take-charge`,
+`extra-params`).
+
+## Écran
+
+`Pages/Maternity/Show.vue` orchestre ; les étapes vivent dans `Components/Maternity/Steps/*`, les blocs dans
+`Components/Maternity/*` (actes, examens, en-tête, stepper, choix du parcours, finalisation, datation). Shadcn-vue
+seulement (ADR-099) ; barre Précédent / état / Suivant collante, lisible sur téléphone.
+
+Migration `2026_11_11_090000_add_maternity_encounters_paraclinical_links_and_appointments`, colonnes toutes
+nullables, à jouer sur chaque site. Aucune permission nouvelle.
+
+## Signalé, non tranché
+
+```text
+calendrier prénatal        proposition non validée (PDF de référence non fourni) — à valider par la clinique
+droits d'examen            laboratory_orders.create / imaging_orders.create absents du socle NURSE : à accorder
+sage-femme                 au compte ou au socle depuis le portail (ADR-064) si les sages-femmes prescrivent
+cycle d'un rendez-vous     COMPLETED / NO_SHOW / annulation : aucun écran pour l'instant
+réorientation Maternité    un dossier terminé reste en lecture seule même si le passage revient en Maternité
+anciens dossiers           traité par l'amendement ci-dessous
+```
+
+## Amendement du 2026-09-27 — la file Maternité se lit d'un coup d'œil
+
+Demande du propriétaire sur « En cours chez moi » : le grand cadre rose de la grossesse repoussait
+la ligne. Parcours et grossesse passent **sous le nom de la patiente** (slot `patient-details` du
+tableau partagé), en deux lignes : la pastille du parcours (ou la suggestion « Accouchement ? », ou
+« Parcours à choisir » une fois prise), puis la grossesse (référence · terme, DPA ; détail au
+survol). La colonne de prise en charge garde ce qui l'a suivie (médecin, césarienne) et « Dossier
+enregistré à … ».
+
+Un dossier d'avant le choix du parcours se range désormais là où il s'affiche : son parcours est
+**déduit de son contenu** (`effectiveEncounterType()`, comme sur la page du dossier) et compté dans
+le même onglet (`MaternityEncounterDirectory`, marqué `inferred`). Dès qu'un dossier existe, la
+suggestion de la Réception ne décide plus rien. Aucun parcours n'est écrit en base par cette lecture.
+
+## Amendement du 2026-09-27 (bis) — l'en-tête porte le parcours, les compteurs se serrent
+
+Demande du propriétaire : l'en-tête de la file Maternité empilait le titre, une barre d'onglets
+« Tous / Consultations / Accouchements » et quatre grandes cartes (~95 px) avant la liste.
+
+```text
+parcours      à droite du titre (emplacement de SoinsWorkspaceHeader), sous « Parcours · en attente » :
+              les comptes des onglets sont ceux du bloc ouvert, et l'écran le dit (libellé, survol,
+              lecteur d'écran) — « Tous · 2 » ne se lit plus comme le total de la page ; le compte de
+              l'onglet inactif ne disparaît plus sur le fond ; sur téléphone, les trois onglets tiennent
+              sur une ligne
+compteurs     QueueCounters reçoit `compact` : bande de 55 px (icône 32 px, chiffre et libellé sur une
+              ligne, précision dessous), le libellé passe sous le chiffre plutôt que d'être coupé sur
+              téléphone. ActivePassageBoard l'emploie : Soins, Médecine et Maternité ; les autres files
+              gardent leurs cartes
+```
+
+Présentation seulement : ni route, ni compte, ni permission, ni règle ne change.
+
+**Complément du même jour — la DPA se voit.** Dans l'en-tête du parcours et dans la carte de grossesse,
+la DPA a sa case teintée (rose), sa date en gras et, tant que la grossesse est en cours, le délai jusqu'à
+elle : « Dans 29 sem. 3 j » en rose, ambre dans les deux dernières semaines et le jour même, « Dépassée
+de N j » en rouge. La DPA vient du serveur ; seul le délai jusqu'à aujourd'hui est compté par l'écran, en
+heure locale (`utilities/pregnancyDueDate.js`). Sur téléphone, le dernier repère de l'en-tête prend la
+ligne entière au lieu de laisser une case vide.
+
+**Complément du même jour — la grossesse ne s'affiche qu'une fois.** Constat du propriétaire : sur l'étape
+« Vue d'ensemble », deux cartes « Grossesse actuelle » se suivaient avec les mêmes repères. L'en-tête du
+parcours (ADR-204), visible à toutes les étapes, s'était ajouté sans que la carte de l'étape 1 (ADR-201)
+soit retirée. L'en-tête devient la **seule** carte de la grossesse du dossier, et reprend ce que la seconde
+portait seule :
+
+```text
+continuer          « Grossesse active trouvée » + « Continuer cette grossesse » quand une seule est active
+                   (continuesSinglePregnancy, une règle pour l'en-tête et la carte de sélection)
+corriger           « Corriger la datation » (même droit, même fenêtre auditée)
+statut, terme      statut quand la grossesse n'est plus en cours ; « Terme au passage » pour un instantané
+facteurs de risque sous les repères, à chaque étape
+```
+
+Trois autres doublons retirés : le bouton « Voir l'historique complet » et la liste des rendez-vous de
+l'étape 1 (l'en-tête les porte, avec « + N autres »), et les facteurs de risque répétés à l'admission d'un
+accouchement. `PregnancySummaryCard` ne sert plus qu'au panneau d'historique, en lecture, sur trois
+colonnes. Présentation seulement : ni route, ni droit, ni règle ne change.
+
+
+---
+
+# ADR-205 — La sage-femme prescrit depuis le dossier Maternité
+
+**Status:** ACCEPTED (2026-09-27 — exigence explicite du propriétaire : « il faut ajouter une étape pour
+Ordonnances, car la sage-femme peut donner une ordonnance comme le médecin »)
+
+**Complète l'ADR-204** (deux parcours Maternité) et **l'ADR-067** (profils paramédicaux) ; reprend le chemin
+d'écriture de l'ADR-162 (ordonnance du séjour). Le CDC range la sage-femme parmi les fonctions internes de la
+Médecine (§9), dont les droits comprennent `prescriptions.*` (§15) : la règle vient du CDC, seul son emplacement
+est une décision.
+
+## Une étape « Ordonnance » dans les deux parcours
+
+```text
+consultation prénatale   … · Paraclinique · Ordonnance · Synthèse · Rendez-vous
+accouchement             … · Nouveau-né · Ordonnance · Transmission
+```
+
+L'étape (`#ordonnance`) est « renseignée » seulement par une ordonnance réelle et non annulée — jamais par une
+saisie en cours. Elle affiche **le même écran** que l'ordonnance du séjour (`StayPrescriptions`, adressé à la
+Maternité par `baseUrl`) : même catalogue, même éditeur de ligne (ADR-110), même relecture (ADR-128, avec l'âge,
+le poids relevé aux Soins et les allergies), même confirmation signée (ADR-106), même ligne hors référentiel
+(ADR-037). Rien n'est recopié.
+
+## Le chemin d'écriture
+
+```text
+données     prescriptions.maternity_record_id (nullable, index et clé nommés à la main) ; consultation_id nul,
+            episode_id rempli — l'ordonnance appartient au passage, rattachée au dossier Maternité
+action      CreatePrescriptionAction::executeForMaternity — réservation FEFO, demande de délivrance, audit,
+            exactement comme en consultation ; MaternityOrderContext exige une prise en charge Maternité en
+            cours et un dossier non terminé, sous verrou
+routes      POST /maternity/orientations/{o}/ordonnances              prescriptions.create
+            POST …/ordonnances/{uuid}/annuler (motif obligatoire)    prescriptions.cancel
+            GET  …/ordonnances/{uuid}/impression                      prescriptions.view
+            chaque requête exige aussi une prise en charge Maternité en cours (comme les examens, ADR-204) ;
+            une ordonnance d'un autre dossier → 404
+```
+
+**Délivrance ordinaire** : la patiente règle à la Caisse, puis la Pharmacie délivre (ADR-049). L'exception de
+l'ADR-162 (délivrance au service avant règlement) ne vaut que pour un patient hospitalisé ; elle n'est pas
+étendue ici. La Maternité n'encaisse rien (ADR-012).
+
+`App\Support\Medicine\PrescriptionDocument` écrit une fois la ligne de liste et la feuille imprimée des
+ordonnances nées hors d'une consultation ; le séjour et la Maternité l'emploient tous deux. Le parcours du
+passage (ADR-117) dit d'où vient l'ordonnance : « Maternité → Pharmacie », « Hospitalisation → Pharmacie »,
+sinon « Médecine → Pharmacie ».
+
+**La feuille porte le titre de qui prescrit.** Une sage-femme n'est pas « Dr » : quand le compte porte le
+profil `MIDWIFE`, la feuille écrit « Sage-femme <nom> » et « Signature et cachet du prescripteur ». Le profil
+décrit la fonction, il n'accorde rien (ADR-033). Sans ce profil, la feuille reste celle d'un médecin, sans
+doubler un « Dr » déjà présent dans le nom.
+
+## Les droits
+
+Aucune permission nouvelle. Prescrire exige `prescriptions.create`, `medicines.view` et
+`stock.availability.view` ; lire, `prescriptions.view` ; retirer, `prescriptions.cancel` — les mêmes droits
+qu'en consultation. Ils **ne sont pas** ajoutés au socle `NURSE` (qui porte aussi les infirmiers et les
+anesthésistes) : le profil `MIDWIFE` les **recommande** (migration `2026_11_12_090000`,
+`ProfessionalProfileSeeder`), et un compte les reçoit quand le Super Administrateur applique les
+recommandations de son profil ou les lui accorde en exception (ADR-033, ADR-064). Sans ces droits, l'étape
+n'est pas masquée : elle nomme ce qui manque et où l'accorder (ADR-154, ADR-158).
+
+## Les étapes prénatales se lisent par blocs iconés
+
+Même demande : Vue d'ensemble, Interrogatoire, Examen et Synthèse sont rangés en blocs `ClinicalSubsection`
+(icône, titre, phrase), comme l'espace Anesthésie (ADR-048). `ClinicalSubsection` quitte `Components/Surgery`
+pour `Components/Clinical` et reçoit une teinte (`tone`, rose en Maternité) ; `FormField` accepte une icône ;
+chaque choix structuré servi par le serveur (motif, rapporté depuis la dernière consultation, mouvements
+fœtaux, contractions) a la sienne (`utilities/maternityFieldIcons.js`, une valeur inconnue passe sans icône).
+« Depuis la dernière consultation » devient une grille de cartes à cocher (`role="checkbox"`, clavier
+conservé). Un lien vers une autre étape de la même page (`#ordonnance`) est suivi (`hashchange`) au lieu
+d'être ignoré. Présentation seulement : ni route, ni droit, ni règle clinique ne change.
+
+## Signalé, non tranché
+
+```text
+étapes d'accouchement   seule l'étape Ordonnance y est ajoutée ; Admission, Travail, Surveillance,
+                        Accouchement et Transmission n'ont pas été redessinées
+propositions ADR-111    les protocoles et la pratique de la clinique ne proposent pas encore d'ordonnance
+                        en Maternité (ils lisent une consultation) — à décider
+```
+
+---
+
+# ADR-206 — Rémunération déclarée, compte bancaire et ancienneté du dossier employé
+
+> Numérotée **ADR-197** à sa rédaction ; renumérotée **ADR-206** à la fusion de `dev` (2026-09-27), le numéro 197 étant déjà pris par une autre décision. Les références du code ont suivi.
 
 **Status:** ACCEPTED (2026-09-26 — demande explicite du propriétaire : « quand on ajoute un employé, on a
 aussi : leur salaire, indemnisé ou pas, l'ancienneté de service, le numéro de compte bancaire et le nom sur le
@@ -18132,7 +19561,9 @@ export / import     les champs de paie n'y sont pas ; les ajouter exige de déci
 
 ---
 
-# ADR-198 — Des RH cohérentes : stagiaires, congé en cours, document d'un congé, présences du jour
+# ADR-207 — Des RH cohérentes : stagiaires, congé en cours, document d'un congé, présences du jour
+
+> Numérotée **ADR-198** à sa rédaction ; renumérotée **ADR-207** à la fusion de `dev` (2026-09-27), le numéro 198 étant déjà pris par une autre décision. Les références du code ont suivi.
 
 **Status:** ACCEPTED (2026-09-26 — demande explicite du propriétaire : « est-ce que stagiaire est employé ?
 non », « pourquoi un employé pris en congé est toujours actif ? », « est-ce que le canevas correspond à la
@@ -18205,14 +19636,16 @@ demande de congé en attente                   ne compte pas « en congé » : s
 
 ---
 
-# ADR-199 — Documents du personnel en dossiers ; « Imprimer » un contrat prend son document
+# ADR-208 — Documents du personnel en dossiers ; « Imprimer » un contrat prend son document
+
+> Numérotée **ADR-199** à sa rédaction ; renumérotée **ADR-208** à la fusion de `dev` (2026-09-27), le numéro 199 étant déjà pris par une autre décision. Les références du code ont suivi.
 
 **Status:** ACCEPTED (2026-09-26 — demande explicite du propriétaire : « mettre dossier par dossier comme
 l'interface des fournisseurs ; quand j'imprime le contrat, il prend automatiquement le contrat dans les
 documents ; dans les documents : modifier, supprimer, voir, archiver, générer ; et aussi congé, attestation… » ;
 deux arbitrages : dossiers au portail **et** au site ; « Modifier » = nouvelle version, « Supprimer » = archiver)
 
-**Complète l'ADR-070/087** (canevas et documents générés) et **l'ADR-198** (document d'un congé). Le CDC ne décrit
+**Complète l'ADR-070/087** (canevas et documents générés) et **l'ADR-207** (document d'un congé). Le CDC ne décrit
 aucune gestion documentaire RH : les règles ci-dessous sont celles du propriétaire. « Contrats » reste la fiche RH
 du contrat (dates, type, référence) ; ce qui fusionne, c'est l'accès au **document** du contrat.
 
@@ -18238,7 +19671,7 @@ portail   Canevas de documents : site, puis dossiers ; un dossier liste ses cane
           « Nouveau canevas » depuis un dossier arrive réglé sur son type et son contexte ; un canevas créé
           retombe dans son dossier ; l'adresse suit (`?site=A&dossier=CONTRAT`), sans rappeler les sites ;
           un canevas des dossiers Contrats ou Congés réglé sur un autre contexte est signalé « Attendu : … »
-          (il ne reprendrait pas les dates — ADR-198), sans rien bloquer
+          (il ne reprendrait pas les dates — ADR-207), sans rien bloquer
 site      Documents : dossiers (canevas actifs, documents, archivés, dernier produit) ; un dossier montre ses
           canevas (Générer) et ses documents, actifs ou archivés ; une recherche traverse tous les dossiers
 ```
@@ -18279,5 +19712,5 @@ Un contrat archivé garde l'écran de choix. La feuille d'un document ramène à
 
 ```text
 un contrat à plusieurs documents   « Imprimer » ouvre le plus récent ; les autres restent dans le dossier Contrats
-congé                              l'impression d'un congé propose ses canevas (ADR-198) sans ouvrir seul un
+congé                              l'impression d'un congé propose ses canevas (ADR-207) sans ouvrir seul un
                                    document déjà produit — à aligner sur le contrat si le RH le demande

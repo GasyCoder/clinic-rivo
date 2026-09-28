@@ -316,13 +316,16 @@ class RolePermissionSeeder extends Seeder
             // to a settled invoice (ADR-049).
             'care_consumables.view', 'care_consumables.serve',
         ],
-        // Minimal follow-through only (request tracking + result entry) —
-        // sample/analysis workflow itself remains unbuilt.
+        // ADR-213 — la paillasse : saisie structurée, validation du biologiste,
+        // référentiel de microbiologie. Le prélèvement reste hors périmètre.
         'LABORATORY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
             'paraclinical_requests.view',
             'laboratory_orders.view', 'laboratory_results.view', 'laboratory_results.create',
+            'laboratory_results.validate', 'laboratory_results.flag_critical',
+            'lab_microbiology.view', 'lab_microbiology.create', 'lab_microbiology.update',
+            'lab_microbiology.archive', 'lab_microbiology.restore',
         ],
     ];
 

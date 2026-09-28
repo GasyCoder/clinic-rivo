@@ -15,6 +15,7 @@ const props = defineProps({
     parents: Array,
     levels: Array,
     resultTypes: Array,
+    entryModes: { type: Array, default: () => [] },
     examCategories: { type: Array, default: () => [] },
 });
 
@@ -32,6 +33,7 @@ const form = useForm({
     description: '',
     exam_category: '',
     result_type: 'TEXT',
+    entry_mode: null,
     reference_general: '',
     reference_male: '',
     reference_female: '',
@@ -66,6 +68,7 @@ const form = useForm({
             :parents="parents"
             :levels="levels"
             :result-types="resultTypes"
+            :entry-modes="entryModes"
             :exam-categories="examCategories"
             submit-label="Créer l’analyse"
             :submit-url="urls.store"

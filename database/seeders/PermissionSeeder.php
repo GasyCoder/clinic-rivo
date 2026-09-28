@@ -487,6 +487,14 @@ class PermissionSeeder extends Seeder
         'laboratory_orders.view' => 'Voir les demandes d’analyses',
         'laboratory_results.view' => 'Voir les résultats d’analyses',
         'laboratory_results.create' => 'Saisir un résultat d’analyse',
+        // ADR-213 — le biologiste valide, le référentiel de microbiologie se gère au site.
+        'laboratory_results.validate' => 'Valider ou renvoyer un résultat d’analyse (biologiste)',
+        'laboratory_results.flag_critical' => 'Signaler un résultat d’analyse critique',
+        'lab_microbiology.view' => 'Voir le référentiel de microbiologie (familles, bactéries, antibiotiques)',
+        'lab_microbiology.create' => 'Ajouter au référentiel de microbiologie',
+        'lab_microbiology.update' => 'Modifier le référentiel de microbiologie',
+        'lab_microbiology.archive' => 'Archiver une entrée du référentiel de microbiologie',
+        'lab_microbiology.restore' => 'Restaurer une entrée du référentiel de microbiologie',
 
         // ECG / échographie : aucun workspace dédié n'existe encore, donc
         // demande et compte rendu restent tous deux portés par Médecine.

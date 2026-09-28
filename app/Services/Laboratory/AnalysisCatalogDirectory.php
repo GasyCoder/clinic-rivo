@@ -4,6 +4,7 @@ namespace App\Services\Laboratory;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\LabEntryMode;
 use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
 
@@ -87,6 +88,7 @@ class AnalysisCatalogDirectory
             'parents' => $this->hierarchy->parentOptions(),
             'levels' => AnalysisCatalog::LEVELS,
             'result_types' => AnalysisCatalog::RESULT_TYPES,
+            'entry_modes' => LabEntryMode::options(),
             'exam_categories' => AnalysisCatalog::query()
                 ->whereNotNull('exam_category')
                 ->distinct()
@@ -128,6 +130,7 @@ class AnalysisCatalogDirectory
             'description' => $item->description,
             'exam_category' => $item->exam_category,
             'result_type' => $item->result_type,
+            'entry_mode' => $item->entry_mode,
             'reference_general' => $item->reference_general,
             'reference_male' => $item->reference_male,
             'reference_female' => $item->reference_female,

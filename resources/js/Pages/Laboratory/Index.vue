@@ -1,124 +1,155 @@
 <script setup>
-import { computed, reactive } from 'vue';
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { computed, ref, watch } from 'vue';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
-import Card from '@/Components/UI/Card.vue';
-import FormError from '@/Components/UI/FormError.vue';
-import { Activity, CalendarCheck, CircleCheck, FlaskConical, List } from 'lucide-vue-next';
-import Input from '@/Components/UI/Input.vue';
-import { formatDateTime } from '@/utilities/date';
+import Card from '@/Components/Shadcn/Card.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
+import {
+    AlertTriangle, BadgeCheck, CalendarCheck, ChevronRight, FlaskConical, List, Microscope, RotateCcw, Search, Siren, TestTubes,
+} from 'lucide-vue-next';
+import { formatDateTime, formatRelativeTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
+import { LAB_STATUS_TONES, LAB_VIEWS } from '@/utilities/labWorkbench';
 
 defineOptions({ layout: AppLayout });
 
+/**
+ * ADR-213 — la file du Laboratoire, par demande : chaque demande est dans une
+ * seule vue, comptée par le serveur, jamais depuis la page affichée.
+ */
 const props = defineProps({
-    items: Object,
+    requests: { type: Object, required: true },
     counts: { type: Object, default: () => ({}) },
-    filter: { type: String, default: 'pending' },
+    view: { type: String, default: 'to_do' },
+    search: { type: String, default: '' },
 });
 
-const selectFilter = (filter) => router.get(
-    '/laboratory',
-    filter === 'pending' ? {} : { filter },
-    { preserveScroll: true, replace: true },
-);
+const page = usePage();
+const can = (permission) => (page.props.auth?.permissions ?? []).includes(permission);
 
-/**
- * Ce que la paillasse a devant elle, et ce qu'elle a rendu aujourd'hui.
- * Un cumul total ne dirait rien de la journée en cours — et le compte vient
- * du serveur, jamais de la page affichée.
- */
-const counterTiles = computed(() => [
-    { value: 'pending', label: 'À analyser', hint: 'Résultat non saisi', icon: FlaskConical, tone: 'amber', count: props.counts.pending ?? 0, active: props.filter === 'pending' },
-    { value: 'resulted', label: 'Résultats saisis', hint: 'Toutes périodes', icon: CircleCheck, tone: 'emerald', count: props.counts.resulted ?? 0, active: props.filter === 'resulted' },
-    { value: '__today__', label: 'Rendus aujourd’hui', hint: 'Depuis minuit', icon: CalendarCheck, tone: 'sky', count: props.counts.resulted_today ?? 0, filterable: false },
-    { value: 'all', label: 'Toutes les analyses', hint: 'Demandes non retirées', icon: List, tone: 'neutral', count: props.counts.all ?? 0, active: props.filter === 'all' },
-]);
+const ICONS = { to_do: FlaskConical, to_redo: RotateCcw, to_validate: BadgeCheck, validated: CalendarCheck, all: List };
 
-const forms = reactive({});
-const formFor = (item) => {
-    if (!forms[item.uuid]) {
-        forms[item.uuid] = useForm({ result_value: '', result_notes: '' });
-    }
-    return forms[item.uuid];
-};
-const submitResult = (item) => formFor(item).post(`/laboratory/items/${item.uuid}/result`, { preserveScroll: true });
-const actionableDefinitions = (item) => (item.reference_definitions ?? []).filter((definition) => definition.level !== 'PARENT');
-const primaryDefinition = (item) => actionableDefinitions(item).length === 1 ? actionableDefinitions(item)[0] : null;
+const tiles = computed(() => LAB_VIEWS.map((view) => ({
+    ...view,
+    icon: ICONS[view.value],
+    count: props.counts[view.value] ?? 0,
+    active: props.view === view.value,
+})));
+
+const query = ref(props.search);
+let timer = null;
+const visit = (params) => router.get('/laboratory', params, { preserveScroll: true, preserveState: true, replace: true });
+const selectView = (view) => visit({ ...(view === 'to_do' ? {} : { view }), ...(query.value ? { q: query.value } : {}) });
+watch(query, (value) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => visit({ ...(props.view === 'to_do' ? {} : { view: props.view }), ...(value ? { q: value } : {}) }), 350);
+});
+
+const pages = computed(() => props.requests?.links ?? []);
+// Les libellés de Laravel portent des entités (« &laquo; Précédent ») : on les lit en texte, jamais en HTML.
+const pageLabel = (label) => String(label).replace(/&laquo;/g, '«').replace(/&raquo;/g, '»').replace(/&amp;/g, '&');
+
+const STATE_LABELS = { to_do: 'À faire', to_redo: 'À refaire', to_validate: 'À valider', validated: 'Validée' };
+const STATE_TONES = { to_do: 'warning', to_redo: 'danger', to_validate: 'primary', validated: 'success' };
+
+const emptyText = computed(() => ({
+    to_do: 'Aucune analyse à faire : la paillasse est à jour.',
+    to_redo: 'Aucune analyse renvoyée à refaire.',
+    to_validate: 'Aucune analyse n’attend la validation du biologiste.',
+    validated: 'Aucune demande entièrement validée pour l’instant.',
+    all: 'Aucune demande d’analyses.',
+}[props.view] ?? 'Aucune demande.'));
 </script>
 
 <template>
     <Head title="Laboratoire" />
 
     <div class="mx-auto w-full max-w-screen-2xl space-y-5">
-        <header class="flex items-center gap-3">
-            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"><Activity class="h-6 w-6" /></span>
-            <div>
-                <h1 class="font-heading text-2xl font-bold -tracking-snug text-foreground">Laboratoire</h1>
-                <p class="mt-1 text-sm text-muted-foreground">Analyses demandées par Médecine — saisie du résultat.</p>
+        <header class="flex flex-wrap items-start justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><TestTubes class="h-6 w-6" /></span>
+                <div>
+                    <h1 class="font-heading text-2xl font-bold -tracking-snug text-foreground">Laboratoire</h1>
+                    <p class="mt-1 text-sm text-muted-foreground">Analyses demandées — saisie des résultats, puis validation par le biologiste.</p>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <Badge variant="outline"><CalendarCheck class="h-3.5 w-3.5" /> {{ counts.validated_today ?? 0 }} validée(s) aujourd’hui</Badge>
+                <Button v-if="can('lab_microbiology.view')" :as="Link" href="/laboratory/microbiologie" variant="outline" size="sm">
+                    <Microscope class="h-4 w-4" /> Germes & antibiotiques
+                </Button>
             </div>
         </header>
 
-        <QueueCounters :tiles="counterTiles" @select="selectFilter" />
+        <QueueCounters :tiles="tiles" @select="selectView" />
 
-        <Card class="overflow-hidden shadow-sm">
-            <p class="border-b border-border px-5 py-2.5 text-xs text-muted-foreground">
-                <template v-if="filter === 'pending'">Analyses en attente d’un résultat, les plus anciennes d’abord.</template>
-                <template v-else-if="filter === 'resulted'">Analyses déjà rendues — <button type="button" class="font-bold text-primary hover:underline" @click="selectFilter('pending')">revenir à la paillasse</button>.</template>
-                <template v-else>Toutes les analyses non retirées — <button type="button" class="font-bold text-primary hover:underline" @click="selectFilter('pending')">revenir à la paillasse</button>.</template>
-            </p>
-            <div class="overflow-x-auto">
-                <table class="w-full min-w-[960px] border-collapse">
-                    <thead class="bg-muted/70 /40">
-                        <tr>
-                            <th class="border-b border-border px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">Patient</th>
-                            <th class="border-b border-border px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">Analyse</th>
-                            <th class="border-b border-border px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">Demandé</th>
-                            <th class="border-b border-border px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">Résultat</th>
-                            <th class="border-b border-border px-5 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-muted-foreground">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-border">
-                        <tr v-for="item in items.data" :key="item.uuid">
-                            <td class="px-5 py-3">
-                                <Link :href="`/patients/${item.patient.uuid}`" class="block text-sm font-bold text-foreground hover:text-primary">{{ formatPatientName(item.patient) }}</Link>
-                                <span class="text-xs text-muted-foreground">{{ item.patient.patient_number }} · {{ item.episode_number }}</span>
-                            </td>
-                            <td class="px-5 py-3">
-                                <span class="text-sm font-semibold text-foreground">{{ item.name }}</span><span class="ms-1 font-mono text-xs text-muted-foreground">{{ item.code }}</span>
-                                <div v-if="actionableDefinitions(item).length" class="mt-2 overflow-hidden rounded border border-border">
-                                    <div v-for="definition in actionableDefinitions(item)" :key="definition.code" class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-border px-2.5 py-1.5 text-[10px] last:border-b-0">
-                                        <span class="font-semibold text-muted-foreground">{{ definition.designation }}</span>
-                                        <span class="text-end text-muted-foreground"><template v-if="definition.reference">Réf. {{ definition.reference }}<span v-if="definition.unit"> {{ definition.unit }}</span></template><template v-else>Référence non configurée</template>· {{ definition.reference_profile }}</span>
-                                    </div>
-                                </div>
-                                <p v-else class="mt-1 text-[10px] text-amber-600 dark:text-amber-300">Structure et références non configurées.</p>
-                            </td>
-                            <td class="px-5 py-3 text-xs text-muted-foreground">{{ formatDateTime(item.requested_at) }}<br>Dr {{ item.requested_by }}</td>
-                            <td class="px-5 py-3">
-                                <template v-if="item.resulted_at">
-                                    <p class="text-sm font-semibold text-emerald-700 dark:text-emerald-300">{{ item.result_value }}</p>
-                                    <p v-if="item.result_notes" class="mt-0.5 text-xs text-muted-foreground">{{ item.result_notes }}</p>
-                                    <p class="mt-0.5 text-[11px] text-muted-foreground">{{ formatDateTime(item.resulted_at) }} · {{ item.resulted_by }}</p>
-                                </template>
-                                <span v-else class="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800 dark:bg-amber-950 dark:text-amber-200">En attente</span>
-                            </td>
-                            <td class="px-5 py-3 text-end">
-                                <form v-if="!item.resulted_at" class="ms-auto flex max-w-xs flex-col gap-1.5" @submit.prevent="submitResult(item)">
-                                    <select v-if="primaryDefinition(item)?.predefined_values?.length" v-model="formFor(item).result_value" class="block h-8 w-full rounded-sm border border-border bg-white px-3 text-xs text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/25"><option value="">Choisir le résultat</option><option v-for="value in primaryDefinition(item).predefined_values" :key="value" :value="value">{{ value }}</option></select>
-                                    <Input v-else v-model="formFor(item).result_value" size="sm" :placeholder="primaryDefinition(item)?.unit ? `Résultat (${primaryDefinition(item).unit})` : 'Résultat'" />
-                                    <Input v-model="formFor(item).result_notes" size="sm" placeholder="Note (optionnel)" />
-                                    <FormError :message="formFor(item).errors.result_value" />
-                                    <Button type="submit" size="sm" :disabled="formFor(item).processing || !formFor(item).result_value.trim()">Enregistrer</Button>
-                                </form>
-                            </td>
-                        </tr>
-                        <tr v-if="items.data.length === 0"><td colspan="5" class="px-5 py-12 text-center text-sm text-muted-foreground">Aucune analyse demandée.</td></tr>
-                    </tbody>
-                </table>
+        <Card class="overflow-hidden">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+                <p class="text-xs text-muted-foreground">
+                    <template v-if="view === 'validated' || view === 'all'">Les plus récentes d’abord.</template>
+                    <template v-else>Les plus anciennes d’abord : elles attendent depuis le plus longtemps.</template>
+                </p>
+                <IconInput v-model="query" :icon="Search" class="w-full sm:w-72" placeholder="Patient, n° de dossier ou de passage" aria-label="Rechercher une demande" />
             </div>
+
+            <ul class="divide-y divide-border">
+                <li v-for="request in requests.data" :key="request.uuid">
+                    <Link
+                        :href="`/laboratory/requests/${request.uuid}`"
+                        class="group grid gap-3 px-4 py-3.5 transition-colors hover:bg-muted/40 focus:outline-none focus-visible:bg-muted/50 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_auto] md:items-center"
+                    >
+                        <div class="min-w-0">
+                            <p class="flex items-center gap-2 truncate text-sm font-bold text-foreground">
+                                <Siren v-if="request.emergency" class="h-4 w-4 shrink-0 text-destructive" aria-label="Urgence" />
+                                {{ formatPatientName(request.patient) }}
+                            </p>
+                            <p class="mt-0.5 text-xs text-muted-foreground">
+                                {{ request.patient.patient_number }} · {{ request.episode_number }}
+                                <template v-if="request.patient.age !== null"> · {{ request.patient.age }} ans</template>
+                                <template v-if="request.patient.sex"> · {{ request.patient.sex === 'M' ? 'H' : 'F' }}</template>
+                            </p>
+                            <p class="mt-1 text-[11px] text-muted-foreground" :title="formatDateTime(request.requested_at)">
+                                {{ request.origin }} · {{ formatRelativeTime(request.requested_at) }}<template v-if="request.requested_by"> · {{ request.requested_by }}</template>
+                            </p>
+                        </div>
+
+                        <div class="flex min-w-0 flex-wrap gap-1.5">
+                            <Badge v-for="item in request.items" :key="item.uuid" :tone="LAB_STATUS_TONES[item.status]" class="max-w-full">
+                                <span class="truncate">{{ item.name }}</span>
+                                <span class="font-normal opacity-80">· {{ item.status_label }}</span>
+                            </Badge>
+                        </div>
+
+                        <div class="flex items-center justify-between gap-2 md:justify-end">
+                            <div class="flex flex-wrap gap-1.5">
+                                <Badge v-if="request.critical" tone="danger"><AlertTriangle class="h-3.5 w-3.5" /> {{ request.critical }} critique(s)</Badge>
+                                <Badge v-if="request.pathological" tone="warning">{{ request.pathological }} pathologique(s)</Badge>
+                                <Badge :tone="STATE_TONES[request.state]">{{ STATE_LABELS[request.state] }}</Badge>
+                            </div>
+                            <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                        </div>
+                    </Link>
+                </li>
+                <li v-if="requests.data.length === 0" class="px-4 py-14 text-center">
+                    <FlaskConical class="mx-auto h-8 w-8 text-muted-foreground/60" aria-hidden="true" />
+                    <p class="mt-2 text-sm text-muted-foreground">{{ search ? 'Aucune demande ne correspond à la recherche.' : emptyText }}</p>
+                </li>
+            </ul>
+
+            <nav v-if="pages.length > 3" class="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4 text-xs text-muted-foreground" aria-label="Pagination">
+                <span>{{ requests.from }}–{{ requests.to }} sur {{ requests.total }}</span>
+                <div class="flex flex-wrap gap-1">
+                    <template v-for="link in pages" :key="link.label">
+                        <Button v-if="link.url" :as="Link" :href="link.url" size="xs" :variant="link.active ? 'default' : 'outline'" :aria-current="link.active ? 'page' : undefined" preserve-scroll preserve-state>
+                            {{ pageLabel(link.label) }}
+                        </Button>
+                        <Button v-else type="button" size="xs" variant="outline" disabled>{{ pageLabel(link.label) }}</Button>
+                    </template>
+                </div>
+            </nav>
         </Card>
     </div>
 </template>

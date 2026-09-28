@@ -17,6 +17,7 @@ const props = defineProps({
     parents: { type: Array, required: true },
     levels: { type: Array, required: true },
     resultTypes: { type: Array, required: true },
+    entryModes: { type: Array, default: () => [] },
     examCategories: { type: Array, default: () => [] },
     submitLabel: { type: String, required: true },
     submitUrl: { type: String, required: true },
@@ -236,6 +237,7 @@ const typeHint = (value) => ({
                 <div class="sm:col-span-2"><label for="designation" class="mb-1.5 block text-sm font-medium text-foreground">Désignation <span class="text-red-500">*</span></label><Input id="designation" v-model="form.designation" placeholder="Hémoglobine" :aria-invalid="Boolean(form.errors.designation)" /><FormError v-if="form.errors.designation">{{ form.errors.designation }}</FormError></div>
                 <div><label for="exam_category" class="mb-1.5 block text-sm font-medium text-foreground">Examen</label><Input id="exam_category" v-model="form.exam_category" list="exam-category-options" placeholder="BIOCHIMIE, HEMATOLOGIE…" /><datalist id="exam-category-options"><option v-for="category in examCategories" :key="category" :value="category" /></datalist><FormError v-if="form.errors.exam_category">{{ form.errors.exam_category }}</FormError></div>
                 <div><label for="result_type" class="mb-1.5 block text-sm font-medium text-foreground">Type de résultat <span class="text-red-500">*</span></label><select id="result_type" v-model="form.result_type" :class="selectClass" :aria-invalid="Boolean(form.errors.result_type)"><option v-for="type in resultTypes" :key="type" :value="type">{{ typeLabel(type) }}</option></select><p class="mt-1.5 text-xs text-muted-foreground">{{ typeHint(form.result_type) }}</p><FormError v-if="form.errors.result_type">{{ form.errors.result_type }}</FormError></div>
+                <div v-if="entryModes.length"><label for="entry_mode" class="mb-1.5 block text-sm font-medium text-foreground">Mode de saisie au laboratoire</label><select id="entry_mode" v-model="form.entry_mode" :class="selectClass" :aria-invalid="Boolean(form.errors.entry_mode)"><option :value="null">Automatique (selon le type de résultat)</option><option v-for="mode in entryModes" :key="mode.value" :value="mode.value">{{ mode.label }}</option></select><p class="mt-1.5 text-xs text-muted-foreground">Comment la paillasse saisit ce résultat : culture et antibiogramme, score de Nugent, négatif / positif…</p><FormError v-if="form.errors.entry_mode">{{ form.errors.entry_mode }}</FormError></div>
                 <div><label for="unit" class="mb-1.5 block text-sm font-medium text-foreground">Unité</label><Input id="unit" v-model="form.unit" placeholder="g/dL, mmol/L…" /><FormError v-if="form.errors.unit">{{ form.errors.unit }}</FormError></div>
                 <div><label for="display_order" class="mb-1.5 block text-sm font-medium text-foreground">Ordre</label><Input id="display_order" v-model="form.display_order" type="number" min="0" /><FormError v-if="form.errors.display_order">{{ form.errors.display_order }}</FormError></div>
                 <div class="sm:col-span-2 flex items-center rounded-lg border border-border bg-muted/70 px-4 py-3 /40"><label class="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground"><input v-model="form.is_bold" type="checkbox" class="rounded border-input text-primary focus:ring-ring" />Gras à l’impression</label></div>
@@ -259,6 +261,7 @@ const typeHint = (value) => ({
                     :form="form"
                     path-prefix="children"
                     :result-types="resultTypes"
+                    :entry-modes="entryModes"
                     :exam-categories="examCategories"
                     :depth="0"
                     :max-depth="1"

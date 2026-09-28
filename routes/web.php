@@ -29,11 +29,12 @@ use App\Http\Controllers\HospitalizationController;
 use App\Http\Controllers\HospitalStayOrderController;
 use App\Http\Controllers\HospitalStaySelectionController;
 use App\Http\Controllers\InvoiceDiscountController;
+use App\Http\Controllers\LabMicrobiologyController;
 use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
-use App\Http\Controllers\MaternityPrescriptionController;
 use App\Http\Controllers\MaternityNewbornController;
+use App\Http\Controllers\MaternityPrescriptionController;
 use App\Http\Controllers\Medicine\ClinicalProtocolController;
 use App\Http\Controllers\Medicine\ImagingReportTemplateController;
 use App\Http\Controllers\Medicine\ParaclinicalRequestDirectoryController;
@@ -979,8 +980,24 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
 
     // Laboratoire — minimal, côté suivi/résultat uniquement : la demande
     // vient de Médecine (CreateLabRequestAction), l'orientation existe déjà.
+    // ADR-213 — la paillasse : file par demande, saisie structurée, validation du biologiste.
     Route::get('/laboratory', [LaboratoryController::class, 'index'])->name('laboratory.index')->middleware('can:laboratory_results.view');
+    Route::get('/laboratory/requests/{labRequest}', [LaboratoryController::class, 'show'])->name('laboratory.requests.show')->middleware('can:laboratory_results.view');
+    Route::get('/laboratory/requests/{labRequest}/impression', [LaboratoryController::class, 'print'])->name('laboratory.requests.print')->middleware('can:laboratory_results.view');
+    Route::post('/laboratory/requests/{labRequest}/validate', [LaboratoryController::class, 'validateRequest'])->name('laboratory.requests.validate')->middleware('can:laboratory_results.validate');
+    Route::put('/laboratory/items/{labRequestItem}/results', [LaboratoryController::class, 'saveResults'])->name('laboratory.items.results')->middleware('can:laboratory_results.create');
+    Route::put('/laboratory/items/{labRequestItem}/antibiograms/{labAntibiogram}', [LaboratoryController::class, 'saveAntibiogram'])->name('laboratory.items.antibiograms.update')->middleware('can:laboratory_results.create');
+    Route::post('/laboratory/items/{labRequestItem}/complete', [LaboratoryController::class, 'complete'])->name('laboratory.items.complete')->middleware('can:laboratory_results.create');
+    Route::post('/laboratory/items/{labRequestItem}/return', [LaboratoryController::class, 'returnItem'])->name('laboratory.items.return')->middleware('can:laboratory_results.view');
+    Route::post('/laboratory/items/{labRequestItem}/validate', [LaboratoryController::class, 'validateItem'])->name('laboratory.items.validate')->middleware('can:laboratory_results.validate');
+    Route::post('/laboratory/results/{labResult}/critical', [LaboratoryController::class, 'flagCritical'])->name('laboratory.results.critical')->middleware('can:laboratory_results.flag_critical');
     Route::post('/laboratory/items/{labRequestItem}/result', [LaboratoryController::class, 'recordResult'])->name('laboratory.items.result')->middleware('can:laboratory_results.create');
+    Route::get('/laboratory/microbiologie', [LabMicrobiologyController::class, 'index'])->name('laboratory.microbiology.index')->middleware('can:lab_microbiology.view');
+    Route::post('/laboratory/microbiologie/referentiel-de-depart', [LabMicrobiologyController::class, 'importStarter'])->name('laboratory.microbiology.starter')->middleware('can:lab_microbiology.create');
+    Route::post('/laboratory/microbiologie/{kind}', [LabMicrobiologyController::class, 'store'])->name('laboratory.microbiology.store')->middleware('can:lab_microbiology.create')->whereIn('kind', ['family', 'bacterium', 'antibiotic']);
+    Route::put('/laboratory/microbiologie/{kind}/{uuid}', [LabMicrobiologyController::class, 'update'])->name('laboratory.microbiology.update')->middleware('can:lab_microbiology.update')->whereIn('kind', ['family', 'bacterium', 'antibiotic']);
+    Route::delete('/laboratory/microbiologie/{kind}/{uuid}', [LabMicrobiologyController::class, 'archive'])->name('laboratory.microbiology.archive')->middleware('can:lab_microbiology.archive')->whereIn('kind', ['family', 'bacterium', 'antibiotic']);
+    Route::post('/laboratory/microbiologie/{kind}/{uuid}/restore', [LabMicrobiologyController::class, 'restore'])->name('laboratory.microbiology.restore')->middleware('can:lab_microbiology.restore')->whereIn('kind', ['family', 'bacterium', 'antibiotic']);
 
     // Espace anesthésiste autonome. Il partage les mêmes dossiers cliniques
     // avec Chirurgie mais n'accorde jamais implicitement surgery.view.

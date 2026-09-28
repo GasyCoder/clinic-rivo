@@ -1,0 +1,117 @@
+<script setup>
+import { computed } from 'vue';
+import AppLayout from '@/Layouts/AppLayout.vue';
+import PaperSheet from '@/Components/Clinical/PaperSheet.vue';
+import { formatDate, formatDateTime } from '@/utilities/date';
+import { formatPatientName } from '@/utilities/patient';
+import { INTERPRETATION_LABELS, resultText } from '@/utilities/labWorkbench';
+
+/**
+ * ADR-213 — la feuille de résultats : seules les analyses rendues s'impriment,
+ * et une analyse non validée le dit sur la feuille.
+ */
+defineOptions({ layout: AppLayout });
+
+const props = defineProps({
+    labRequest: { type: Object, required: true },
+    items: { type: Array, default: () => [] },
+    options: { type: Object, default: () => ({}) },
+});
+
+const ANTIBIOGRAM_LABELS = { S: 'Sensible', I: 'Intermédiaire', R: 'Résistant' };
+const patient = computed(() => props.labRequest.patient);
+const rows = (item) => (item.nodes ?? []).filter((node) => !node.takes_result || node.result);
+</script>
+
+<template>
+    <PaperSheet
+        :page-title="`Résultats · ${formatPatientName(patient)}`"
+        document-title="Résultats d’analyses de laboratoire"
+        :back-href="`/laboratory/requests/${labRequest.uuid}`"
+        back-label="Retour à la saisie"
+    >
+        <table class="ps-table">
+            <tbody>
+                <tr>
+                    <th class="ps-label ps-label-blue-soft" style="width: 18%">Patient</th>
+                    <td style="width: 32%"><strong>{{ formatPatientName(patient) }}</strong></td>
+                    <th class="ps-label ps-label-blue-soft" style="width: 18%">N° dossier</th>
+                    <td>{{ patient.patient_number }} · {{ labRequest.episode_number }}</td>
+                </tr>
+                <tr>
+                    <th class="ps-label ps-label-blue-soft">Âge / sexe</th>
+                    <td>
+                        <template v-if="patient.birth_date">{{ formatDate(patient.birth_date) }} — </template>
+                        <template v-if="patient.age !== null && patient.age !== undefined">{{ patient.age }} ans</template>
+                        <template v-if="patient.sex"> · {{ patient.sex === 'M' ? 'Masculin' : 'Féminin' }}</template>
+                    </td>
+                    <th class="ps-label ps-label-blue-soft">Demandée le</th>
+                    <td>{{ formatDateTime(labRequest.requested_at) }}<template v-if="labRequest.requested_by"> — {{ labRequest.requested_by }}</template></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p v-if="!items.length" class="ps-muted" style="margin-top: 16px">Aucune analyse rendue pour cette demande.</p>
+
+        <section v-for="item in items" :key="item.uuid" style="break-inside: avoid">
+            <table class="ps-table">
+                <thead>
+                    <tr><th colspan="4" class="ps-section ps-section-blue">{{ item.name }}</th></tr>
+                    <tr>
+                        <th style="width: 34%; text-align: left">Analyse</th>
+                        <th style="width: 30%; text-align: left">Résultat</th>
+                        <th style="width: 22%; text-align: left">Valeurs de référence</th>
+                        <th style="text-align: left">Interprétation</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template v-if="item.has_definitions">
+                        <template v-for="node in rows(item)" :key="node.uuid">
+                            <tr v-if="!node.takes_result">
+                                <td colspan="4" :style="{ paddingLeft: `${8 + node.depth * 14}px`, fontWeight: 700 }">{{ node.designation }}</td>
+                            </tr>
+                            <tr v-else>
+                                <td :style="{ paddingLeft: `${8 + node.depth * 14}px`, fontWeight: node.is_bold ? 700 : 400 }">{{ node.designation }}</td>
+                                <td :style="{ fontWeight: node.result.interpretation === 'PATHOLOGICAL' ? 700 : 400 }">
+                                    {{ resultText(node, options) }}<template v-if="node.unit && node.entry_mode === 'NUMERIC'"> {{ node.unit }}</template>
+                                    <template v-if="node.result.is_critical"> — CRITIQUE</template>
+                                </td>
+                                <td>{{ node.reference ?? '' }}</td>
+                                <td>{{ INTERPRETATION_LABELS[node.result.interpretation] ?? '' }}</td>
+                            </tr>
+                            <tr v-for="antibiogram in node.antibiograms" :key="antibiogram.uuid">
+                                <td colspan="4" style="padding: 6px 8px">
+                                    <strong>Antibiogramme — <em>{{ antibiogram.bacterium }}</em></strong>
+                                    <table class="ps-table" style="margin-top: 4px">
+                                        <tbody>
+                                            <tr v-for="line in antibiogram.lines" :key="line.antibiotic_uuid">
+                                                <td style="width: 55%">{{ line.antibiotic }}</td>
+                                                <td style="width: 25%; font-weight: 700">{{ ANTIBIOGRAM_LABELS[line.interpretation] ?? line.interpretation }}</td>
+                                                <td>{{ line.measure !== null && line.measure !== undefined ? `${line.measure} ${line.measure_unit}` : '' }}</td>
+                                            </tr>
+                                            <tr v-if="!antibiogram.lines.length"><td colspan="3" class="ps-muted">Aucun antibiotique testé.</td></tr>
+                                        </tbody>
+                                    </table>
+                                    <p v-if="antibiogram.notes" class="ps-muted" style="margin: 4px 0 0">{{ antibiogram.notes }}</p>
+                                </td>
+                            </tr>
+                        </template>
+                    </template>
+                    <tr v-else>
+                        <td colspan="4" style="white-space: pre-line">{{ item.result_value }}<template v-if="item.result_notes">&#10;{{ item.result_notes }}</template></td>
+                    </tr>
+                    <tr v-if="item.conclusion">
+                        <td colspan="4"><strong>Conclusion : </strong>{{ item.conclusion }}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="4" class="ps-muted">
+                            <template v-if="item.status === 'VALIDATED'">Validé<template v-if="item.validated_by"> par {{ item.validated_by }}</template> le {{ formatDateTime(item.validated_at) }}.</template>
+                            <template v-else><strong>Résultat non validé par le biologiste.</strong></template>
+                            <template v-if="item.resulted_at"> Rendu le {{ formatDateTime(item.resulted_at) }}<template v-if="item.resulted_by"> par {{ item.resulted_by }}</template>.</template>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+    </PaperSheet>
+</template>

@@ -494,6 +494,10 @@ class MedicineDossierPresenter
                                 'result_notes' => $item->result_notes,
                                 'resulted_at' => $item->resulted_at,
                                 'resulted_by' => $item->resultedBy?->name,
+                                // ADR-213 — rendu ne veut pas dire validé.
+                                'lab_status' => $item->currentStatus()->value,
+                                'lab_status_label' => $item->currentStatus()->label(),
+                                'validated_at' => $item->validated_at,
                             ])->values(),
                         ])->values()
                     : [],

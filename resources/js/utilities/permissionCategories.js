@@ -1,4 +1,5 @@
 import {
+    Bug,
     AtSign,
     Activity,
     Ambulance,
@@ -226,6 +227,7 @@ export const PERMISSION_CATEGORIES = {
     laboratory_orders: { label: 'Demandes d’analyses', module: 'laboratory', icon: TestTube },
     laboratory_results: { label: 'Résultats d’analyses', module: 'laboratory', icon: TestTubes },
     analysis_catalog: { label: 'Catalogue des analyses', module: 'laboratory', icon: FlaskConical },
+    lab_microbiology: { label: 'Germes et antibiotiques (microbiologie)', module: 'laboratory', icon: Bug },
     imaging_orders: { label: 'Demandes d’imagerie (ECG, échographie)', module: 'laboratory', icon: ScanLine },
     imaging_results: { label: 'Résultats d’imagerie', module: 'laboratory', icon: FileImage },
     imaging_templates: { label: 'Feuilles de compte rendu d’imagerie', module: 'laboratory', icon: LayoutTemplate },

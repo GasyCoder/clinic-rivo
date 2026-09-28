@@ -461,11 +461,15 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Prélèvement
 - [ ] Echantillon
 - [ ] Analyse
-- [ ] Saisie résultat
-- [ ] Validation résultat
-- [ ] Correction contrôlée
-- [ ] Résultat critique
-- [ ] Impression
+- [x] Saisie résultat : analyse par analyse du catalogue, dix modes de saisie repris de labo-vuejs, enregistrement automatique, interprétation proposée (ADR-213)
+- [x] Validation résultat : Terminer (technicien) puis Valider (biologiste), par analyse ou toute la demande (ADR-213)
+- [x] Correction contrôlée : renvoyer à refaire avec motif, résultat rendu gardé lisible (ADR-213)
+- [x] Résultat critique signalé à la main, tracé — aucune borne critique inventée (ADR-213)
+- [x] Impression : feuille de résultats avec antibiogrammes, « non validé » écrit tant qu'il l'est (ADR-213)
+- [x] File de la paillasse par demande : À faire / À refaire / À valider / Validées (ADR-213)
+- [x] Microbiologie : familles, germes, antibiotiques par site, référentiel de départ importable ; antibiogramme S/I/R par germe identifié (ADR-213)
+- [x] Mode de saisie choisi dans le formulaire du catalogue des analyses (ADR-213)
+- [ ] Biologiste distinct du technicien, microbiologie pour l'Administration, valeurs critiques — à décider (ADR-213)
 - [ ] Export
 - [ ] Rapport
 

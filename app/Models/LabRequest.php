@@ -69,7 +69,7 @@ class LabRequest extends Model
     {
         $items = $this->relationLoaded('items') ? $this->items : $this->items()->get();
 
-        return $items->contains(fn (LabRequestItem $item): bool => $item->resulted_at !== null);
+        return $items->contains(fn (LabRequestItem $item): bool => $item->hasStarted());
     }
 
     public function displayStatus(): string

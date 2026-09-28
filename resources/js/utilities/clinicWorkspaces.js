@@ -20,6 +20,7 @@ import {
     FileText,
     Gift,
     Medal,
+    Bug,
     FlaskConical,
     GraduationCap,
     Handshake,
@@ -90,7 +91,10 @@ export const CLINIC_WORKSPACES = [
     // ADR-111 — ce que la consultation propose vient d'ici : les protocoles
     // écrits par les médecins de la clinique, jamais une règle inventée.
     { key: 'clinical-protocols', group: 'clinical', text: 'Protocoles', description: 'Diagnostics et ordonnances types de la clinique', icon: BookOpenCheck, link: '/medicine/protocoles', permission: 'clinical_protocols.view', tone: 'ocean' },
-    { key: 'laboratory', group: 'clinical', text: 'Laboratoire', description: 'Demandes et résultats d’analyses', icon: FlaskConical, link: '/laboratory', permission: 'laboratory_orders.view', tone: 'cyan' },
+    // ADR-213 — l'entrée suit le droit de la route (`laboratory_results.view`) :
+    // un compte qui prescrit sans voir les résultats n'y a rien à faire.
+    { key: 'laboratory', group: 'clinical', text: 'Laboratoire', description: 'Paillasse, résultats et validation', icon: FlaskConical, link: '/laboratory', permission: 'laboratory_results.view', tone: 'cyan' },
+    { key: 'lab-microbiology', group: 'clinical', text: 'Germes & antibiotiques', description: 'Familles, germes et antibiotiques testés', icon: Bug, link: '/laboratory/microbiologie', permission: 'lab_microbiology.view', tone: 'cyan' },
     // care.view alone also powers the read-only projection embedded in
     // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on
     // ADR-157 — la file appartient à qui FAIT les soins : `care.create`.
@@ -226,6 +230,13 @@ export const SIDEBAR_GROUPS = [
         labels: { reception: 'Accueil & passages' },
     },
     {
+        key: 'laboratory-space',
+        text: 'Laboratoire',
+        icon: FlaskConical,
+        members: ['laboratory', 'lab-microbiology'],
+        labels: { laboratory: 'Paillasse' },
+    },
+    {
         key: 'referentials-space',
         text: 'Référentiels',
         icon: Library,
@@ -276,7 +287,7 @@ export const ROLE_FOCUS = {
     },
     LABORATORY: {
         lead: 'Les demandes d’analyses et leurs résultats.',
-        primary: { label: 'Ouvrir le Laboratoire', link: '/laboratory', icon: Activity, permission: 'laboratory_orders.view' },
+        primary: { label: 'Ouvrir le Laboratoire', link: '/laboratory', icon: Activity, permission: 'laboratory_results.view' },
         shortcuts: ['analysis_catalog', 'patients'],
         metrics: [],
     },

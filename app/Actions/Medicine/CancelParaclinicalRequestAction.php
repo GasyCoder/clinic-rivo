@@ -11,6 +11,7 @@ use App\Models\ImagingRequest;
 use App\Models\LabRequest;
 use App\Models\User;
 use App\Services\Billing\ParaclinicalBillingRelease;
+use App\Support\Paraclinical\ParaclinicalRequestPresenter;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -152,7 +153,8 @@ class CancelParaclinicalRequestAction
             ]);
         }
 
-        if ($locked->items->contains(fn (Model $item) => $item->resulted_at !== null)) {
+        // ADR-213 — une analyse dont la saisie a commencé à la paillasse compte aussi.
+        if ($locked->items->contains(fn (Model $item) => ParaclinicalRequestPresenter::itemStarted($item))) {
             throw ValidationException::withMessages([
                 'request' => 'Cette demande porte déjà un résultat : elle ne peut plus être retirée.',
             ]);

@@ -16,6 +16,7 @@ const props = defineProps({
     parents: Array,
     levels: Array,
     resultTypes: Array,
+    entryModes: { type: Array, default: () => [] },
     examCategories: { type: Array, default: () => [] },
 });
 
@@ -29,6 +30,7 @@ const childRowFrom = (row) => ({
     exam_category: row.exam_category ?? '',
     level: row.level,
     result_type: row.result_type,
+    entry_mode: row.entry_mode ?? null,
     reference_general: row.reference_general ?? '',
     reference_male: row.reference_male ?? '',
     reference_female: row.reference_female ?? '',
@@ -54,6 +56,7 @@ const form = useForm({
     description: props.analysis.description ?? '',
     exam_category: props.analysis.exam_category ?? '',
     result_type: props.analysis.result_type,
+    entry_mode: props.analysis.entry_mode ?? null,
     reference_general: props.analysis.reference_general ?? '',
     reference_male: props.analysis.reference_male ?? '',
     reference_female: props.analysis.reference_female ?? '',
@@ -87,6 +90,7 @@ const form = useForm({
             :parents="parents"
             :levels="levels"
             :result-types="resultTypes"
+            :entry-modes="entryModes"
             :exam-categories="examCategories"
             submit-label="Mettre à jour"
             :submit-url="urls.update(analysis.uuid)"

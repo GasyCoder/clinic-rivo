@@ -7,6 +7,7 @@ use App\Enums\CatalogModule;
 use App\Models\CatalogItem;
 use App\Models\ImagingRequest;
 use App\Models\LabRequest;
+use App\Models\LabRequestItem;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Medicine\ImagingReportTemplateCatalog;
 use App\Support\ImagingReportDocument;
@@ -30,7 +31,17 @@ final class ParaclinicalRequestPresenter
     public static function withdrawable(LabRequest|ImagingRequest $request): bool
     {
         return $request->cancelled_at === null
-            && $request->items->every(fn ($item) => $item->resulted_at === null);
+            && $request->items->every(fn ($item) => ! self::itemStarted($item));
+    }
+
+    /**
+     * Une ligne a-t-elle déjà produit quelque chose ? Pour une analyse, une
+     * saisie commencée à la paillasse compte autant qu'un résultat rendu
+     * (ADR-213) : le prélèvement a été analysé, l'acte a eu lieu.
+     */
+    public static function itemStarted(mixed $item): bool
+    {
+        return $item instanceof LabRequestItem ? $item->hasStarted() : $item->resulted_at !== null;
     }
 
     /**
@@ -63,6 +74,10 @@ final class ParaclinicalRequestPresenter
                 'exam' => $item->catalog_item_name_snapshot,
                 'resulted_at' => $item->resulted_at,
                 'result' => $item->result_value,
+                // ADR-213 — un résultat rendu n'est pas forcément validé par le biologiste.
+                'lab_status' => $item->currentStatus()->value,
+                'lab_status_label' => $item->currentStatus()->label(),
+                'validated_at' => $item->validated_at,
             ])->values()->all(),
         ];
     }

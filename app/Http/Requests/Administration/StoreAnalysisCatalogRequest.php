@@ -4,6 +4,7 @@ namespace App\Http\Requests\Administration;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\LabEntryMode;
 use App\Models\AnalysisCatalog;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -39,6 +40,7 @@ class StoreAnalysisCatalogRequest extends FormRequest
             'description' => ['nullable', 'string', 'max:2000'],
             'exam_category' => ['nullable', 'string', 'max:100'],
             'result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
+            'entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'reference_general' => ['nullable', 'string', 'max:255'],
             'reference_male' => ['nullable', 'string', 'max:255'],
             'reference_female' => ['nullable', 'string', 'max:255'],
@@ -63,6 +65,7 @@ class StoreAnalysisCatalogRequest extends FormRequest
             'children.*.description' => ['nullable', 'string', 'max:2000'],
             'children.*.exam_category' => ['nullable', 'string', 'max:100'],
             'children.*.result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
+            'children.*.entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'children.*.reference_general' => ['nullable', 'string', 'max:255'],
             'children.*.reference_male' => ['nullable', 'string', 'max:255'],
             'children.*.reference_female' => ['nullable', 'string', 'max:255'],
@@ -86,6 +89,7 @@ class StoreAnalysisCatalogRequest extends FormRequest
             'children.*.children.*.description' => ['nullable', 'string', 'max:2000'],
             'children.*.children.*.exam_category' => ['nullable', 'string', 'max:100'],
             'children.*.children.*.result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
+            'children.*.children.*.entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'children.*.children.*.reference_general' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_male' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_female' => ['nullable', 'string', 'max:255'],

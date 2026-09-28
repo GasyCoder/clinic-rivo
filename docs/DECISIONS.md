@@ -20335,3 +20335,134 @@ imagerie / labo       le compte rendu corrigé (ADR-130) garde son auteur d'orig
 remboursement         un bonus versé par erreur ne se reprend pas dans RIVO : c'est hors RIVO
 dossier existant      une recommandation oubliée à la première venue ne se rattrape pas
 ```
+
+---
+
+# ADR-213 — La paillasse du Laboratoire : résultats structurés, microbiologie, validation
+
+**Status:** ACCEPTED (2026-09-28 — demande du propriétaire : intégrer dans RIVO les
+fonctionnalités de son application laboratoire `GasyCoder/labo-vuejs` — résultats,
+analyses, germes, bactéries, antibiogrammes — avec leur UI et UX)
+
+**Complète l'ADR-063** (catalogue des analyses) et **l'ADR-068** (demandes d'analyses).
+Le CDC décrit le Laboratoire (demande, prélèvement, analyse, saisie, validation, résultat
+critique, impression) sans en fixer le détail : les modes de saisie, le référentiel de
+microbiologie et le score de Nugent sont **repris de labo-vuejs**, l'application que la
+clinique utilisait déjà. Aucune règle clinique n'est inventée ; ce qui n'y est pas est
+signalé plus bas.
+
+## Le résultat se saisit analyse par analyse du catalogue
+
+Une prestation du Laboratoire (`catalog_items`) porte ses définitions techniques
+(`analysis_catalogs`, ADR-063) : groupes, sous-analyses, unités, références. La paillasse
+présente cet arbre et enregistre **une ligne par analyse** (`lab_results`) : valeur,
+sélections, interprétation, position par rapport à la référence, instantané du libellé, de
+l'unité et de la référence (une correction du catalogue ne réécrit jamais un résultat,
+ADR-063).
+
+`analysis_catalogs.entry_mode` (`LabEntryMode`) dit comment la paillasse saisit :
+
+```text
+NUMERIC            nombre ; « 1,45 » accepté ; position BAS / NORMAL / ÉLEVÉ lue sur la référence
+TEXT               texte libre
+CHOICE, MULTI_CHOICE  une ou plusieurs valeurs de la liste prédéfinie
+NEG_POS            Négatif / Positif
+NEG_POS_VALUE      Négatif / Positif + une précision saisie (ex. titre)
+NEG_POS_CHOICE     Négatif / Positif + une précision de la liste
+ABSENCE_PRESENCE   Absence / Présence
+CULTURE            issue de la culture ; « Présence de germe(s) » nomme 1 à 6 germes
+NUGENT             trois sous-scores ; score /10 et lecture (0–3 normale, 4–6 intermédiaire, 7–10 vaginose)
+LABEL              un intitulé, sans résultat
+```
+
+Vide, le mode se déduit du type historique de labo-vuejs (conservé dans `source_metadata`)
+puis du type de résultat : la migration l'écrit pour les analyses existantes. Il se choisit
+dans le formulaire du catalogue (« Mode de saisie au laboratoire »).
+
+**L'interprétation est proposée, jamais imposée** : hors bornes → pathologique, dans la
+norme → normale, score de Nugent → sa lecture. Le technicien peut la changer ; le serveur ne
+la réécrit que s'il n'en a pas choisi. Ce n'est pas un diagnostic.
+
+## Le parcours d'une analyse demandée
+
+`lab_request_items.status` (`LabItemStatus`) :
+
+```text
+PENDING → IN_PROGRESS → COMPLETED → VALIDATED
+                 ↑            │          │
+                 └── TO_REDO ←┴──────────┘   (motif obligatoire)
+```
+
+```text
+saisie      enregistrée automatiquement (useAutosave) ; un brouillon, jamais rendu
+Terminer    exige au moins un résultat, un germe nommé pour une culture positive, les
+            trois sous-scores de Nugent ; écrit `result_value` (le résumé lisible) et
+            `resulted_at` — ce que Médecine, Maternité et le séjour lisent déjà
+Valider     le biologiste (`laboratory_results.validate`) ; une analyse, ou toute la demande
+Renvoyer    avec un motif ; une analyse validée ne se renvoie qu'avec le droit de valider
+```
+
+Une analyse terminée ou validée ne se modifie plus : elle se renvoie à refaire, et son
+résultat rendu reste lisible jusqu'au prochain « Terminer » (il a pu être lu). Une demande
+retirée par le prescripteur (ADR-079) ne se travaille plus. Les lignes déjà rendues avant
+cette décision passent « Terminée — à valider » : les dire validées inventerait une
+validation. `result_value`, `resulted_at` et `RecordLabResultAction` gardent leur sens ; une
+prestation sans définitions garde la saisie en un bloc.
+
+## Microbiologie : un référentiel par site
+
+`lab_bacterium_families`, `lab_bacteria`, `lab_antibiotics` : les familles, leurs germes et
+les antibiotiques testés pour la famille. Noms uniques sans accents ni casse ; archivage avec
+motif, restauration ; une entrée qui a servi n'est jamais supprimée. « Importer le référentiel
+de départ » reprend celui de labo-vuejs (`database/seeders/data/lab_microbiology.json`), une
+seule fois, sans rien écraser.
+
+Chaque germe nommé dans une culture ouvre son **antibiogramme** (`lab_antibiograms`,
+`lab_antibiogram_results`) : un antibiotique de la famille par ligne, Sensible / Intermédiaire
+/ Résistant, diamètre en mm facultatif, commentaire. Retirer le germe d'une culture encore
+ouverte retire son antibiogramme (c'est un brouillon).
+
+## Résultat critique
+
+Un résultat se signale critique **à la main** (`laboratory_results.flag_critical`), avec
+l'auteur et l'heure. Aucune borne critique n'est calculée : ni le CDC ni le catalogue ne
+portent de valeurs critiques, et en écrire serait inventer de la médecine.
+
+## Écrans (shadcn, ADR-099)
+
+```text
+/laboratory                        la file par demande : À faire, À refaire, À valider, Validées,
+                                   Toutes — comptes du serveur, urgences, résultats critiques
+/laboratory/requests/{uuid}        la paillasse : analyses à gauche, saisie à droite
+/laboratory/requests/{uuid}/impression   la feuille de résultats (« non validé » écrit tant
+                                   qu'il l'est), antibiogrammes compris
+/laboratory/microbiologie          familles, germes et antibiotiques
+```
+
+## Droits
+
+```text
+laboratory_results.view / create    existants ; l'entrée de menu suit désormais la route
+                                    (laboratory_results.view) au lieu de laboratory.view
+laboratory_results.validate         valider, renvoyer une analyse validée        LABORATORY
+laboratory_results.flag_critical    signaler un résultat critique                LABORATORY
+lab_microbiology.view/create/update/archive/restore                              LABORATORY
+```
+
+Enregistrés par la migration `2026_11_16_090000_create_laboratory_workbench` (ADR-064). Le
+Laboratoire n'encaisse toujours rien et n'affiche aucun montant (ADR-014).
+
+## Signalé, non tranché
+
+```text
+biologiste                validate est accordé à tout le rôle LABORATORY : la clinique n'a pas
+                          de profil biologiste distinct — le réserver se fait depuis le portail
+microbiologie à           non accordée par défaut à ADMINISTRATION : à décider
+l'Administration
+valeurs critiques         aucune donnée : le signalement reste manuel
+prélèvement, tubes,       non repris : aucune règle définie dans RIVO
+échantillons
+analyses externes,        non repris
+vérification du paiement
+avant analyse
+```

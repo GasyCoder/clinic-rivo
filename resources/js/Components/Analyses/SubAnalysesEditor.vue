@@ -15,6 +15,7 @@ const props = defineProps({
     form: { type: Object, required: true },
     pathPrefix: { type: String, required: true },
     resultTypes: { type: Array, required: true },
+    entryModes: { type: Array, default: () => [] },
     examCategories: { type: Array, default: () => [] },
     depth: { type: Number, default: 0 },
     maxDepth: { type: Number, default: 1 },
@@ -32,6 +33,7 @@ const emptyChild = () => ({
     exam_category: '',
     level: 'CHILD',
     result_type: 'TEXT',
+    entry_mode: null,
     reference_general: '',
     reference_male: '',
     reference_female: '',
@@ -85,6 +87,7 @@ const typeLabel = (value) => ({ NUMERIC: 'Numérique', TEXT: 'Texte', CHOICE: 'C
                     <Input v-model="child.designation" size="sm" placeholder="Désignation *" :class="canNest ? '' : 'xl:col-span-2'" />
                     <select v-if="canNest" v-model="child.level" class="block h-9 w-full appearance-none rounded border border-border bg-card px-3 pe-9 text-xs text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/25"><option value="CHILD">Sous-analyse</option><option value="PARENT">Groupe</option></select>
                     <select v-model="child.result_type" class="block h-9 w-full appearance-none rounded border border-border bg-card px-3 pe-9 text-xs text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/25"><option v-for="type in resultTypes" :key="type" :value="type">{{ typeLabel(type) }}</option></select>
+                    <select v-if="entryModes.length" v-model="child.entry_mode" aria-label="Mode de saisie au laboratoire" class="block h-9 w-full appearance-none rounded border border-border bg-card px-3 pe-9 text-xs text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/25"><option :value="null">Saisie automatique</option><option v-for="mode in entryModes" :key="mode.value" :value="mode.value">{{ mode.label }}</option></select>
                 </div>
                 <div class="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                     <Input v-model="child.reference_general" size="sm" placeholder="Référence générale" />
@@ -107,6 +110,7 @@ const typeLabel = (value) => ({ NUMERIC: 'Numérique', TEXT: 'Texte', CHOICE: 'C
                     :form="form"
                     :path-prefix="`${pathPrefix}.${index}.children`"
                     :result-types="resultTypes"
+                    :entry-modes="entryModes"
                     :exam-categories="examCategories"
                     :depth="depth + 1"
                     :max-depth="maxDepth"

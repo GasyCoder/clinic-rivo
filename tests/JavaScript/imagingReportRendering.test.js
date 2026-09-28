@@ -66,10 +66,22 @@ test('la vacuité du compte rendu est décidée par le serveur', () => {
 
 /** Un résultat d'analyse reste du texte brut : rien à rendre en HTML. */
 test('le résultat de laboratoire n’est pas traité comme du texte enrichi', () => {
-    const lab = fs.readFileSync('resources/js/Pages/Laboratory/Index.vue', 'utf8');
+    // ADR-213 — la paillasse et sa feuille lisent le résultat comme du texte.
+    const files = [
+        'resources/js/Pages/Laboratory/Index.vue',
+        'resources/js/Pages/Laboratory/Show.vue',
+        'resources/js/Pages/Laboratory/ResultsPrint.vue',
+        'resources/js/Components/Laboratory/LabItemEditor.vue',
+        'resources/js/Components/Laboratory/LabResultField.vue',
+    ];
+    for (const file of files) {
+        const source = fs.readFileSync(file, 'utf8');
+        assert.doesNotMatch(source, /v-html/, `${file} rend du HTML`);
+        assert.doesNotMatch(source, /ClinicalRichTextEditor/, `${file} saisit du texte enrichi`);
+    }
 
-    assert.match(lab, /\{\{ item\.result_value \}\}/);
-    assert.doesNotMatch(lab, /ClinicalRichTextEditor/);
+    const print = fs.readFileSync('resources/js/Pages/Laboratory/ResultsPrint.vue', 'utf8');
+    assert.match(print, /\{\{ item\.result_value \}\}/);
 });
 
 /**

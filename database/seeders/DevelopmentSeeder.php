@@ -33,6 +33,7 @@ class DevelopmentSeeder extends Seeder
             DevelopmentMutualOrganizationSeeder::class,   // mutuelles et taux de couverture
             DevelopmentParaclinicalCatalogSeeder::class,  // analyses, ECG, échographies de base
             DevelopmentLegacyAnalysisCatalogSeeder::class, // 719 analyses historiques
+            LabMicrobiologySeeder::class,                 // familles, germes, antibiotiques (ADR-213)
             DevelopmentDiagnosticCatalogSeeder::class,    // diagnostics courants
             DevelopmentCashRegisterSeeder::class,         // Caisse 1 / Caisse 2
         ]);

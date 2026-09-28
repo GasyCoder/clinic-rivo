@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'catalog_item_id', 'parent_id', 'code', 'level', 'designation', 'description',
-    'exam_category', 'result_type', 'reference_general', 'reference_male', 'reference_female',
+    'exam_category', 'result_type', 'entry_mode', 'reference_general', 'reference_male', 'reference_female',
     'reference_child_male', 'reference_child_female', 'unit', 'predefined_values',
     'display_order', 'is_active', 'is_bold', 'created_by', 'updated_by',
     'external_created_by_uuid', 'external_created_by_name',

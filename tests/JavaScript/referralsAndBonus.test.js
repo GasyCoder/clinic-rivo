@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { emptyReferral, referralPayload } from '../../resources/js/utilities/referral.js';
-import { bonusRowState, monthLabel, shiftMonth } from '../../resources/js/utilities/bonus.js';
+import { bonusRowState, monthLabel, selectionState, shiftMonth, toggleShown } from '../../resources/js/utilities/bonus.js';
 
 /**
  * ADR-212 — la recommandation notée à l'accueil d'un nouveau patient, et les
@@ -47,12 +47,6 @@ test('l’accueil note la recommandation d’un nouveau patient seulement, et re
     assert.match(reception, /return \{ patient_type: 'STAFF', employee_uuid: employee\.uuid, confirm_duplicate: confirmDuplicate, \.\.\.contact, \.\.\.journey \};/);
 });
 
-test('un partenaire ne se recommande pas lui-même', () => {
-    const picker = read('resources/js/Components/Reception/ReferralPicker.vue');
-
-    assert.match(picker, /! \(person\.source === 'PARTNER' && person\.uuid === props\.excludePartnerUuid\)/);
-});
-
 test('où en est le bonus d’une personne ce mois-ci', () => {
     assert.equal(bonusRowState({ reached: false, award: null }), 'BELOW');
     assert.equal(bonusRowState({ reached: true, award: null }), 'TO_VALIDATE');
@@ -82,4 +76,22 @@ test('valider un bonus passe par une confirmation, jamais par un clic direct', (
     assert.match(page, /@click="openAward\('validate', category, employee\)"/);
     assert.match(page, /\.post\(hrUrl\('\/administration\/bonus\/awards'\), options\)/);
     assert.match(page, /:disabled="pending\?\.mode === 'cancel' && ! awardForm\.reason\.trim\(\)"/, 'annuler exige un motif');
+});
+
+test('« Tout sélectionner » coche la liste affichée, sans toucher ce que la recherche masque', () => {
+    assert.equal(selectionState([], []), false, 'une liste vide n’est jamais « toute cochée »');
+    assert.equal(selectionState([], ['a', 'b']), false);
+    assert.equal(selectionState(['a'], ['a', 'b']), 'indeterminate');
+    assert.equal(selectionState(['a', 'b', 'z'], ['a', 'b']), true);
+
+    assert.deepEqual(toggleShown(['z'], ['a', 'b']), ['z', 'a', 'b']);
+    assert.deepEqual(toggleShown(['a', 'z'], ['a', 'b']), ['a', 'z', 'b'], 'une liste en partie cochée se coche en entier');
+    assert.deepEqual(toggleShown(['a', 'b', 'z'], ['a', 'b']), ['z'], 'une liste toute cochée se décoche, le reste choisi reste');
+});
+
+test('la fenêtre des catégories propose « Tout sélectionner » et s’élargit', () => {
+    const dialog = read('resources/js/Components/Bonus/BonusCategoryDialog.vue');
+
+    assert.match(dialog, /<Checkbox id="bonus-staff-all" :model-value="allShownState" @update:model-value="toggleAllShown" \/>/);
+    assert.match(dialog, /content-class="max-w-5xl"/);
 });

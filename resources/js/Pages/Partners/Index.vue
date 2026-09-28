@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import {
     Archive,
@@ -17,20 +17,15 @@ import {
     RotateCcw,
     Search,
     Stethoscope,
-    UserRound,
     X,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import AddressEntryField from '@/Components/Administration/AddressEntryField.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
-import Checkbox from '@/Components/Shadcn/Checkbox.vue';
-import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
-import Select from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import PartnersPortalBar from '@/Components/Partners/PartnersPortalBar.vue';
@@ -41,9 +36,9 @@ import { partnerUrl, partnersContext } from '@/utilities/partnerUrl';
 /**
  * ADR-211 — le module Partenaires d'un site.
  *
- * Deux sortes de fiches : Médical (une personne du monde de la santé, qui peut
- * venir se faire soigner — l'accueil reprend alors sa fiche sans ressaisie) et
- * Autre (un organisme ou une personne : l'ISPSG, une entreprise). Le même écran
+ * Deux sortes de fiches : Médical (une personne du monde de la santé) et Autre
+ * (un organisme ou une personne : l'ISPSG, une entreprise). À l'accueil, un
+ * partenaire se choisit à la prise en charge du passage. Le même écran
  * s'ouvre au site et au Super Admin depuis le portail ; le serveur revérifie
  * chaque geste. Un partenaire ne couvre encore aucun montant.
  */
@@ -51,10 +46,6 @@ defineOptions({ layout: AppLayout });
 
 const props = defineProps({
     partners: { type: Array, default: () => [] },
-    categories: { type: Array, default: () => [] },
-    professions: { type: Array, default: () => [] },
-    /** Le référentiel d'adresses du site, servi avec `address_entries.view`. */
-    addresses: { type: Array, default: () => [] },
 });
 
 const { can } = usePermissions();
@@ -104,114 +95,11 @@ const initials = (partner) => String(partner.name ?? '')
     .split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join('').toUpperCase() || '?';
 
 /* ------------------------------------------------------------------ */
-/* Créer et modifier                                                   */
+/* Créer et modifier : chacun sur sa page (Partners/Form).             */
 /* ------------------------------------------------------------------ */
 
-const editing = ref(null);
-const dialogOpen = ref(false);
-const blank = {
-    category: 'MEDICAL',
-    last_name: '',
-    first_name: '',
-    profession: '',
-    profession_detail: '',
-    sex: '',
-    birth_date: '',
-    name: '',
-    phone: '',
-    email: '',
-    address_entry_uuid: '',
-    new_address_label: '',
-    notes: '',
-    active: true,
-};
-const form = useForm({ ...blank });
-// L'adresse vient du référentiel du site ; sans le droit de le lire, le champ
-// n'est ni montré ni envoyé — une fiche ne perd jamais son adresse en silence.
-const canPickAddress = computed(() => can('address_entries.view'));
-const addressMode = ref('existing');
-const isMedical = computed(() => form.category === 'MEDICAL');
-const categoryLocked = computed(() => Boolean(editing.value?.has_patient));
-
-const professionOptions = computed(() => props.professions);
-const sexOptions = [
-    { value: '', label: 'Non renseigné' },
-    { value: 'F', label: 'Féminin' },
-    { value: 'M', label: 'Masculin' },
-];
-const CATEGORY_CARDS = {
-    MEDICAL: { icon: Stethoscope, text: 'Une personne du monde de la santé : médecin, infirmier, laborantin… Elle peut venir se faire soigner.' },
-    OTHER: { icon: Building2, text: 'Un organisme ou une personne : une école comme l’ISPSG, une entreprise…' },
-};
-
-const focusFirst = () => nextTick(() => document.getElementById(isMedical.value ? 'partner-last-name' : 'partner-name')?.focus());
-const openCreate = () => {
-    editing.value = null;
-    form.defaults({ ...blank });
-    form.reset();
-    form.clearErrors();
-    addressMode.value = 'existing';
-    dialogOpen.value = true;
-    focusFirst();
-};
-const openEdit = (partner) => {
-    editing.value = partner;
-    form.clearErrors();
-    Object.assign(form, {
-        category: partner.category,
-        last_name: partner.last_name ?? '',
-        first_name: partner.first_name ?? '',
-        profession: partner.profession ?? '',
-        profession_detail: partner.profession_detail ?? '',
-        sex: partner.sex ?? '',
-        birth_date: partner.birth_date ?? '',
-        name: partner.category === 'OTHER' ? partner.name : '',
-        phone: partner.phone ?? '',
-        email: partner.email ?? '',
-        address_entry_uuid: partner.address_entry_uuid ?? '',
-        new_address_label: '',
-        notes: partner.notes ?? '',
-        active: partner.active,
-    });
-    addressMode.value = 'existing';
-    dialogOpen.value = true;
-    focusFirst();
-};
-const chooseCategory = (category) => {
-    if (categoryLocked.value) return;
-    form.category = category;
-    form.clearErrors();
-    focusFirst();
-};
-const closeDialog = () => {
-    if (form.processing) return;
-    dialogOpen.value = false;
-};
-const canSubmit = computed(() => (isMedical.value
-    ? form.last_name.trim() && form.profession && (form.profession !== 'OTHER' || form.profession_detail.trim())
-    : form.name.trim()));
-const submit = () => {
-    const options = { preserveScroll: true, onSuccess: () => { dialogOpen.value = false; } };
-    const payload = ({ address_entry_uuid: entry, new_address_label: newLabel, ...data }) => ({
-        ...data,
-        sex: data.sex || null,
-        birth_date: data.birth_date || null,
-        profession: data.profession || null,
-        active: editing.value ? data.active : undefined,
-        // Une seule source d'adresse part : l'entrée choisie ou la nouvelle.
-        ...(canPickAddress.value ? {
-            address_entry_uuid: addressMode.value === 'existing' ? (entry || null) : null,
-            new_address_label: addressMode.value === 'new' ? (newLabel.trim() || null) : null,
-        } : {}),
-    });
-
-    if (editing.value) {
-        form.transform(payload).put(partnerUrl(`/${editing.value.uuid}`), options);
-        return;
-    }
-
-    form.transform(payload).post(partnerUrl(), options);
-};
+const createUrl = partnerUrl('/nouveau');
+const editUrl = (partner) => partnerUrl(`/${partner.uuid}/modifier`);
 
 /* ------------------------------------------------------------------ */
 /* Archiver et restaurer                                               */
@@ -262,11 +150,11 @@ const emptyText = computed(() => {
         <PageHeader
             eyebrow="Référentiels · Partenaires"
             title="Partenaires"
-            description="Les partenaires de la clinique : des personnes du monde de la santé, et d’autres partenaires comme les écoles ou les entreprises. À l’accueil, un partenaire médical se retrouve sans ressaisie."
+            description="Les partenaires de la clinique : des personnes du monde de la santé, et d’autres partenaires comme les écoles ou les entreprises. À l’accueil, un partenaire se choisit à l’étape Prise en charge du passage."
             :icon="Handshake"
         >
             <template #actions>
-                <Button v-if="can('partner_organizations.create')" type="button" @click="openCreate">
+                <Button v-if="can('partner_organizations.create')" :as="Link" :href="createUrl">
                     <Plus class="h-4 w-4" />Nouveau partenaire
                 </Button>
             </template>
@@ -355,7 +243,7 @@ const emptyText = computed(() => {
 
                     <div class="ms-auto flex shrink-0 items-center gap-1">
                         <template v-if="! partner.archived">
-                            <Button v-if="can('partner_organizations.update')" type="button" size="sm" icon variant="ghost" :title="`Modifier ${partner.name}`" :aria-label="`Modifier ${partner.name}`" @click="openEdit(partner)">
+                            <Button v-if="can('partner_organizations.update')" :as="Link" :href="editUrl(partner)" size="sm" icon variant="ghost" :title="`Modifier ${partner.name}`" :aria-label="`Modifier ${partner.name}`">
                                 <Pencil class="h-4 w-4" />
                             </Button>
                             <Button v-if="can('partner_organizations.archive')" type="button" size="sm" icon variant="ghost" class="hover:text-destructive" :title="`Archiver ${partner.name}`" :aria-label="`Archiver ${partner.name}`" @click="openArchive(partner)">
@@ -373,139 +261,9 @@ const emptyText = computed(() => {
                 <span class="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-muted text-muted-foreground"><Handshake class="h-6 w-6" /></span>
                 <p class="mt-3 text-sm font-bold text-foreground">{{ emptyText.title }}</p>
                 <p class="mx-auto mt-1 max-w-md text-xs leading-5 text-muted-foreground">{{ emptyText.text }}</p>
-                <Button v-if="! query && ! partners.length && can('partner_organizations.create')" type="button" class="mt-4" @click="openCreate"><Plus class="h-4 w-4" />Nouveau partenaire</Button>
+                <Button v-if="! query && ! partners.length && can('partner_organizations.create')" :as="Link" :href="createUrl" class="mt-4"><Plus class="h-4 w-4" />Nouveau partenaire</Button>
             </div>
         </Card>
-
-        <!-- Créer / modifier -->
-        <Dialog
-            :open="dialogOpen"
-            size="xl"
-            :title="editing ? `Modifier « ${editing.name} »` : 'Nouveau partenaire'"
-            :description="editing ? 'Les passages déjà pris en charge gardent le nom qu’ils ont enregistré.' : 'Choisissez d’abord de quel partenaire il s’agit.'"
-            :dismissible="false"
-            @update:open="(value) => value || closeDialog()"
-        >
-            <template #icon>
-                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><component :is="editing ? Pencil : Handshake" class="h-5 w-5" /></span>
-            </template>
-
-            <form id="partner-form" class="grid gap-6" novalidate @submit.prevent="submit">
-                <fieldset>
-                    <legend class="mb-2 text-sm font-medium text-foreground">Type de partenaire</legend>
-                    <div class="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Type de partenaire">
-                        <button
-                            v-for="category in categories"
-                            :key="category.value"
-                            type="button"
-                            role="radio"
-                            :aria-checked="form.category === category.value"
-                            :disabled="categoryLocked && form.category !== category.value"
-                            :class="cn(
-                                'flex items-start gap-3 rounded-xl border p-4 text-start transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
-                                form.category === category.value ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border hover:border-primary/40 hover:bg-accent/40',
-                            )"
-                            @click="chooseCategory(category.value)"
-                        >
-                            <span :class="cn('grid h-9 w-9 shrink-0 place-items-center rounded-lg', form.category === category.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')">
-                                <component :is="CATEGORY_CARDS[category.value]?.icon ?? Handshake" class="h-4 w-4" />
-                            </span>
-                            <span class="min-w-0">
-                                <span class="block text-sm font-bold text-foreground">{{ category.label }}</span>
-                                <span class="mt-0.5 block text-xs leading-5 text-muted-foreground">{{ CATEGORY_CARDS[category.value]?.text }}</span>
-                            </span>
-                        </button>
-                    </div>
-                    <p v-if="categoryLocked" class="mt-2 text-xs text-muted-foreground">Cette fiche est reliée au dossier patient de la même personne : elle reste un partenaire médical.</p>
-                    <p v-if="form.errors.category" class="mt-2 text-xs font-medium text-destructive">{{ form.errors.category }}</p>
-                </fieldset>
-
-                <!-- Deux colonnes : qui est le partenaire, puis comment le joindre. -->
-                <div class="grid gap-6 lg:grid-cols-2 lg:gap-8">
-                    <section class="grid content-start gap-4" aria-labelledby="partner-identity-title">
-                        <h3 id="partner-identity-title" class="flex items-center gap-2 text-sm font-bold text-foreground">
-                            <span class="grid h-7 w-7 place-items-center rounded-md bg-primary/10 text-primary"><component :is="isMedical ? UserRound : Building2" class="h-4 w-4" /></span>
-                            {{ isMedical ? 'Identité' : 'Partenaire' }}
-                        </h3>
-
-                        <template v-if="isMedical">
-                            <div class="grid gap-4 sm:grid-cols-2">
-                                <FormField label="Nom" required :error="form.errors.last_name">
-                                    <IconInput id="partner-last-name" v-model="form.last_name" :icon="UserRound" maxlength="255" placeholder="Ex. RAKOTO" :aria-invalid="Boolean(form.errors.last_name)" />
-                                </FormField>
-                                <FormField label="Prénom" hint="(facultatif)" :error="form.errors.first_name">
-                                    <IconInput v-model="form.first_name" :icon="UserRound" maxlength="255" placeholder="Ex. Fara" />
-                                </FormField>
-                            </div>
-                            <FormField label="Métier" required as="div" :error="form.errors.profession">
-                                <Select v-model="form.profession" :options="professionOptions" :icon="Stethoscope" placeholder="Choisir un métier" class="w-full" aria-label="Métier" />
-                            </FormField>
-                            <FormField v-if="form.profession === 'OTHER'" label="Précisez le métier" required :error="form.errors.profession_detail">
-                                <IconInput v-model="form.profession_detail" :icon="Stethoscope" maxlength="100" placeholder="Ex. Kinésithérapeute" />
-                            </FormField>
-                            <fieldset class="rounded-xl border border-border bg-muted/30 p-4">
-                                <legend class="px-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Pour ouvrir son dossier patient <span class="font-normal normal-case tracking-normal">(facultatif)</span></legend>
-                                <div class="grid gap-4 sm:grid-cols-2">
-                                    <FormField label="Sexe" as="div" :error="form.errors.sex">
-                                        <Select v-model="form.sex" :options="sexOptions" class="w-full" aria-label="Sexe" />
-                                    </FormField>
-                                    <FormField label="Date de naissance" as="div" :error="form.errors.birth_date">
-                                        <DatePicker v-model="form.birth_date" :invalid="Boolean(form.errors.birth_date)" />
-                                    </FormField>
-                                </div>
-                                <p class="mt-3 text-xs leading-5 text-muted-foreground">S’il vient se faire soigner, l’accueil reprend cette fiche au lieu de tout ressaisir.</p>
-                            </fieldset>
-                        </template>
-
-                        <FormField v-else label="Nom ou identité" required :error="form.errors.name">
-                            <IconInput id="partner-name" v-model="form.name" :icon="Building2" maxlength="255" placeholder="Ex. ISPSG, une entreprise, une personne…" :aria-invalid="Boolean(form.errors.name)" />
-                        </FormField>
-                    </section>
-
-                    <section class="grid content-start gap-4 lg:border-s lg:border-border lg:ps-8" aria-labelledby="partner-contact-title">
-                        <h3 id="partner-contact-title" class="flex items-center gap-2 text-sm font-bold text-foreground">
-                            <span class="grid h-7 w-7 place-items-center rounded-md bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300"><Phone class="h-4 w-4" /></span>
-                            Coordonnées
-                        </h3>
-                        <FormField label="Téléphone" hint="(facultatif)" :error="form.errors.phone">
-                            <IconInput v-model="form.phone" :icon="Phone" type="tel" maxlength="40" placeholder="Ex. 034 00 000 00" />
-                        </FormField>
-                        <FormField label="Email" hint="(facultatif)" :error="form.errors.email">
-                            <IconInput v-model="form.email" :icon="Mail" type="email" maxlength="255" placeholder="contact@exemple.mg" />
-                        </FormField>
-                        <AddressEntryField
-                            v-if="canPickAddress"
-                            v-model:entry="form.address_entry_uuid"
-                            v-model:new-label="form.new_address_label"
-                            v-model:mode="addressMode"
-                            :addresses="addresses"
-                            :can-create="can('address_entries.create')"
-                            hint="(facultatif)"
-                            :error="form.errors.address_entry_uuid || form.errors.new_address_label"
-                        />
-                        <p v-else-if="editing?.address" class="flex items-center gap-2 text-sm text-muted-foreground"><MapPin class="h-4 w-4 shrink-0" />{{ editing.address }}</p>
-                        <FormField label="Remarque" hint="(facultatif)" :error="form.errors.notes">
-                            <Textarea v-model="form.notes" :rows="3" maxlength="2000" placeholder="Convention, personne à joindre…" />
-                        </FormField>
-
-                        <label v-if="editing" for="partner-active" class="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-muted/40 px-3.5 py-3">
-                            <Checkbox id="partner-active" v-model="form.active" class="mt-0.5" />
-                            <span>
-                                <span class="block text-sm font-semibold text-foreground">Proposé à l’accueil</span>
-                                <span class="block text-xs leading-5 text-muted-foreground">Décoché, les passages qui le citent le gardent, mais l’accueil ne le propose plus.</span>
-                            </span>
-                        </label>
-                    </section>
-                </div>
-            </form>
-
-            <template #footer>
-                <Button type="button" variant="outline" :disabled="form.processing" @click="closeDialog">Annuler</Button>
-                <Button type="submit" form="partner-form" :disabled="form.processing || ! canSubmit">
-                    <Check class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : editing ? 'Enregistrer' : 'Ajouter' }}
-                </Button>
-            </template>
-        </Dialog>
 
         <!-- Archiver -->
         <Dialog

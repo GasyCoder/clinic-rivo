@@ -3,7 +3,6 @@
 namespace Tests\Feature\Reception;
 
 use App\Enums\PartnerCategory;
-use App\Enums\PartnerProfession;
 use App\Enums\ReferralSource;
 use App\Models\Employee;
 use App\Models\Episode;
@@ -101,7 +100,7 @@ class PatientReferralTest extends TestCase
         $this->assertSame(1, Episode::query()->count());
     }
 
-    public function test_a_departed_employee_or_the_partner_itself_cannot_be_the_referrer(): void
+    public function test_a_departed_employee_cannot_be_the_referrer(): void
     {
         $actor = $this->receptionist(self::RECEPTION);
         $departed = $this->employee('EMP-R3', 'Parti', 'Hanta');
@@ -112,25 +111,6 @@ class PatientReferralTest extends TestCase
         ]))->assertUnprocessable()->assertJsonValidationErrors('referral.employee_uuid');
         // Toute l'arrivée est refusée : aucun dossier à moitié créé.
         $this->assertSame(0, Patient::query()->count());
-
-        $doctor = PartnerOrganization::query()->create([
-            'category' => PartnerCategory::Medical,
-            'last_name' => 'Rabe',
-            'first_name' => 'Tiana',
-            'profession' => PartnerProfession::Doctor,
-            'sex' => 'F',
-            'birth_date' => '1985-04-02',
-            'active' => true,
-        ]);
-
-        $this->actingAs($actor)->postJson('/reception/patients', $this->newPatient([
-            'last_name' => 'Rabe',
-            'first_name' => 'Tiana',
-            'sex' => 'F',
-            'partner_uuid' => $doctor->uuid,
-            'referral' => ['source' => 'PARTNER', 'partner_uuid' => $doctor->uuid],
-        ]))->assertUnprocessable()->assertJsonValidationErrors('referral.partner_uuid');
-        $this->assertSame(0, PatientReferral::query()->count());
     }
 
     public function test_recording_a_referral_needs_its_own_permission(): void

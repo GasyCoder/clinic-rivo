@@ -21,3 +21,27 @@ export function bonusRowState(row) {
 
 // Nommer et parcourir un mois : écrit une fois dans utilities/date.js.
 export { monthLabel, shiftMonth } from './date.js';
+
+/**
+ * État de la case « Tout sélectionner » sur la liste affichée (filtrée par la
+ * recherche) : `true` si toute la liste est cochée, `'indeterminate'` si une
+ * partie seulement, `false` sinon — et sur une liste vide.
+ */
+export function selectionState(selected, shown) {
+    const chosen = shown.filter((uuid) => selected.includes(uuid)).length;
+
+    if (! shown.length || chosen === 0) return false;
+
+    return chosen === shown.length ? true : 'indeterminate';
+}
+
+/**
+ * Coche ou décoche d'un geste la liste affichée. Une liste déjà toute cochée
+ * se décoche ; sinon elle se coche en entier. Ce qui est choisi hors de la
+ * liste affichée (masqué par la recherche) n'est jamais touché.
+ */
+export function toggleShown(selected, shown) {
+    if (selectionState(selected, shown) === true) return selected.filter((uuid) => ! shown.includes(uuid));
+
+    return [...selected, ...shown.filter((uuid) => ! selected.includes(uuid))];
+}

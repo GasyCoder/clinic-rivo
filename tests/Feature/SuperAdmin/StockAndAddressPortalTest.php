@@ -128,6 +128,20 @@ class StockAndAddressPortalTest extends TestCase
                 ->where('sites.0.data.analyses.0.code', 'GLYC')
                 ->where('filters.status', 'ALL'));
 
+        // Depuis « N analyses » des Tarifs : on arrive sur le site et la prestation ;
+        // la liste reste complète, la prestation se choisit à l'écran.
+        $prestation = '22222222-2222-4222-8222-222222222222';
+        $this->actingAs($this->superAdmin)->get("/super-admin/analyses?site=m&catalog_item={$prestation}")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('selectedSiteCode', 'M')
+                ->where('filters.catalog_item', $prestation)
+                ->missing('filters.site'));
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'catalog_item='));
+        $this->actingAs($this->superAdmin)->get('/super-admin/analyses?site=ZZ')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('selectedSiteCode', null));
+
         $this->actingAs($this->superAdmin)->post('/super-admin/analyses', [
             'site_code' => 'M',
             'catalog_item_uuid' => '11111111-1111-4111-8111-111111111111',

@@ -49,7 +49,6 @@ use App\Http\Controllers\Pharmacy\SupplierCatalogTemplateController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\Reception\EmployeePatientLookupController;
-use App\Http\Controllers\Reception\PartnerPatientLookupController;
 use App\Http\Controllers\Reception\EpisodeFinancialContextController;
 use App\Http\Controllers\Reception\EpisodeNextStepController;
 use App\Http\Controllers\Reception\EpisodeServiceController;
@@ -572,10 +571,6 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/reception/employees/patient-lookup', EmployeePatientLookupController::class)
         ->name('reception.employees.patient-lookup')
         ->middleware('can:employees.patient_lookup');
-    // ADR-211 — un partenaire médical venu se faire soigner, retrouvé sans ressaisie.
-    Route::get('/reception/partners/patient-lookup', PartnerPatientLookupController::class)
-        ->name('reception.partners.patient-lookup')
-        ->middleware('can:partner_organizations.view');
     // ADR-212 — qui a recommandé la clinique : recherche parmi le personnel et les
     // partenaires, liste des recommandations et cadeau remis.
     Route::get('/reception/referrers', ReferrerLookupController::class)

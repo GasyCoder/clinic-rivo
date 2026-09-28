@@ -110,7 +110,7 @@ class PortalDirectory
             [
                 'code' => 'CATALOG', 'label' => 'Référentiels & tarifs', 'icon' => 'setting-alt',
                 'description' => 'Prestations et grilles tarifaires propres au site.',
-                'areas' => ['Désignations', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Mutuelles et partenaires', 'Historique tarifaire'],
+                'areas' => ['Désignations', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Mutuelles', 'Historique tarifaire'],
                 'notice' => 'Les montants restent propres au site. Le portail central les administre uniquement via l’API sécurisée du site sélectionné.',
             ],
         ];
@@ -191,7 +191,7 @@ class PortalDirectory
                 'title' => 'Tarifs & mutuelles',
                 'description' => 'Pilotage par site des prestations, grilles tarifaires et organismes de couverture.',
                 'icon' => 'list-index',
-                'areas' => ['Désignations par site', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Mutuelles et partenaires', 'Historique et écarts', 'Publication contrôlée via API'],
+                'areas' => ['Désignations par site', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Mutuelles', 'Historique et écarts', 'Publication contrôlée via API'],
             ],
             'SETTINGS' => [
                 'title' => 'Paramètres',

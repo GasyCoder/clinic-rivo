@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Route;
  */
 
 Route::get('/', [PartnerController::class, 'index'])->name('index')->middleware('can:partner_organizations.view');
+Route::get('/nouveau', [PartnerController::class, 'create'])->name('create')->middleware('can:partner_organizations.create');
+Route::get('/{partner}/modifier', [PartnerController::class, 'edit'])->name('edit')->middleware('can:partner_organizations.update');
 Route::post('/', [PartnerController::class, 'store'])->name('store')->middleware('can:partner_organizations.create');
 Route::put('/{partner}', [PartnerController::class, 'update'])->name('update')->middleware('can:partner_organizations.update');
 Route::delete('/{partner}', [PartnerController::class, 'destroy'])->name('destroy')->middleware('can:partner_organizations.archive');

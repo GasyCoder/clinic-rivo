@@ -9,6 +9,7 @@ use App\Services\Spreadsheet\ExcelWorkbook;
 use App\Services\SuperAdmin\PortalSiteApiClient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -22,12 +23,22 @@ class AnalysisCatalogController extends Controller
             'q' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', Rule::in(['ACTIVE', 'INACTIVE', 'ALL'])],
             'catalog_item' => ['nullable', 'uuid'],
+            'site' => ['nullable', 'string', 'max:10'],
         ]);
         $filters['status'] ??= 'ALL';
+        // Le site ouvert : celui d'où l'on vient (les tarifs y renvoient), s'il existe.
+        $site = mb_strtoupper(trim((string) ($filters['site'] ?? '')));
+        $siteCodes = collect(config('rivo.clinics', []))->pluck('code')->all();
 
         return Inertia::render('SuperAdmin/Analyses/Index', [
-            'sites' => $client->analysisCatalogsForAllSites($request->user(), array_filter($filters)),
-            'filters' => $filters,
+            // La prestation se choisit à l'écran, parmi toutes : l'envoyer au site
+            // lui ferait servir une liste réduite à elle seule.
+            'sites' => $client->analysisCatalogsForAllSites(
+                $request->user(),
+                array_filter(Arr::only($filters, ['q', 'status'])),
+            ),
+            'filters' => Arr::except($filters, ['site']),
+            'selectedSiteCode' => in_array($site, $siteCodes, true) ? $site : null,
         ]);
     }
 

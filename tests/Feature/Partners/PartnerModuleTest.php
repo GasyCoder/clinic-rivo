@@ -43,11 +43,11 @@ class PartnerModuleTest extends TestCase
                 ->component('Partners/Index')
                 ->has('partners', 1)
                 ->where('partners.0.name', 'ISPSG')
-                ->where('partners.0.category', 'OTHER')
-                ->has('categories', 2)
-                ->has('professions'));
+                ->where('partners.0.category', 'OTHER'));
 
         $this->actingAs($this->user([]))->get('/partenaires')->assertForbidden();
+        // Créer et modifier ont leur page, chacune avec son droit.
+        $this->actingAs($viewer)->get('/partenaires/nouveau')->assertForbidden();
 
         // Voir n'est pas gérer.
         $this->actingAs($viewer)->post('/partenaires', ['category' => 'OTHER', 'name' => 'TsaraShop'])->assertForbidden();
@@ -109,10 +109,11 @@ class PartnerModuleTest extends TestCase
         $this->assertSame(1, AddressEntry::query()->where('label', 'Mahabibo')->count());
         $this->assertSame($tsaraShop->address_entry_id, AddressEntry::query()->where('label', 'Mahabibo')->value('id'));
 
-        $this->actingAs($manager)->get('/partenaires')->assertInertia(fn ($page) => $page
+        $this->actingAs($manager)->get("/partenaires/{$tsaraShop->uuid}/modifier")->assertInertia(fn ($page) => $page
+            ->component('Partners/Form')
             ->has('addresses', 1)
             ->where('addresses.0.label', 'Mahabibo')
-            ->where('partners.1.address_entry_uuid', $tsaraShop->addressEntry->uuid));
+            ->where('partner.address_entry_uuid', $tsaraShop->addressEntry->uuid));
 
         // Les deux à la fois : on choisit.
         $this->actingAs($manager)->post('/partenaires', [
@@ -146,7 +147,7 @@ class PartnerModuleTest extends TestCase
             ->assertForbidden();
 
         // Sans le droit de lire le référentiel, l'écran ne reçoit aucune adresse.
-        $this->actingAs($this->user(self::MANAGE))->get('/partenaires')
+        $this->actingAs($this->user(self::MANAGE))->get('/partenaires/nouveau')
             ->assertInertia(fn ($page) => $page->has('addresses', 0));
     }
 
@@ -253,6 +254,48 @@ class PartnerModuleTest extends TestCase
         $audit = AuditLog::query()->where('entity_id', $partner->id)->where('action', 'create')->latest('id')->first();
         $this->assertNotNull($audit);
         $this->assertSame('6d3f4a8e-1c2b-4d5e-9f60-7a8b9c0d1e2f', $audit->external_actor_uuid);
+    }
+
+    public function test_a_partner_is_created_and_edited_on_its_own_page(): void
+    {
+        $manager = $this->user(self::MANAGE);
+
+        $this->actingAs($manager)->get('/partenaires/nouveau')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Partners/Form')
+                ->where('partner', null)
+                ->has('categories', 2)
+                ->has('professions'));
+
+        // Enregistrer ramène à la liste, pas à la page du formulaire.
+        $this->actingAs($manager)->from('/partenaires/nouveau')
+            ->post('/partenaires', ['category' => 'OTHER', 'name' => 'ISPSG'])
+            ->assertRedirect(route('partners.index'))
+            ->assertSessionHas('status');
+        $partner = PartnerOrganization::query()->where('name', 'ISPSG')->sole();
+
+        $this->actingAs($manager)->get("/partenaires/{$partner->uuid}/modifier")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Partners/Form')
+                ->where('partner.uuid', $partner->uuid)
+                ->where('partner.name', 'ISPSG'));
+
+        $this->actingAs($manager)->from("/partenaires/{$partner->uuid}/modifier")
+            ->put("/partenaires/{$partner->uuid}", ['category' => 'OTHER', 'name' => 'ISPSG Mahajanga'])
+            ->assertRedirect(route('partners.index'));
+
+        // Une erreur garde la page du formulaire.
+        $this->actingAs($manager)->from("/partenaires/{$partner->uuid}/modifier")
+            ->put("/partenaires/{$partner->uuid}", ['category' => 'OTHER', 'name' => ''])
+            ->assertRedirect("/partenaires/{$partner->uuid}/modifier")
+            ->assertSessionHasErrors('name');
+
+        // Modifier exige son droit ; un partenaire archivé se restaure d'abord.
+        $this->actingAs($this->user(['partner_organizations.view']))->get("/partenaires/{$partner->uuid}/modifier")->assertForbidden();
+        $partner->delete();
+        $this->actingAs($manager)->get("/partenaires/{$partner->uuid}/modifier")->assertNotFound();
     }
 
     /** @param list<string> $permissions */

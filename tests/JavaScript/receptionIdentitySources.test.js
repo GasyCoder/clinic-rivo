@@ -62,7 +62,7 @@ test('une recherche plus récente n’est jamais écrasée par la précédente, 
     console.warn = () => {};
 
     try {
-        const lookup = useReceptionLookup('/reception/partners/patient-lookup', { delay: 10_000 });
+        const lookup = useReceptionLookup('/reception/employees/patient-lookup', { delay: 10_000 });
 
         lookup.query.value = 'Rak';
         const first = lookup.search();
@@ -86,17 +86,17 @@ test('une recherche plus récente n’est jamais écrasée par la précédente, 
     }
 });
 
-test('l’étape Patient offre quatre façons de retrouver la personne, chacune selon son droit', () => {
+test('l’étape Patient offre trois façons de retrouver la personne ; un partenaire se choisit à la prise en charge', () => {
     assert.match(reception, /\{ value: 'search', label: 'Patient existant'/);
     assert.match(reception, /props\.capabilities\.can_use_staff && props\.capabilities\.can_link_staff\s*&& \{ value: 'staff', label: 'Personnel & stagiaires'/);
-    assert.match(reception, /props\.capabilities\.can_use_partner && \{ value: 'partner', label: 'Partenaire médical'/);
     assert.match(reception, /props\.capabilities\.can_create_patient && \{ value: 'create', label: 'Nouveau patient'/);
+    assert.doesNotMatch(reception, /value: 'partner'|PartnerIdentityPicker|partner_uuid/, 'plus d’onglet « Partenaire médical » (ADR-211, amendement du 2026-09-28)');
+    assert.match(reception, /\{ mode: 'PARTNER', label: 'Partenaire', icon: Handshake/, 'le partenaire reste choisi à l’étape 5');
 });
 
 test('un dossier similaire se relie à la fiche au lieu d’être doublé', () => {
     assert.match(reception, /C’est la même personne/);
     assert.match(reception, /patient_uuid: linkTarget\.value\.uuid, employee_uuid: employee\.uuid/);
-    assert.match(reception, /patient_uuid: linkTarget\.value\.uuid, partner_uuid: partnerUuid/);
 });
 
 test('la prise en charge est proposée d’après la fiche reliée, jamais Personnel pour un stagiaire', () => {
@@ -129,15 +129,17 @@ test('une fenêtre ne dépasse jamais l’écran : en-tête et pied restent, le 
     assert.match(dialog, /<footer v-if="\$slots\.footer" class="flex shrink-0 /);
 });
 
-test('la fiche partenaire est large, en deux colonnes, et son adresse vient du référentiel', () => {
-    const partners = read('resources/js/Pages/Partners/Index.vue');
-    const dialog = partners.slice(partners.indexOf('<!-- Créer / modifier -->'), partners.indexOf('<!-- Archiver -->'));
+test('la fiche partenaire se remplit sur sa propre page, en deux colonnes, adresse du référentiel', () => {
+    const index = read('resources/js/Pages/Partners/Index.vue');
+    const page = read('resources/js/Pages/Partners/Form.vue');
 
-    assert.match(dialog, /size="xl"/);
-    assert.match(dialog, /lg:grid-cols-2/);
-    assert.match(dialog, /<AddressEntryField\s+v-if="canPickAddress"/);
-    assert.doesNotMatch(partners, /v-model="form\.address"/, 'plus de texte libre à côté du référentiel');
-    assert.match(partners, /const canPickAddress = computed\(\(\) => can\('address_entries\.view'\)\)/);
+    assert.doesNotMatch(index, /id="partner-form"/, 'plus de fenêtre de création dans la liste');
+    assert.match(index, /const createUrl = partnerUrl\('\/nouveau'\);/);
+    assert.match(index, /partnerUrl\(`\/\$\{partner\.uuid\}\/modifier`\)/);
+    assert.match(page, /xl:grid-cols-2/);
+    assert.match(page, /<AddressEntryField\s+v-if="canPickAddress"/);
+    assert.doesNotMatch(page, /v-model="form\.address"/, 'plus de texte libre à côté du référentiel');
+    assert.match(page, /const canPickAddress = computed\(\(\) => can\('address_entries\.view'\)\)/);
 });
 
 test('un seul champ d’adresse pour les fiches : le partenaire et l’employé', () => {

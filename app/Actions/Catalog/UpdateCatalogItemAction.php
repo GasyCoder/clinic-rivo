@@ -4,6 +4,7 @@ namespace App\Actions\Catalog;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\ImagingModality;
 use App\Enums\ReceptionRoutingMode;
 use App\Enums\StaffCoveragePolicy;
 use App\Models\CatalogItem;
@@ -64,9 +65,12 @@ class UpdateCatalogItemAction
             ]);
         }
 
+        $imagingModality = ImagingModality::resolveFor((string) $data['module'], $data, $item->imaging_modality);
+
         $item->fill([
             'name' => trim($data['name']),
             'module' => $data['module'],
+            'imaging_modality' => $imagingModality,
             'unit' => trim($data['unit']),
             'reception_selectable' => $selectable,
             'reception_routing_mode' => $route,

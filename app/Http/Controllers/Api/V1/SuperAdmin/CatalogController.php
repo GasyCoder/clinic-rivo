@@ -11,6 +11,7 @@ use App\Actions\Catalog\UpdateCatalogItemAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
+use App\Enums\ImagingModality;
 use App\Enums\ReceptionRoutingMode;
 use App\Enums\StaffCoveragePolicy;
 use App\Http\Controllers\Controller;
@@ -19,6 +20,7 @@ use App\Http\Requests\Api\V1\SuperAdmin\ArchiveCatalogTariffRequest;
 use App\Http\Requests\Api\V1\SuperAdmin\SetCatalogTariffRequest;
 use App\Http\Requests\Api\V1\SuperAdmin\StoreCatalogItemRequest;
 use App\Http\Requests\Api\V1\SuperAdmin\UpdateCatalogItemRequest;
+use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\MutualOrganization;
@@ -55,6 +57,17 @@ class CatalogController extends Controller
                 'currentMutualTariff.creator:id,name',
                 'tariffs' => fn ($query) => $query->with('creator:id,name')->latest('effective_from')->limit(20),
             ])->withCount('tariffs'))
+            // Le lien Désignation ↔ catalogue des analyses (ADR-063) : combien de
+            // lignes techniques la prestation porte, et sa discipline, lue sur
+            // l'analyse racine — jamais recopiée sur la désignation.
+            ->withCount('analysisDefinitions as analyses_count')
+            ->addSelect(['analysis_discipline' => AnalysisCatalog::query()
+                ->select('exam_category')
+                ->whereColumn('analysis_catalogs.catalog_item_id', 'catalog_items.id')
+                ->whereNull('analysis_catalogs.parent_id')
+                ->orderBy('analysis_catalogs.display_order')
+                ->orderBy('analysis_catalogs.id')
+                ->limit(1)])
             ->when($status === 'ARCHIVED', fn ($query) => $query->onlyTrashed())
             ->when($status === 'ALL', fn ($query) => $query->withTrashed())
             ->when($search !== '', fn ($query) => $query->where(function ($nested) use ($search) {
@@ -369,7 +382,7 @@ class CatalogController extends Controller
             'currentStandardTariff.creator:id,name',
             'currentMutualTariff.creator:id,name',
             'tariffs' => fn ($query) => $query->with('creator:id,name')->latest('effective_from')->limit(20),
-        ])->loadCount('tariffs');
+        ])->loadCount(['tariffs', 'analysisDefinitions as analyses_count']);
     }
 
     /** @return array<string, int|null> */
@@ -402,6 +415,11 @@ class CatalogController extends Controller
                 'value' => $module->value,
                 'label' => $module->label(),
             ])->all(),
+            // ADR-106 — la famille d'un examen d'imagerie, réglée au catalogue.
+            'imaging_modalities' => collect(ImagingModality::cases())->map(fn ($modality) => [
+                'value' => $modality->value,
+                'label' => $modality->label(),
+            ])->all(),
             'routing_modes' => collect(ReceptionRoutingMode::cases())->map(fn ($mode) => [
                 'value' => $mode->value,
                 'label' => $mode->label(),
@@ -431,6 +449,10 @@ class CatalogController extends Controller
             'type_label' => $item->type->label(),
             'module' => $item->module->value,
             'module_label' => $item->module->label(),
+            'imaging_modality' => $item->imaging_modality?->value,
+            'imaging_modality_label' => $item->imaging_modality?->label(),
+            'analyses_count' => (int) ($item->analyses_count ?? 0),
+            'analysis_discipline' => filled($item->analysis_discipline ?? null) ? trim((string) $item->analysis_discipline) : null,
             'unit' => $item->unit,
             'billable' => $item->billable,
             'stockable' => $item->stockable,

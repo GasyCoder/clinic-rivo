@@ -5,6 +5,7 @@ namespace App\Actions\Catalog;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
+use App\Enums\ImagingModality;
 use App\Enums\ReceptionRoutingMode;
 use App\Enums\StaffCoveragePolicy;
 use App\Models\CatalogItem;
@@ -33,6 +34,7 @@ class CreateCatalogItemAction
         $this->assertStaffCoveragePolicy($billable, $staffCoveragePolicy);
         [$receptionSelectable, $routingMode] = $this->receptionRouting($type, $billable, $data);
         [$requiresAllergyCheck, $recommendsVitals, $clinicianOrderable] = $this->careRequirements($type, $data);
+        $imagingModality = ImagingModality::resolveFor((string) $data['module'], $data);
 
         // ADR-098 — a medicine ordered from a supplier catalogue enters the
         // referential before anyone has decided what the clinic will sell it
@@ -47,12 +49,13 @@ class CreateCatalogItemAction
             throw new AuthorizationException('Vous ne pouvez pas définir le tarif initial.');
         }
 
-        return DB::transaction(function () use ($data, $actor, $type, $billable, $withTariff, $stockable, $staffCoveragePolicy, $receptionSelectable, $routingMode, $requiresAllergyCheck, $recommendsVitals, $clinicianOrderable) {
+        return DB::transaction(function () use ($data, $actor, $type, $billable, $withTariff, $stockable, $staffCoveragePolicy, $receptionSelectable, $routingMode, $requiresAllergyCheck, $recommendsVitals, $clinicianOrderable, $imagingModality) {
             $item = CatalogItem::create([
                 'code' => mb_strtoupper(trim($data['code'])),
                 'name' => trim($data['name']),
                 'type' => $type,
                 'module' => $data['module'],
+                'imaging_modality' => $imagingModality,
                 'unit' => trim($data['unit']),
                 'billable' => $billable,
                 'stockable' => $stockable,

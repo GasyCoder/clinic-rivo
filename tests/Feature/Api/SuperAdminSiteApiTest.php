@@ -359,6 +359,76 @@ class SuperAdminSiteApiTest extends TestCase
         ]);
     }
 
+    public function test_catalog_items_expose_their_analyses_and_an_imaging_family_only_imaging_carries(): void
+    {
+        $permissions = ['catalog.items.view', 'catalog.items.create', 'catalog.items.update', 'catalog.tariffs.create'];
+        $lab = CatalogItem::query()->create([
+            'code' => 'LAB-NFS', 'name' => 'NFS', 'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Laboratory, 'unit' => 'analyse', 'billable' => true,
+            'stockable' => false, 'created_by' => $this->actor->id, 'updated_by' => $this->actor->id,
+        ]);
+        $root = AnalysisCatalog::query()->create([
+            'catalog_item_id' => $lab->id, 'code' => 'NFS', 'level' => 'PARENT', 'designation' => 'NFS',
+            'exam_category' => 'HEMATOLOGIE', 'display_order' => 1, 'is_active' => true,
+        ]);
+        AnalysisCatalog::query()->create([
+            'catalog_item_id' => $lab->id, 'parent_id' => $root->id, 'code' => 'HB', 'level' => 'CHILD',
+            'designation' => 'Hémoglobine', 'exam_category' => 'HEMATOLOGIE', 'result_type' => 'NUMERIC',
+            'display_order' => 2, 'is_active' => true,
+        ]);
+
+        $items = $this->withHeaders($this->headers(null, null, $permissions))
+            ->getJson('/api/v1/super-admin/catalog?status=ALL')
+            ->assertOk()
+            ->assertJsonPath('data.options.imaging_modalities.0.value', 'CARDIOLOGY')
+            ->json('data.items');
+        $this->assertSame(2, $items[0]['analyses_count']);
+        $this->assertSame('HEMATOLOGIE', $items[0]['analysis_discipline']);
+        $this->assertNull($items[0]['imaging_modality']);
+
+        $payload = [
+            'code' => 'ECHO-FOIE', 'name' => 'Échographie hépatique', 'type' => 'SERVICE',
+            'module' => CatalogModule::Imaging->value, 'imaging_modality' => 'ULTRASOUND',
+            'unit' => 'examen', 'billable' => true, 'stockable' => false,
+            'tariff_amount' => '40000', 'tariff_reason' => 'Grille initiale validée',
+        ];
+        $uuid = $this->withHeaders($this->headers(null, (string) Str::uuid(), $permissions))
+            ->postJson('/api/v1/super-admin/catalog', $payload)
+            ->assertCreated()
+            ->assertJsonPath('data.imaging_modality', 'ULTRASOUND')
+            ->assertJsonPath('data.imaging_modality_label', 'Échographie')
+            ->json('data.uuid');
+
+        $update = ['name' => 'Échographie hépatique', 'module' => 'IMAGING', 'unit' => 'examen'];
+
+        // Omise, la famille reste celle déjà réglée.
+        $this->withHeaders($this->headers(null, (string) Str::uuid(), $permissions))
+            ->putJson("/api/v1/super-admin/catalog/{$uuid}", $update)
+            ->assertOk()
+            ->assertJsonPath('data.imaging_modality', 'ULTRASOUND');
+
+        // Envoyée vide, l'examen redevient « non classé ».
+        $this->withHeaders($this->headers(null, (string) Str::uuid(), $permissions))
+            ->putJson("/api/v1/super-admin/catalog/{$uuid}", [...$update, 'imaging_modality' => null])
+            ->assertOk()
+            ->assertJsonPath('data.imaging_modality', null);
+
+        // Hors Imagerie, une famille est refusée, jamais ignorée en silence.
+        $this->withHeaders($this->headers(null, (string) Str::uuid(), $permissions))
+            ->putJson("/api/v1/super-admin/catalog/{$lab->uuid}", [
+                'name' => 'NFS', 'module' => 'LABORATORY', 'unit' => 'analyse', 'imaging_modality' => 'CARDIOLOGY',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('imaging_modality');
+
+        // Une désignation qui quitte l'Imagerie perd sa famille.
+        CatalogItem::query()->where('uuid', $uuid)->update(['imaging_modality' => 'ULTRASOUND']);
+        $this->withHeaders($this->headers(null, (string) Str::uuid(), $permissions))
+            ->putJson("/api/v1/super-admin/catalog/{$uuid}", [...$update, 'module' => 'MEDICINE'])
+            ->assertOk()
+            ->assertJsonPath('data.imaging_modality', null);
+    }
+
     public function test_catalog_api_rejects_a_remote_actor_without_the_granular_permission(): void
     {
         $this->withHeaders($this->headers((string) Str::uuid(), (string) Str::uuid(), ['catalog.items.view']))

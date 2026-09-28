@@ -80,13 +80,17 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Estimation chiffrant les deux rayons avec leurs sous-totaux séparés, sans rien créer
 - [x] Passage « médicaments seuls » : aucune file clinique, `PENDING_SETTLEMENT` et bascule directe à la Caisse avec son ticket
 - [x] Vente comptoir anonyme retirée : toute vente de médicament passe par la Réception sur un dossier patient ; `pharmacy.counter_sales.create` déplacée de PHARMACY vers RECEPTION
-- [x] Étape Patient à quatre onglets : un membre du personnel ou un stagiaire est retrouvé dans le dossier RH et son dossier patient vient de la fiche RH, sans ressaisie ; un dossier similaire se relie au lieu d'être doublé (ADR-211)
-- [x] Partenaire médical retrouvé depuis sa fiche : son dossier est repris, ou le nouveau dossier est prérempli depuis la fiche (ADR-211)
+- [x] Étape Patient (quatre onglets, trois depuis l'amendement bis de l'ADR-211) : un membre du personnel ou un stagiaire est retrouvé dans le dossier RH et son dossier patient vient de la fiche RH, sans ressaisie ; un dossier similaire se relie au lieu d'être doublé (ADR-211)
+- [x] ~~Partenaire médical retrouvé depuis sa fiche : son dossier est repris, ou le nouveau dossier est prérempli depuis la fiche (ADR-211)~~ — retiré (ADR-211, amendement bis)
 - [x] Prise en charge proposée d'après le dossier (Personnel si relié à un employé en poste, Partenaire si relié à une fiche), jamais enregistrée d'office (ADR-211)
 - [x] Stagiaire au tarif Standard : la prise en charge Personnel lui est refusée par le serveur, comme le dit l'ADR-194 (ADR-211)
 - [x] Module Partenaires : Médical (nom, prénom, métier…) ou Autre (nom ou identité), coordonnées, archivage avec motif, restauration ; sur chaque site et depuis le portail par l'API du site (ADR-211)
 - [x] Adresse d'un partenaire tirée du référentiel du site (Référentiel / Nouvelle), par un composant partagé avec la fiche employé ; fenêtre élargie en deux colonnes (ADR-211, amendement du 2026-09-27)
 - [x] Les fenêtres ne dépassent plus l'écran : titre et boutons toujours visibles, le contenu défile (composant `Dialog` partagé)
+- [x] Fiche partenaire créée et modifiée sur sa propre page (`/partenaires/nouveau`, `/{uuid}/modifier`), au site comme au portail, au lieu d'une fenêtre (ADR-211, amendement du 2026-09-28)
+- [x] Onglet « Partenaire médical » retiré de l'étape Patient : un partenaire se choisit à la prise en charge ; `partner_uuid` refusé à l'arrivée, sexe et naissance retirés de la fiche partenaire (ADR-211, amendement bis)
+- [x] « Mutuelles & partenaires » renommé « Mutuelles » (page « Tarifs & mutuelles ») : « partenaire » ne désigne plus que le module Partenaires (ADR-211, amendement bis)
+- [x] Page « Tarifs & mutuelles » du portail passée à shadcn (ADR-099) : site et section en onglets, cartes-compteurs qui filtrent (dont « Sans tarif standard / mutuelle »), tableaux et six fenêtres shadcn (import compris) ; aucune route ni règle modifiée
 - [ ] Faire passer l'étape Patient de l'accueil et la modification du dossier patient sur le même champ d'adresse (ADR-211)
 - [ ] Couverture d'un partenaire (chambre, lit, taux…) — aucune règle : 0 % pour l'instant (ADR-211)
 - [ ] ISPG (mutuelle, ADR-045) et ISPSG (partenaire) : même établissement ? À confirmer (ADR-211)

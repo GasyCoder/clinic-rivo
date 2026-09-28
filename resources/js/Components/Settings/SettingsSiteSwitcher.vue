@@ -16,6 +16,8 @@ import { cn } from '@/lib/cn';
 defineProps({
     targets: { type: Array, required: true },
     modelValue: { type: String, required: true },
+    /** Ce que le choix désigne, pour les lecteurs d'écran. */
+    label: { type: String, default: 'Site réglé' },
 });
 
 const emit = defineEmits(['update:modelValue']);
@@ -48,7 +50,7 @@ const OPTION_CLASS = cn(
         ref="root"
         :model-value="modelValue"
         class="relative flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-muted/60 p-1"
-        aria-label="Site réglé"
+        :aria-label="label"
         @update:model-value="emit('update:modelValue', $event)"
     >
         <Label v-for="target in targets" :key="target.site.code" :class="OPTION_CLASS" :title="`${target.site.name} — ${stateOf(target).label}`">

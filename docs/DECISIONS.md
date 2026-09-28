@@ -20084,6 +20084,34 @@ les clés étrangères par colonne sous SQLite (portail, banc local), qui ne sai
 L'accueil (étape Patient) et la modification du dossier patient gardent leur propre champ d'adresse : les
 faire passer sur `AddressEntryField` reste à faire.
 
+## Amendement du 2026-09-28 — la fiche partenaire a sa propre page
+
+Demande du propriétaire : même élargie, la fenêtre « Nouveau partenaire » restait à l'étroit. Créer et modifier
+se font désormais sur une page : `/partenaires/nouveau` (`partner_organizations.create`) et
+`/partenaires/{uuid}/modifier` (`partner_organizations.update`), écran `Partners/Form`, servis aussi au portail
+par l'API du site. Enregistrer ramène à la liste ; une erreur garde la page. Un partenaire archivé n'a pas de page
+de modification (404) : il se restaure d'abord. L'archivage reste une fenêtre (un motif). La liste ne reçoit plus
+le référentiel d'adresses ni les métiers. Aucune règle, permission ni donnée ne change.
+
+## Amendement du 2026-09-28 (bis) — un partenaire se choisit à la prise en charge, et « Mutuelles » n'est plus « partenaires »
+
+Demande du propriétaire, deux arbitrages explicites.
+
+**L'étape Patient ne recherche plus un partenaire.** L'onglet « Partenaire médical » ne servait qu'à la
+première venue d'un partenaire (ensuite il est un patient existant), et le partenaire se choisit déjà à l'étape
+Prise en charge. Retirés : l'onglet, `PartnerIdentityPicker`, `GET /reception/partners/patient-lookup` et son
+contrôleur, la branche `partner_uuid` de `RegisterArrivalAction`. `StoreArrivalRequest` refuse désormais
+`partner_uuid` en le nommant (« Un partenaire se choisit à l'étape Prise en charge… »). Le formulaire Partenaire
+ne demande plus sexe ni date de naissance (bloc « Pour ouvrir son dossier patient ») : omis, les valeurs déjà
+saisies restent en base. Les liens fiche ↔ dossier déjà posés restent lus : l'étape 5 propose toujours ce
+partenaire pour ces dossiers. Plus aucun écran ne pose de nouveau lien.
+
+**Deux mots pour deux choses.** Sur « Tarifs & organismes », l'onglet « Mutuelles & partenaires »
+(`mutual_organizations`, ADR-045 — organismes qui couvrent un pourcentage) devient **« Mutuelles »** : titre de
+page « Tarifs & mutuelles », recherche, colonne, « Nouvelle mutuelle ». « Partenaire » ne désigne plus que le
+module Partenaires (ISPSG, médecins extérieurs, 0 % de couverture). À l'étape 5, le champ s'appelle
+« Partenaire ». Aucune donnée, permission ni règle tarifaire ne change.
+
 
 ---
 

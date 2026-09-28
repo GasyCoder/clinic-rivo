@@ -280,7 +280,7 @@ class CatalogController extends Controller
     private function itemPayload(Request $request, bool $creating = false): array
     {
         $fields = [
-            'name', 'module', 'unit', 'reception_selectable',
+            'name', 'module', 'imaging_modality', 'unit', 'reception_selectable',
             'reception_routing_mode', 'staff_coverage_policy', 'care_requires_allergy_check',
             'care_recommends_vitals', 'description',
         ];

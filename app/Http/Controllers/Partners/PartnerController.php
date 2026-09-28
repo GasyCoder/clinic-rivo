@@ -42,7 +42,29 @@ class PartnerController extends Controller
             'partners' => $partners
                 ->map(fn (PartnerOrganization $partner) => PartnerPresenter::row($partner, $canViewPatients))
                 ->values(),
-            'addresses' => $this->addresses($request, $partners->pluck('address_entry_id')->filter()->unique()->values()->all()),
+        ]);
+    }
+
+    /** Une fiche se crée sur sa propre page, pas dans une fenêtre (ADR-211, amendement). */
+    public function create(Request $request): Response
+    {
+        return $this->form($request, null);
+    }
+
+    /** Un partenaire archivé ne se modifie pas : il se restaure d'abord (liaison sans `withTrashed`). */
+    public function edit(Request $request, PartnerOrganization $partner): Response
+    {
+        $partner->load(['patient:id,uuid,patient_number,first_name,last_name,deleted_at', 'addressEntry:id,uuid,label'])
+            ->loadCount('episodeCoverages');
+
+        return $this->form($request, $partner);
+    }
+
+    private function form(Request $request, ?PartnerOrganization $partner): Response
+    {
+        return Inertia::render('Partners/Form', [
+            'partner' => $partner ? PartnerPresenter::row($partner, $request->user()->can('patients.view')) : null,
+            'addresses' => $this->addresses($request, array_filter([$partner?->address_entry_id])),
             'categories' => PartnerCategory::options(),
             'professions' => PartnerProfession::options(),
         ]);
@@ -81,14 +103,14 @@ class PartnerController extends Controller
     {
         $partner = $action->execute(null, $request->validated(), $request->user());
 
-        return back()->with('status', "Partenaire « {$partner->name} » ajouté.");
+        return to_route('partners.index')->with('status', "Partenaire « {$partner->name} » ajouté.");
     }
 
     public function update(PartnerRequest $request, PartnerOrganization $partner, SavePartnerAction $action): RedirectResponse
     {
         $partner = $action->execute($partner, $request->validated(), $request->user());
 
-        return back()->with('status', "Partenaire « {$partner->name} » mis à jour.");
+        return to_route('partners.index')->with('status', "Partenaire « {$partner->name} » mis à jour.");
     }
 
     public function destroy(ArchivePartnerRequest $request, PartnerOrganization $partner, ArchivePartnerAction $action): RedirectResponse

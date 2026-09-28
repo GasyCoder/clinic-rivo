@@ -81,6 +81,22 @@ class SitePartnersPortalTest extends TestCase
             && str_contains($request->header('X-Rivo-Actor-Permissions')[0], 'partner_organizations.view'));
     }
 
+    public function test_the_partner_form_page_opens_from_the_portal(): void
+    {
+        Http::fake([
+            'https://a.test/api/v1/super-admin/site-partners/nouveau*' => Http::response([
+                'component' => 'Partners/Form',
+                'props' => ['partner' => null, 'categories' => [], 'professions' => [], 'addresses' => []],
+            ], 200),
+        ]);
+
+        $this->actingAs($this->superAdmin)->get('/super-admin/sites/A/partenaires/nouveau')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Partners/Form')
+                ->where('partnersContext.base', '/super-admin/sites/A/partenaires'));
+    }
+
     public function test_only_partner_screens_can_be_rendered_and_an_unconfigured_site_says_so(): void
     {
         Http::fake(['https://a.test/*' => Http::response(['component' => 'Administration/Employees/Index', 'props' => []], 200)]);

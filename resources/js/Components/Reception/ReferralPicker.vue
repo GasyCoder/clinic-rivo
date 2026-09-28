@@ -21,8 +21,6 @@ import { emptyReferral } from '@/utilities/referral';
  */
 const props = defineProps({
     modelValue: { type: Object, default: () => emptyReferral() },
-    /** Le partenaire dont vient ce dossier : il ne se recommande pas lui-même. */
-    excludePartnerUuid: { type: String, default: null },
     errors: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits(['update:modelValue']);
@@ -43,7 +41,7 @@ const choose = (person) => {
     update({ chosen: person });
 };
 
-const shown = computed(() => results.value.filter((person) => ! (person.source === 'PARTNER' && person.uuid === props.excludePartnerUuid)));
+const shown = computed(() => results.value);
 const SOURCE = {
     EMPLOYEE: { label: 'Personnel', icon: Users },
     PARTNER: { label: 'Partenaire', icon: Handshake },

@@ -165,7 +165,7 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
         $this->command?->info(count(self::IMAGING).' examens ECG/Échographie et '.count(self::DEFINITIONS).' définitions d’analyse disponibles.');
     }
 
-    /** @param array{code: string, name: string, description: string} $service */
+    /** @param array{code: string, name: string, description: string, modality?: ImagingModality} $service */
     private function upsertService(array $service, CatalogModule $module, User $actor): void
     {
         $item = CatalogItem::withTrashed()->where('code', $service['code'])->first();
@@ -178,6 +178,15 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
             }
             if ($item->module !== $module) {
                 $item->update(['module' => $module->value, 'updated_by' => $actor->id]);
+            }
+
+            // ADR-106 — un examen déplacé vers l'Imagerie (ECG, ECHO-ABD, ECHO-OBS,
+            // ECHO-PEL, créés en Médecine par ClinicalServiceCatalogSeeder) reçoit sa
+            // famille ; une famille déjà réglée n'est jamais réécrite.
+            if ($module === CatalogModule::Imaging
+                && $item->imaging_modality === null
+                && ($service['modality'] ?? null) !== null) {
+                $item->update(['imaging_modality' => $service['modality'], 'updated_by' => $actor->id]);
             }
 
             if ($module === CatalogModule::Laboratory

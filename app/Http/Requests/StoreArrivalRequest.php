@@ -7,7 +7,6 @@ use App\Support\Patients\PatientAgeRules;
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
 use App\Enums\MutualBeneficiaryType;
-use App\Enums\PartnerCategory;
 use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Enums\PatientType;
@@ -37,14 +36,10 @@ class StoreArrivalRequest extends FormRequest
             return false;
         }
 
-        // ADR-211 — relier le dossier à la fiche RH ou à la fiche partenaire de
-        // la même personne exige les droits de ces référentiels.
+        // ADR-211 — relier le dossier à la fiche RH de la même personne exige
+        // les droits de ce référentiel.
         if ($this->filled('employee_uuid')
             && (! $user->can('employees.patient_lookup') || ! $user->can('patient_staff_links.create'))) {
-            return false;
-        }
-
-        if ($this->filled('partner_uuid') && ! $user->can('partner_organizations.view')) {
             return false;
         }
 
@@ -95,9 +90,11 @@ class StoreArrivalRequest extends FormRequest
                     Rule::exists('patients', 'uuid')->whereNull('deleted_at'),
                 ],
                 // ADR-211 — le dossier trouvé est celui de cet employé (sa fiche
-                // RH le synchronisera) ou de ce partenaire médical.
-                'employee_uuid' => ['nullable', 'uuid', Rule::prohibitedIf($this->filled('partner_uuid')), $this->activeEmployeeRule()],
-                'partner_uuid' => ['nullable', 'uuid', $this->medicalPartnerRule()],
+                // RH le synchronisera).
+                'employee_uuid' => ['nullable', 'uuid', $this->activeEmployeeRule()],
+                // Un partenaire se choisit à la prise en charge du passage, jamais
+                // à l'identité (ADR-211, amendement du 2026-09-28).
+                'partner_uuid' => ['prohibited'],
                 // ADR-212 — la recommandation se note à la création du dossier seulement.
                 'referral' => ['prohibited'],
                 // Emergency is a decision on the stable Episode UUID, never
@@ -148,9 +145,9 @@ class StoreArrivalRequest extends FormRequest
                 'uuid',
                 $this->activeEmployeeRule(),
             ],
-            // ADR-211 — un nouveau dossier ouvert depuis la fiche d'un
-            // partenaire médical : il lui est relié. Jamais avec une fiche RH.
-            'partner_uuid' => [Rule::prohibitedIf($isStaff), 'nullable', 'uuid', $this->medicalPartnerRule()],
+            // Un partenaire se choisit à la prise en charge du passage, jamais
+            // à l'identité (ADR-211, amendement du 2026-09-28).
+            'partner_uuid' => ['prohibited'],
             ...$this->referralRules($isStaff),
 
             'first_name' => $commonRule(['nullable', 'string', 'max:255']),
@@ -273,15 +270,6 @@ class StoreArrivalRequest extends FormRequest
     private function activeEmployeeRule(): Exists
     {
         return Rule::exists('employees', 'uuid')->where(fn ($query) => $query
-            ->where('active', true)
-            ->whereNull('deleted_at'));
-    }
-
-    /** ADR-211 — seul un partenaire Médical, actif, peut être la personne soignée. */
-    private function medicalPartnerRule(): Exists
-    {
-        return Rule::exists('partner_organizations', 'uuid')->where(fn ($query) => $query
-            ->where('category', PartnerCategory::Medical->value)
             ->where('active', true)
             ->whereNull('deleted_at'));
     }
@@ -444,6 +432,7 @@ class StoreArrivalRequest extends FormRequest
     {
         return [
             'is_emergency.prohibited' => 'Créez d’abord l’Épisode, puis classez ce passage précis en urgence depuis sa prise en charge.',
+            'partner_uuid.prohibited' => 'Un partenaire se choisit à l’étape Prise en charge du passage, pas à l’identité du patient.',
         ];
     }
 }

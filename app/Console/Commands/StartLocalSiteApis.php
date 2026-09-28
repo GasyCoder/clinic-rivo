@@ -187,7 +187,7 @@ class StartLocalSiteApis extends Command
                 });
             }
 
-            $this->components->task("{$site['name']} — mutuelles et partenaires de test", function () use ($site): void {
+            $this->components->task("{$site['name']} — mutuelles de test", function () use ($site): void {
                 $this->runArtisan($site, ['db:seed', '--class=Database\\Seeders\\DevelopmentMutualOrganizationSeeder', '--force', '--no-interaction']);
             });
 

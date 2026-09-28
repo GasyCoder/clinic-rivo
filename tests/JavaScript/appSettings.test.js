@@ -133,7 +133,8 @@ test('the settings read module by module: the open module in a card, the modules
     assert.match(page, /<h2 class="text-2xl font-bold tracking-tight text-foreground">Paramètres<\/h2>/);
     const switcher = read('resources/js/Components/Settings/SettingsSiteSwitcher.vue');
     assert.match(page, /<SettingsSiteSwitcher :targets="targets" :model-value="selectedCode" @update:model-value="selectTarget" \/>/, 'le site se choisit en un clic, et la page décide (confirmation si des modifications sont en cours)');
-    assert.match(switcher, /<RadioGroup\b[\s\S]*?aria-label="Site réglé"/, 'un groupe radio shadcn : flèches du clavier, un seul choix');
+    assert.match(switcher, /<RadioGroup\b[\s\S]*?:aria-label="label"/, 'un groupe radio shadcn : flèches du clavier, un seul choix');
+    assert.match(switcher, /label: \{ type: String, default: 'Site réglé' \}/, 'nommé « Site réglé » par défaut ; la page Tarifs le nomme « Site affiché »');
     assert.match(switcher, /<RadioGroupItem :value="target\.site\.code" class="sr-only" \/>/);
     assert.match(switcher, /'non configuré'/);
     assert.match(switcher, /'injoignable'/, 'l’état de chaque site se lit avant de le choisir');

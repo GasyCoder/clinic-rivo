@@ -6,7 +6,6 @@ use App\Enums\EpisodeFinancialMode;
 use App\Enums\HrReferenceType;
 use App\Enums\PartnerCategory;
 use App\Enums\PartnerProfession;
-use App\Models\AddressEntry;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
 use App\Models\Episode;
@@ -150,69 +149,48 @@ class ReceptionIdentitySourcesTest extends TestCase
         $this->assertSame(EpisodeFinancialMode::Self, $episode->refresh()->financial_mode);
     }
 
-    public function test_a_medical_partner_becomes_a_patient_linked_to_their_record(): void
+    public function test_a_partner_is_not_an_identity_source_at_the_reception(): void
+    {
+        // ADR-211, amendement du 2026-09-28 — un partenaire se choisit à la prise
+        // en charge du passage ; l'étape Patient ne le recherche plus.
+        $actor = $this->receptionist(self::RECEPTION);
+        $doctor = $this->partner(PartnerCategory::Medical, ['last_name' => 'Rabe', 'profession' => PartnerProfession::Doctor]);
+
+        $this->actingAs($actor)->getJson('/reception/partners/patient-lookup?q=Rabe')->assertNotFound();
+
+        $this->actingAs($actor)->postJson('/reception/patients', [
+            'patient_type' => 'STANDARD',
+            'partner_uuid' => $doctor->uuid,
+            'last_name' => 'Rabe',
+            'birth_date' => '1975-06-01',
+            'sex' => 'M',
+        ])->assertUnprocessable()->assertJsonValidationErrors([
+            'partner_uuid' => 'Un partenaire se choisit à l’étape Prise en charge du passage, pas à l’identité du patient.',
+        ]);
+        $this->assertSame(0, Patient::query()->count());
+        $this->assertNull($doctor->refresh()->patient_id);
+    }
+
+    public function test_a_record_already_linked_to_a_partner_still_proposes_the_partner_coverage(): void
     {
         $actor = $this->receptionist(self::RECEPTION);
-        $address = AddressEntry::query()->create(['label' => 'Tsaramandroso', 'active' => true]);
-        $doctor = $this->partner(PartnerCategory::Medical, ['last_name' => 'Rabe', 'first_name' => 'Hery', 'profession' => PartnerProfession::Doctor, 'sex' => 'M', 'birth_date' => '1975-06-01', 'phone' => '0320000001', 'address_entry_id' => $address->id, 'address' => $address->label]);
-        $school = $this->partner(PartnerCategory::Other, ['name' => 'Rabe Formation']);
 
-        // Seules les fiches médicales sont des personnes à soigner.
-        $this->actingAs($actor)->getJson('/reception/partners/patient-lookup?q=Rabe')
+        $this->actingAs($actor)->postJson('/reception/patients', [
+            'patient_type' => 'STANDARD',
+            'last_name' => 'Rabe',
+            'birth_date' => '1975-06-01',
+            'sex' => 'M',
+            'reception_draft' => ['designation_deferred' => true, 'catalog_lines' => []],
+        ])->assertCreated();
+        $episode = Episode::query()->sole();
+        // Un lien posé avant l'amendement reste lu : l'étape 5 propose ce partenaire.
+        $doctor = $this->partner(PartnerCategory::Medical, ['last_name' => 'Rabe', 'profession' => PartnerProfession::Doctor, 'patient_id' => $episode->patient_id]);
+
+        $this->actingAs($actor)->get(route('reception.passages.journey.show', $episode))
             ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.uuid', $doctor->uuid)
-            ->assertJsonPath('data.0.profession_label', 'Médecin')
-            // L'adresse de la fiche est une entrée du référentiel : reprise telle quelle.
-            ->assertJsonPath('data.0.address_entry_uuid', $address->uuid)
-            ->assertJsonPath('data.0.linked_patient', null);
-
-        $this->actingAs($actor)->postJson('/reception/patients', [
-            'patient_type' => 'STANDARD',
-            'partner_uuid' => $school->uuid,
-            'last_name' => 'Rabe',
-            'birth_date' => '1975-06-01',
-            'sex' => 'M',
-        ])->assertUnprocessable()->assertJsonValidationErrors('partner_uuid');
-
-        $this->actingAs($actor)->postJson('/reception/patients', [
-            'patient_type' => 'STANDARD',
-            'partner_uuid' => $doctor->uuid,
-            'last_name' => 'Rabe',
-            'first_name' => 'Hery',
-            'birth_date' => '1975-06-01',
-            'sex' => 'M',
-        ])->assertCreated();
-
-        $patient = Patient::query()->sole();
-        $this->assertSame($patient->id, $doctor->refresh()->patient_id);
-
-        // Une adresse archivée depuis n'est plus reprise : le dossier la refuserait.
-        $address->forceFill(['active' => false])->save();
-        $this->actingAs($actor)->getJson('/reception/partners/patient-lookup?q=Rabe')
-            ->assertJsonPath('data.0.address_entry_uuid', null)
-            ->assertJsonPath('data.0.address', 'Tsaramandroso');
-
-        $this->actingAs($actor)->getJson('/reception/partners/patient-lookup?q=Rabe')
-            ->assertJsonPath('data.0.linked_patient.uuid', $patient->uuid);
-
-        // La fois suivante, le même dossier : rien ne change.
-        $this->actingAs($actor)->postJson('/reception/patients', [
-            'patient_uuid' => $patient->uuid,
-            'partner_uuid' => $doctor->uuid,
-        ])->assertCreated();
-        $this->assertSame($patient->id, $doctor->refresh()->patient_id);
-
-        // Une fiche ne désigne qu'un dossier.
-        $this->actingAs($actor)->postJson('/reception/patients', [
-            'patient_type' => 'STANDARD',
-            'partner_uuid' => $doctor->uuid,
-            'last_name' => 'Rabe',
-            'first_name' => 'Hery Junior',
-            'birth_date' => '2001-01-01',
-            'sex' => 'M',
-        ])->assertUnprocessable()->assertJsonValidationErrors('partner_uuid');
-        $this->assertSame(1, Patient::query()->count());
+            ->assertInertia(fn ($page) => $page
+                ->where('resumeEpisode.patient_links.partner.uuid', $doctor->uuid)
+                ->where('resumeEpisode.financial_mode', null));
     }
 
     public function test_the_coverage_is_proposed_from_the_links_never_saved_for_them(): void
@@ -237,21 +215,6 @@ class ReceptionIdentitySourcesTest extends TestCase
                 ->where('resumeEpisode.patient_links.partner', null));
 
         $this->assertNull($episode->refresh()->financial_mode);
-    }
-
-    public function test_linking_a_partner_needs_the_partner_permission(): void
-    {
-        $actor = $this->receptionist(array_values(array_diff(self::RECEPTION, ['partner_organizations.view'])));
-        $doctor = $this->partner(PartnerCategory::Medical, ['last_name' => 'Rabe', 'profession' => PartnerProfession::Nurse]);
-
-        $this->actingAs($actor)->getJson('/reception/partners/patient-lookup?q=Rabe')->assertForbidden();
-        $this->actingAs($actor)->postJson('/reception/patients', [
-            'patient_type' => 'STANDARD',
-            'partner_uuid' => $doctor->uuid,
-            'last_name' => 'Rabe',
-            'birth_date' => '1975-06-01',
-            'sex' => 'M',
-        ])->assertForbidden();
     }
 
     /** @param list<string> $permissions */

@@ -12,6 +12,7 @@ import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { cn } from '@/lib/cn';
 import { formatMoney } from '@/utilities/money';
 import { hrUrl } from '@/utilities/hrUrl';
+import { selectionState, toggleShown } from '@/utilities/bonus';
 
 /**
  * ADR-212 — créer ou corriger une catégorie de bonus : ce qu'elle compte, son
@@ -62,6 +63,11 @@ const shownStaff = computed(() => {
         return terms.every((term) => haystack.includes(term));
     });
 });
+const shownUuids = computed(() => shownStaff.value.map((employee) => employee.uuid));
+const allShownState = computed(() => selectionState(form.employee_uuids, shownUuids.value));
+const toggleAllShown = () => {
+    form.employee_uuids = toggleShown(form.employee_uuids, shownUuids.value);
+};
 const selected = (uuid) => form.employee_uuids.includes(uuid);
 const toggle = (uuid) => {
     form.employee_uuids = selected(uuid) ? form.employee_uuids.filter((item) => item !== uuid) : [...form.employee_uuids, uuid];
@@ -89,6 +95,7 @@ const submit = () => {
     <Dialog
         :open="open"
         size="xl"
+        content-class="max-w-5xl"
         :title="category ? `Modifier « ${category.name} »` : 'Nouvelle catégorie de bonus'"
         description="Ce que la catégorie compte chaque mois, à partir de combien de patients, pour quel montant — et qui elle concerne."
         :dismissible="false"
@@ -132,6 +139,15 @@ const submit = () => {
                 <IconInput v-model="staffQuery" :icon="Search" placeholder="Nom, matricule, fonction…" aria-label="Rechercher dans le personnel" />
                 <p v-if="form.errors.employee_uuids" class="text-xs font-medium text-destructive">{{ form.errors.employee_uuids }}</p>
                 <ul class="max-h-80 divide-y divide-border overflow-y-auto rounded-lg border border-border">
+                    <li v-if="shownStaff.length" class="sticky top-0 z-10 bg-muted">
+                        <label for="bonus-staff-all" class="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-accent/60">
+                            <Checkbox id="bonus-staff-all" :model-value="allShownState" @update:model-value="toggleAllShown" />
+                            <span class="min-w-0 flex-1 text-sm font-semibold text-foreground">
+                                {{ staffQuery.trim() ? 'Tous les résultats' : 'Tout le personnel' }}
+                            </span>
+                            <span class="shrink-0 text-xs font-medium text-muted-foreground">{{ shownStaff.length }}</span>
+                        </label>
+                    </li>
                     <li v-for="employee in shownStaff" :key="employee.uuid">
                         <label :for="`bonus-staff-${employee.uuid}`" class="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-accent/40">
                             <Checkbox :id="`bonus-staff-${employee.uuid}`" :model-value="selected(employee.uuid)" @update:model-value="toggle(employee.uuid)" />

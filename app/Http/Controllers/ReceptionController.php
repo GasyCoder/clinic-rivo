@@ -342,7 +342,6 @@ class ReceptionController extends Controller
                 // fiche RH, sans ressaisie. La prise en charge reste choisie au
                 // passage (financialMode nul ci-dessous), jamais déduite du lien.
                 employeeUuid: $request->validated('employee_uuid'),
-                partnerUuid: $request->validated('partner_uuid'),
                 // ADR-212 — qui a recommandé la clinique : à la création du dossier seulement.
                 referral: $request->filled('patient_uuid') ? null : ($request->validated('referral') ?: null),
                 mutualData: ! $jsonWorkflow && $request->input('patient_type') === PatientType::Mutual->value ? [

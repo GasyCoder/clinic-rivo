@@ -61,6 +61,53 @@ class ImagingModalityTest extends TestCase
     }
 
     /**
+     * `ClinicalServiceCatalogSeeder` crée ECG et les échographies en Médecine,
+     * sans famille ; le seeder paraclinique les déplace vers l'Imagerie. Il les
+     * classait seulement quand il les créait lui-même : déplacés, ils restaient
+     * « non classés » sur chaque base neuve. Une famille déjà réglée n'est pas
+     * réécrite.
+     */
+    public function test_an_exam_moved_to_imaging_receives_its_family_without_overwriting_a_decision(): void
+    {
+        $this->seed([
+            RoleSeeder::class,
+            PermissionSeeder::class,
+            RolePermissionSeeder::class,
+        ]);
+        $author = User::factory()->create([
+            'role_id' => Role::query()->where('code', 'ADMINISTRATION')->value('id'),
+        ]);
+        $author->permissions()->attach(
+            Permission::query()->where('name', 'catalog.items.create')->value('id'),
+            ['effect' => 'allow'],
+        );
+        foreach (['ECG' => null, 'ECHO-PEL' => ImagingModality::Cardiology] as $code => $modality) {
+            CatalogItem::query()->create([
+                'code' => $code,
+                'name' => $code,
+                'type' => CatalogItemType::Service,
+                'module' => $modality ? CatalogModule::Imaging : CatalogModule::Medicine,
+                'imaging_modality' => $modality,
+                'unit' => 'examen',
+                'billable' => true,
+                'stockable' => false,
+                'created_by' => $author->id,
+            ]);
+        }
+
+        $this->seed(DevelopmentParaclinicalCatalogSeeder::class);
+
+        $ecg = CatalogItem::query()->where('code', 'ECG')->first();
+        $this->assertSame(CatalogModule::Imaging, $ecg->module);
+        $this->assertSame(ImagingModality::Cardiology, $ecg->imaging_modality);
+        // Réglée par quelqu'un, même à tort, elle reste la sienne.
+        $this->assertSame(
+            ImagingModality::Cardiology,
+            CatalogItem::query()->where('code', 'ECHO-PEL')->value('imaging_modality'),
+        );
+    }
+
+    /**
      * Un examen ajouté après coup n'est pas classé, et ne doit pas l'être
      * par défaut : le ranger d'office le ferait disparaître d'un onglet
      * sans que personne ne l'ait décidé.

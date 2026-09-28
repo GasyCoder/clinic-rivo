@@ -12,17 +12,14 @@ use App\Actions\Patient\CreatePatientAction;
 use App\Actions\Patient\UpdatePatientAction;
 use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodePriority;
-use App\Enums\PartnerCategory;
 use App\Enums\PatientType;
 use App\Exceptions\DuplicatePatientException;
 use App\Models\AddressEntry;
 use App\Models\Employee;
 use App\Models\Episode;
-use App\Models\PartnerOrganization;
 use App\Models\Patient;
 use App\Models\ReceptionJourneyDraft;
 use App\Models\User;
-use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -73,7 +70,6 @@ class RegisterArrivalAction
         array $episodeData = [],
         ?EpisodeFinancialMode $financialMode = null,
         ?array $receptionDraft = null,
-        ?string $partnerUuid = null,
         ?array $referral = null,
     ): Episode {
         $storedAttachmentPaths = [];
@@ -97,7 +93,6 @@ class RegisterArrivalAction
                 $episodeData,
                 $financialMode,
                 $receptionDraft,
-                $partnerUuid,
                 $referral,
                 &$storedAttachmentPaths,
             ): Episode {
@@ -209,10 +204,6 @@ class RegisterArrivalAction
                     ]);
                 }
 
-                if ($partnerUuid !== null) {
-                    $this->linkPartner($patient, $partnerUuid, $actor);
-                }
-
                 if ($financialMode === EpisodeFinancialMode::Mutual) {
                     if (! $mutualData) {
                         throw new \LogicException('Les informations de mutuelle sont requises.');
@@ -312,53 +303,6 @@ class RegisterArrivalAction
         $this->linkEmployee->execute($patient, $employee, $actor);
 
         return $employee;
-    }
-
-    /**
-     * ADR-211 — le dossier patient d'un partenaire médical lui est relié : la
-     * prochaine fois, l'accueil le retrouve depuis sa fiche. Un lien
-     * d'identité seulement : la prise en charge Partenaire reste un choix du
-     * passage (ADR-051). Une fiche ne désigne qu'un dossier, et un dossier
-     * qu'une fiche.
-     */
-    private function linkPartner(Patient $patient, string $partnerUuid, User $actor): void
-    {
-        if ($actor->cannot('partner_organizations.view')) {
-            throw new AuthorizationException('Vous ne pouvez pas utiliser le référentiel des partenaires.');
-        }
-
-        $partner = PartnerOrganization::query()
-            ->with('patient:id,patient_number')
-            ->where('uuid', $partnerUuid)
-            ->where('category', PartnerCategory::Medical->value)
-            ->where('active', true)
-            ->lockForUpdate()
-            ->first();
-
-        if (! $partner) {
-            throw ValidationException::withMessages([
-                'partner_uuid' => 'Cette fiche partenaire est indisponible ou archivée.',
-            ]);
-        }
-
-        if ($partner->patient_id === $patient->getKey()) {
-            return;
-        }
-
-        if ($partner->patient_id !== null) {
-            throw ValidationException::withMessages([
-                'partner_uuid' => 'Cette fiche partenaire est déjà reliée au dossier '.($partner->patient?->patient_number ?? 'd’un autre patient').'.',
-            ]);
-        }
-
-        if (PartnerOrganization::withTrashed()->where('patient_id', $patient->getKey())->exists()) {
-            throw ValidationException::withMessages([
-                'partner_uuid' => 'Ce dossier patient est déjà relié à une autre fiche partenaire.',
-            ]);
-        }
-
-        $partner->patient_id = $patient->getKey();
-        $partner->save();
     }
 
     /** @return array<string, mixed> */

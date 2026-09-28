@@ -4,6 +4,7 @@ namespace App\Http\Requests\Administration;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\ImagingModality;
 use App\Enums\ReceptionRoutingMode;
 use App\Enums\StaffCoveragePolicy;
 use Illuminate\Foundation\Http\FormRequest;
@@ -37,6 +38,8 @@ class StoreCatalogItemRequest extends FormRequest
             'billable' => ['required', 'boolean'],
             'stockable' => ['required', 'boolean'],
             'staff_coverage_policy' => ['sometimes', new Enum(StaffCoveragePolicy::class)],
+            // ADR-106 — ECG ou échographie : réglée ici, jamais déduite du code.
+            'imaging_modality' => ['sometimes', 'nullable', new Enum(ImagingModality::class)],
             'reception_selectable' => ['sometimes', 'boolean'],
             'reception_routing_mode' => [
                 'nullable',

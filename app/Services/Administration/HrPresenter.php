@@ -5,7 +5,9 @@ namespace App\Services\Administration;
 use App\Enums\HrReferenceType;
 use App\Enums\PlanningShiftKind;
 use App\Models\AttendanceRecord;
+use App\Models\Bank;
 use App\Models\Employee;
+use App\Models\EmployeeBenefit;
 use App\Models\EmploymentContract;
 use App\Models\HrDocument;
 use App\Models\HrReferenceValue;
@@ -103,8 +105,55 @@ class HrPresenter
             'remuneration_type' => $employee->remuneration_type?->value,
             'remuneration_label' => $employee->remuneration_type?->label(),
             'remuneration_amount' => $employee->remuneration_amount,
+            // ADR-213 — la banque, choisie dans le module Banques ; archivée depuis, elle reste lisible.
+            'bank_uuid' => $employee->bank?->uuid,
+            'bank' => $employee->bank ? $this->bank($employee->bank) : null,
             'bank_account_number' => $employee->bank_account_number,
             'bank_account_holder' => $employee->bank_account_holder,
+        ];
+    }
+
+    /**
+     * ADR-213 — une banque du référentiel, telle qu'une liste ou une fiche la montre.
+     *
+     * @return array<string, mixed>
+     */
+    public function bank(Bank $bank): array
+    {
+        return [
+            'uuid' => $bank->uuid,
+            'code' => $bank->code,
+            'name' => $bank->name,
+            'label' => "{$bank->code} — {$bank->name}",
+            'available' => $bank->isAvailable(),
+        ];
+    }
+
+    /**
+     * ADR-213 — un avantage ou une prime déclaré. Confidentiel comme la
+     * rémunération : servi seulement avec `employees.payroll.view`.
+     *
+     * @return array<string, mixed>
+     */
+    public function benefit(EmployeeBenefit $benefit): array
+    {
+        return [
+            'uuid' => $benefit->uuid,
+            'benefit_type_uuid' => $benefit->benefitType?->uuid,
+            'type' => $benefit->benefitType?->label,
+            'type_code' => $benefit->benefitType?->code,
+            'amount' => $benefit->amount,
+            'reason' => $benefit->reason,
+            'frequency' => $benefit->frequency?->value,
+            'frequency_label' => $benefit->frequency?->label(),
+            'starts_on' => $benefit->starts_on?->toDateString(),
+            'ends_on' => $benefit->ends_on?->toDateString(),
+            'current' => $benefit->isCurrent(),
+            'archived' => $benefit->trashed(),
+            'delete_reason' => $benefit->delete_reason,
+            'deleted_at' => $benefit->deleted_at?->toIso8601String(),
+            'created_by' => RemoteActorAttribution::name($benefit->creator?->name, $benefit->external_created_by_name),
+            'created_at' => $benefit->created_at?->toIso8601String(),
         ];
     }
 

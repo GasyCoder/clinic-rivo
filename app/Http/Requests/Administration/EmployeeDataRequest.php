@@ -79,12 +79,27 @@ abstract class EmployeeDataRequest extends FormRequest
             'remuneration_type' => ['nullable', new Enum(EmployeeRemunerationType::class)],
             'remuneration_amount' => [
                 'nullable',
-                Rule::requiredIf(fn () => EmployeeRemunerationType::tryFrom((string) $this->input('remuneration_type'))?->hasAmount() ?? false),
+                // Un envoi partiel (une section de la fiche) sans le type relit le type enregistré.
+                Rule::requiredIf(fn () => $this->remunerationType()?->hasAmount() ?? false),
                 'numeric', 'min:0', 'max:999999999.99', 'decimal:0,2',
             ],
+            // ADR-213 — la banque, choisie dans le module Banques (EmployeePayroll la résout).
+            'bank_uuid' => ['nullable', 'uuid'],
             'bank_account_number' => ['nullable', 'string', 'max:50', 'regex:/^[A-Z0-9][A-Z0-9 -]*$/'],
             'bank_account_holder' => ['nullable', 'required_with:bank_account_number', 'string', 'max:150'],
         ];
+    }
+
+    /** Le type envoyé, sinon celui déjà enregistré sur la fiche modifiée. */
+    private function remunerationType(): ?EmployeeRemunerationType
+    {
+        if ($this->exists('remuneration_type')) {
+            return EmployeeRemunerationType::tryFrom((string) $this->input('remuneration_type'));
+        }
+
+        $employee = $this->route('employee');
+
+        return $employee instanceof Employee ? $employee->remuneration_type : null;
     }
 
     /** @return array<string, array<int, mixed>> */
@@ -200,6 +215,14 @@ abstract class EmployeeDataRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
+            // ADR-213 — un envoi partiel qui passe au salaire sans montant ne laisse pas un salaire vide.
+            $employee = $this->route('employee');
+            if ($this->exists('remuneration_type') && ! $this->exists('remuneration_amount')
+                && ($this->remunerationType()?->hasAmount() ?? false)
+                && ! ($employee instanceof Employee && $employee->remuneration_amount !== null)) {
+                $validator->errors()->add('remuneration_amount', 'Indiquez le montant du salaire ou de l’indemnité.');
+            }
+
             if ($this->filled('address_entry_uuid') && $this->filled('new_address_label')) {
                 $validator->errors()->add(
                     'new_address_label',
@@ -264,6 +287,7 @@ abstract class EmployeeDataRequest extends FormRequest
             'remuneration_amount' => 'montant',
             'bank_account_number' => 'numéro de compte bancaire',
             'bank_account_holder' => 'titulaire du compte',
+            'bank_uuid' => 'banque',
         ];
     }
 

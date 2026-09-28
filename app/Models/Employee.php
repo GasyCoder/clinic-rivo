@@ -32,6 +32,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'photo_path', 'photo_updated_at',
     // ADR-206 — rémunération déclarée et compte bancaire (droits employees.payroll.*).
     'remuneration_type', 'remuneration_amount', 'bank_account_number', 'bank_account_holder',
+    // ADR-213 — la banque du compte, choisie dans le référentiel des banques.
+    'bank_id',
 ])]
 class Employee extends Model
 {
@@ -66,6 +68,18 @@ class Employee extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** ADR-213 — la banque de son compte, choisie dans le module Banques. */
+    public function bank(): BelongsTo
+    {
+        return $this->belongsTo(Bank::class);
+    }
+
+    /** ADR-213 — ses avantages et primes déclarés, retirés compris seulement avec withTrashed(). */
+    public function benefits(): HasMany
+    {
+        return $this->hasMany(EmployeeBenefit::class);
     }
 
     public function addressEntry(): BelongsTo
@@ -154,7 +168,8 @@ class Employee extends Model
             || $this->leaveRequests()->exists()
             || $this->interimLeaveRequests()->exists()
             || $this->planningShifts()->exists()
-            || $this->hrDocuments()->withTrashed()->exists();
+            || $this->hrDocuments()->withTrashed()->exists()
+            || $this->benefits()->withTrashed()->exists();
     }
 
     protected function auditModule(): ?string

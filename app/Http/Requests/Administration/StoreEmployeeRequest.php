@@ -17,7 +17,8 @@ class StoreEmployeeRequest extends EmployeeDataRequest
         return [
             ...$this->employeeRules(),
             // ADR-194 — « Nouveau stagiaire » : après le dossier, son stage.
-            'after' => ['sometimes', 'nullable', 'in:internship'],
+            // ADR-213 — « edit » : après la création courte, la fiche en sections.
+            'after' => ['sometimes', 'nullable', 'in:internship,edit'],
         ];
     }
 }

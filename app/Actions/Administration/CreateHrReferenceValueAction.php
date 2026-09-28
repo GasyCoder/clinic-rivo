@@ -5,6 +5,7 @@ namespace App\Actions\Administration;
 use App\Models\HrReferenceValue;
 use App\Models\User;
 use App\Support\Hr\JobTitleAccountRole;
+use App\Support\Hr\JobTitleBenefits;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -24,6 +25,11 @@ class CreateHrReferenceValueAction
             [$data, $metadata] = JobTitleAccountRole::takeFrom($data, $data['metadata'] ?? null);
             if ($metadata !== null) {
                 $data['metadata'] = $metadata;
+            }
+            // ADR-213 — la fonction ouvre-t-elle droit aux avantages et primes ?
+            [$data, $benefits] = JobTitleBenefits::takeFrom($data, $data['metadata'] ?? null);
+            if ($benefits !== null) {
+                $data['metadata'] = $benefits;
             }
             $reference = HrReferenceValue::query()->create($data);
 

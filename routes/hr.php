@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\Administration\BonusController;
 use App\Http\Controllers\Administration\AttendanceController;
+use App\Http\Controllers\Administration\BankController;
 use App\Http\Controllers\Administration\EmployeeBadgeController;
+use App\Http\Controllers\Administration\EmployeeBenefitController;
 use App\Http\Controllers\Administration\EmployeeController;
 use App\Http\Controllers\Administration\EmploymentContractController;
 use App\Http\Controllers\Administration\GeneratedDocumentController;
@@ -73,6 +75,10 @@ Route::get('/employees/{employee}/photo', [EmployeeController::class, 'photo'])-
 Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update')->middleware('can:employees.update');
 Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy')->middleware('can:employees.delete');
 Route::post('/employees/{employee}/restore', [EmployeeController::class, 'restore'])->name('employees.restore')->middleware('can:employees.restore')->withTrashed();
+// ADR-213 — les avantages et primes d'un employé : mêmes droits que sa rémunération.
+Route::post('/employees/{employee}/benefits', [EmployeeBenefitController::class, 'store'])->name('employees.benefits.store')->middleware(['can:employees.update', 'can:employees.payroll.update']);
+Route::put('/employees/{employee}/benefits/{benefit}', [EmployeeBenefitController::class, 'update'])->name('employees.benefits.update')->middleware(['can:employees.update', 'can:employees.payroll.update']);
+Route::delete('/employees/{employee}/benefits/{benefit}', [EmployeeBenefitController::class, 'destroy'])->name('employees.benefits.destroy')->middleware(['can:employees.update', 'can:employees.payroll.update']);
 
 Route::get('/contracts', [EmploymentContractController::class, 'index'])->name('contracts.index')->middleware('can:contracts.view');
 Route::get('/contracts/export', [EmploymentContractController::class, 'export'])->name('contracts.export')->middleware('can:contracts.export');
@@ -171,3 +177,10 @@ Route::get('/staff-block-credits', [StaffBlockCreditController::class, 'index'])
 Route::post('/staff-block-credits/{employee}', [StaffBlockCreditController::class, 'store'])
     ->name('staff-block-credits.store')
     ->middleware('can:staff_block_credits.allocate');
+
+// ADR-213 — le référentiel des banques du site, proposé à la fiche d'un employé.
+Route::get('/banks', [BankController::class, 'index'])->name('banks.index')->middleware('can:hr_settings.view');
+Route::post('/banks', [BankController::class, 'store'])->name('banks.store')->middleware('can:hr_settings.create');
+Route::put('/banks/{bank}', [BankController::class, 'update'])->name('banks.update')->middleware('can:hr_settings.update');
+Route::delete('/banks/{bank}', [BankController::class, 'destroy'])->name('banks.destroy')->middleware('can:hr_settings.archive');
+Route::post('/banks/{bank}/restore', [BankController::class, 'restore'])->name('banks.restore')->middleware('can:hr_settings.restore')->withTrashed();

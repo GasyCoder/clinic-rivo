@@ -21266,3 +21266,108 @@ orientation vers le Laboratoire   mettre une demande à la corbeille ne touche p
 restauration depuis le portail    la facturation revient au nom du prescripteur, faute de compte local
 feuille imprimée partielle        une discipline dont aucune demande n'est cochée garde son en-tête
 ```
+
+---
+
+# ADR-221 — Fiche employé en sections enregistrées toutes seules ; module Banques ; avantages et primes
+
+> Numérotée **ADR-213** à sa rédaction ; renumérotée **ADR-221** au rebase sur `origin/dev` (2026-09-29), les numéros 213 à 220 étant déjà pris par le Laboratoire. Les références du code ont suivi.
+
+**Status:** ACCEPTED (2026-09-28 — demande explicite du propriétaire : « sauvegarde automatique, plus de long
+formulaire avec Continuer / Enregistrer ; salaire, indemnités pour stagiaire ou bénévole, avantages : prix, motif,
+chaque médecin uniquement ; un module Banques séparé » ; trois arbitrages, question par question)
+
+**Amende l'ADR-066/187/194/206** (le dossier employé n'est plus un parcours en étapes) et **complète l'ADR-206**
+(la banque du compte, les avantages et primes). Le CDC ne décrit ni salaire, ni avantage, ni banque (§17 ne liste
+que `employees.*`) : les règles ci-dessous sont celles du propriétaire. **Aucune paie n'est calculée** (ADR-066) :
+ni total, ni retenue, ni net.
+
+## Les arbitrages du propriétaire
+
+```text
+avantages   « chaque médecin uniquement » → par fonction, réglable : une case « Ouvre droit aux avantages
+            et primes » dans le module Fonctions ; « Médecin » (DOCTOR) cochée d'office, jamais par-dessus
+            une décision déjà prise ; aucun rôle ni fonction codé en dur (ADR-152)
+retenues    aucune : la règle de l'ADR-206 reste (salaire de base + avantages déclarés, sans retenue ni net)
+migrations  écrites, testées, puis appliquées sur les bases locales (site et portail)
+```
+
+## La création courte, puis la fiche en sections
+
+La création ne demande plus que le genre, le nom, les prénoms, le matricule (proposé, ADR-191) et la photo
+facultative ; « Créer et compléter la fiche » (`after=edit`) ouvre la fiche. « Nouveau stagiaire » garde sa suite
+(`after=internship`, ADR-194). L'ancien parcours en six étapes (`EmployeeForm.vue`) est retiré.
+
+La fiche (`/administration/employees/{uuid}/edit`, aussi servie au portail, ADR-187) se lit en sections, avec une
+navigation directe : Identité · Poste · Contact · Famille et qualification · Rémunération · Banque · Avantages et
+primes (les trois dernières seulement avec `employees.payroll.view` ou `.update`). `?section=` ouvre une section.
+
+```text
+enregistrement   chaque section n'envoie que ses champs, ~1 s après la dernière saisie (debounce),
+                 par la même route que l'ancien bouton : PUT …/employees/{uuid} avec `_autosave`
+serveur          UpdateEmployeeRequest applique chaque règle au seul champ envoyé (`sometimes`) : un champ
+                 omis reste tel quel, un champ envoyé garde toute sa règle (le nom reste exigé) ; une
+                 sauvegarde automatique revient sur la fiche sans message (`back()`, aucun toast)
+indépendance     une erreur dans une section n'empêche pas les autres de s'enregistrer
+incomplet        rien ne part tant qu'une saisie serait refusée (salaire sans montant, numéro de compte sans
+                 titulaire, type de pièce sans numéro, nom vide) : la section dit ce qui manque
+statut           par section et en tête : « Enregistrement… », « Enregistré à HH:MM », « Échec » + Réessayer
+quitter          tout ce qui attend part d'abord ; une saisie incomplète ou refusée demande confirmation
+                 (useUnsavedChangesGuard) ; fermer l'onglet déclenche l'alerte du navigateur
+photo            part dès qu'elle est recadrée, seule, en multipart (ADR-194)
+adresse          une nouvelle adresse s'ajoute par un bouton : enregistrée à la frappe, elle créerait une
+                 entrée du référentiel par mot tapé
+```
+
+Garde serveur ajoutée : un envoi partiel qui passe à « Salaire » sans montant est refusé si aucun montant n'est
+déjà enregistré ; sinon le montant enregistré est gardé.
+
+## Rémunération
+
+Inchangée sur le fond (ADR-206) : Salaire (personnel, salaire de base mensuel) · Indemnité (stagiaire indemnisé) ·
+Non rémunéré (bénévole, stagiaire non indemnisé), avec son montant. Droits `employees.payroll.view/update`.
+
+## Module Banques
+
+`banks` (uuid, sigle unique « BOA », nom complet, code banque RIB et SWIFT facultatifs, téléphone, adresse, note,
+actif, ordre, Soft Delete avec motif) ; `/administration/banks` dans le menu RH (Pilotage), mêmes droits que
+Départements et Fonctions (`hr_settings.*`, aucune permission nouvelle), servi aussi au portail.
+
+```text
+doublons     refusés et nommés, archives comprises : même sigle, même nom sans accents ni casse, un nom
+             qui commence par l'autre (« Bank of Africa » / « Bank of Africa Madagascar »), ou dont le
+             premier mot est un sigle existant (« BOA Madagascar ») — BankName::duplicateOf
+archiver     motif obligatoire ; les fiches qui la portent la gardent, elle n'est plus proposée
+données      aucune reprise : aucune fiche ne portait de banque. BOA, BNI, BMOI, SBM ajoutées par la
+             migration si absentes, sans code banque ni SWIFT (non inventés)
+```
+
+La fiche choisit sa banque dans cette liste (`employees.bank_id`, envoyée en `bank_uuid`, résolue par
+`EmployeePayroll`, droit `employees.payroll.update`) ; une banque archivée reste acceptée pour la fiche qui la porte.
+
+## Avantages et primes
+
+`employee_benefits` : type (référentiel `BENEFIT_TYPE` des Paramètres RH : Logement, Transport, Repas, Téléphone,
+Assurance, Prime, Autre — modifiable), montant facultatif (avantage en nature), motif obligatoire, fréquence
+(`MONTHLY` chaque mois, `ONE_TIME` une fois — sans fin), début, fin facultative, auteur (compte local ou Super
+Admin du portail, `external_created_by_*`).
+
+```text
+ajouter    geste explicite (« Ajouter l'avantage ») ; refusé si la fonction n'ouvre pas droit
+           (message qui renvoie au module Fonctions) ou si le dossier est inactif / archivé
+corriger   sur place, enregistré tout seul ; possible même si la fonction a changé depuis
+retirer    motif obligatoire, Soft Delete : il reste lisible dans « Retirés » (ADR-009)
+droits     employees.payroll.update (écrire), employees.payroll.view (lire) : revérifiés par l'action
+lecture    fiche (carte Rémunération et banque : avantages en cours), impression, sans total ni net
+```
+
+Migrations `2026_11_14_090000_create_banks_table` et `2026_11_14_091000_create_employee_benefits_table`, à jouer
+sur chaque site et sur le portail. Aucune permission nouvelle.
+
+## Signalé, non tranché
+
+```text
+export / import Excel   la banque et les avantages n'y sont pas (comme la rémunération, ADR-206)
+référentiel central     les banques sont par site ; une liste poussée par le portail à tous les sites est à décider
+rendu                   vérifié par le build et les tests (PHP et JS), pas dans un navigateur
+```

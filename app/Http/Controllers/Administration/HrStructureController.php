@@ -81,6 +81,8 @@ class HrStructureController extends Controller
                 'job_titles' => $isJobTitles ? null : $reference->departmentJobTitles->pluck('label')->values(),
                 // ADR-199 — le rôle que cette fonction propose au compte de celui qui l'exerce.
                 'account_role' => $isJobTitles ? $accountRoles->forJobTitle($reference) : null,
+                // ADR-213 — cette fonction ouvre-t-elle droit aux avantages et primes ?
+                'benefits_eligible' => $isJobTitles ? $reference->grantsBenefits() : null,
             ]);
 
         return Inertia::render('Administration/HrStructure/Index', [

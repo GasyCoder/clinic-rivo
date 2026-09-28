@@ -47,6 +47,8 @@ const props = defineProps({
     professionalEmail: { type: Object, default: null },
     // ADR-206 — servie seulement avec employees.payroll.view.
     payroll: { type: Object, default: null },
+    // ADR-213 — avantages et primes, confidentiels comme la rémunération.
+    benefits: { type: Array, default: null },
     // ADR-209 — le badge du personnel, tel qu'il s'imprime ; absent pour un dossier archivé.
     badge: { type: Object, default: null },
 });
@@ -566,7 +568,9 @@ const documentIcon = (document) => DOCUMENT_ICONS[document.mime_type] ?? (docume
                 <EmployeePayrollCard
                     v-if="payroll"
                     :payroll="payroll"
-                    :edit-href="!employee.archived && can('employees.update') && can('employees.payroll.update') ? hrUrl(`/administration/employees/${employee.uuid}/edit`) : null"
+                    :benefits="benefits ?? []"
+                    :edit-href="!employee.archived && can('employees.update') && can('employees.payroll.update') ? hrUrl(`/administration/employees/${employee.uuid}/edit?section=pay`) : null"
+                    :benefits-href="!employee.archived && can('employees.update') && can('employees.payroll.update') ? hrUrl(`/administration/employees/${employee.uuid}/edit?section=benefits`) : null"
                 />
 
                 <Card v-if="quickActions.length" class="p-4">

@@ -159,38 +159,42 @@ test('the employee list offers the Excel template and is written in shadcn', () 
     assert.doesNotMatch(source, /\bni ni-|\bnk-|\b(?:bg|text|border)-(?:gray|slate)-\d/);
 });
 
-test('the employee form and its pages are written in shadcn and keep their HR addresses', () => {
-    const form = fs.readFileSync('resources/js/Pages/Administration/Employees/EmployeeForm.vue', 'utf8');
+test('the employee file and its pages are written in shadcn and keep their HR addresses', () => {
+    const dir = 'resources/js/Components/Administration/EmployeeFile';
+    const sections = Object.fromEntries(fs.readdirSync(dir).map((file) => [file.replace('.vue', ''), fs.readFileSync(`${dir}/${file}`, 'utf8')]));
     const create = fs.readFileSync('resources/js/Pages/Administration/Employees/Create.vue', 'utf8');
     const edit = fs.readFileSync('resources/js/Pages/Administration/Employees/Edit.vue', 'utf8');
+    const autosave = fs.readFileSync('resources/js/composables/useSectionAutosave.js', 'utf8');
     const photo = fs.readFileSync('resources/js/Components/Administration/EmployeePhotoField.vue', 'utf8');
 
+    // ADR-213 — une création courte, puis la fiche en sections.
     assert.match(create, /form\.post\(hrUrl\('\/administration\/employees'\)\)/);
-    // ADR-194 — une photo part en multipart : un POST qui annonce PUT ; sans photo, un PUT.
-    assert.match(edit, /const url = hrUrl\(`\/administration\/employees\/\$\{props\.employee\.uuid\}`\)/);
-    assert.match(edit, /\.post\(url, \{ forceFormData: true \}\)/);
-    assert.match(edit, /\.put\(url\)/);
+    assert.match(create, /after: props\.internshipIntent \? 'internship' : 'edit'/);
+    assert.doesNotMatch(create, /Continuer/);
 
-    for (const source of [form, create, edit]) {
+    // La fiche écrit par la même adresse, section par section, sans bouton « Enregistrer ».
+    assert.match(edit, /const url = hrUrl\(`\/administration\/employees\/\$\{props\.employee\.uuid\}`\)/);
+    assert.match(autosave, /_autosave: true/);
+    assert.match(autosave, /useAutosave\(form, send/);
+    // ADR-194 — une photo part en multipart : un POST qui annonce PUT.
+    assert.match(sections.IdentitySection, /_method: 'put'[\s\S]*forceFormData: true/);
+    // Une nouvelle adresse s'ajoute par un bouton, jamais à chaque frappe.
+    assert.match(sections.ContactSection, /new_address_label/);
+    assert.doesNotMatch(sections.ContactSection.slice(sections.ContactSection.indexOf('useSectionAutosave(')), /^\s*new_address_label:/m);
+
+    for (const source of [create, edit, ...Object.values(sections)]) {
         assert.doesNotMatch(source, /Components\/UI\/(Icon|Button|Input|CheckBox|Avatar)\.vue/);
         assert.doesNotMatch(source, /\bni ni-|\bnk-|\b(?:bg|text|border)-(?:gray|slate)-\d|<select\b|<textarea\b/);
     }
 
     // Un référentiel archivé reste lisible, jamais choisissable.
-    assert.match(form, /disabled: !item\.available/);
+    assert.match(sections.PostSection, /disabled: !item\.available/);
+    assert.match(sections.BankSection, /disabled: ! bank\.available/);
     assert.match(fs.readFileSync('resources/js/Components/Shadcn/Select.vue', 'utf8'), /:disabled="Boolean\(option\.disabled\)"/);
-    // Le résumé des erreurs mène au champ, à son étape.
-    assert.match(form, /@select="focusField"/);
 
-    // La création garde le parcours guidé sans empiler des rappels identiques.
-    assert.match(create, /<HrPageHeader\s+compact/);
-    assert.match(form, /class="scroll-mt-3 space-y-3"/);
-    assert.match(form, /class="h-0\.5 bg-muted" role="progressbar"/);
-    assert.doesNotMatch(form, /Étape \{\{ currentStep \}\} sur \{\{ steps\.length \}\}/, 'la navigation nomme déjà l’étape active');
-    assert.match(form, /<EmployeePhotoField[\s\S]*v-if="currentKey === 'identity'"[\s\S]*triggerless/, 'l’étape Identité garde le recadrage sans afficher deux sélecteurs photo');
-    assert.match(form, /<Card v-else class="flex flex-col gap-3 p-3/, 'le résumé d’identité revient aux étapes suivantes');
-    assert.match(form, /lg:grid-cols-\[220px_minmax\(0,1fr\)\]/, 'la photo ne prend plus une colonne surdimensionnée');
-    assert.match(form, /sticky bottom-2[^"]*p-2/, 'les actions restent accessibles dans une barre basse et compacte');
+    // Les sections restent montées : leur enregistrement continue quand on en change.
+    assert.match(edit, /v-show="current === 'identity'"/);
+    assert.match(edit, /useUnsavedChangesGuard\(pending\)/);
     assert.match(photo, /triggerless: \{ type: Boolean, default: false \}/);
     assert.match(photo, /<div v-if="!triggerless" class="flex items-center gap-3">/);
 });

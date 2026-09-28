@@ -9,6 +9,7 @@ import {
     Check,
     CircleCheck,
     CircleOff,
+    Gift,
     Hash,
     KeyRound,
     Layers,
@@ -49,6 +50,8 @@ import { hrUrl } from '@/utilities/hrUrl';
  * ADR-199 — et le rôle (avec son profil métier) qu'elle propose au compte de
  * celui qui l'exerce : l'accès du personnel et l'assistant de compte le
  * préremplissent. Une proposition, jamais un droit.
+ *
+ * ADR-213 — et si elle ouvre droit aux avantages et primes (« Médecin » d'office).
  */
 defineOptions({ layout: AppLayout });
 
@@ -134,7 +137,7 @@ const totalEmployees = computed(() => props.items.filter((item) => ! item.archiv
 const editing = ref(null);
 const dialogOpen = ref(false);
 const codeTouched = ref(false);
-const form = useForm({ label: '', code: '', position: '', active: true, department_uuids: [], account_role_code: '', account_profile_code: '' });
+const form = useForm({ label: '', code: '', position: '', active: true, department_uuids: [], account_role_code: '', account_profile_code: '', benefits_eligible: false });
 
 /* ADR-199 — le rôle proposé au compte ; le profil n'existe que dans son rôle. */
 const accountRoleChoices = computed(() => [
@@ -180,6 +183,7 @@ const openEdit = (item) => {
     form.department_uuids = (item.departments ?? []).map((department) => department.uuid);
     form.account_role_code = item.account_role?.role_code ?? '';
     form.account_profile_code = item.account_role?.profile_code ?? '';
+    form.benefits_eligible = Boolean(item.benefits_eligible);
     codeTouched.value = true;
     dialogOpen.value = true;
     focusLabel();
@@ -198,6 +202,8 @@ const submit = () => {
         // Le rôle proposé ne concerne qu'une fonction (ADR-199) ; vide = aucun.
         account_role_code: isJobTitles.value ? (data.account_role_code || null) : undefined,
         account_profile_code: isJobTitles.value ? (data.account_profile_code || null) : undefined,
+        // ADR-213 — seulement pour une fonction.
+        benefits_eligible: isJobTitles.value ? Boolean(data.benefits_eligible) : undefined,
     });
 
     if (editing.value) {
@@ -328,6 +334,8 @@ const employeeLine = (item) => {
                                 <span class="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">{{ item.account_role.role_name }}<template v-if="item.account_role.profile_name"> · {{ item.account_role.profile_name }}</template></span>
                             </template>
                             <span v-else class="text-muted-foreground">Aucun rôle proposé pour le compte</span>
+                            <!-- ADR-213 — ouvre droit aux avantages et primes. -->
+                            <span v-if="item.benefits_eligible" class="ms-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><Gift class="h-3 w-3" aria-hidden="true" />Avantages et primes</span>
                         </p>
                         <p v-else-if="! item.archived" class="mt-1 text-xs leading-5 text-muted-foreground">
                             <template v-if="item.job_titles?.length">Fonctions : {{ item.job_titles.join(', ') }}</template>
@@ -399,6 +407,14 @@ const employeeLine = (item) => {
                     </div>
                     <p class="mt-3 text-xs leading-5 text-muted-foreground">Prérempli quand on crée le compte d’un employé de cette fonction, et toujours modifiable à ce moment-là. La fonction ne donne aucun droit.</p>
                 </fieldset>
+                <!-- ADR-213 — qui peut recevoir un avantage ou une prime se règle ici, par fonction. -->
+                <label v-if="isJobTitles" for="structure-benefits" class="flex cursor-pointer items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3.5 py-3 dark:border-emerald-900 dark:bg-emerald-950/20">
+                    <Checkbox id="structure-benefits" v-model="form.benefits_eligible" class="mt-0.5" />
+                    <span>
+                        <span class="flex items-center gap-1.5 text-sm font-semibold text-foreground"><Gift class="h-4 w-4 text-emerald-600" aria-hidden="true" />Ouvre droit aux avantages et primes</span>
+                        <span class="block text-xs leading-5 text-muted-foreground">Logement, transport, prime… se déclarent sur la fiche des employés de cette fonction. Décoché, les avantages déjà déclarés restent, mais aucun nouveau n’est accepté.</span>
+                    </span>
+                </label>
                 <label v-if="editing" for="structure-active" class="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-muted/40 px-3.5 py-3">
                     <Checkbox id="structure-active" v-model="form.active" class="mt-0.5" />
                     <span>

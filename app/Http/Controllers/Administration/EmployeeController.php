@@ -7,6 +7,7 @@ use App\Actions\Administration\CreateEmployeeAction;
 use App\Actions\Administration\ImportEmployeesAction;
 use App\Actions\Administration\RestoreEmployeeAction;
 use App\Actions\Administration\UpdateEmployeeAction;
+use App\Enums\EmployeeBenefitFrequency;
 use App\Enums\HrDocumentCategory;
 use App\Enums\HrReferenceType;
 use App\Enums\IdentityDocumentType;
@@ -19,6 +20,7 @@ use App\Http\Requests\Administration\StoreEmployeeRequest;
 use App\Http\Requests\Administration\UpdateEmployeeRequest;
 use App\Models\AddressEntry;
 use App\Models\AttendanceRecord;
+use App\Models\Bank;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
 use App\Models\HrDocument;
@@ -139,6 +141,7 @@ class EmployeeController extends Controller
             'department' => fn ($query) => $query->withTrashed(),
             'jobTitle' => fn ($query) => $query->withTrashed(),
             'user:id,uuid,name,active,deactivated_at',
+            'bank' => fn ($query) => $query->withTrashed(),
         ]);
 
         $contracts = $request->user()->can('contracts.view')
@@ -179,6 +182,8 @@ class EmployeeController extends Controller
             'employee' => $this->presenter->employee($employee),
             // ADR-206 — données sensibles : servies seulement avec leur droit, jamais vides.
             'payroll' => $user->can('employees.payroll.view') ? $this->presenter->payroll($employee) : null,
+            // ADR-213 — avantages et primes : confidentiels comme la rémunération.
+            'benefits' => $user->can('employees.payroll.view') ? $this->benefits($employee) : null,
             'contracts' => $contracts,
             'documents' => $documents,
             'leave' => $leave,
@@ -223,6 +228,10 @@ class EmployeeController extends Controller
         ];
     }
 
+    /**
+     * ADR-213 — la fiche en sections, chacune enregistrée automatiquement :
+     * plus de parcours en étapes pour modifier un dossier.
+     */
     public function edit(Request $request, Employee $employee): Response
     {
         Gate::forUser($request->user())->authorize('update', $employee);
@@ -231,16 +240,65 @@ class EmployeeController extends Controller
             'department' => fn ($query) => $query->withTrashed(),
             'jobTitle' => fn ($query) => $query->withTrashed(),
             'user:id,uuid,name,active,deactivated_at',
+            'bank' => fn ($query) => $query->withTrashed(),
         ]);
+        $user = $request->user();
+        $payroll = $user->can('employees.payroll.view') || $user->can('employees.payroll.update');
 
         return Inertia::render('Administration/Employees/Edit', [
             ...$this->formData($request, $employee),
             'employee' => $this->presenter->employee($employee),
             // ADR-206 — prérempli pour qui peut lire ou modifier la rémunération.
-            'payroll' => $request->user()->can('employees.payroll.view') || $request->user()->can('employees.payroll.update')
-                ? $this->presenter->payroll($employee)
-                : null,
+            'payroll' => $payroll ? $this->presenter->payroll($employee) : null,
+            // ADR-213 — la liste du module Banques, et les avantages de la personne.
+            'banks' => $payroll ? $this->bankOptions($employee->bank_id) : [],
+            'benefits' => $payroll ? $this->benefits($employee) : null,
+            'benefitOptions' => $payroll ? [
+                'types' => $this->references(HrReferenceType::BenefitType),
+                'frequencies' => collect(EmployeeBenefitFrequency::cases())->map(fn ($frequency) => [
+                    'value' => $frequency->value, 'label' => $frequency->label(),
+                ])->all(),
+                // Une fonction ouvre droit aux avantages depuis le module Fonctions.
+                'eligible' => (bool) $employee->jobTitle?->grantsBenefits() && $employee->active && ! $employee->trashed(),
+                'job_title' => $employee->jobTitle?->label,
+            ] : null,
+            // Ouvrir directement une section : ?section=pay depuis la fiche.
+            'section' => (string) $request->query('section', ''),
         ]);
+    }
+
+    /**
+     * ADR-213 — les banques proposées : actives, plus celle que la fiche porte
+     * déjà si elle a été archivée depuis.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function bankOptions(?int $currentBankId): array
+    {
+        return Bank::withTrashed()
+            ->where(function ($query) use ($currentBankId): void {
+                $query->where(fn ($active) => $active->where('active', true)->whereNull('deleted_at'));
+                if ($currentBankId) {
+                    $query->orWhere('id', $currentBankId);
+                }
+            })
+            ->orderBy('position')->orderBy('code')->get()
+            ->map(fn (Bank $bank) => $this->presenter->bank($bank))->all();
+    }
+
+    /**
+     * ADR-213 — les avantages et primes d'une personne, en cours d'abord ; les
+     * retirés restent lisibles, avec leur motif.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function benefits(Employee $employee): array
+    {
+        return $employee->benefits()->withTrashed()
+            ->with(['benefitType' => fn ($query) => $query->withTrashed(), 'creator:id,name'])
+            ->orderByRaw('CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END')
+            ->latest('starts_on')->latest('id')
+            ->get()->map(fn ($benefit) => $this->presenter->benefit($benefit))->all();
     }
 
     public function store(StoreEmployeeRequest $request, CreateEmployeeAction $action): RedirectResponse
@@ -253,13 +311,25 @@ class EmployeeController extends Controller
                 ->with('status', "Dossier {$employee->employee_number} créé. Enregistrez maintenant son stage : filière, école, encadrant et dates.");
         }
 
+        // ADR-213 — création courte : on complète ensuite la fiche, section par section.
+        if ($request->validated('after') === 'edit' && $request->user()->can('update', $employee)) {
+            return to_route('administration.employees.edit', $employee)
+                ->with('status', "Dossier {$employee->employee_number} créé. Complétez la fiche : chaque section s’enregistre toute seule.");
+        }
+
         return to_route('administration.employees.show', $employee)
             ->with('status', "Dossier Employé {$employee->employee_number} créé.");
     }
 
     public function update(UpdateEmployeeRequest $request, Employee $employee, UpdateEmployeeAction $action): RedirectResponse
     {
-        $employee = $action->execute($employee, $request->safe()->except('after'), $request->user());
+        $employee = $action->execute($employee, $request->safe()->except(['after', '_autosave']), $request->user());
+
+        // ADR-213 — un enregistrement automatique reste sur la fiche, sans message :
+        // son statut se lit près de la section, jamais dans un toast.
+        if ($request->boolean('_autosave')) {
+            return back();
+        }
 
         return to_route('administration.employees.show', $employee)
             ->with('status', "Dossier Employé {$employee->employee_number} mis à jour.");
@@ -293,9 +363,12 @@ class EmployeeController extends Controller
             'jobTitle' => fn ($query) => $query->withTrashed(),
         ]);
 
+        $employee->load(['bank' => fn ($query) => $query->withTrashed()]);
+
         return Inertia::render('Administration/Employees/Print', [
             'employee' => $this->presenter->employee($employee),
             'payroll' => $request->user()->can('employees.payroll.view') ? $this->presenter->payroll($employee) : null,
+            'benefits' => $request->user()->can('employees.payroll.view') ? $this->benefits($employee) : null,
         ]);
     }
 
@@ -437,6 +510,8 @@ class EmployeeController extends Controller
                 'label' => $reference->label,
                 'available' => $reference->active && ! $reference->trashed(),
                 'department_uuids' => $reference->departments->pluck('uuid')->values()->all(),
+                // ADR-213 — cette fonction ouvre-t-elle droit aux avantages et primes ?
+                'grants_benefits' => $reference->grantsBenefits(),
             ])->all();
     }
 

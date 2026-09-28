@@ -45,6 +45,7 @@ const DETAILS = {
     'hr-block-credit': { description: 'Crédit du personnel', tone: 'primary' },
     'hr-departments': { description: 'Services de la clinique', tone: 'sky' },
     'hr-job-titles': { description: 'Postes et métiers', tone: 'emerald' },
+    'hr-banks': { description: 'Banques des comptes du personnel', tone: 'sky' },
     'hr-settings': { description: 'Contrats, congés, attestations', tone: 'slate' },
 };
 

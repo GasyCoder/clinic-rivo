@@ -5,7 +5,9 @@ import fs from 'node:fs';
 const scheduler = fs.readFileSync('resources/js/Components/Surgery/SurgeonScheduler.vue', 'utf8');
 const page = fs.readFileSync('resources/js/Pages/Surgery/Show.vue', 'utf8');
 const header = fs.readFileSync('resources/js/Components/Surgery/EnTeteDossierChirurgical.vue', 'utf8');
-const employeeForm = fs.readFileSync('resources/js/Pages/Administration/Employees/EmployeeForm.vue', 'utf8');
+// ADR-213 — la fiche employé : la création courte et ses sections.
+const employeeForm = ['resources/js/Pages/Administration/Employees/Create.vue', ...fs.readdirSync('resources/js/Components/Administration/EmployeeFile').map((file) => `resources/js/Components/Administration/EmployeeFile/${file}`)]
+    .map((file) => fs.readFileSync(file, 'utf8')).join('\n');
 
 test('« Moi-même » n’est proposé qu’à un compte au profil Chirurgien, et le met principal', () => {
     assert.match(scheduler, /me\.value\?\.professional_profile\?\.code === 'SURGEON'/);

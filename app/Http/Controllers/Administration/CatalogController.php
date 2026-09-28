@@ -10,12 +10,8 @@ use App\Actions\Catalog\ReviewUnlistedPrescriptionLineAction;
 use App\Actions\Catalog\SetCatalogTariffAction;
 use App\Actions\Catalog\SyncCareActConsumablesAction;
 use App\Actions\Catalog\UpdateCatalogItemAction;
-use App\Enums\CatalogItemType;
-use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\PrescriptionLineReviewStatus;
-use App\Enums\ReceptionRoutingMode;
-use App\Enums\StaffCoveragePolicy;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\ArchiveCatalogTariffRequest;
 use App\Http\Requests\Administration\CatalogReasonRequest;
@@ -25,10 +21,9 @@ use App\Http\Requests\Administration\StoreCatalogItemRequest;
 use App\Http\Requests\Administration\SyncCareActConsumablesRequest;
 use App\Http\Requests\Administration\UpdateCatalogItemRequest;
 use App\Models\CatalogItem;
-use App\Models\CatalogTariff;
 use App\Models\PrescriptionLine;
-use App\Services\Care\CareConsumableDirectory;
 use App\Services\Catalog\CatalogActor;
+use App\Services\Catalog\CatalogDirectory;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -36,93 +31,63 @@ use Inertia\Response;
 
 class CatalogController extends Controller
 {
-    public function index(Request $request, CareConsumableDirectory $consumables): Response
+    /**
+     * ADR-044, amendement du 2026-09-28 (ter) — le même écran que le portail :
+     * les désignations de ce site, par catégorie, leurs deux tarifs, et les
+     * médicaments prescrits hors référentiel qui attendent d'être traités.
+     */
+    public function index(Request $request, CatalogDirectory $directory): Response
     {
-        $search = trim((string) $request->query('q', ''));
-        $type = CatalogItemType::tryFrom((string) $request->query('type'));
-        $module = CatalogModule::tryFrom((string) $request->query('module'));
-        $status = in_array($request->query('status'), ['active', 'archived', 'all'], true)
-            ? $request->query('status')
-            : 'active';
-        $canViewTariffs = $request->user()->can('catalog.tariffs.view');
+        $user = $request->user();
+        $site = ['code' => (string) config('rivo.site.code'), 'name' => (string) config('rivo.site.name')];
 
-        $query = CatalogItem::query()
-            ->when($canViewTariffs, fn ($query) => $query
-                ->with([
-                    'currentStandardTariff.creator:id,name',
-                    'currentMutualTariff.creator:id,name',
-                    'tariffs' => fn ($query) => $query->with('creator:id,name')->latest('effective_from')->limit(16),
-                ])
-                ->withCount('tariffs'))
-            ->with(['defaultConsumables.medicine' => fn ($medicine) => $medicine
-                ->with('catalogItem:id,code,name,unit')])
-            ->when($status === 'archived', fn ($query) => $query->onlyTrashed())
-            ->when($status === 'all', fn ($query) => $query->withTrashed())
-            ->when($search !== '', fn ($query) => $query->where(function ($nested) use ($search) {
-                $nested->where('code', 'like', "%{$search}%")
-                    ->orWhere('name', 'like', "%{$search}%");
-            }))
-            ->when($type, fn ($query) => $query->where('type', $type->value))
-            ->when($module, fn ($query) => $query->where('module', $module->value))
-            ->orderBy('name');
+        return Inertia::render('Catalog/Index', [
+            'context' => ['mode' => 'site'],
+            // La forme du portail, réduite à ce site : un seul écran les lit tous deux.
+            'sites' => [[
+                'site' => $site,
+                'ok' => true,
+                'message' => null,
+                // Les mutuelles se règlent au portail (ADR-045) : aucune route ici.
+                'data' => $directory->listing(['status' => 'ALL'], $user->can('catalog.tariffs.view'), false),
+            ]],
+            'selectedSiteCode' => $site['code'],
+            'pendingMedicines' => $user->can('catalog.items.create') ? $this->pendingUnlistedMedicines() : [],
+        ]);
+    }
 
-        $items = $query->paginate(20)->withQueryString()->through(
-            fn (CatalogItem $item) => $this->serializeItem($item, $canViewTariffs),
-        );
+    /** La page « Nouvelle désignation », rangée d'avance dans la catégorie d'où l'on vient. */
+    public function create(Request $request, CatalogDirectory $directory): Response
+    {
+        $validated = $request->validate([
+            'module' => ['nullable', 'string', 'max:40', 'regex:/^[A-Z_]+(:[A-Z_]+)?$/'],
+        ]);
 
-        return Inertia::render('Administration/Catalog/Index', [
-            'items' => $items,
-            'pendingMedicines' => $this->pendingUnlistedMedicines(),
-            'filters' => [
-                'q' => $search,
-                'type' => $type?->value ?? '',
-                'module' => $module?->value ?? '',
-                'status' => $status,
-            ],
-            'types' => collect(CatalogItemType::cases())->map(fn ($type) => [
-                'value' => $type->value,
-                'label' => $type->label(),
-                'billable' => $type->mustBeBillable(),
-                'stockable' => $type->mustBeStockable(),
-            ]),
-            'modules' => collect(CatalogModule::cases())->map(fn ($module) => [
-                'value' => $module->value,
-                'label' => $module->label(),
-            ]),
-            'receptionRoutingModes' => collect(ReceptionRoutingMode::cases())->map(fn ($mode) => [
-                'value' => $mode->value,
-                'label' => $mode->label(),
-            ]),
-            'tariffCategories' => collect(CatalogTariffCategory::cases())->map(fn ($category) => [
-                'value' => $category->value,
-                'label' => $category->label(),
-            ]),
-            'staffCoveragePolicies' => collect(StaffCoveragePolicy::cases())->map(fn ($policy) => [
-                'value' => $policy->value,
-                'label' => $policy->label(),
-            ]),
-            'careConsumableOptions' => $request->user()->can('catalog.items.update')
-                ? $consumables->selectableConsumables()
-                : [],
-            // ADR-142 / ADR-169 — un acte de la Maternité ou de Chirurgie peut
-            // recevoir tout produit stockable ; un acte de soins, la parapharmacie.
-            'stockableConsumableOptions' => $request->user()->can('catalog.items.update')
-                ? $consumables->configurableStockable()
-                : [],
-            'summary' => [
-                'active' => CatalogItem::query()->count(),
-                'archived' => CatalogItem::onlyTrashed()->count(),
-                'billable' => CatalogItem::query()->where('billable', true)->count(),
-                'without_tariff' => $canViewTariffs
-                    ? CatalogItem::query()->where('billable', true)->whereDoesntHave('currentStandardTariff')->count()
-                    : null,
-                'without_standard_tariff' => $canViewTariffs
-                    ? CatalogItem::query()->where('billable', true)->whereDoesntHave('currentStandardTariff')->count()
-                    : null,
-                'without_mutual_tariff' => $canViewTariffs
-                    ? CatalogItem::query()->where('billable', true)->whereDoesntHave('currentMutualTariff')->count()
-                    : null,
-            ],
+        return Inertia::render('Catalog/ItemForm', [
+            'context' => ['mode' => 'site'],
+            'targetSite' => ['code' => (string) config('rivo.site.code'), 'name' => (string) config('rivo.site.name')],
+            'item' => null,
+            'options' => $directory->options(),
+            'consumableOptions' => [],
+            'category' => $validated['module'] ?? null,
+            'siteError' => null,
+        ]);
+    }
+
+    /** La fiche d'une désignation, archivée comprise : ce qui la décrit, ses deux tarifs, son matériel habituel. */
+    public function edit(Request $request, string $catalogItem, CatalogDirectory $directory): Response
+    {
+        $item = CatalogItem::withTrashed()->where('uuid', $catalogItem)->firstOrFail();
+        $data = $directory->item($item, $request->user()->can('catalog.tariffs.view'), $request->user()->can('catalog.items.update'));
+
+        return Inertia::render('Catalog/ItemForm', [
+            'context' => ['mode' => 'site'],
+            'targetSite' => ['code' => (string) config('rivo.site.code'), 'name' => (string) config('rivo.site.name')],
+            'item' => $data['item'],
+            'options' => $data['options'],
+            'consumableOptions' => $data['consumable_options'],
+            'category' => null,
+            'siteError' => null,
         ]);
     }
 
@@ -151,7 +116,14 @@ class CatalogController extends Controller
     {
         $item = $action->execute($request->validated(), CatalogActor::fromUser($request->user()));
 
-        return back()->with('status', "Élément {$item->code} créé dans le référentiel.");
+        // Retour à la catégorie de la nouvelle désignation, ouverte sur son code.
+        return redirect('/administration/catalog?'.http_build_query(array_filter([
+            'module' => CatalogDirectory::categoryOf([
+                'module' => $item->module->value,
+                'imaging_modality' => $item->imaging_modality?->value,
+            ]),
+            'q' => $item->code,
+        ])))->with('status', "Désignation {$item->code} créée.");
     }
 
     public function update(
@@ -161,7 +133,7 @@ class CatalogController extends Controller
     ): RedirectResponse {
         $action->execute($catalogItem, $request->validated(), CatalogActor::fromUser($request->user()));
 
-        return back()->with('status', "Élément {$catalogItem->code} mis à jour.");
+        return back()->with('status', "Désignation {$catalogItem->code} mise à jour.");
     }
 
     public function setTariff(
@@ -208,7 +180,7 @@ class CatalogController extends Controller
             CatalogActor::fromUser($request->user()),
         );
 
-        return back()->with('status', "Élément {$catalogItem->code} archivé.");
+        return back()->with('status', "Désignation {$catalogItem->code} archivée.");
     }
 
     public function restore(Request $request, string $catalogItem, RestoreCatalogItemAction $action): RedirectResponse
@@ -216,7 +188,7 @@ class CatalogController extends Controller
         $item = CatalogItem::onlyTrashed()->where('uuid', $catalogItem)->firstOrFail();
         $action->execute($item, CatalogActor::fromUser($request->user()));
 
-        return back()->with('status', "Élément {$item->code} restauré.");
+        return back()->with('status', "Désignation {$item->code} restaurée.");
     }
 
     public function reviewUnlistedMedicine(
@@ -257,77 +229,5 @@ class CatalogController extends Controller
             ])
             ->values()
             ->all();
-    }
-
-    /** @return array<string, mixed> */
-    private function serializeItem(CatalogItem $item, bool $canViewTariffs): array
-    {
-        $currentStandardTariff = $canViewTariffs ? $item->currentStandardTariff : null;
-        $currentMutualTariff = $canViewTariffs ? $item->currentMutualTariff : null;
-
-        return [
-            'uuid' => $item->uuid,
-            'code' => $item->code,
-            'name' => $item->name,
-            'type' => $item->type->value,
-            'type_label' => $item->type->label(),
-            'module' => $item->module->value,
-            'module_label' => $item->module->label(),
-            'unit' => $item->unit,
-            'billable' => $item->billable,
-            'stockable' => $item->stockable,
-            'reception_selectable' => $item->reception_selectable,
-            'reception_routing_mode' => $item->reception_routing_mode?->value,
-            'reception_routing_label' => $item->reception_routing_mode?->label(),
-            'staff_coverage_policy' => $item->staff_coverage_policy->value,
-            'staff_coverage_policy_label' => $item->staff_coverage_policy->label(),
-            'care_requires_allergy_check' => $item->care_requires_allergy_check,
-            'care_recommends_vitals' => $item->care_recommends_vitals,
-            'clinician_orderable' => $item->clinician_orderable,
-            // ADR-072 — material this nursing act usually consumes, offered
-            // as a pre-selection to Soins. Empty until configured: nothing
-            // is deduced from the act's name or code.
-            'default_consumables' => $item->relationLoaded('defaultConsumables')
-                ? $item->defaultConsumables
-                    ->filter(fn ($row) => $row->medicine && $row->medicine->catalogItem)
-                    ->map(fn ($row) => [
-                        'medicine_uuid' => $row->medicine->uuid,
-                        'code' => $row->medicine->catalogItem->code,
-                        'name' => $row->medicine->catalogItem->name,
-                        'unit' => $row->medicine->catalogItem->unit,
-                        'default_quantity' => $row->default_quantity,
-                    ])->values()
-                : [],
-            'description' => $item->description,
-            'archived' => $item->trashed(),
-            'archived_at' => $item->deleted_at,
-            'archive_reason' => $item->delete_reason,
-            // `current_tariff` remains as a compatibility alias for the
-            // former single tariff representation.
-            'current_tariff' => $currentStandardTariff ? $this->serializeTariff($currentStandardTariff) : null,
-            'current_standard_tariff' => $currentStandardTariff ? $this->serializeTariff($currentStandardTariff) : null,
-            'current_mutual_tariff' => $currentMutualTariff ? $this->serializeTariff($currentMutualTariff) : null,
-            'tariffs_count' => $canViewTariffs ? $item->tariffs_count : null,
-            'tariffs' => $canViewTariffs
-                ? $item->tariffs->map(fn (CatalogTariff $tariff) => $this->serializeTariff($tariff))->values()
-                : [],
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function serializeTariff(CatalogTariff $tariff): array
-    {
-        return [
-            'uuid' => $tariff->uuid,
-            'tariff_category' => $tariff->tariff_category->value,
-            'tariff_category_label' => $tariff->tariff_category->label(),
-            'amount' => $tariff->amount,
-            'currency' => $tariff->currency,
-            'effective_from' => $tariff->effective_from,
-            'effective_until' => $tariff->effective_until,
-            'change_reason' => $tariff->change_reason,
-            'current' => $tariff->isCurrent(),
-            'creator' => $tariff->creator?->name,
-        ];
     }
 }

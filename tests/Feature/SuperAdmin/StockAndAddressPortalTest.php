@@ -429,7 +429,7 @@ class StockAndAddressPortalTest extends TestCase
             ->get('/super-admin/workspaces/tariffs?site=A')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('SuperAdmin/Tariffs/Index')
+                ->component('Catalog/Index')
                 ->has('sites', 3)
                 ->where('sites.0.status', 'ONLINE')
                 ->where('sites.2.status', 'UNCONFIGURED')

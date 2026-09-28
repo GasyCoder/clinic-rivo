@@ -50,7 +50,7 @@ class TariffItemPagesTest extends TestCase
             ->get('/super-admin/workspaces/tariffs/items/create?site=A&module=IMAGING:ULTRASOUND')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('SuperAdmin/Tariffs/ItemForm')
+                ->component('Catalog/ItemForm')
                 ->where('targetSite.code', 'A')
                 ->where('targetSite.name', 'Ambondromamy')
                 ->where('item', null)
@@ -68,7 +68,7 @@ class TariffItemPagesTest extends TestCase
             ->get('/super-admin/workspaces/tariffs/items/create?site=B')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('SuperAdmin/Tariffs/ItemForm')
+                ->component('Catalog/ItemForm')
                 ->where('options', null)
                 ->whereNot('siteError', null));
     }
@@ -87,7 +87,7 @@ class TariffItemPagesTest extends TestCase
             ->get('/super-admin/workspaces/tariffs/items/A/item-uuid/edit')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('SuperAdmin/Tariffs/ItemForm')
+                ->component('Catalog/ItemForm')
                 ->where('item.code', 'ECHO-ABD')
                 ->where('item.tariffs.0.amount', '50000.00'));
 
@@ -162,6 +162,51 @@ class TariffItemPagesTest extends TestCase
         ])->assertSessionHasErrors('reason');
 
         Http::assertNothingSent();
+    }
+
+    /**
+     * ADR-044, amendement du 2026-09-28 (ter) — le matériel habituel d'un acte
+     * se règle aussi depuis le portail, par l'API du site.
+     */
+    public function test_the_usual_material_of_an_act_is_sent_to_the_site(): void
+    {
+        Http::fake([
+            'https://a.test/api/v1/super-admin/catalog/act-uuid/care-consumables' => Http::response(['message' => 'Matériel habituel de Pansement mis à jour.', 'data' => []], 200),
+            'https://a.test/api/v1/super-admin/catalog/act-uuid' => Http::response(['data' => [
+                'item' => ['uuid' => 'act-uuid', 'code' => 'PANSEMENT', 'name' => 'Pansement', 'module' => 'CARE', 'accepts_consumables' => true, 'default_consumables' => []],
+                'options' => $this->formOptions(),
+                'consumable_options' => [['medicine_uuid' => '11111111-1111-4111-8111-111111111111', 'code' => 'PH-1', 'name' => 'Compresses', 'unit' => 'paquet', 'available_quantity' => 4, 'available' => true]],
+            ]], 200),
+        ]);
+
+        $this->actingAs($this->superAdmin)->get('/super-admin/workspaces/tariffs/items/A/act-uuid/edit')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Catalog/ItemForm')
+                ->where('context.mode', 'portal')
+                ->where('item.accepts_consumables', true)
+                ->where('consumableOptions.0.name', 'Compresses'));
+
+        $this->actingAs($this->superAdmin)
+            ->from('/super-admin/workspaces/tariffs/items/A/act-uuid/edit')
+            ->put('/super-admin/workspaces/tariffs/items/A/act-uuid/care-consumables', [
+                'consumables' => [['medicine_uuid' => '11111111-1111-4111-8111-111111111111', 'default_quantity' => 2]],
+            ])
+            ->assertRedirect('/super-admin/workspaces/tariffs/items/A/act-uuid/edit')
+            ->assertSessionHas('status', 'Matériel habituel de Pansement mis à jour.');
+
+        Http::assertSent(fn (Request $request) => $request->method() === 'PUT'
+            && $request->url() === 'https://a.test/api/v1/super-admin/catalog/act-uuid/care-consumables'
+            && $request->hasHeader('Idempotency-Key')
+            && $request['consumables'][0]['default_quantity'] === 2);
+
+        // Une quantité impossible ne part pas au site.
+        $this->actingAs($this->superAdmin)
+            ->put('/super-admin/workspaces/tariffs/items/A/act-uuid/care-consumables', [
+                'consumables' => [['medicine_uuid' => '11111111-1111-4111-8111-111111111111', 'default_quantity' => 0]],
+            ])
+            ->assertSessionHasErrors('consumables.0.default_quantity');
+        Http::assertSentCount(2);
     }
 
     /** @return array<string, mixed> */

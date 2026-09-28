@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { catalogUrls, isPortalCatalog } from '../../resources/js/utilities/catalogUrls.js';
 import {
     CATEGORY_VIEWS,
     IMAGING_UNCLASSIFIED,
-    analysesUrl,
     catalogAttention,
     catalogCategories,
     catalogGroupKey,
@@ -110,17 +110,66 @@ test('les points d’attention comptent ce qui reste à régler, sans rien régl
     assert.equal(items.filter((entry) => matchesAttention(entry, '', duplicates)).length, items.length);
 });
 
-test('tarifs et analyses se renvoient l’un à l’autre', () => {
-    assert.equal(analysesUrl('A', { uuid: 'u-1' }), '/super-admin/analyses?site=A&catalog_item=u-1');
+test('tarifs et analyses se renvoient l’un à l’autre, au site comme au portail', () => {
+    assert.equal(catalogUrls({ mode: 'portal' }, 'A').analyses('u-1'), '/super-admin/analyses?site=A&catalog_item=u-1');
+    assert.equal(catalogUrls({ mode: 'site' }, 'A').analyses('u-1'), '/administration/analyses?catalog_item=u-1');
     assert.equal(tariffsUrl('A', 'LEGACY-LAB-16'), '/super-admin/workspaces/tariffs?site=A&q=LEGACY-LAB-16');
 
-    const tariffs = read('resources/js/Pages/SuperAdmin/Tariffs/Index.vue');
+    const tariffs = read('resources/js/Pages/Catalog/Index.vue');
     assert.match(tariffs, /catalogCategories\(/);
-    assert.match(tariffs, /analysesUrl\(/);
+    assert.match(tariffs, /urls\.analyses\(/);
     assert.match(tariffs, /imaging_modality/);
     const analyses = read('resources/js/Pages/Analyses/Index.vue');
     assert.match(analyses, /tariffsUrl\(/);
     assert.match(analyses, /filters\.catalog_item/);
+});
+
+test('les adresses de « Désignations & tarifs » suivent le contexte donné par le serveur', () => {
+    const portal = catalogUrls({ mode: 'portal' }, 'A');
+    const site = catalogUrls({ mode: 'site' }, 'A');
+
+    assert.equal(isPortalCatalog({ mode: 'portal' }), true);
+    assert.equal(isPortalCatalog({ mode: 'site' }), false);
+    // Un contexte absent vaut le portail : jamais une adresse du site devinée par l'écran.
+    assert.equal(isPortalCatalog(undefined), true);
+
+    assert.equal(portal.index({ module: 'LABORATORY' }), '/super-admin/workspaces/tariffs?site=A&module=LABORATORY');
+    assert.equal(portal.create('IMAGING:ULTRASOUND'), '/super-admin/workspaces/tariffs/items/create?site=A&module=IMAGING%3AULTRASOUND');
+    assert.equal(portal.edit('u-1', 'MUTUAL'), '/super-admin/workspaces/tariffs/items/A/u-1/edit?grille=MUTUAL#tarifs');
+    assert.equal(portal.tariff('u-1'), '/super-admin/workspaces/tariffs/items/A/u-1/tariffs');
+    assert.equal(portal.careConsumables('u-1'), '/super-admin/workspaces/tariffs/items/A/u-1/care-consumables');
+    assert.equal(portal.pendingReview, undefined);
+
+    assert.equal(site.index({ module: 'LABORATORY' }), '/administration/catalog?module=LABORATORY');
+    assert.equal(site.index(), '/administration/catalog');
+    assert.equal(site.create(null), '/administration/catalog/create');
+    assert.equal(site.store, '/administration/catalog');
+    assert.equal(site.edit('u-1'), '/administration/catalog/u-1/edit');
+    assert.equal(site.tariff('u-1'), '/administration/catalog/u-1/tariff');
+    assert.equal(site.tariffArchive('u-1'), '/administration/catalog/u-1/tariff/archive');
+    assert.equal(site.careConsumables('u-1'), '/administration/catalog/u-1/care-consumables');
+    assert.equal(site.pendingReview(7), '/administration/catalog/pending-medicines/7/review');
+});
+
+test('un seul écran de désignations : aucune page ni adresse du portail écrite en dur', () => {
+    // L'ancien écran DashWind du site n'existe plus : le site lit la même page que le portail.
+    assert.equal(fs.existsSync('resources/js/Pages/Administration/Catalog/Index.vue'), false);
+    assert.equal(fs.existsSync('resources/js/Pages/SuperAdmin/Tariffs'), false);
+
+    const list = read('resources/js/Pages/Catalog/Index.vue');
+    const page = read('resources/js/Pages/Catalog/ItemForm.vue');
+    [list, page].forEach((source) => {
+        assert.match(source, /catalogUrls\(props\.context/);
+        assert.doesNotMatch(source, /['`]\/super-admin\/workspaces\/tariffs\/items/);
+        assert.doesNotMatch(source, /['`]\/administration\/catalog/);
+    });
+    // Au site : ni choix de site, ni Excel, ni sélection multiple, ni mutuelles.
+    assert.match(list, /<SettingsSiteSwitcher v-if="portal && /);
+    assert.match(list, /<DropdownMenu v-if="portal && /);
+    assert.match(list, /const showOrganizations = portal && /);
+    // Les médicaments prescrits hors référentiel restent au site (ADR-037).
+    assert.match(list, /const showPending = ! portal && /);
+    assert.match(list, /<PendingMedicinesPanel/);
 });
 
 test('chaque catégorie se compte à part : en service, archivées, et ce qui reste à tarifer dans chaque grille', () => {
@@ -168,11 +217,11 @@ test('une recherche venue du catalogue des analyses ouvre la catégorie de son c
     assert.equal(matchesSearch(items[1], ''), true);
 });
 
-test('Tarifs & mutuelles : une catégorie à la fois, sans cartes colorées ni bandeau jaune', () => {
-    const page = read('resources/js/Pages/SuperAdmin/Tariffs/Index.vue');
-    const nav = read('resources/js/Components/SuperAdmin/Tariffs/TariffCategoryNav.vue');
+test('Désignations & tarifs : une catégorie à la fois, sans cartes colorées ni bandeau jaune', () => {
+    const page = read('resources/js/Pages/Catalog/Index.vue');
+    const nav = read('resources/js/Components/Catalog/CatalogCategoryNav.vue');
 
-    assert.match(page, /<TariffCategoryNav/);
+    assert.match(page, /<CatalogCategoryNav/);
     assert.match(nav, /aria-current/);
     // Plus aucune vue « Tous » qui mélange les catégories, ni les cartes-compteurs colorées.
     assert.doesNotMatch(page, /QueueCounters/);
@@ -197,13 +246,13 @@ test('le formulaire range une désignation dans une catégorie : un domaine, ou 
 });
 
 test('une désignation se crée et se modifie sur sa page ; le motif d’un tarif peut être automatique', () => {
-    const list = read('resources/js/Pages/SuperAdmin/Tariffs/Index.vue');
-    const page = read('resources/js/Pages/SuperAdmin/Tariffs/ItemForm.vue');
+    const list = read('resources/js/Pages/Catalog/Index.vue');
+    const page = read('resources/js/Pages/Catalog/ItemForm.vue');
 
     // Plus de fenêtre de désignation ni de tarif dans la liste : des liens vers la page.
     assert.doesNotMatch(list, /itemModalOpen|tariffTarget|Nouvelle désignation'\s*:/);
-    assert.match(list, /tariffs\/items\/create\?/);
-    assert.match(list, /\/edit\$\{grid \? `\?grille=\$\{grid\}#tarifs`/);
+    assert.match(list, /urls\.value\.create\(/);
+    assert.match(list, /urls\.value\.edit\(item\.uuid, grid\)/);
     // La page : case « Motif automatique » cochée par défaut, le texte libre seulement si on la décoche.
     assert.match(page, /tariff_reason_auto: true/);
     assert.match(page, /reason_auto: true/);

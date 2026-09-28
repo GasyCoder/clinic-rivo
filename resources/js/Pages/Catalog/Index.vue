@@ -37,17 +37,18 @@ import TabsList from '@/Components/Shadcn/TabsList.vue';
 import TabsTrigger from '@/Components/Shadcn/TabsTrigger.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import SettingsSiteSwitcher from '@/Components/Settings/SettingsSiteSwitcher.vue';
-import TariffCategoryNav from '@/Components/SuperAdmin/Tariffs/TariffCategoryNav.vue';
+import CatalogCategoryNav from '@/Components/Catalog/CatalogCategoryNav.vue';
+import PendingMedicinesPanel from '@/Components/Catalog/PendingMedicinesPanel.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
 import { formatMoney } from '@/utilities/money';
 import { categoryIcon } from '@/utilities/tariffCategoryIcons';
+import { catalogUrls, isPortalCatalog } from '@/utilities/catalogUrls';
 import {
     CATEGORY_VIEWS,
     LABORATORY,
-    analysesUrl,
     catalogAttention,
     catalogCategories,
     catalogGroupKey,
@@ -61,21 +62,36 @@ import {
 } from '@/utilities/catalogGroups';
 
 /**
- * Tarifs & mutuelles d'un site (ADR-044, ADR-045, ADR-047). Chaque catégorie
- * de désignations — un domaine, l'Imagerie par famille (ADR-106) — est un
- * espace à part, choisi dans la colonne de gauche ; les mutuelles en sont un
- * autre. Tout passe par l'API du site choisi : l'écran ne décide rien, chaque
- * écriture est revérifiée et auditée sur le site destinataire.
+ * Désignations & tarifs (ADR-044, ADR-045, ADR-047) — un seul écran pour le
+ * site et le portail (amendement du 2026-09-28 ter). Chaque catégorie de
+ * désignations — un domaine, l'Imagerie par famille (ADR-106) — est un espace à
+ * part, choisi dans la colonne de gauche.
+ *
+ *   site     /administration/catalog : la base du site ; les médicaments
+ *            prescrits hors référentiel s'y traitent (ADR-037)
+ *   portail  /super-admin/workspaces/tariffs : chaque site par son API ; le
+ *            choix du site, l'Excel, la sélection multiple et les mutuelles
+ *
+ * L'écran ne décide rien : chaque écriture est revérifiée et auditée sur le site.
  */
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
+    /** `{ mode: 'site' | 'portal' }`, donné par le serveur. */
+    context: { type: Object, default: () => ({ mode: 'portal' }) },
     sites: { type: Array, default: () => [] },
     selectedSiteCode: { type: String, default: null },
+    /** ADR-037 — au site seulement : les médicaments prescrits hors référentiel. */
+    pendingMedicines: { type: Array, default: () => [] },
 });
 
 const { can } = usePermissions();
+const portal = isPortalCatalog(props.context);
 const ORGANIZATIONS = 'ORGANIZATIONS';
+const PENDING = 'PENDING';
+/** Au site, un seul site : ni choix de site, ni Excel, ni sélection multiple, ni mutuelles (ADR-045). */
+const showOrganizations = portal && can('mutual_organizations.view');
+const showPending = ! portal && can('catalog.items.create');
 const SELECTION_LIMIT = 100;
 
 const firstOnlineSite = props.sites.find((site) => site.ok)?.site.code;
@@ -88,7 +104,11 @@ const initialQuery = new URL(usePage().url, 'http://rivo.local').searchParams;
 /** Une recherche venue d'ailleurs (le catalogue des analyses) ouvre la catégorie de son code. */
 const initialSearch = initialQuery.get('q') ?? '';
 const requestedCategory = ref(initialQuery.get('module') ?? '');
-const workspaceView = ref(initialQuery.get('section') === 'mutuelles' && can('mutual_organizations.view') ? ORGANIZATIONS : 'TARIFFS');
+const initialSection = initialQuery.get('section');
+const workspaceView = ref(
+    initialSection === 'mutuelles' && showOrganizations ? ORGANIZATIONS
+        : (initialSection === 'a-referencer' && showPending ? PENDING : 'TARIFFS'),
+);
 const search = ref(initialSearch);
 const itemView = ref('ACTIVE');
 const typeFilter = ref('');
@@ -117,6 +137,7 @@ const allItems = computed(() => siteData.value.items ?? []);
 /** Sans le droit de voir les tarifs, le site ne les sert pas : on ne compte rien « sans tarif » (ADR-102). */
 const tariffsVisible = computed(() => summary.value.without_standard_tariff !== null && summary.value.without_standard_tariff !== undefined);
 const canManageTariffs = computed(() => can('catalog.tariffs.create') || can('catalog.tariffs.update'));
+const urls = computed(() => catalogUrls(props.context, selectedSiteCode.value));
 
 // ------------------------------------------------------------------------
 // La catégorie ouverte
@@ -131,7 +152,7 @@ const activeCategoryKey = computed(() => {
     return fromSearch && keys.includes(fromSearch) ? fromSearch : (keys[0] ?? '');
 });
 const activeCategory = computed(() => categories.value.find((category) => category.key === activeCategoryKey.value) ?? null);
-const navValue = computed(() => (workspaceView.value === ORGANIZATIONS ? ORGANIZATIONS : activeCategoryKey.value));
+const navValue = computed(() => ([ORGANIZATIONS, PENDING].includes(workspaceView.value) ? workspaceView.value : activeCategoryKey.value));
 const categoryItems = computed(() => allItems.value.filter((item) => catalogGroupKey(item) === activeCategoryKey.value));
 const viewItems = computed(() => categoryItems.value.filter(CATEGORY_VIEWS[itemView.value] ?? CATEGORY_VIEWS.ACTIVE));
 /** Les doublons se lisent dans la catégorie : deux « Glycémie » du même Laboratoire. */
@@ -212,8 +233,8 @@ const resetItemFilters = () => {
     attentionFilter.value = '';
 };
 const chooseCategory = (key, { keepSearch = false } = {}) => {
-    if (key === ORGANIZATIONS) {
-        workspaceView.value = ORGANIZATIONS;
+    if (key === ORGANIZATIONS || key === PENDING) {
+        workspaceView.value = key;
         return;
     }
     const kept = keepSearch ? search.value : '';
@@ -358,8 +379,8 @@ watch(workspaceView, () => {
 // La catégorie, la section et la recherche suivent l'adresse, sans nouvelle visite.
 watch([activeCategoryKey, search, workspaceView], ([category, needle, section]) => {
     const url = new URL(window.location.href);
-    if (section === ORGANIZATIONS) {
-        url.searchParams.set('section', 'mutuelles');
+    if (section === ORGANIZATIONS || section === PENDING) {
+        url.searchParams.set('section', section === PENDING ? 'a-referencer' : 'mutuelles');
         url.searchParams.delete('module');
         url.searchParams.delete('q');
     } else {
@@ -390,12 +411,9 @@ const selectSite = (code) => {
 };
 
 // Créer ou modifier une désignation se fait sur sa page (ADR-044, amendement du 2026-09-28).
-const createUrl = computed(() => `/super-admin/workspaces/tariffs/items/create?${new URLSearchParams({
-    site: selectedSiteCode.value,
-    ...(activeCategoryKey.value ? { module: activeCategoryKey.value } : {}),
-}).toString()}`);
+const createUrl = computed(() => urls.value.create(activeCategoryKey.value || null));
 /** La fiche d'une désignation ; avec une grille, elle s'ouvre sur ses tarifs, le champ de cette grille prêt. */
-const editUrl = (item, grid = null) => `/super-admin/workspaces/tariffs/items/${selectedSiteCode.value}/${item.uuid}/edit${grid ? `?grille=${grid}#tarifs` : ''}`;
+const editUrl = (item, grid = null) => urls.value.edit(item.uuid, grid);
 
 const requestArchiveItem = (item) => {
     confirmationForm.reset();
@@ -410,15 +428,11 @@ const closeConfirmation = () => {
 };
 
 const submitConfirmation = () => confirmationForm.delete(
-    `/super-admin/workspaces/tariffs/items/${selectedSiteCode.value}/${confirmation.value.item.uuid}`,
+    urls.value.destroy(confirmation.value.item.uuid),
     { preserveScroll: true, onSuccess: closeConfirmation },
 );
 
-const restoreItem = (item) => router.post(
-    `/super-admin/workspaces/tariffs/items/${selectedSiteCode.value}/${item.uuid}/restore`,
-    {},
-    { preserveScroll: true },
-);
+const restoreItem = (item) => router.post(urls.value.restore(item.uuid), {}, { preserveScroll: true });
 
 /** Les actions d'une ligne : seulement celles que le compte peut faire. */
 const itemActions = (item) => [
@@ -583,18 +597,20 @@ const FLAG = 'inline-flex items-center gap-1 rounded-md border border-border px-
 </script>
 
 <template>
-    <Head title="Tarifs & mutuelles" />
+    <Head :title="portal ? 'Tarifs & mutuelles' : 'Désignations & tarifs'" />
 
     <div class="w-full space-y-6">
         <PageHeader
             compact
             tone="slate"
-            title="Tarifs & mutuelles"
-            description="Les désignations de chaque clinique, leurs deux tarifs et les mutuelles. Chaque modification part par l’API du site choisi et y est auditée."
+            :title="portal ? 'Tarifs & mutuelles' : 'Désignations & tarifs'"
+            :description="portal
+                ? 'Les désignations de chaque clinique, leurs deux tarifs et les mutuelles. Chaque modification part par l’API du site choisi et y est auditée.'
+                : `Les désignations de ${selectedSite?.site.name ?? 'ce site'} et leurs deux tarifs. Le même écran que le portail ; chaque modification est auditée.`"
             :icon="ListChecks"
         >
             <template #actions>
-                <DropdownMenu v-if="excelItems.length && selectedSite?.ok" :items="excelItems" @select="onExcel">
+                <DropdownMenu v-if="portal && excelItems.length && selectedSite?.ok" :items="excelItems" @select="onExcel">
                     <template #trigger>
                         <Button type="button" variant="outline"><FileSpreadsheet class="h-4 w-4" />Excel<ChevronDown class="h-4 w-4 text-muted-foreground" /></Button>
                     </template>
@@ -602,7 +618,7 @@ const FLAG = 'inline-flex items-center gap-1 rounded-md border border-border px-
             </template>
         </PageHeader>
 
-        <SettingsSiteSwitcher v-if="sites.length" :targets="sites" :model-value="selectedSiteCode" label="Site affiché" @update:model-value="selectSite" />
+        <SettingsSiteSwitcher v-if="portal && sites.length" :targets="sites" :model-value="selectedSiteCode" label="Site affiché" @update:model-value="selectSite" />
 
         <Card v-if="! selectedSite?.ok" class="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
             <span class="grid h-11 w-11 place-items-center rounded-lg border border-border text-muted-foreground"><Server class="h-5 w-5" /></span>
@@ -613,18 +629,27 @@ const FLAG = 'inline-flex items-center gap-1 rounded-md border border-border px-
 
         <div v-else class="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)]">
             <aside class="lg:sticky lg:top-20 lg:self-start">
-                <TariffCategoryNav
+                <CatalogCategoryNav
                     :categories="categories"
                     :model-value="navValue"
-                    :organizations-count="can('mutual_organizations.view') ? organizationsSummary.active : null"
+                    :organizations-count="showOrganizations ? organizationsSummary.active : null"
+                    :pending-count="showPending ? pendingMedicines.length : null"
                     @update:model-value="chooseCategory"
                 />
             </aside>
 
+            <!-- Médicaments prescrits hors référentiel (site, ADR-037) -->
+            <PendingMedicinesPanel
+                v-if="workspaceView === PENDING"
+                :lines="pendingMedicines"
+                :review-url="(id) => urls.pendingReview(id)"
+                :can-review="can('catalog.items.create')"
+            />
+
             <!-- ------------------------------------------------------------ -->
             <!-- Une catégorie de désignations, et elle seule                  -->
             <!-- ------------------------------------------------------------ -->
-            <Card v-if="workspaceView !== 'ORGANIZATIONS' && activeCategory" class="min-w-0 overflow-hidden">
+            <Card v-else-if="workspaceView !== 'ORGANIZATIONS' && activeCategory" class="min-w-0 overflow-hidden">
                 <div class="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between">
                     <div class="flex min-w-0 items-start gap-3">
                         <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border text-foreground">
@@ -688,7 +713,7 @@ const FLAG = 'inline-flex items-center gap-1 rounded-md border border-border px-
                     </template>
                 </p>
 
-                <div v-if="selectedItems.length" class="flex flex-col gap-2 border-t border-border bg-muted/40 px-5 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div v-if="portal && selectedItems.length" class="flex flex-col gap-2 border-t border-border bg-muted/40 px-5 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                     <p class="text-sm text-foreground"><span class="font-semibold tabular-nums">{{ selectedItems.length }}</span> {{ selectedItems.length > 1 ? 'sélectionnées' : 'sélectionnée' }}<span class="text-muted-foreground"> · {{ SELECTION_LIMIT }} au plus</span></p>
                     <div class="flex flex-wrap items-center gap-2">
                         <Button v-if="can('catalog.tariffs.export')" as="a" :href="selectionExportUrl" size="sm" variant="outline"><Download class="h-4 w-4" />Exporter</Button>
@@ -702,10 +727,10 @@ const FLAG = 'inline-flex items-center gap-1 rounded-md border border-border px-
                     <table class="w-full min-w-[600px] text-sm">
                         <thead class="border-b border-border">
                             <tr>
-                                <th :class="cn(TH, 'w-10 ps-5')">
+                                <th v-if="portal" :class="cn(TH, 'w-10 ps-5')">
                                     <Checkbox :model-value="itemsHeaderState" :disabled="! items.length" aria-label="Sélectionner les désignations affichées" @update:model-value="toggleVisibleItemSelection" />
                                 </th>
-                                <th :class="TH">Désignation</th>
+                                <th :class="cn(TH, ! portal && 'ps-5')">Désignation</th>
                                 <th :class="cn(TH, 'hidden 2xl:table-cell')">Réception</th>
                                 <th :class="cn(TH, 'text-end')">Sans mutuelle</th>
                                 <th :class="cn(TH, 'text-end')">Mutuelle</th>
@@ -718,10 +743,10 @@ const FLAG = 'inline-flex items-center gap-1 rounded-md border border-border px-
                                 :key="item.uuid"
                                 :class="cn('transition-colors hover:bg-muted/40', selectedItemUuids.has(item.uuid) && 'bg-muted/50')"
                             >
-                                <td :class="cn(TD, 'ps-5')">
+                                <td v-if="portal" :class="cn(TD, 'ps-5')">
                                     <Checkbox :model-value="selectedItemUuids.has(item.uuid)" :aria-label="`Sélectionner ${item.name}`" @update:model-value="toggleItemSelection(item.uuid)" />
                                 </td>
-                                <td :class="TD">
+                                <td :class="cn(TD, ! portal && 'ps-5')">
                                     <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                                         <Link :href="editUrl(item)" :class="cn('font-medium underline-offset-4 hover:underline', item.archived ? 'text-muted-foreground' : 'text-foreground')" :title="item.description || undefined">{{ item.name }}</Link>
                                         <button v-if="duplicates.has(item.uuid)" type="button" :class="cn(FLAG, 'hover:text-foreground')" :title="duplicateTitle(item)" @click="search = item.name">
@@ -745,7 +770,7 @@ const FLAG = 'inline-flex items-center gap-1 rounded-md border border-border px-
                                         </template>
                                         <template v-if="item.module === 'LABORATORY' && item.analyses_count">
                                             <span aria-hidden="true">·</span>
-                                            <Link v-if="can('analysis_catalog.view')" :href="analysesUrl(selectedSiteCode, item)" class="underline-offset-4 hover:text-foreground hover:underline" :title="`Ouvrir ses lignes au catalogue des analyses`">{{ plural(item.analyses_count, 'analyse', 'analyses') }}</Link>
+                                            <Link v-if="can('analysis_catalog.view')" :href="urls.analyses(item.uuid)" class="underline-offset-4 hover:text-foreground hover:underline" :title="`Ouvrir ses lignes au catalogue des analyses`">{{ plural(item.analyses_count, 'analyse', 'analyses') }}</Link>
                                             <span v-else>{{ plural(item.analyses_count, 'analyse', 'analyses') }}</span>
                                         </template>
                                         <!-- Sous 1536 px, la colonne Réception cède sa place : le parcours se lit ici. -->
@@ -792,7 +817,7 @@ const FLAG = 'inline-flex items-center gap-1 rounded-md border border-border px-
                                 </td>
                             </tr>
                             <tr v-if="! items.length">
-                                <td colspan="6" class="px-5 py-14 text-center">
+                                <td :colspan="portal ? 6 : 5" class="px-5 py-14 text-center">
                                     <p class="text-sm font-medium text-foreground">{{ hasItemFilters ? 'Aucune désignation ne correspond' : `Aucune désignation dans « ${viewTabs.find((tab) => tab.value === itemView)?.label ?? ''} »` }}</p>
                                     <p class="mt-1 text-sm text-muted-foreground">{{ hasItemFilters ? 'Modifiez la recherche ou les filtres.' : 'Rien à faire ici pour cette catégorie.' }}</p>
                                     <Button v-if="hasItemFilters" type="button" variant="outline" size="sm" class="mt-4" @click="resetItemFilters"><X class="h-4 w-4" />Effacer les filtres</Button>
@@ -802,13 +827,13 @@ const FLAG = 'inline-flex items-center gap-1 rounded-md border border-border px-
                     </table>
                 </div>
                 <p class="border-t border-border px-5 py-3 text-xs text-muted-foreground">
-                    {{ plural(items.length, 'désignation affichée', 'désignations affichées') }} · {{ selectedSite.site.name }}
+                    {{ plural(items.length, 'désignation affichée', 'désignations affichées') }}<template v-if="portal"> · {{ selectedSite.site.name }}</template>
                 </p>
             </Card>
 
             <Card v-else-if="workspaceView !== 'ORGANIZATIONS'" class="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
                 <p class="text-sm font-medium text-foreground">Aucune désignation sur {{ selectedSite.site.name }}</p>
-                <p class="mt-1 text-sm text-muted-foreground">Créez la première, ou importez un fichier Excel.</p>
+                <p class="mt-1 text-sm text-muted-foreground">{{ portal ? 'Créez la première, ou importez un fichier Excel.' : 'Créez la première.' }}</p>
                 <Button v-if="can('catalog.items.create')" :as="Link" :href="createUrl" class="mt-4"><Plus class="h-4 w-4" />Nouvelle désignation</Button>
             </Card>
 

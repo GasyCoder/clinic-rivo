@@ -269,13 +269,6 @@ export function matchesAttention(item, attention, duplicates) {
     }
 }
 
-/** L'adresse du catalogue des analyses, ouverte sur une prestation du Laboratoire. */
-export function analysesUrl(siteCode, item) {
-    const params = new URLSearchParams({ site: siteCode, catalog_item: item.uuid });
-
-    return `/super-admin/analyses?${params.toString()}`;
-}
-
 /** L'adresse des tarifs, ouverte sur une désignation (depuis le catalogue des analyses). */
 export function tariffsUrl(siteCode, code) {
     const params = new URLSearchParams({ site: siteCode, q: code });

@@ -159,7 +159,7 @@ const moduleLabels = {
     equipment: 'Équipements',
     guarding: 'Gardiennage',
     hr_reports: 'Rapports RH',
-    catalog: 'Référentiels & tarifs',
+    catalog: 'Désignations & tarifs',
     patients: 'Patients',
     episodes: 'Passages',
     billing: 'Facturation',

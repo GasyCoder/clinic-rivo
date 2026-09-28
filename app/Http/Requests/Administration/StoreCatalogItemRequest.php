@@ -7,6 +7,7 @@ use App\Enums\CatalogModule;
 use App\Enums\ImagingModality;
 use App\Enums\ReceptionRoutingMode;
 use App\Enums\StaffCoveragePolicy;
+use App\Support\Catalog\CatalogTariffReason;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
@@ -20,6 +21,11 @@ class StoreCatalogItemRequest extends FormRequest
             'name' => trim((string) $this->input('name')),
             'unit' => trim((string) $this->input('unit')),
         ]);
+
+        // ADR-044 — « Motif automatique » du tarif initial, écrit par le serveur.
+        if ($this->boolean('tariff_reason_auto') && filled($this->input('tariff_amount'))) {
+            $this->merge(['tariff_reason' => CatalogTariffReason::INITIAL]);
+        }
     }
 
     public function authorize(): bool
@@ -52,6 +58,7 @@ class StoreCatalogItemRequest extends FormRequest
             'description' => ['nullable', 'string', 'max:2000'],
             'tariff_amount' => ['nullable', 'required_if:billable,true', 'numeric', 'gt:0', 'max:999999999.99', 'decimal:0,2'],
             'mutual_tariff_amount' => ['nullable', 'numeric', 'gt:0', 'max:999999999.99', 'decimal:0,2'],
+            'tariff_reason_auto' => ['sometimes', 'boolean'],
             'tariff_reason' => ['nullable', 'required_if:billable,true', 'string', 'max:1000'],
         ];
     }

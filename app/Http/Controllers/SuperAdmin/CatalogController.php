@@ -4,8 +4,10 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Enums\CatalogTariffCategory;
 use App\Http\Controllers\Controller;
+use App\Services\Catalog\CatalogDirectory;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use App\Services\SuperAdmin\PortalSiteApiClient;
+use App\Support\Catalog\CatalogTariffReason;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -26,9 +28,14 @@ class CatalogController extends Controller
             abort(404);
         }
 
-        return Inertia::render('SuperAdmin/Tariffs/Index', [
+        // ADR-044, amendement du 2026-09-28 (ter) — le même écran que le site.
+        return Inertia::render('Catalog/Index', [
+            'context' => ['mode' => 'portal'],
             'sites' => $client->catalogForAllSites($request->user(), ['status' => 'ALL']),
             'selectedSiteCode' => $selectedSite ?: null,
+            // Les médicaments hors référentiel se traitent au site (ADR-037) :
+            // une ligne d'ordonnance n'a pas d'identifiant à exposer par l'API.
+            'pendingMedicines' => [],
         ]);
     }
 
@@ -156,11 +163,13 @@ class CatalogController extends Controller
         ]);
         $result = $client->catalogOptions($siteCode, $request->user());
 
-        return Inertia::render('SuperAdmin/Tariffs/ItemForm', [
+        return Inertia::render('Catalog/ItemForm', [
+            'context' => ['mode' => 'portal'],
             // Jamais `site` : la prop partagée du même nom porte le menu du portail.
             'targetSite' => $this->siteIdentity($siteCode),
             'item' => null,
             'options' => $result['ok'] ? data_get($result, 'data.options') : null,
+            'consumableOptions' => [],
             'category' => $validated['module'] ?? null,
             'siteError' => $result['ok'] ? null : $result['message'],
         ]);
@@ -174,11 +183,13 @@ class CatalogController extends Controller
         $result = $client->catalogItem($siteCode, $catalog, $request->user());
         abort_if(($result['http_status'] ?? null) === 404, 404);
 
-        return Inertia::render('SuperAdmin/Tariffs/ItemForm', [
+        return Inertia::render('Catalog/ItemForm', [
+            'context' => ['mode' => 'portal'],
             // Jamais `site` : la prop partagée du même nom porte le menu du portail.
             'targetSite' => $this->siteIdentity($siteCode),
             'item' => $result['ok'] ? data_get($result, 'data.item') : null,
             'options' => $result['ok'] ? data_get($result, 'data.options') : null,
+            'consumableOptions' => $result['ok'] ? (data_get($result, 'data.consumable_options') ?? []) : [],
             'category' => null,
             'siteError' => $result['ok'] ? null : $result['message'],
         ]);
@@ -192,7 +203,7 @@ class CatalogController extends Controller
 
         // Le motif automatique est écrit ici, jamais par le navigateur : il dit ce qui s'est passé.
         if ($request->boolean('tariff_reason_auto') && filled($payload['tariff_amount'] ?? null)) {
-            $payload['tariff_reason'] = 'Tarif initial fixé à la création de la désignation (motif automatique).';
+            $payload['tariff_reason'] = CatalogTariffReason::INITIAL;
         }
 
         $result = $client->createCatalogItem($siteCode, $payload, $request->user());
@@ -204,7 +215,7 @@ class CatalogController extends Controller
         // Retour à la catégorie de la nouvelle désignation, ouverte sur son code.
         return redirect('/super-admin/workspaces/tariffs?'.http_build_query(array_filter([
             'site' => $siteCode,
-            'module' => $this->categoryOf((array) ($result['data'] ?? [])),
+            'module' => CatalogDirectory::categoryOf((array) ($result['data'] ?? [])),
             'q' => data_get($result, 'data.code'),
         ])))->with('status', $result['message'] ?: 'Désignation créée.');
     }
@@ -307,10 +318,9 @@ class CatalogController extends Controller
 
         // Le motif automatique dit la grille et le montant : l'historique reste lisible sans rien taper.
         if ($request->boolean('reason_auto')) {
-            $validated['reason'] = sprintf(
-                'Tarif %s fixé à %s Ar depuis la fiche de la désignation (motif automatique).',
-                mb_strtolower(CatalogTariffCategory::from($validated['tariff_category'])->label()),
-                $this->formatAmount((string) $validated['tariff_amount']),
+            $validated['reason'] = CatalogTariffReason::change(
+                CatalogTariffCategory::from($validated['tariff_category']),
+                (string) $validated['tariff_amount'],
             );
         }
 
@@ -351,6 +361,29 @@ class CatalogController extends Controller
         );
     }
 
+    /**
+     * ADR-072 / ADR-142 / ADR-169 — le matériel habituel d'un acte, réglé depuis
+     * sa fiche. Le site revérifie le droit et que l'acte peut en recevoir.
+     */
+    public function syncCareConsumables(
+        Request $request,
+        string $site,
+        string $catalog,
+        PortalSiteApiClient $client,
+    ): RedirectResponse {
+        $this->assertRouteSite($site);
+        $validated = $request->validate([
+            'consumables' => ['present', 'array', 'max:20'],
+            'consumables.*.medicine_uuid' => ['required', 'uuid', 'distinct'],
+            'consumables.*.default_quantity' => ['required', 'integer', 'min:1', 'max:1000'],
+        ]);
+
+        return $this->respond(
+            $client->syncCatalogCareConsumables($site, $catalog, $validated['consumables'], $request->user()),
+            'Matériel habituel mis à jour.',
+        );
+    }
+
     /** Le site de la page, lu sur `?site=` ; à défaut le premier site configuré. */
     private function queriedSiteCode(Request $request): string
     {
@@ -373,36 +406,6 @@ class CatalogController extends Controller
         $site = collect(config('rivo.clinics', []))->firstWhere('code', $code) ?? [];
 
         return ['code' => $code, 'name' => (string) ($site['name'] ?? $code)];
-    }
-
-    /**
-     * La catégorie de l'écran pour une désignation : son domaine, et pour
-     * l'Imagerie sa famille réglée au catalogue (ADR-106), jamais devinée.
-     *
-     * @param  array<string, mixed>  $item
-     */
-    private function categoryOf(array $item): ?string
-    {
-        $module = $item['module'] ?? null;
-
-        if (! is_string($module) || $module === '') {
-            return null;
-        }
-
-        if ($module !== 'IMAGING') {
-            return $module;
-        }
-
-        return 'IMAGING:'.(filled($item['imaging_modality'] ?? null) ? $item['imaging_modality'] : 'UNCLASSIFIED');
-    }
-
-    /** « 25 000 », « 12 500,50 » : l'écriture d'un montant dans un motif. */
-    private function formatAmount(string $amount): string
-    {
-        $value = (float) $amount;
-        $decimals = fmod($value, 1.0) === 0.0 ? 0 : 2;
-
-        return number_format($value, $decimals, ',', ' ');
     }
 
     private function validatedSiteCode(Request $request): string
@@ -429,7 +432,7 @@ class CatalogController extends Controller
         $fields = [
             'name', 'module', 'imaging_modality', 'unit', 'reception_selectable',
             'reception_routing_mode', 'staff_coverage_policy', 'care_requires_allergy_check',
-            'care_recommends_vitals', 'description',
+            'care_recommends_vitals', 'clinician_orderable', 'description',
         ];
 
         if ($creating) {

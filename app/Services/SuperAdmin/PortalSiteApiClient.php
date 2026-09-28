@@ -738,6 +738,22 @@ class PortalSiteApiClient
         );
     }
 
+    /**
+     * ADR-072 / ADR-142 / ADR-169 — le matériel habituel d'un acte.
+     *
+     * @param  array<int, array{medicine_uuid: string, default_quantity: int|string}>  $consumables
+     */
+    public function syncCatalogCareConsumables(string $siteCode, string $uuid, array $consumables, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'PUT',
+            'super-admin/catalog/'.$uuid.'/care-consumables',
+            ['consumables' => $consumables],
+            $actor,
+        );
+    }
+
     public function setCatalogTariff(
         string $siteCode,
         string $uuid,

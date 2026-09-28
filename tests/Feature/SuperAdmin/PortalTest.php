@@ -179,7 +179,7 @@ class PortalTest extends TestCase
 
         $this->actingAs($actor)->get('/super-admin/workspaces/tariffs')
             ->assertOk()
-            ->assertInertia(fn ($page) => $page->component('SuperAdmin/Tariffs/Index'));
+            ->assertInertia(fn ($page) => $page->component('Catalog/Index'));
 
         // Comptes et rôles sont deux écrans réels et site par site
         // (ADR-100) — jamais l'espace générique de présentation.

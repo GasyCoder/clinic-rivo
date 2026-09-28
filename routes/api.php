@@ -271,6 +271,8 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/catalog/{catalogUuid}/restore', [CatalogController::class, 'restore'])->name('catalog.restore');
         Route::post('/catalog/{catalogUuid}/tariffs', [CatalogController::class, 'setTariff'])->name('catalog.tariffs.store');
         Route::post('/catalog/{catalogUuid}/tariffs/archive', [CatalogController::class, 'archiveTariff'])->name('catalog.tariffs.archive');
+        // ADR-072 / ADR-142 / ADR-169 — le matériel habituel d'un acte, réglé aussi depuis le portail.
+        Route::put('/catalog/{catalogUuid}/care-consumables', [CatalogController::class, 'syncCareConsumables'])->name('catalog.care-consumables.update');
 
         Route::get('/document-templates', [DocumentTemplateController::class, 'index'])->name('document-templates.index');
         Route::post('/document-templates', [DocumentTemplateController::class, 'store'])->name('document-templates.store');

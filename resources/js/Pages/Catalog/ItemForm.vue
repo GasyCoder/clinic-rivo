@@ -13,11 +13,13 @@ import {
     FileText,
     Hash,
     History,
+    Package,
     Pencil,
     Receipt,
     RotateCcw,
     Route,
     Server,
+    Stethoscope,
     Wallet,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -33,12 +35,14 @@ import Select from '@/Components/Shadcn/Select.vue';
 import Switch from '@/Components/Shadcn/Switch.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
-import FormSectionCard from '@/Components/SuperAdmin/Tariffs/FormSectionCard.vue';
+import CareConsumablesEditor from '@/Components/Catalog/CareConsumablesEditor.vue';
+import FormSectionCard from '@/Components/Catalog/FormSectionCard.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
 import { formatMoney } from '@/utilities/money';
 import { categoryIcon } from '@/utilities/tariffCategoryIcons';
+import { catalogUrls, isPortalCatalog } from '@/utilities/catalogUrls';
 import {
     catalogGroupKey,
     categoryChoices,
@@ -46,25 +50,32 @@ import {
 } from '@/utilities/catalogGroups';
 
 /**
- * Une désignation d'un site, sur sa propre page (ADR-044, amendement du
- * 2026-09-28) : la créer, ou la modifier avec ses deux tarifs et leur
- * historique. Tout part par l'API du site ; l'écran ne décide rien, et le
- * motif automatique d'un tarif est écrit par le serveur, jamais par le
- * navigateur.
+ * Une désignation, sur sa propre page (ADR-044, amendements du 2026-09-28) : la
+ * créer, ou la modifier avec ses deux tarifs, leur historique et le matériel
+ * habituel d'un acte. Le même écran au site (sa base) et au portail (le site
+ * choisi, par son API) ; l'écran ne décide rien, et le motif automatique d'un
+ * tarif est écrit par le serveur, jamais par le navigateur.
  */
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
+    /** `{ mode: 'site' | 'portal' }`, donné par le serveur. */
+    context: { type: Object, default: () => ({ mode: 'portal' }) },
     /** Le site de la désignation. Jamais `site` : la prop partagée du même nom porte le menu du portail. */
     targetSite: { type: Object, required: true },
     item: { type: Object, default: null },
     options: { type: Object, default: null },
+    /** Les produits qu'un acte peut porter comme matériel habituel (ADR-072, ADR-142, ADR-169). */
+    consumableOptions: { type: Array, default: () => [] },
     /** La catégorie d'où l'on vient (`LABORATORY`, `IMAGING:ULTRASOUND`) : la nouvelle désignation y est rangée d'avance. */
     category: { type: String, default: null },
     siteError: { type: String, default: null },
 });
 
 const { can } = usePermissions();
+const portal = isPortalCatalog(props.context);
+const urls = catalogUrls(props.context, props.targetSite.code);
+const listTitle = portal ? 'Tarifs & mutuelles' : 'Désignations & tarifs';
 const editing = computed(() => props.item !== null);
 const archived = computed(() => Boolean(props.item?.archived));
 const canEdit = computed(() => (editing.value ? can('catalog.items.update') && ! archived.value : can('catalog.items.create')));
@@ -79,7 +90,7 @@ const initialCategory = (() => {
 })();
 const categoryKey = ref(initialCategory);
 const categoryLabel = computed(() => categories.value.find((choice) => choice.value === categoryKey.value)?.label ?? '');
-const backUrl = computed(() => `/super-admin/workspaces/tariffs?${new URLSearchParams({ site: props.targetSite.code, module: categoryKey.value }).toString()}`);
+const backUrl = computed(() => urls.index({ module: categoryKey.value }));
 
 // ------------------------------------------------------------------------
 // La désignation
@@ -98,6 +109,7 @@ const form = useForm({
     staff_coverage_policy: props.item?.staff_coverage_policy ?? 'UNCLASSIFIED',
     care_requires_allergy_check: props.item?.care_requires_allergy_check ?? false,
     care_recommends_vitals: props.item?.care_recommends_vitals ?? false,
+    clinician_orderable: props.item?.clinician_orderable ?? false,
     description: props.item?.description ?? '',
     tariff_amount: '',
     mutual_tariff_amount: '',
@@ -132,6 +144,7 @@ watch(isCareService, (enabled) => {
     if (enabled) return;
     form.care_requires_allergy_check = false;
     form.care_recommends_vitals = false;
+    form.clinician_orderable = false;
 });
 
 /** Ce qui manque encore pour enregistrer : dit en clair, au lieu d'un bouton grisé muet. */
@@ -150,6 +163,7 @@ const submit = () => {
     const care = (data) => ({
         care_requires_allergy_check: isCareService.value ? data.care_requires_allergy_check : false,
         care_recommends_vitals: isCareService.value ? data.care_recommends_vitals : false,
+        clinician_orderable: isCareService.value ? data.clinician_orderable : false,
     });
 
     if (editing.value) {
@@ -163,7 +177,7 @@ const submit = () => {
             staff_coverage_policy: data.staff_coverage_policy,
             ...care(data),
             description: data.description || null,
-        })).put(`/super-admin/workspaces/tariffs/items/${props.targetSite.code}/${props.item.uuid}`, {
+        })).put(urls.update(props.item.uuid), {
             preserveScroll: true,
             onSuccess: () => form.defaults(),
         });
@@ -178,7 +192,7 @@ const submit = () => {
         ...care(data),
         tariff_reason: data.tariff_reason_auto ? '' : data.tariff_reason,
         description: data.description || null,
-    })).post('/super-admin/workspaces/tariffs/items', { preserveScroll: true });
+    })).post(urls.store, { preserveScroll: true });
 };
 
 // ------------------------------------------------------------------------
@@ -207,7 +221,7 @@ const submitTariff = (category) => {
     const tariffForm = tariffForms[category];
     tariffForm
         .transform((data) => ({ ...data, reason: data.reason_auto ? '' : data.reason }))
-        .post(`/super-admin/workspaces/tariffs/items/${props.targetSite.code}/${props.item.uuid}/tariffs`, {
+        .post(urls.tariff(props.item.uuid), {
             preserveScroll: true,
             preserveState: true,
             onSuccess: () => tariffForm.reset('tariff_amount', 'reason'),
@@ -233,12 +247,15 @@ const closeConfirmation = () => {
     confirmation.value = null;
 };
 const submitConfirmation = () => {
-    const base = `/super-admin/workspaces/tariffs/items/${props.targetSite.code}/${props.item.uuid}`;
     const visit = { preserveScroll: true, preserveState: true, onSuccess: () => { confirmation.value = null; } };
-    if (confirmation.value.mode === 'tariff') confirmationForm.post(`${base}/tariffs/archive`, visit);
-    else confirmationForm.delete(base, visit);
+    if (confirmation.value.mode === 'tariff') confirmationForm.post(urls.tariffArchive(props.item.uuid), visit);
+    else confirmationForm.delete(urls.destroy(props.item.uuid), visit);
 };
-const restore = () => router.post(`/super-admin/workspaces/tariffs/items/${props.targetSite.code}/${props.item.uuid}/restore`, {}, { preserveScroll: true });
+const restore = () => router.post(urls.restore(props.item.uuid), {}, { preserveScroll: true });
+
+// Le matériel habituel d'un acte de Soins, de Maternité ou du bloc (ADR-072, ADR-142, ADR-169).
+const showConsumables = computed(() => editing.value && Boolean(props.item?.accepts_consumables));
+const canEditConsumables = computed(() => can('catalog.items.update') && ! archived.value);
 
 // Arrivée depuis un tarif de la liste (`?grille=MUTUAL#tarifs`) : le champ de cette grille est prêt à saisir.
 const requestedGrid = new URL(usePage().url, 'http://rivo.local').searchParams.get('grille');
@@ -252,7 +269,7 @@ const formatDate = (value) => (value
     ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
     : '—');
 const titleText = computed(() => (editing.value ? props.item.name : 'Nouvelle désignation'));
-const listUrl = computed(() => `/super-admin/workspaces/tariffs?${new URLSearchParams({ site: props.targetSite.code }).toString()}`);
+const listUrl = computed(() => urls.index());
 
 // ------------------------------------------------------------------------
 // L'aperçu et la liste de contrôle (colonne de droite)
@@ -295,7 +312,9 @@ const statusLine = computed(() => {
     if (missing.value.length) return `À compléter : ${missing.value.join(', ')}.`;
     if (editing.value && ! form.isDirty) return 'Aucune modification.';
 
-    return editing.value ? 'Modifications prêtes à enregistrer.' : `Prête à créer sur ${props.targetSite.name}.`;
+    if (editing.value) return 'Modifications prêtes à enregistrer.';
+
+    return portal ? `Prête à créer sur ${props.targetSite.name}.` : 'Prête à créer.';
 });
 </script>
 
@@ -307,7 +326,7 @@ const statusLine = computed(() => {
         <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div class="min-w-0 space-y-3">
                 <Breadcrumb :items="[
-                    { label: 'Tarifs & mutuelles', href: listUrl },
+                    { label: listTitle, href: listUrl },
                     { label: categoryLabel || 'Catégorie', href: backUrl },
                     { label: editing ? item.code : 'Nouvelle désignation' },
                 ]" />
@@ -334,9 +353,9 @@ const statusLine = computed(() => {
 
         <Card v-if="siteError || ! options" class="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
             <span class="grid h-11 w-11 place-items-center rounded-lg border border-border text-muted-foreground"><Server class="h-5 w-5" /></span>
-            <h2 class="mt-3 text-sm font-semibold text-foreground">{{ targetSite.name }} ne répond pas</h2>
+            <h2 class="mt-3 text-sm font-semibold text-foreground">{{ portal ? `${targetSite.name} ne répond pas` : 'Listes de choix indisponibles' }}</h2>
             <p class="mt-1 max-w-xl text-sm text-muted-foreground">{{ siteError ?? 'Les listes de choix du site sont indisponibles.' }}</p>
-            <Button as="a" :href="backUrl" variant="outline" class="mt-4"><ArrowLeft class="h-4 w-4" />Retour aux tarifs</Button>
+            <Button :as="Link" :href="backUrl" variant="outline" class="mt-4"><ArrowLeft class="h-4 w-4" />Retour aux tarifs</Button>
         </Card>
 
         <div v-else class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]">
@@ -396,6 +415,13 @@ const statusLine = computed(() => {
                                         <Checkbox v-model="form.care_recommends_vitals" :disabled="! canEdit" class="mt-0.5" />
                                         <span class="text-sm"><span class="font-medium text-foreground">Relever les constantes</span><span class="mt-0.5 block text-muted-foreground">Recommandé à l’infirmier pour cet acte.</span></span>
                                     </label>
+                                    <label :class="cn('flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3.5 transition-colors lg:col-span-2', form.clinician_orderable ? 'border-primary/40 bg-primary/5' : 'border-border')">
+                                        <Checkbox v-model="form.clinician_orderable" :disabled="! canEdit" class="mt-0.5" />
+                                        <span class="text-sm">
+                                            <span class="flex items-center gap-1.5 font-medium text-foreground"><Stethoscope class="h-3.5 w-3.5" />Demandable par le médecin</span>
+                                            <span class="mt-0.5 block text-muted-foreground">Proposé dans « Prescription de soins » d’une consultation (ADR-055).</span>
+                                        </span>
+                                    </label>
                                 </template>
                             </div>
                         </FormSectionCard>
@@ -441,6 +467,22 @@ const statusLine = computed(() => {
                     </fieldset>
                     <FormError v-if="form.errors.site_code">{{ form.errors.site_code }}</FormError>
                 </form>
+
+                <!-- Le matériel habituel d'un acte (en modification) -->
+                <FormSectionCard
+                    v-if="showConsumables"
+                    id="materiel"
+                    :icon="Package"
+                    title="Matériel habituel"
+                    description="Proposé d’office quand l’acte est déclaré ; l’équipe confirme toujours ce qu’elle a utilisé. Aucun prix ni stock n’est engagé ici."
+                >
+                    <CareConsumablesEditor
+                        :lines="item.default_consumables ?? []"
+                        :options="consumableOptions"
+                        :url="urls.careConsumables(item.uuid)"
+                        :can-edit="canEditConsumables"
+                    />
+                </FormSectionCard>
 
                 <!-- Les deux tarifs et leur historique (en modification) -->
                 <FormSectionCard v-if="editing" id="tarifs" :icon="Wallet" title="Tarifs" description="Chaque modification crée une nouvelle version ; les factures déjà émises gardent leur montant.">
@@ -590,7 +632,7 @@ const statusLine = computed(() => {
                         <Button type="submit" form="item-form" class="w-full" :disabled="! canSubmit">
                             <CircleCheck class="h-4 w-4" />{{ submitLabel }}
                         </Button>
-                        <Button as="a" :href="backUrl" variant="outline" class="w-full">Annuler</Button>
+                        <Button :as="Link" :href="backUrl" variant="outline" class="w-full">Annuler</Button>
                         <p class="pt-1 text-center text-xs text-muted-foreground">{{ statusLine }}</p>
                     </div>
                 </Card>
@@ -602,7 +644,7 @@ const statusLine = computed(() => {
             <div class="flex flex-col gap-3 rounded-xl border border-border bg-card/95 px-4 py-3 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
                 <p class="text-sm text-muted-foreground">{{ statusLine }}</p>
                 <div class="flex items-center gap-2">
-                    <Button as="a" :href="backUrl" variant="outline">Annuler</Button>
+                    <Button :as="Link" :href="backUrl" variant="outline">Annuler</Button>
                     <Button type="submit" form="item-form" :disabled="! canSubmit"><CircleCheck class="h-4 w-4" />{{ submitLabel }}</Button>
                 </div>
             </div>

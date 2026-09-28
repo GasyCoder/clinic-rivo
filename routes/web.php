@@ -386,6 +386,7 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::post('/workspaces/tariffs/items/{site}/{catalog}/restore', [SuperAdminCatalogController::class, 'restore'])->name('tariffs.items.restore')->middleware(['can:trash.restore', 'can:catalog.items.restore']);
         Route::post('/workspaces/tariffs/items/{site}/{catalog}/tariffs', [SuperAdminCatalogController::class, 'setTariff'])->name('tariffs.values.store');
         Route::post('/workspaces/tariffs/items/{site}/{catalog}/tariffs/archive', [SuperAdminCatalogController::class, 'archiveTariff'])->name('tariffs.values.archive')->middleware('can:catalog.tariffs.archive');
+        Route::put('/workspaces/tariffs/items/{site}/{catalog}/care-consumables', [SuperAdminCatalogController::class, 'syncCareConsumables'])->name('tariffs.items.care-consumables.update')->middleware('can:catalog.items.update');
         Route::post('/workspaces/tariffs/mutual-organizations', [SuperAdminMutualOrganizationController::class, 'store'])->name('tariffs.mutual-organizations.store')->middleware('can:mutual_organizations.create');
         Route::get('/workspaces/tariffs/mutual-organizations/export', [SuperAdminMutualOrganizationController::class, 'export'])->name('tariffs.mutual-organizations.export')->middleware('can:mutual_organizations.export');
         Route::get('/workspaces/tariffs/mutual-organizations/import-template', [SuperAdminMutualOrganizationController::class, 'template'])->name('tariffs.mutual-organizations.import-template')->middleware('can:mutual_organizations.import');
@@ -512,10 +513,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/administration/users/{user}/deactivate', [AdministrationUserController::class, 'deactivate'])->name('administration.users.deactivate')->middleware('can:users.deactivate');
     Route::post('/administration/users/{user}/activate', [AdministrationUserController::class, 'activate'])->name('administration.users.activate')->middleware('can:users.activate');
 
-    // ADR-024 — catalogue et tarifs propres au site. Le serveur central
-    // appliquera ultérieurement ces opérations aux sites via leurs API,
-    // jamais par accès direct aux bases locales.
+    // ADR-024 — catalogue et tarifs propres au site. Le portail les règle par
+    // l'API du site ; les deux affichent le même écran (Pages/Catalog, ADR-044).
     Route::get('/administration/catalog', [AdministrationCatalogController::class, 'index'])->name('administration.catalog.index')->middleware('can:catalog.items.view');
+    // ADR-044, amendement du 2026-09-28 (ter) — une désignation a sa page, au site comme au portail.
+    Route::get('/administration/catalog/create', [AdministrationCatalogController::class, 'create'])->name('administration.catalog.create')->middleware('can:catalog.items.create');
+    Route::get('/administration/catalog/{catalogItem}/edit', [AdministrationCatalogController::class, 'edit'])->whereUuid('catalogItem')->name('administration.catalog.edit')->middleware('can:catalog.items.view');
     Route::post('/administration/catalog', [AdministrationCatalogController::class, 'store'])->name('administration.catalog.store')->middleware('can:catalog.items.create');
     Route::put('/administration/catalog/{catalogItem}', [AdministrationCatalogController::class, 'update'])->name('administration.catalog.update')->middleware('can:catalog.items.update');
     // Le tarif exige create lorsqu'il n'existe pas encore, update sinon :

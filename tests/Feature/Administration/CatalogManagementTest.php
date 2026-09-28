@@ -11,6 +11,7 @@ use App\Models\CatalogTariff;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\Catalog\CatalogTariffReason;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -79,7 +80,15 @@ class CatalogManagementTest extends TestCase
 
         $this->actingAs($this->catalogManager())->get('/administration/catalog')
             ->assertOk()
-            ->assertInertia(fn ($page) => $page->component('Administration/Catalog/Index'));
+            ->assertInertia(fn ($page) => $page
+                ->component('Catalog/Index')
+                ->where('context.mode', 'site')
+                ->count('sites', 1)
+                ->where('sites.0.ok', true)
+                ->where('sites.0.site.code', config('rivo.site.code'))
+                // Les mutuelles se règlent au portail (ADR-045) : rien n'en est servi au site.
+                ->has('sites.0.data.mutual_organizations', 0)
+                ->where('sites.0.data.mutual_organizations_summary', null));
     }
 
     public function test_authorized_operational_account_creates_a_service_with_an_audited_initial_tariff(): void
@@ -326,14 +335,12 @@ class CatalogManagementTest extends TestCase
         $this->actingAs($viewer)->get('/administration/catalog')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('items.data.0.current_tariff', null)
-                ->where('items.data.0.current_standard_tariff', null)
-                ->where('items.data.0.current_mutual_tariff', null)
-                ->where('items.data.0.tariffs_count', null)
-                ->has('items.data.0.tariffs', 0)
-                ->where('summary.without_tariff', null)
-                ->where('summary.without_standard_tariff', null)
-                ->where('summary.without_mutual_tariff', null));
+                ->where('sites.0.data.items.0.current_standard_tariff', null)
+                ->where('sites.0.data.items.0.current_mutual_tariff', null)
+                ->where('sites.0.data.items.0.tariffs_count', null)
+                ->has('sites.0.data.items.0.tariffs', 0)
+                ->where('sites.0.data.summary.without_standard_tariff', null)
+                ->where('sites.0.data.summary.without_mutual_tariff', null));
     }
 
     public function test_catalog_inertia_payload_exposes_both_current_tariffs_and_their_categories(): void
@@ -347,23 +354,23 @@ class CatalogManagementTest extends TestCase
         $this->actingAs($actor)->get('/administration/catalog')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Administration/Catalog/Index')
-                ->has('tariffCategories', 2)
-                ->where('tariffCategories.0.value', CatalogTariffCategory::Standard->value)
-                ->where('tariffCategories.0.label', 'Sans mutuelle')
-                ->where('tariffCategories.1.value', CatalogTariffCategory::Mutual->value)
-                ->where('tariffCategories.1.label', 'Mutuelle')
-                ->where('items.data.0.current_standard_tariff.tariff_category', CatalogTariffCategory::Standard->value)
-                ->where('items.data.0.current_standard_tariff.tariff_category_label', 'Sans mutuelle')
-                ->where('items.data.0.current_standard_tariff.amount', '10000.00')
-                ->where('items.data.0.current_mutual_tariff.tariff_category', CatalogTariffCategory::Mutual->value)
-                ->where('items.data.0.current_mutual_tariff.tariff_category_label', 'Mutuelle')
-                ->where('items.data.0.current_mutual_tariff.amount', '20000.00')
-                ->where('items.data.0.care_requires_allergy_check', false)
-                ->where('items.data.0.care_recommends_vitals', false)
-                ->has('items.data.0.tariffs', 2)
-                ->where('summary.without_standard_tariff', 0)
-                ->where('summary.without_mutual_tariff', 0));
+                ->component('Catalog/Index')
+                ->has('sites.0.data.options.tariff_categories', 2)
+                ->where('sites.0.data.options.tariff_categories.0.value', CatalogTariffCategory::Standard->value)
+                ->where('sites.0.data.options.tariff_categories.0.label', 'Sans mutuelle')
+                ->where('sites.0.data.options.tariff_categories.1.value', CatalogTariffCategory::Mutual->value)
+                ->where('sites.0.data.options.tariff_categories.1.label', 'Mutuelle')
+                ->where('sites.0.data.items.0.current_standard_tariff.tariff_category', CatalogTariffCategory::Standard->value)
+                ->where('sites.0.data.items.0.current_standard_tariff.tariff_category_label', 'Sans mutuelle')
+                ->where('sites.0.data.items.0.current_standard_tariff.amount', '10000.00')
+                ->where('sites.0.data.items.0.current_mutual_tariff.tariff_category', CatalogTariffCategory::Mutual->value)
+                ->where('sites.0.data.items.0.current_mutual_tariff.tariff_category_label', 'Mutuelle')
+                ->where('sites.0.data.items.0.current_mutual_tariff.amount', '20000.00')
+                ->where('sites.0.data.items.0.care_requires_allergy_check', false)
+                ->where('sites.0.data.items.0.care_recommends_vitals', false)
+                ->has('sites.0.data.items.0.tariffs', 2)
+                ->where('sites.0.data.summary.without_standard_tariff', 0)
+                ->where('sites.0.data.summary.without_mutual_tariff', 0));
     }
 
     public function test_catalog_routes_use_uuid_not_local_numeric_ids(): void
@@ -377,5 +384,105 @@ class CatalogManagementTest extends TestCase
             'module' => CatalogModule::Medicine->value,
             'unit' => 'acte',
         ])->assertNotFound();
+    }
+
+    /**
+     * ADR-044, amendement du 2026-09-28 (ter) — le site ouvre la même fiche que
+     * le portail : pages de création et de modification, et retour à la
+     * catégorie de la désignation créée.
+     */
+    public function test_the_site_opens_the_same_item_pages_as_the_portal(): void
+    {
+        $actor = $this->catalogManager();
+
+        $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload())
+            ->assertRedirect('/administration/catalog?module=MEDICINE&q=CONSULT-GEN')
+            ->assertSessionHas('status', 'Désignation CONSULT-GEN créée.');
+        $item = CatalogItem::query()->sole();
+
+        $this->actingAs($actor)->get('/administration/catalog/create?module=IMAGING:ULTRASOUND')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Catalog/ItemForm')
+                ->where('context.mode', 'site')
+                ->where('targetSite.code', config('rivo.site.code'))
+                ->where('item', null)
+                ->where('category', 'IMAGING:ULTRASOUND')
+                ->where('options.tariff_categories.0.value', CatalogTariffCategory::Standard->value)
+                ->where('siteError', null));
+
+        $this->actingAs($actor)->get("/administration/catalog/{$item->uuid}/edit")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Catalog/ItemForm')
+                ->where('context.mode', 'site')
+                ->where('item.code', 'CONSULT-GEN')
+                ->where('item.current_standard_tariff.amount', '15000.00')
+                ->where('item.tariffs.0.change_reason', 'Tarif initial validé')
+                // Une consultation de Médecine ne reçoit pas de matériel habituel (ADR-072).
+                ->where('item.accepts_consumables', false)
+                ->has('consumableOptions', 0));
+
+        // Une désignation archivée reste lisible sur sa page : on la restaure depuis là.
+        $item->delete();
+        $this->actingAs($actor)->get("/administration/catalog/{$item->uuid}/edit")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('item.archived', true));
+
+        $this->actingAs($actor)->get('/administration/catalog/create?module=../../etc')->assertSessionHasErrors('module');
+    }
+
+    public function test_the_item_pages_keep_their_own_permissions(): void
+    {
+        $actor = $this->catalogManager();
+        $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload())->assertRedirect();
+        $item = CatalogItem::query()->sole();
+
+        $role = Role::query()->create(['code' => 'CATALOG_READER', 'name' => 'Lecteur catalogue']);
+        $role->permissions()->attach(Permission::query()->where('name', 'catalog.items.view')->value('id'));
+        $reader = User::factory()->create(['role_id' => $role->id]);
+
+        // Lire une fiche n'est pas en créer une.
+        $this->actingAs($reader)->get('/administration/catalog/create')->assertForbidden();
+        $this->actingAs($reader)->get("/administration/catalog/{$item->uuid}/edit")
+            ->assertOk()
+            // Sans catalog.tariffs.view, aucun montant n'est servi.
+            ->assertInertia(fn ($page) => $page
+                ->where('item.current_standard_tariff', null)
+                ->has('item.tariffs', 0));
+        $this->actingAs($reader)->get("/administration/catalog/{$item->id}/edit")->assertNotFound();
+    }
+
+    /** Le motif automatique est écrit par le serveur du site, jamais par le navigateur. */
+    public function test_the_automatic_reasons_are_written_by_the_site(): void
+    {
+        $actor = $this->catalogManager();
+
+        $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload([
+            'tariff_reason_auto' => true,
+            'tariff_reason' => 'texte forgé',
+        ]))->assertRedirect()->assertSessionHasNoErrors();
+        $item = CatalogItem::query()->sole();
+        $this->assertSame(CatalogTariffReason::INITIAL, CatalogTariff::query()->sole()->change_reason);
+
+        $this->actingAs($actor)->post("/administration/catalog/{$item->uuid}/tariff", [
+            'tariff_category' => CatalogTariffCategory::Mutual->value,
+            'tariff_amount' => '25000',
+            'reason_auto' => true,
+            'reason' => '',
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertSame(
+            'Tarif mutuelle fixé à 25 000 Ar depuis la fiche de la désignation (motif automatique).',
+            $item->fresh()->currentMutualTariff->change_reason,
+        );
+
+        // Décochée, la case redonne la main : un motif vide est refusé.
+        $this->actingAs($actor)->post("/administration/catalog/{$item->uuid}/tariff", [
+            'tariff_category' => CatalogTariffCategory::Mutual->value,
+            'tariff_amount' => '26000',
+            'reason_auto' => false,
+            'reason' => '',
+        ])->assertSessionHasErrors('reason');
     }
 }

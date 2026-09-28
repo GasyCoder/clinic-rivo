@@ -1205,6 +1205,62 @@ class SuperAdminSiteApiTest extends TestCase
     }
 
     /** @return array<string, string> */
+    /**
+     * ADR-044, amendement du 2026-09-28 (ter) — le matériel habituel d'un acte,
+     * réglé depuis le portail : la même action que sur le site, signée du
+     * Super Admin distant, et refusée sans catalog.items.update.
+     */
+    public function test_the_usual_material_of_an_act_is_set_by_the_portal_and_audited_under_its_actor(): void
+    {
+        $act = CatalogItem::query()->create([
+            'code' => 'PANSEMENT', 'name' => 'Pansement simple', 'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Care, 'unit' => 'acte', 'billable' => true,
+            'stockable' => false, 'created_by' => $this->actor->id, 'updated_by' => $this->actor->id,
+        ]);
+        $product = CatalogItem::query()->create([
+            'code' => 'PH-COMP', 'name' => 'Compresses stériles', 'type' => CatalogItemType::Medicine,
+            'module' => CatalogModule::Pharmacy, 'unit' => 'paquet', 'billable' => true,
+            'stockable' => true, 'created_by' => $this->actor->id, 'updated_by' => $this->actor->id,
+        ]);
+        $medicine = Medicine::query()->create([
+            'catalog_item_id' => $product->id, 'generic_name' => 'Compresses stériles',
+            'form' => MedicineForm::ParapharmacyConsumable, 'active' => true,
+            'created_by' => $this->actor->id, 'updated_by' => $this->actor->id,
+        ]);
+        $actorUuid = (string) Str::uuid();
+        $payload = ['consumables' => [['medicine_uuid' => $medicine->uuid, 'default_quantity' => 3]]];
+
+        // La fiche sert au portail les produits qu'on peut associer à l'acte.
+        $this->withHeaders($this->headers($actorUuid, null, ['catalog.items.view', 'catalog.items.update']))
+            ->getJson("/api/v1/super-admin/catalog/{$act->uuid}")
+            ->assertOk()
+            ->assertJsonPath('data.item.accepts_consumables', true)
+            ->assertJsonPath('data.consumable_options.0.medicine_uuid', $medicine->uuid);
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['catalog.items.view']))
+            ->putJson("/api/v1/super-admin/catalog/{$act->uuid}/care-consumables", $payload)
+            ->assertForbidden();
+        $this->assertDatabaseCount('care_act_consumables', 0);
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['catalog.items.update']))
+            ->putJson("/api/v1/super-admin/catalog/{$act->uuid}/care-consumables", $payload)
+            ->assertOk()
+            ->assertJsonPath('data.default_consumables.0.name', 'Compresses stériles')
+            ->assertJsonPath('data.default_consumables.0.default_quantity', 3);
+
+        $this->assertDatabaseHas('care_act_consumables', [
+            'catalog_item_id' => $act->id,
+            'medicine_id' => $medicine->id,
+            'default_quantity' => 3,
+            'created_by' => null,
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'catalog.care_act_consumables.update',
+            'user_id' => null,
+            'external_actor_uuid' => $actorUuid,
+        ]);
+    }
+
     private function headers(
         ?string $actorUuid = null,
         ?string $idempotencyKey = null,

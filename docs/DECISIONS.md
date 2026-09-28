@@ -1809,7 +1809,8 @@ explicite `--reset` et est refusée tant que l’API concernée tourne.
 
 # ADR-044 — Pilotage central des désignations et tarifs par API de site
 
-**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire) ; depuis l'amendement du
+2026-09-28 (ter), le site et le portail partagent un seul écran des désignations et tarifs.
 
 L’espace Super Administration `Désignations & tarifs` n’est plus une maquette.
 Il interroge séparément les API de Mampikony, Ambondromamy et Boriziny et permet,
@@ -1919,6 +1920,46 @@ L'API des sites gagne deux lectures, sans rien changer aux écritures :
 `GET /api/v1/super-admin/catalog/{uuid}` (une désignation, archivée comprise, avec son historique),
 toutes deux gardées par `catalog.items.view`. La page reçoit son site dans `targetSite`, jamais
 `site` : la prop partagée du même nom porte le menu du portail. Aucune permission nouvelle.
+
+## Amendement du 2026-09-28 (ter) — un seul écran pour le site et le portail
+
+Constat du propriétaire : `/administration/catalog` (site, ancien écran DashWind) et
+`/super-admin/workspaces/tariffs` (portail, refondu en shadcn) étaient deux écrans pour le même
+référentiel — deux listes, deux formulaires, deux lectures qui finissaient par diverger. Même remède
+que pour le catalogue des analyses (ADR-063, amendement du 2026-09-28) :
+
+```text
+lecture      App\Services\Catalog\CatalogDirectory : liste, compteurs, options, fiche, matériel
+             habituel — lue par le contrôleur du site ET par l'API que le portail interroge
+motif        App\Support\Catalog\CatalogTariffReason : les mêmes mots au site et au portail ;
+             au site, SetCatalogTariffRequest et StoreCatalogItemRequest l'écrivent sur
+             `reason_auto` / `tariff_reason_auto`, jamais le navigateur
+pages        Pages/Catalog/{Index,ItemForm} + Components/Catalog/*, rendues par les deux
+             contrôleurs avec `context.mode` = site | portal ; l'ancienne page du site et
+             Pages/SuperAdmin/Tariffs sont supprimées
+adresses     utilities/catalogUrls.js : /administration/catalog/… au site,
+             /super-admin/workspaces/tariffs/… au portail — jamais devinées
+site         pages de fiche (`/administration/catalog/create`, `/{uuid}/edit`) ; ni choix de
+             site, ni Excel, ni sélection multiple, ni mutuelles (elles se règlent au portail,
+             ADR-045) ; menu renommé « Désignations & tarifs »
+```
+
+Deux fonctions du seul ancien écran du site sont reprises, chacune là où elle a du sens :
+
+```text
+matériel habituel   section « Matériel habituel » de la fiche d'un acte de Soins, Maternité ou
+(ADR-072/142/169)   Chirurgie, au site et au portail. Le portail passe par
+                    `PUT /api/v1/super-admin/catalog/{uuid}/care-consumables` : la même action,
+                    qui revérifie `catalog.items.update` sur l'acteur distant et signe l'audit de
+                    son identité (ADR-187). Par défaut, seul le Super Admin détient ce droit.
+médicaments hors    catégorie « Médicaments à référencer » de la colonne de gauche, au site
+référentiel         seulement : une ligne d'ordonnance n'a pas d'UUID, et l'exposer par l'API
+(ADR-037)           obligerait à publier son identifiant SQL (ADR-050)
+```
+
+La fiche porte aussi « Demandable par le médecin » (`clinician_orderable`, ADR-055) pour un acte de
+Soins : l'ancien écran du site était le seul à le régler. Aucune permission, aucune règle tarifaire,
+aucune migration ne change.
 
 ---
 

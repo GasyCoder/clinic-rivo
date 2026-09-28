@@ -182,7 +182,7 @@ export const CLINIC_WORKSPACES = [
     // visiteurs reste un lien depuis cette page pour qui a aussi ce droit.
     { key: 'guarding', group: 'management', text: 'Gardiennage', description: 'Contrôle de sortie des patients', icon: ShieldCheck, link: '/guarding', permission: 'guarding.view', tone: 'ocean' },
     { key: 'users', group: 'management', text: 'Utilisateurs & accès', description: 'Comptes et permissions', icon: UserRoundCog, link: '/administration/users', activeLinks: ['/administration/users'], permission: 'users.view', tone: 'cyan' },
-    { key: 'catalog', group: 'management', text: 'Référentiels & tarifs', description: 'Désignations et grilles tarifaires', icon: Tags, link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view', tone: 'navy' },
+    { key: 'catalog', group: 'management', text: 'Désignations & tarifs', description: 'Désignations et grilles tarifaires', icon: Tags, link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view', tone: 'navy' },
     // ADR-211 — les partenaires du site : médicaux (médecins, infirmiers…) et
     // autres (écoles, entreprises). L'accueil les consulte, l'Administration
     // les gère.

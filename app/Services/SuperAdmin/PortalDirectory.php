@@ -131,6 +131,8 @@ class PortalDirectory
                 'link' => match ($module['code']) {
                     'HR' => '/super-admin/sites/'.$site['code'].'/rh',
                     'PHARMACY' => '/super-admin/sites/'.$site['code'].'/pharmacie',
+                    // ADR-215 — le Laboratoire se consulte, ses référentiels se gèrent.
+                    'LABORATORY' => '/super-admin/sites/'.$site['code'].'/laboratoire',
                     // ADR-211 — les Partenaires aussi.
                     'PARTNERS' => '/super-admin/sites/'.$site['code'].'/partenaires',
                     default => '/super-admin/sites/'.$site['code'].'?module='.$module['code'],

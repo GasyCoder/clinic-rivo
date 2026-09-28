@@ -15,6 +15,7 @@ import {
     Archive, ArchiveRestore, ArrowLeft, Bug, ChevronDown, Download, FolderTree, Microscope, Pencil, Pill, Plus, Search,
 } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
+import { labUrl } from '@/utilities/labUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -56,7 +57,7 @@ const toggle = (uuid) => {
     collapsed.value = next;
 };
 
-const setArchives = (value) => router.get('/laboratory/microbiologie', value ? { archives: 1 } : {}, { preserveScroll: true, preserveState: true, replace: true });
+const setArchives = (value) => router.get(labUrl('/laboratory/microbiologie'), value ? { archives: 1 } : {}, { preserveScroll: true, preserveState: true, replace: true });
 
 // Ajouter / modifier
 const editor = ref({ open: false, kind: 'family', entry: null, family: null });
@@ -78,8 +79,8 @@ const submit = () => {
         ...(entry ? { is_active: data.is_active } : {}),
     }));
     const options = { preserveScroll: true, onSuccess: () => { editor.value.open = false; } };
-    if (entry) form.put(`/laboratory/microbiologie/${kind}/${entry.uuid}`, options);
-    else form.post(`/laboratory/microbiologie/${kind}`, options);
+    if (entry) form.put(labUrl(`/laboratory/microbiologie/${kind}/${entry.uuid}`), options);
+    else form.post(labUrl(`/laboratory/microbiologie/${kind}`), options);
 };
 const editorTitle = computed(() => {
     const { kind, entry, family } = editor.value;
@@ -96,16 +97,16 @@ const openArchive = (kind, entry) => {
     archiveForm.clearErrors();
     archiving.value = { open: true, kind, entry };
 };
-const archive = () => archiveForm.delete(`/laboratory/microbiologie/${archiving.value.kind}/${archiving.value.entry.uuid}`, {
+const archive = () => archiveForm.delete(labUrl(`/laboratory/microbiologie/${archiving.value.kind}/${archiving.value.entry.uuid}`), {
     preserveScroll: true,
     onSuccess: () => { archiving.value.open = false; },
 });
-const restore = (kind, entry) => router.post(`/laboratory/microbiologie/${kind}/${entry.uuid}/restore`, {}, { preserveScroll: true });
+const restore = (kind, entry) => router.post(labUrl(`/laboratory/microbiologie/${kind}/${entry.uuid}/restore`), {}, { preserveScroll: true });
 
 const importing = ref(false);
 const importStarter = () => {
     importing.value = true;
-    router.post('/laboratory/microbiologie/referentiel-de-depart', {}, { preserveScroll: true, onFinish: () => { importing.value = false; } });
+    router.post(labUrl('/laboratory/microbiologie/referentiel-de-depart'), {}, { preserveScroll: true, onFinish: () => { importing.value = false; } });
 };
 
 const sections = [
@@ -118,7 +119,7 @@ const sections = [
     <Head title="Germes & antibiotiques" />
 
     <div class="mx-auto w-full max-w-screen-xl space-y-5">
-        <Button :as="Link" href="/laboratory" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
+        <Button :as="Link" :href="labUrl('/laboratory')" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
 
         <header class="flex flex-wrap items-start justify-between gap-4">
             <div class="flex items-center gap-3">

@@ -19,6 +19,8 @@ import { criticalFlag } from '@/utilities/criticalRanges';
 import { cn } from '@/lib/cn';
 import { useAutosave } from '@/composables/useAutosave';
 import { formatDateTime } from '@/utilities/date';
+import LabSiteOnlyAction from '@/Components/Laboratory/LabSiteOnlyAction.vue';
+import { LAB_SITE_ONLY_REASON, labUrl } from '@/utilities/labUrl';
 import {
     FLAG_LABELS, INTERPRETATION_LABELS, LAB_STATUS_TONES, effectiveInterpretation, entryFilled, entryFromNode,
     rangeFlag, resultText, resultsPayload, suggestedInterpretation,
@@ -56,7 +58,7 @@ const entryOf = (uuid) => form.entries[entryIndex(uuid)];
 
 const autosave = useAutosave(form, (options) => form
     .transform((data) => ({ results: resultsPayload(data.entries), conclusion: data.conclusion ?? '' }))
-    .put(`/laboratory/items/${props.item.uuid}/results`, options), { enabled: () => writable.value });
+    .put(labUrl(`/laboratory/items/${props.item.uuid}/results`), options), { enabled: () => writable.value });
 
 const filled = computed(() => inputs.value.filter((node) => entryFilled(node, entryOf(node.uuid))).length);
 
@@ -87,15 +89,24 @@ const criticalOf = (node) => (node.entry_mode === 'NUMERIC' ? criticalFlag(node.
 const sendOutOpen = ref(false);
 const sendOutForm = useForm({ laboratory: '', reference: '', notes: '' });
 const openSendOut = () => { sendOutForm.reset(); sendOutForm.clearErrors(); sendOutOpen.value = true; };
-const sendOut = () => sendOutForm.post(`/laboratory/items/${props.item.uuid}/send-out`, {
+const sendOut = () => sendOutForm.post(labUrl(`/laboratory/items/${props.item.uuid}/send-out`), {
     preserveScroll: true,
     onSuccess: () => { sendOutOpen.value = false; },
 });
 const cancellingSendOut = ref(false);
 const cancelSendOut = () => {
     cancellingSendOut.value = true;
-    router.post(`/laboratory/items/${props.item.uuid}/send-out/cancel`, {}, { preserveScroll: true, onFinish: () => { cancellingSendOut.value = false; } });
+    router.post(labUrl(`/laboratory/items/${props.item.uuid}/send-out/cancel`), {}, { preserveScroll: true, onFinish: () => { cancellingSendOut.value = false; } });
 };
+// ADR-215 — sur le portail, les gestes de l'analyse restent au site : ils sont
+// montrés verrouillés plutôt que masqués (ADR-158).
+const portalGestures = computed(() => {
+    if (!props.can.site_only || props.cancelled || !props.received) return [];
+    if (props.item.status === 'COMPLETED') return [{ label: 'Valider', variant: 'success' }];
+    if (props.item.editable && props.item.has_definitions) return [{ label: 'Terminer l’analyse', variant: 'default' }];
+
+    return [];
+});
 const canSendOut = computed(() => props.can.send_out && props.item.editable && !props.item.sent_out && !props.cancelled && props.received);
 const canCancelSendOut = computed(() => props.can.send_out && props.item.sent_out && props.item.status === 'PENDING' && !props.cancelled
     && !(props.item.nodes ?? []).some((node) => node.result));
@@ -104,7 +115,7 @@ const externalListId = computed(() => `external-labs-${props.item.uuid}`);
 // Critique : signalé à la main, sur un résultat enregistré.
 const toggleCritical = (node) => {
     if (!node.result?.uuid) return;
-    router.post(`/laboratory/results/${node.result.uuid}/critical`, { critical: !node.result.is_critical }, { preserveScroll: true, preserveState: true });
+    router.post(labUrl(`/laboratory/results/${node.result.uuid}/critical`), { critical: !node.result.is_critical }, { preserveScroll: true, preserveState: true });
 };
 
 // Terminer
@@ -113,7 +124,7 @@ const confirmComplete = ref(false);
 const complete = () => {
     completing.value = true;
     autosave.flush(() => {
-        router.post(`/laboratory/items/${props.item.uuid}/complete`, {}, {
+        router.post(labUrl(`/laboratory/items/${props.item.uuid}/complete`), {}, {
             preserveScroll: true,
             onFinish: () => { completing.value = false; confirmComplete.value = false; },
         });
@@ -124,13 +135,13 @@ const complete = () => {
 const validating = ref(false);
 const validate = () => {
     validating.value = true;
-    router.post(`/laboratory/items/${props.item.uuid}/validate`, {}, { preserveScroll: true, onFinish: () => { validating.value = false; } });
+    router.post(labUrl(`/laboratory/items/${props.item.uuid}/validate`), {}, { preserveScroll: true, onFinish: () => { validating.value = false; } });
 };
 
 // Renvoyer
 const returnOpen = ref(false);
 const returnForm = useForm({ reason: '' });
-const sendBack = () => returnForm.post(`/laboratory/items/${props.item.uuid}/return`, {
+const sendBack = () => returnForm.post(labUrl(`/laboratory/items/${props.item.uuid}/return`), {
     preserveScroll: true,
     onSuccess: () => { returnOpen.value = false; returnForm.reset(); },
 });
@@ -140,7 +151,7 @@ const canReturn = computed(() => !props.cancelled && (
 
 // Résultat en une fois (analyse sans définition au catalogue)
 const legacy = useForm({ result_value: '', result_notes: '' });
-const recordLegacy = () => legacy.post(`/laboratory/items/${props.item.uuid}/result`, { preserveScroll: true });
+const recordLegacy = () => legacy.post(labUrl(`/laboratory/items/${props.item.uuid}/result`), { preserveScroll: true });
 
 const anteriorityText = (node) => {
     const previous = node.anteriority;
@@ -178,7 +189,7 @@ const anteriorityText = (node) => {
                     Saisissez ici le résultat reçu : le biologiste valide la transcription.</span>
             </p>
             <span class="flex gap-1">
-                <Button v-if="requestUuid" :as="Link" :href="`/laboratory/requests/${requestUuid}/bon-envoi`" size="xs" variant="outline"><FileText class="h-3.5 w-3.5" /> Bon d’envoi</Button>
+                <Button v-if="requestUuid" :as="Link" :href="labUrl(`/laboratory/requests/${requestUuid}/bon-envoi`)" size="xs" variant="outline"><FileText class="h-3.5 w-3.5" /> Bon d’envoi</Button>
                 <Button v-if="canCancelSendOut" type="button" size="xs" variant="ghost" :disabled="cancellingSendOut" @click="cancelSendOut"><Undo2 class="h-3.5 w-3.5" /> Faire ici</Button>
             </span>
         </div>
@@ -198,7 +209,8 @@ const anteriorityText = (node) => {
         </div>
         <div v-if="!writable && item.editable && !cancelled && !can.enter" class="flex gap-2 border-b border-border px-4 py-2.5 text-xs text-muted-foreground">
             <Lock class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <p>Lecture seule : la saisie demande le droit « laboratory_results.create ».</p>
+            <p v-if="can.site_only">Lecture seule : {{ LAB_SITE_ONLY_REASON.charAt(0).toLowerCase() + LAB_SITE_ONLY_REASON.slice(1) }}</p>
+            <p v-else>Lecture seule : la saisie demande le droit « laboratory_results.create ».</p>
         </div>
         <p v-if="itemError" class="flex gap-2 border-b border-border bg-destructive/5 px-4 py-2.5 text-sm text-destructive" role="alert">
             <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />{{ itemError }}
@@ -334,7 +346,7 @@ const anteriorityText = (node) => {
         </div>
 
         <!-- Gestes -->
-        <footer v-if="!cancelled && (writable && item.has_definitions || (item.status === 'COMPLETED' && can.validate) || canReturn || canSendOut)" class="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-muted/30 px-4 py-3">
+        <footer v-if="!cancelled && (writable && item.has_definitions || (item.status === 'COMPLETED' && can.validate) || canReturn || canSendOut || portalGestures.length)" class="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-muted/30 px-4 py-3">
             <Button v-if="canSendOut" type="button" variant="ghost" class="me-auto" @click="openSendOut">
                 <Send class="h-4 w-4" /> Envoyer à un laboratoire extérieur
             </Button>
@@ -347,6 +359,7 @@ const anteriorityText = (node) => {
             <Button v-if="writable && item.has_definitions" type="button" :disabled="completing || filled === 0" @click="confirmComplete = true">
                 <CheckCheck class="h-4 w-4" /> Terminer l’analyse
             </Button>
+            <LabSiteOnlyAction v-for="gesture in portalGestures" :key="gesture.label" :label="gesture.label" :variant="gesture.variant" />
         </footer>
 
         <ConfirmModal

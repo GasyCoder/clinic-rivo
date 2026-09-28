@@ -28,6 +28,11 @@ class SuperAdminController extends Controller
             return redirect()->route('super-admin.sites.pharmacy', ['site' => $siteData['code']]);
         }
 
+        // ADR-215 — le Laboratoire aussi.
+        if ($module['code'] === 'LABORATORY') {
+            return redirect()->route('super-admin.sites.laboratory', ['site' => $siteData['code']]);
+        }
+
         return Inertia::render('SuperAdmin/Sites/Show', [
             'clinic' => $siteData,
             'selectedModule' => $module,

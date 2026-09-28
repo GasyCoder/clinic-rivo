@@ -10,6 +10,7 @@ import { cn } from '@/lib/cn';
 import { formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
 import { LAB_STATUS_TONES } from '@/utilities/labWorkbench';
+import { labUrl } from '@/utilities/labUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -27,7 +28,7 @@ const props = defineProps({
 });
 
 const total = computed(() => props.disciplines.reduce((sum, row) => sum + row.count, 0));
-const select = (name) => router.get('/laboratory/paillasse', name ? { discipline: name } : {}, { preserveScroll: true, preserveState: true, replace: true });
+const select = (name) => router.get(labUrl('/laboratory/paillasse'), name ? { discipline: name } : {}, { preserveScroll: true, preserveState: true, replace: true });
 const printSheets = () => window.print();
 
 /*
@@ -57,7 +58,7 @@ const identity = (patient) => [
 
     <div class="lab-worklist mx-auto w-full max-w-screen-xl space-y-4">
         <div class="lab-worklist-actions space-y-4">
-            <Button :as="Link" href="/laboratory" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
+            <Button :as="Link" :href="labUrl('/laboratory')" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
 
             <header class="flex flex-wrap items-start justify-between gap-4">
                 <div class="flex items-center gap-3">
@@ -140,7 +141,7 @@ const identity = (patient) => [
                                         </p>
                                         <p v-if="item.analyses.length" class="text-[11px] text-muted-foreground">{{ item.analyses.join(' · ') }}</p>
                                     </div>
-                                    <Link :href="`/laboratory/requests/${row.request_uuid}`" class="lab-worklist-screen mt-1 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
+                                    <Link :href="labUrl(`/laboratory/requests/${row.request_uuid}`)" class="lab-worklist-screen mt-1 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
                                         Saisir <ExternalLink class="h-3 w-3" />
                                     </Link>
                                 </td>

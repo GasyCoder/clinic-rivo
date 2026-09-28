@@ -4,6 +4,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import PaperSheet from '@/Components/Clinical/PaperSheet.vue';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
+import { labUrl } from '@/utilities/labUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -28,7 +29,7 @@ const patient = computed(() => props.labRequest.patient);
             <PaperSheet
                 :page-title="`Bon d’envoi · ${labRequest.lab_number ?? formatPatientName(patient)}`"
                 document-title="Bon d’envoi au laboratoire extérieur"
-                :back-href="`/laboratory/requests/${labRequest.uuid}`"
+                :back-href="labUrl(`/laboratory/requests/${labRequest.uuid}`)"
                 back-label="Retour à la demande"
                 :show-actions="index === 0"
             >

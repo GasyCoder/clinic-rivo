@@ -18,6 +18,8 @@ import { cn } from '@/lib/cn';
 import { formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
 import { LAB_STATUS_TONES } from '@/utilities/labWorkbench';
+import { labUrl } from '@/utilities/labUrl';
+import LabSiteOnlyAction from '@/Components/Laboratory/LabSiteOnlyAction.vue';
 
 defineOptions({ layout: AppLayout });
 
@@ -54,7 +56,7 @@ const confirmValidateAll = ref(false);
 const validatingAll = ref(false);
 const validateAll = () => {
     validatingAll.value = true;
-    router.post(`/laboratory/requests/${props.labRequest.uuid}/validate`, {}, {
+    router.post(labUrl(`/laboratory/requests/${props.labRequest.uuid}/validate`), {}, {
         preserveScroll: true,
         onFinish: () => { validatingAll.value = false; confirmValidateAll.value = false; },
     });
@@ -64,7 +66,7 @@ const validateAll = () => {
 const conclusionForm = useForm({ conclusion: props.labRequest.conclusion ?? '' });
 watch(() => props.labRequest.conclusion, (value) => { conclusionForm.defaults({ conclusion: value ?? '' }); conclusionForm.reset(); });
 const canConclude = computed(() => props.can.validate && props.labRequest.received && !props.labRequest.cancelled && !allValidated.value);
-const saveConclusion = () => conclusionForm.put(`/laboratory/requests/${props.labRequest.uuid}/conclusion`, { preserveScroll: true });
+const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${props.labRequest.uuid}/conclusion`), { preserveScroll: true });
 </script>
 
 <template>
@@ -72,23 +74,25 @@ const saveConclusion = () => conclusionForm.put(`/laboratory/requests/${props.la
 
     <div class="mx-auto w-full max-w-screen-2xl space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
-            <Button :as="Link" href="/laboratory" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
+            <Button :as="Link" :href="labUrl('/laboratory')" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
             <div class="flex flex-wrap items-center gap-2">
-                <Button v-if="can.history" :as="Link" :href="`/laboratory/patients/${labRequest.patient.uuid}/historique`" variant="outline" size="sm">
+                <Button v-if="can.history" :as="Link" :href="labUrl(`/laboratory/patients/${labRequest.patient.uuid}/historique`)" variant="outline" size="sm">
                     <History class="h-4 w-4" /> Historique du patient
                 </Button>
-                <Button v-if="can.microbiology" :as="Link" href="/laboratory/microbiologie" variant="outline" size="sm">
+                <Button v-if="can.microbiology" :as="Link" :href="labUrl('/laboratory/microbiologie')" variant="outline" size="sm">
                     <Microscope class="h-4 w-4" /> Germes & antibiotiques
                 </Button>
-                <Button v-if="anySentOut" :as="Link" :href="`/laboratory/requests/${labRequest.uuid}/bon-envoi`" variant="outline" size="sm">
+                <Button v-if="anySentOut" :as="Link" :href="labUrl(`/laboratory/requests/${labRequest.uuid}/bon-envoi`)" variant="outline" size="sm">
                     <FileText class="h-4 w-4" /> Bon d’envoi
                 </Button>
-                <Button v-if="anyRendered" :as="Link" :href="`/laboratory/requests/${labRequest.uuid}/impression`" variant="outline" size="sm">
+                <Button v-if="anyRendered" :as="Link" :href="labUrl(`/laboratory/requests/${labRequest.uuid}/impression`)" variant="outline" size="sm">
                     <Printer class="h-4 w-4" /> Feuille de résultats
                 </Button>
-                <Button v-if="can.validate && toValidate > 1 && !labRequest.cancelled" type="button" size="sm" variant="success" @click="confirmValidateAll = true">
-                    <BadgeCheck class="h-4 w-4" /> Valider les {{ toValidate }} analyses
-                </Button>
+                <LabSiteOnlyAction v-if="(can.validate || can.site_only) && toValidate > 1 && !labRequest.cancelled" :label="`Valider les ${toValidate} analyses`" variant="success">
+                    <Button type="button" size="sm" variant="success" @click="confirmValidateAll = true">
+                        <BadgeCheck class="h-4 w-4" /> Valider les {{ toValidate }} analyses
+                    </Button>
+                </LabSiteOnlyAction>
             </div>
         </div>
 

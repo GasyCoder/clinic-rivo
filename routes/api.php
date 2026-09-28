@@ -44,6 +44,14 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
             ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
             ->group(base_path('routes/pharmacy.php'));
 
+        // ADR-215 — le Laboratoire du site, vu depuis le portail : mêmes routes,
+        // contrôleurs et droits que /laboratory (routes/laboratory.php). Les
+        // gestes cliniques y restent refusés au Super Admin (rivo.site-only).
+        Route::prefix('site-laboratory')
+            ->name('site-laboratory.')
+            ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
+            ->group(base_path('routes/laboratory.php'));
+
         // ADR-211 — les Partenaires du site, gérés aussi depuis le portail :
         // mêmes routes, contrôleurs et droits que /partenaires (routes/partners.php).
         Route::prefix('site-partners')

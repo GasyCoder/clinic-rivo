@@ -14,6 +14,7 @@ import { formatDateTime, formatRelativeTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
 import { LAB_STATE_LABELS, LAB_STATE_TONES, LAB_STATUS_TONES, LAB_VIEWS } from '@/utilities/labWorkbench';
 import { paymentBadge } from '@/utilities/labReception';
+import { labUrl } from '@/utilities/labUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -45,7 +46,7 @@ const tiles = computed(() => LAB_VIEWS.map((view) => ({
 
 const query = ref(props.search);
 let timer = null;
-const visit = ({ view = props.view, q = query.value, externe = props.sentOut } = {}) => router.get('/laboratory', {
+const visit = ({ view = props.view, q = query.value, externe = props.sentOut } = {}) => router.get(labUrl('/laboratory'), {
     view,
     ...(q ? { q } : {}),
     ...(externe ? { externe: 1 } : {}),
@@ -87,16 +88,16 @@ const emptyText = computed(() => ({
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 <Badge variant="outline"><CalendarCheck class="h-3.5 w-3.5" /> {{ counts.validated_today ?? 0 }} validée(s) aujourd’hui</Badge>
-                <Button :as="Link" href="/laboratory/paillasse" variant="outline" size="sm">
+                <Button :as="Link" :href="labUrl('/laboratory/paillasse')" variant="outline" size="sm">
                     <ClipboardList class="h-4 w-4" /> Feuille de paillasse
                 </Button>
-                <Button v-if="can('laboratory_reports.view')" :as="Link" href="/laboratory/rapports" variant="outline" size="sm">
+                <Button v-if="can('laboratory_reports.view')" :as="Link" :href="labUrl('/laboratory/rapports')" variant="outline" size="sm">
                     <BarChart3 class="h-4 w-4" /> Rapports
                 </Button>
-                <Button v-if="can('lab_sample_types.view')" :as="Link" href="/laboratory/prelevements" variant="outline" size="sm">
+                <Button v-if="can('lab_sample_types.view')" :as="Link" :href="labUrl('/laboratory/prelevements')" variant="outline" size="sm">
                     <TestTube class="h-4 w-4" /> Prélèvements & tubes
                 </Button>
-                <Button v-if="can('lab_microbiology.view')" :as="Link" href="/laboratory/microbiologie" variant="outline" size="sm">
+                <Button v-if="can('lab_microbiology.view')" :as="Link" :href="labUrl('/laboratory/microbiologie')" variant="outline" size="sm">
                     <Microscope class="h-4 w-4" /> Germes & antibiotiques
                 </Button>
             </div>
@@ -140,7 +141,7 @@ const emptyText = computed(() => ({
             <ul class="divide-y divide-border">
                 <li v-for="request in requests.data" :key="request.uuid">
                     <Link
-                        :href="`/laboratory/requests/${request.uuid}`"
+                        :href="labUrl(`/laboratory/requests/${request.uuid}`)"
                         class="group grid gap-3 px-4 py-3.5 transition-colors hover:bg-muted/40 focus:outline-none focus-visible:bg-muted/50 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_auto] md:items-center"
                     >
                         <div class="min-w-0">

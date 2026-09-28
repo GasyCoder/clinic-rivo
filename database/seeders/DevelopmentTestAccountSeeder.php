@@ -55,6 +55,17 @@ class DevelopmentTestAccountSeeder extends Seeder
         // s'arrête à la réception, qui porte le prix payé — or il existe
         // justement pour parcourir toute la chaîne (ADR-086, ADR-098).
         'stock.cost.view', 'stock.cost.record',
+        // ADR-213 / ADR-214 — le laboratoire, demandé explicitement le 2026-09-28 :
+        // ces droits sont arrivés par migration, après la création du compte, et
+        // ne l'avaient donc jamais atteint.
+        'laboratory_orders.view', 'laboratory_orders.receive', 'laboratory_orders.send_out',
+        'laboratory_results.view', 'laboratory_results.create', 'laboratory_results.validate',
+        'laboratory_results.flag_critical', 'laboratory_samples.create', 'laboratory_samples.update',
+        'laboratory_reports.view', 'laboratory_reports.export', 'paraclinical_requests.view',
+        'lab_microbiology.view', 'lab_microbiology.create', 'lab_microbiology.update',
+        'lab_microbiology.archive', 'lab_microbiology.restore',
+        'lab_sample_types.view', 'lab_sample_types.create', 'lab_sample_types.update',
+        'lab_sample_types.archive', 'lab_sample_types.restore',
     ];
 
     public function run(): void

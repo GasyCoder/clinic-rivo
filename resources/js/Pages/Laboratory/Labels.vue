@@ -10,6 +10,7 @@ import { ArrowLeft, Printer, Tag, TestTube } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import { formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
+import { labUrl } from '@/utilities/labUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -81,7 +82,7 @@ const printLabels = () => window.print();
 
     <div class="lab-labels mx-auto w-full max-w-screen-lg space-y-4">
         <div class="lab-labels-actions space-y-4">
-            <Button :as="Link" :href="`/laboratory/requests/${labRequest.uuid}`" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> Retour à la demande</Button>
+            <Button :as="Link" :href="labUrl(`/laboratory/requests/${labRequest.uuid}`)" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> Retour à la demande</Button>
 
             <Card class="flex flex-wrap items-start justify-between gap-4 p-4">
                 <div class="flex items-center gap-3">

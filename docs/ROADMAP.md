@@ -473,6 +473,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Feuille de paillasse par discipline, imprimable (ADR-214)
 - [x] Historique des résultats d'un patient, demande par demande (ADR-214)
 - [x] Rapports : activité, délais médians, disciplines, origines, en attente ; export Excel audité (ADR-214)
+- [x] Laboratoire d'un site lisible depuis le portail (file, demandes, résultats, paillasse, historique, rapports) et ses référentiels gérés (prélèvements & tubes, microbiologie), par l'API du site ; gestes cliniques refusés au portail et montrés verrouillés (ADR-215)
 - [ ] Biologiste distinct du technicien, microbiologie pour l'Administration — à décider (ADR-213)
 - [ ] Analyse sans tarif (non facturée) qui retient ou non le prélèvement, Maternité sans séjour exemptée ou non, bornes critiques dans l'Excel du catalogue — à décider (ADR-214)
 
@@ -969,6 +970,7 @@ admin.rivo.mg
 - [x] Pharmacie d'un site lisible depuis le portail (ordonnances, consommables, stock, achats, fournisseurs) : les mêmes écrans et règles que le site, par son API, arrivée sur « Médicaments & stock » (ADR-189)
 - [x] L'administratif de la Pharmacie géré depuis le portail (médicaments, prix de vente, familles, fournisseurs, commandes, factures), signé du Super Admin ; les actes physiques refusés par le site et montrés verrouillés (ADR-189)
 - [ ] Fusionner l'espace « Fournisseurs pharmacie » du portail (ADR-098) avec les écrans du site servis au portail — doublon signalé (ADR-189)
+- [x] Laboratoire d'un site servi au portail : mêmes écrans et règles que le site, choix du site sous Référentiels › Laboratoire des sites, barre des rubriques du site ; réceptionner, prélever, saisir et valider restent au site (ADR-215)
 - [x] Import Excel des fournisseurs avec aperçu ligne par ligne puis écriture tout ou rien, export Excel par site ou tous sites
 - [x] Correction, archivage avec motif (refusé si commande en cours) et restauration d'un fournisseur depuis le portail
 - [x] Dossier fournisseur au portail identique à la clinique (catalogues, commandes, factures, produits et prix)

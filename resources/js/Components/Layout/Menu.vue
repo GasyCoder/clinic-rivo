@@ -16,6 +16,7 @@ import {
     Crown,
     Handshake,
     FileText,
+    FlaskConical,
     GripVertical,
     History,
     MapPin,
@@ -122,6 +123,8 @@ const adminMenu = computed(() => [
     { icon: FileText, text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
     { icon: FileText, text: 'Canevas de documents', link: '/super-admin/workspaces/document-templates', permission: 'document_templates.view' },
     { icon: Activity, text: 'Catalogue des analyses', link: '/super-admin/analyses', permission: 'analysis_catalog.view' },
+    // ADR-215 — le Laboratoire de chaque site, lu par son API ; ses référentiels s'y gèrent.
+    { icon: FlaskConical, text: 'Laboratoire des sites', link: '/super-admin/laboratory', permission: 'laboratory_results.view' },
     { icon: MapPin, text: 'Adresses & localités', link: '/super-admin/addresses', permission: 'address_entries.view' },
     { icon: BedDouble, text: 'Services, chambres & lits', link: '/super-admin/hospital-beds', permission: 'hospital_beds.view' },
     { icon: Crown, text: 'Patients VIP', link: '/super-admin/patient-vip', permission: 'patient_vip.view' },

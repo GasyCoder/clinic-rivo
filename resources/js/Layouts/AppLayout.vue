@@ -9,6 +9,7 @@ import ToastContainer from '@/Components/UI/ToastContainer.vue';
 import PageSkeleton from '@/Components/Layout/PageSkeleton.vue';
 import HrPortalBar from '@/Components/Administration/HrPortalBar.vue';
 import PharmacyPortalBar from '@/Components/Pharmacy/PharmacyPortalBar.vue';
+import LaboratoryPortalBar from '@/Components/Laboratory/LaboratoryPortalBar.vue';
 import MaintenanceBanner from '@/Components/Layout/MaintenanceBanner.vue';
 import { usePageLoading } from '@/composables/usePageLoading';
 
@@ -61,6 +62,7 @@ const sidebarResizing = ref(false);
                     <div v-show="! pageLoading.active">
                         <HrPortalBar v-if="page.props.hrContext" />
                         <PharmacyPortalBar v-if="page.props.pharmacyContext" />
+                        <LaboratoryPortalBar v-if="page.props.laboratoryContext" />
                         <MaintenanceBanner />
                         <slot />
                     </div>

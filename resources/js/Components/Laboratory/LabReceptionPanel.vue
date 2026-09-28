@@ -9,6 +9,8 @@ import RefreshIcon from '@/Components/Shadcn/RefreshIcon.vue';
 import LabSampleLinesEditor from '@/Components/Laboratory/LabSampleLinesEditor.vue';
 import { ClipboardCheck, Hourglass, Info, Lock, ShieldAlert, Siren, Wallet } from 'lucide-vue-next';
 import { PAYMENT_TONES, emptySampleLine, sampleLinesPayload, sampleLinesTubeCount } from '@/utilities/labReception';
+import { labUrl } from '@/utilities/labUrl';
+import LabSiteOnlyAction from '@/Components/Laboratory/LabSiteOnlyAction.vue';
 
 /**
  * ADR-214 — la réception au laboratoire (CDC §14) : le contrôle du règlement,
@@ -34,7 +36,7 @@ const requestError = computed(() => form.errors.request ?? page.props.errors?.re
 const confirmOpen = ref(false);
 const receive = () => form
     .transform((data) => ({ samples: props.can.sample ? sampleLinesPayload(data.samples) : [] }))
-    .post(`/laboratory/requests/${props.labRequest.uuid}/receive`, {
+    .post(labUrl(`/laboratory/requests/${props.labRequest.uuid}/receive`), {
         preserveScroll: true,
         onFinish: () => { confirmOpen.value = false; },
     });
@@ -93,18 +95,20 @@ const refresh = () => {
                 </div>
                 <p v-else class="flex gap-2 text-xs text-muted-foreground"><Lock class="mt-0.5 h-3.5 w-3.5 shrink-0" />Les prélèvements demandent le droit « laboratory_samples.create ».</p>
             </template>
-            <p v-else-if="!can.receive" class="flex gap-2 text-xs text-muted-foreground"><Lock class="mt-0.5 h-3.5 w-3.5 shrink-0" />Réceptionner une demande demande le droit « laboratory_orders.receive ».</p>
+            <p v-else-if="!can.receive && !can.site_only" class="flex gap-2 text-xs text-muted-foreground"><Lock class="mt-0.5 h-3.5 w-3.5 shrink-0" />Réceptionner une demande demande le droit « laboratory_orders.receive ».</p>
 
             <p v-if="requestError" class="flex gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
                 <ShieldAlert class="mt-0.5 h-4 w-4 shrink-0" />{{ requestError }}
             </p>
         </div>
 
-        <footer v-if="can.receive && !labRequest.cancelled" class="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-muted/30 px-4 py-3">
+        <footer v-if="(can.receive || can.site_only) && !labRequest.cancelled" class="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-muted/30 px-4 py-3">
             <span v-if="tubes" class="me-auto text-xs text-muted-foreground">{{ tubes }} tube(s) à étiqueter</span>
-            <Button type="button" :disabled="!payment.cleared || form.processing" @click="confirmOpen = true">
-                <ClipboardCheck class="h-4 w-4" /> Réceptionner la demande
-            </Button>
+            <LabSiteOnlyAction label="Réceptionner la demande" variant="default">
+                <Button type="button" :disabled="!payment.cleared || form.processing" @click="confirmOpen = true">
+                    <ClipboardCheck class="h-4 w-4" /> Réceptionner la demande
+                </Button>
+            </LabSiteOnlyAction>
         </footer>
 
         <ConfirmModal

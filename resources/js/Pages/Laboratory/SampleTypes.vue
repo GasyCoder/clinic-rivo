@@ -17,6 +17,7 @@ import {
     Archive, ArchiveRestore, ArrowLeft, Download, Droplet, FolderTree, Pencil, Plus, Search, TestTube,
 } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
+import { labUrl } from '@/utilities/labUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -59,7 +60,7 @@ const tubeOptions = computed(() => [
     ...props.tubes.filter((tube) => !tube.archived && tube.is_active).map((tube) => ({ value: tube.uuid, label: `${tube.code} — ${tube.name}${tube.cap_color ? ` (${tube.cap_color})` : ''}` })),
 ]);
 
-const setArchives = (value) => router.get('/laboratory/prelevements', value ? { archives: 1 } : {}, { preserveScroll: true, preserveState: true, replace: true });
+const setArchives = (value) => router.get(labUrl('/laboratory/prelevements'), value ? { archives: 1 } : {}, { preserveScroll: true, preserveState: true, replace: true });
 
 // Ajouter / modifier
 const editor = ref({ open: false, kind: 'sample', entry: null });
@@ -85,8 +86,8 @@ const submit = () => {
         ...(entry ? { is_active: data.is_active } : {}),
     }));
     const options = { preserveScroll: true, onSuccess: () => { editor.value.open = false; } };
-    if (entry) form.put(`/laboratory/prelevements/${kind}/${entry.uuid}`, options);
-    else form.post(`/laboratory/prelevements/${kind}`, options);
+    if (entry) form.put(labUrl(`/laboratory/prelevements/${kind}/${entry.uuid}`), options);
+    else form.post(labUrl(`/laboratory/prelevements/${kind}`), options);
 };
 const editorTitle = computed(() => {
     const { kind, entry } = editor.value;
@@ -103,16 +104,16 @@ const openArchive = (kind, entry) => {
     archiveForm.clearErrors();
     archiving.value = { open: true, kind, entry };
 };
-const archive = () => archiveForm.delete(`/laboratory/prelevements/${archiving.value.kind}/${archiving.value.entry.uuid}`, {
+const archive = () => archiveForm.delete(labUrl(`/laboratory/prelevements/${archiving.value.kind}/${archiving.value.entry.uuid}`), {
     preserveScroll: true,
     onSuccess: () => { archiving.value.open = false; },
 });
-const restore = (kind, entry) => router.post(`/laboratory/prelevements/${kind}/${entry.uuid}/restore`, {}, { preserveScroll: true });
+const restore = (kind, entry) => router.post(labUrl(`/laboratory/prelevements/${kind}/${entry.uuid}/restore`), {}, { preserveScroll: true });
 
 const importing = ref(false);
 const importStarter = () => {
     importing.value = true;
-    router.post('/laboratory/prelevements/referentiel-de-depart', {}, { preserveScroll: true, onFinish: () => { importing.value = false; } });
+    router.post(labUrl('/laboratory/prelevements/referentiel-de-depart'), {}, { preserveScroll: true, onFinish: () => { importing.value = false; } });
 };
 const archiveName = computed(() => {
     const { kind, entry } = archiving.value;
@@ -124,7 +125,7 @@ const archiveName = computed(() => {
     <Head title="Prélèvements & tubes" />
 
     <div class="mx-auto w-full max-w-screen-xl space-y-5">
-        <Button :as="Link" href="/laboratory" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
+        <Button :as="Link" :href="labUrl('/laboratory')" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
 
         <header class="flex flex-wrap items-start justify-between gap-4">
             <div class="flex items-center gap-3">

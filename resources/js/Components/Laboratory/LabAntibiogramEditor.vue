@@ -7,6 +7,7 @@ import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { Pill } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import { useAutosave } from '@/composables/useAutosave';
+import { labUrl } from '@/utilities/labUrl';
 
 /**
  * ADR-213 — l'antibiogramme d'un germe identifié : un antibiotique par ligne
@@ -51,7 +52,7 @@ const autosave = useAutosave(form, (options) => form
             .map((line) => ({ antibiotic_uuid: line.antibiotic_uuid, interpretation: line.interpretation, measure: line.measure === '' ? null : line.measure })),
         notes: data.notes,
     }))
-    .put(`/laboratory/items/${props.itemUuid}/antibiograms/${props.antibiogram.uuid}`, options), { enabled: () => !props.disabled });
+    .put(labUrl(`/laboratory/items/${props.itemUuid}/antibiograms/${props.antibiogram.uuid}`), options), { enabled: () => !props.disabled });
 
 const counts = computed(() => ['S', 'I', 'R'].map((value) => ({ value, count: form.lines.filter((line) => line.interpretation === value).length })));
 const TONES = {

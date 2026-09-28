@@ -29,12 +29,6 @@ use App\Http\Controllers\HospitalizationController;
 use App\Http\Controllers\HospitalStayOrderController;
 use App\Http\Controllers\HospitalStaySelectionController;
 use App\Http\Controllers\InvoiceDiscountController;
-use App\Http\Controllers\LabBenchController;
-use App\Http\Controllers\LabMicrobiologyController;
-use App\Http\Controllers\LaboratoryController;
-use App\Http\Controllers\LabReceptionController;
-use App\Http\Controllers\LabReportController;
-use App\Http\Controllers\LabSampleTypeController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
 use App\Http\Controllers\MaternityNewbornController;
@@ -81,6 +75,7 @@ use App\Http\Controllers\SuperAdmin\PharmacySupplierController as SuperAdminPhar
 use App\Http\Controllers\SuperAdmin\ProfessionalEmailController as SuperAdminProfessionalEmailController;
 use App\Http\Controllers\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\SuperAdmin\SiteHumanResourcesController;
+use App\Http\Controllers\SuperAdmin\SiteLaboratoryController;
 use App\Http\Controllers\SuperAdmin\SitePartnersController;
 use App\Http\Controllers\SuperAdmin\SitePharmacyController;
 use App\Http\Controllers\SuperAdmin\StaffAccessController as SuperAdminStaffAccessController;
@@ -469,6 +464,15 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
             ->where('path', '.*')
             ->name('sites.pharmacy')
             ->middleware('can:pharmacy.view');
+        // ADR-215 — le Laboratoire d'un site, vu depuis le portail : les écrans et
+        // les règles de /laboratory, relayés ; les gestes cliniques restent au site.
+        Route::get('/laboratory', [SiteLaboratoryController::class, 'overview'])
+            ->name('laboratory.index')
+            ->middleware('can:laboratory_results.view');
+        Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/sites/{site}/laboratoire/{path?}', SiteLaboratoryController::class)
+            ->where('path', '.*')
+            ->name('sites.laboratory')
+            ->middleware('can:laboratory_results.view');
         // ADR-211 — les Partenaires d'un site, gérés depuis le portail par son API.
         Route::get('/partners', [SitePartnersController::class, 'overview'])
             ->name('partners.index')
@@ -982,46 +986,8 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/medicine/orientations/{episodeOrientation}/medical-referrals/{medicalReferral}/print', [MedicineController::class, 'printMedicalReferral'])->name('medicine.medical-referrals.print')->middleware('can:transfer.request');
     Route::post('/medicine/orientations/{episodeOrientation}/discharge', [MedicineController::class, 'discharge'])->name('medicine.discharge.store')->middleware('can:medical_discharge.create');
 
-    // Laboratoire — minimal, côté suivi/résultat uniquement : la demande
-    // vient de Médecine (CreateLabRequestAction), l'orientation existe déjà.
-    // ADR-213 — la paillasse : file par demande, saisie structurée, validation du biologiste.
-    Route::get('/laboratory', [LaboratoryController::class, 'index'])->name('laboratory.index')->middleware('can:laboratory_results.view');
-    Route::get('/laboratory/requests/{labRequest}', [LaboratoryController::class, 'show'])->name('laboratory.requests.show')->middleware('can:laboratory_results.view');
-    Route::get('/laboratory/requests/{labRequest}/impression', [LaboratoryController::class, 'print'])->name('laboratory.requests.print')->middleware('can:laboratory_results.view');
-    Route::post('/laboratory/requests/{labRequest}/validate', [LaboratoryController::class, 'validateRequest'])->name('laboratory.requests.validate')->middleware('can:laboratory_results.validate');
-    Route::put('/laboratory/items/{labRequestItem}/results', [LaboratoryController::class, 'saveResults'])->name('laboratory.items.results')->middleware('can:laboratory_results.create');
-    Route::put('/laboratory/items/{labRequestItem}/antibiograms/{labAntibiogram}', [LaboratoryController::class, 'saveAntibiogram'])->name('laboratory.items.antibiograms.update')->middleware('can:laboratory_results.create');
-    Route::post('/laboratory/items/{labRequestItem}/complete', [LaboratoryController::class, 'complete'])->name('laboratory.items.complete')->middleware('can:laboratory_results.create');
-    Route::post('/laboratory/items/{labRequestItem}/return', [LaboratoryController::class, 'returnItem'])->name('laboratory.items.return')->middleware('can:laboratory_results.view');
-    Route::post('/laboratory/items/{labRequestItem}/validate', [LaboratoryController::class, 'validateItem'])->name('laboratory.items.validate')->middleware('can:laboratory_results.validate');
-    Route::post('/laboratory/results/{labResult}/critical', [LaboratoryController::class, 'flagCritical'])->name('laboratory.results.critical')->middleware('can:laboratory_results.flag_critical');
-    Route::post('/laboratory/items/{labRequestItem}/result', [LaboratoryController::class, 'recordResult'])->name('laboratory.items.result')->middleware('can:laboratory_results.create');
-    // ADR-214 — réception, prélèvements, envoi extérieur, feuille de paillasse,
-    // historique patient, rapports, référentiel des prélèvements et des tubes.
-    Route::post('/laboratory/requests/{labRequest}/receive', [LabReceptionController::class, 'receive'])->name('laboratory.requests.receive')->middleware('can:laboratory_orders.receive');
-    Route::post('/laboratory/requests/{labRequest}/samples', [LabReceptionController::class, 'storeSamples'])->name('laboratory.requests.samples')->middleware('can:laboratory_samples.create');
-    Route::get('/laboratory/requests/{labRequest}/etiquettes', [LabReceptionController::class, 'labels'])->name('laboratory.requests.labels')->middleware('can:laboratory_results.view');
-    Route::get('/laboratory/requests/{labRequest}/bon-envoi', [LabReceptionController::class, 'sendOutSlip'])->name('laboratory.requests.send-out-slip')->middleware('can:laboratory_results.view');
-    Route::put('/laboratory/requests/{labRequest}/conclusion', [LabReceptionController::class, 'conclusion'])->name('laboratory.requests.conclusion')->middleware('can:laboratory_results.validate');
-    Route::post('/laboratory/samples/{labSample}/reject', [LabReceptionController::class, 'rejectSample'])->name('laboratory.samples.reject')->middleware('can:laboratory_samples.update');
-    Route::post('/laboratory/items/{labRequestItem}/send-out', [LabReceptionController::class, 'sendOut'])->name('laboratory.items.send-out')->middleware('can:laboratory_orders.send_out');
-    Route::post('/laboratory/items/{labRequestItem}/send-out/cancel', [LabReceptionController::class, 'cancelSendOut'])->name('laboratory.items.send-out.cancel')->middleware('can:laboratory_orders.send_out');
-    Route::get('/laboratory/paillasse', [LabBenchController::class, 'worklist'])->name('laboratory.worklist')->middleware('can:laboratory_results.view');
-    Route::get('/laboratory/patients/{patient}/historique', [LabBenchController::class, 'history'])->name('laboratory.patients.history')->middleware('can:laboratory_results.view');
-    Route::get('/laboratory/rapports', [LabReportController::class, 'index'])->name('laboratory.reports')->middleware('can:laboratory_reports.view');
-    Route::get('/laboratory/rapports/export', [LabReportController::class, 'export'])->name('laboratory.reports.export')->middleware('can:laboratory_reports.export');
-    Route::get('/laboratory/prelevements', [LabSampleTypeController::class, 'index'])->name('laboratory.sample-types.index')->middleware('can:lab_sample_types.view');
-    Route::post('/laboratory/prelevements/referentiel-de-depart', [LabSampleTypeController::class, 'importStarter'])->name('laboratory.sample-types.starter')->middleware('can:lab_sample_types.create');
-    Route::post('/laboratory/prelevements/{kind}', [LabSampleTypeController::class, 'store'])->name('laboratory.sample-types.store')->middleware('can:lab_sample_types.create')->whereIn('kind', ['sample', 'tube']);
-    Route::put('/laboratory/prelevements/{kind}/{uuid}', [LabSampleTypeController::class, 'update'])->name('laboratory.sample-types.update')->middleware('can:lab_sample_types.update')->whereIn('kind', ['sample', 'tube']);
-    Route::delete('/laboratory/prelevements/{kind}/{uuid}', [LabSampleTypeController::class, 'archive'])->name('laboratory.sample-types.archive')->middleware('can:lab_sample_types.archive')->whereIn('kind', ['sample', 'tube']);
-    Route::post('/laboratory/prelevements/{kind}/{uuid}/restore', [LabSampleTypeController::class, 'restore'])->name('laboratory.sample-types.restore')->middleware('can:lab_sample_types.restore')->whereIn('kind', ['sample', 'tube']);
-    Route::get('/laboratory/microbiologie', [LabMicrobiologyController::class, 'index'])->name('laboratory.microbiology.index')->middleware('can:lab_microbiology.view');
-    Route::post('/laboratory/microbiologie/referentiel-de-depart', [LabMicrobiologyController::class, 'importStarter'])->name('laboratory.microbiology.starter')->middleware('can:lab_microbiology.create');
-    Route::post('/laboratory/microbiologie/{kind}', [LabMicrobiologyController::class, 'store'])->name('laboratory.microbiology.store')->middleware('can:lab_microbiology.create')->whereIn('kind', ['family', 'bacterium', 'antibiotic']);
-    Route::put('/laboratory/microbiologie/{kind}/{uuid}', [LabMicrobiologyController::class, 'update'])->name('laboratory.microbiology.update')->middleware('can:lab_microbiology.update')->whereIn('kind', ['family', 'bacterium', 'antibiotic']);
-    Route::delete('/laboratory/microbiologie/{kind}/{uuid}', [LabMicrobiologyController::class, 'archive'])->name('laboratory.microbiology.archive')->middleware('can:lab_microbiology.archive')->whereIn('kind', ['family', 'bacterium', 'antibiotic']);
-    Route::post('/laboratory/microbiologie/{kind}/{uuid}/restore', [LabMicrobiologyController::class, 'restore'])->name('laboratory.microbiology.restore')->middleware('can:lab_microbiology.restore')->whereIn('kind', ['family', 'bacterium', 'antibiotic']);
+    // ADR-213 / ADR-214 / ADR-215 — le Laboratoire, partagé avec l'API du portail (routes/laboratory.php).
+    Route::prefix('laboratory')->name('laboratory.')->group(base_path('routes/laboratory.php'));
 
     // Espace anesthésiste autonome. Il partage les mêmes dossiers cliniques
     // avec Chirurgie mais n'accorde jamais implicitement surgery.view.

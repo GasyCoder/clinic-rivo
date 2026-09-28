@@ -20604,3 +20604,96 @@ Excel du catalogue     l'import et l'export des analyses ne portent pas les born
 biologiste             validate reste accordé à tout le rôle LABORATORY (ADR-213)
 ```
 
+
+---
+
+# ADR-215 — Le Super Admin lit le Laboratoire d'un site depuis le portail, et en gère les référentiels
+
+**Status:** ACCEPTED (2026-09-28 — demande du propriétaire : le Laboratoire d'un site visible depuis le
+portail, comme la Pharmacie ; même arbitrage que l'ADR-189 : tout voir, gérer ce qui n'est pas un geste
+fait sur le prélèvement)
+
+**Étend au Laboratoire le mécanisme des ADR-187 et ADR-189** (un espace d'un site servi au portail par son
+API) et **complète les ADR-213 et ADR-214**. Le CDC §18 donne au Super Admin un accès global et §2 dit que le
+portail « consulte et administre » les sites par API. Aucune règle du Laboratoire ne change.
+
+## Le constat
+
+« Établissements › site › Laboratoire » ne menait qu'à une vitrine (description et rubriques en texte). Le
+portail avait le catalogue des analyses (ADR-063), mais aucune demande, aucun résultat, aucun rapport ni aucun
+référentiel de prélèvement ou de microbiologie d'un site n'y était lisible.
+
+## L'arbitrage
+
+```text
+visible depuis le portail   la file, chaque demande et ses résultats, la feuille de résultats, les
+                            étiquettes, le bon d'envoi, la feuille de paillasse, l'historique d'un
+                            patient, les rapports et leur export
+géré depuis le portail      les référentiels du site : types de prélèvement et tubes (ADR-214),
+                            familles, germes et antibiotiques (ADR-213), référentiels de départ compris
+reste au site               tout geste fait sur une demande, par la personne qui a le prélèvement
+                            sous les yeux
+```
+
+## Un seul jeu de routes, servi deux fois
+
+`routes/laboratory.php` porte les routes du Laboratoire une seule fois :
+
+```text
+/laboratory/...                               le site, pour ses comptes (noms laboratory.* inchangés)
+/api/v1/super-admin/site-laboratory/...       la même, pour le portail, derrière le jeton du site
+                                              (rivo.remote-actor + rivo.hr-screens, ADR-187)
+/super-admin/sites/{site}/laboratoire/...     le relais du portail (SiteLaboratoryController,
+                                              SiteLaboratoryGateway, laboratory_results.view)
+/super-admin/laboratory                       le choix du site (Référentiels › Laboratoire des sites)
+```
+
+Le portail transmet la requête à l'API du site et affiche **la même page Vue** ; seuls les écrans
+`Laboratory/*` y sont acceptés. Jamais d'accès à la base du site (ADR-004, ADR-027). Un ancien lien
+`?module=LABORATORY` mène à ces écrans, comme les RH et la Pharmacie.
+
+## Les gestes cliniques restent au site, et le site le garantit
+
+Le middleware `rivo.site-only:laboratory` (`KeepPhysicalActsAtSite`, qui reçoit désormais un contexte et son
+message) refuse au Super Admin distant, avec un 403 qui dit pourquoi :
+
+```text
+réceptionner une demande, enregistrer un prélèvement, le déclarer non conforme
+saisir un résultat (structuré, antibiogramme, saisie en un bloc)
+terminer une analyse, la valider, valider toute la demande, la renvoyer à refaire
+signaler un résultat critique, conclure la demande
+confier une analyse à l'extérieur, ou l'annuler
+```
+
+Le refus vaut **même avec la permission** : c'est une règle de lieu, pas de droit. `LaboratoryController::show`
+sert au portail `can.site_only = true` et chaque droit de geste à `false` ; l'écran montre alors les gestes
+**verrouillés avec leur raison** (`LabSiteOnlyAction` : réceptionner, ajouter un prélèvement, valider les N
+analyses, terminer ou valider une analyse), jamais masqués (ADR-158), et la saisie se lit en lecture seule en
+disant pourquoi. Sur le site, les boutons sont rendus tels quels et le technicien garde exactement ses écrans.
+
+## Qui a fait quoi
+
+Le Super Admin agit comme `RemoteSuperAdmin` (ADR-187), sans compte local : une colonne auteur d'un
+référentiel reste vide, et l'audit porte son UUID et son nom. Aucun utilisateur n'est créé sur le site.
+
+## Côté écran
+
+Chaque adresse d'un écran du Laboratoire passe par `labUrl()` (`utilities/labUrl.js`, `utilities/labPath.js`) :
+inchangée sur le site, ramenée à `/super-admin/sites/{site}/laboratoire` sur le portail, qui fournit
+`laboratoryContext`. `LaboratoryPortalBar` reprend les rubriques du menu Laboratoire du site avec leurs droits
+(`labSections`, lues sur le groupe `laboratory-space` du menu), dit de quel site on lit le Laboratoire, permet
+de passer aux autres et rappelle que les gestes cliniques restent au site.
+
+## Ce qui ne change pas
+
+Les permissions de chaque écran et de chaque geste, revérifiées par le site ; le Laboratoire n'encaisse rien et
+n'affiche aucun montant (ADR-014) ; le catalogue des analyses reste un écran propre au portail (ADR-063). Aucune
+permission nouvelle, aucune migration. Le compte de test local reçoit les droits du Laboratoire, arrivés par
+migration après sa création (ADR-086).
+
+## Signalé, non tranché
+
+- Un biologiste qui validerait à distance depuis le portail : non prévu, la validation reste un geste du site.
+- Le middleware `rivo.hr-screens` sert désormais les RH, la Pharmacie, les Partenaires et le Laboratoire : son
+  nom ne dit plus tout ce qu'il fait (déjà signalé, ADR-189).
+- La réserve de l'ADR-186 sur la taille de l'en-tête des droits transmis vaut ici aussi.

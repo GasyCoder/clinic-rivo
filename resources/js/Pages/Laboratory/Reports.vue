@@ -12,6 +12,7 @@ import {
 } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import { formatDate, localToday, toLocalDateInput } from '@/utilities/date';
+import { labUrl } from '@/utilities/labUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -29,7 +30,7 @@ const props = defineProps({
 
 const from = ref(props.report.period.from);
 const to = ref(props.report.period.to);
-const visit = (range) => router.get('/laboratory/rapports', { du: range.from, au: range.to }, { preserveScroll: true, preserveState: true, replace: true });
+const visit = (range) => router.get(labUrl('/laboratory/rapports'), { du: range.from, au: range.to }, { preserveScroll: true, preserveState: true, replace: true });
 const apply = () => visit({ from: from.value, to: to.value });
 
 const daysBack = (days) => {
@@ -55,7 +56,7 @@ const isPreset = (preset) => {
     return range.from === props.report.period.from && range.to === props.report.period.to;
 };
 
-const exportUrl = computed(() => `/laboratory/rapports/export?du=${props.report.period.from}&au=${props.report.period.to}`);
+const exportUrl = computed(() => labUrl(`/laboratory/rapports/export?du=${props.report.period.from}&au=${props.report.period.to}`));
 const totals = computed(() => props.report.totals ?? {});
 const number = (value) => new Intl.NumberFormat('fr-FR').format(value ?? 0);
 const hours = (value) => {
@@ -89,9 +90,9 @@ const delays = computed(() => [
 ]);
 
 const backlog = computed(() => [
-    { key: 'to_receive', label: 'À réceptionner', value: totals.value.backlog_to_receive, href: '/laboratory?view=to_receive', icon: Inbox },
-    { key: 'open', label: 'À analyser', value: totals.value.backlog_open, href: '/laboratory?view=to_do', icon: Hourglass },
-    { key: 'to_validate', label: 'À valider', value: totals.value.backlog_to_validate, href: '/laboratory?view=to_validate', icon: BadgeCheck },
+    { key: 'to_receive', label: 'À réceptionner', value: totals.value.backlog_to_receive, href: labUrl('/laboratory?view=to_receive'), icon: Inbox },
+    { key: 'open', label: 'À analyser', value: totals.value.backlog_open, href: labUrl('/laboratory?view=to_do'), icon: Hourglass },
+    { key: 'to_validate', label: 'À valider', value: totals.value.backlog_to_validate, href: labUrl('/laboratory?view=to_validate'), icon: BadgeCheck },
 ]);
 
 const periodLabel = computed(() => `Du ${formatDate(props.report.period.from)} au ${formatDate(props.report.period.to)} · ${props.report.period.days} jour(s)`);
@@ -101,7 +102,7 @@ const periodLabel = computed(() => `Du ${formatDate(props.report.period.from)} a
     <Head title="Rapports du laboratoire" />
 
     <div class="mx-auto w-full max-w-screen-2xl space-y-5">
-        <Button :as="Link" href="/laboratory" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
+        <Button :as="Link" :href="labUrl('/laboratory')" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
 
         <header class="flex flex-wrap items-start justify-between gap-4">
             <div class="flex items-center gap-3">

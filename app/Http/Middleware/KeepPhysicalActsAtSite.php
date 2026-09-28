@@ -21,10 +21,16 @@ class KeepPhysicalActsAtSite
 {
     public const MESSAGE = 'Ce geste se fait à la Pharmacie du site, par la personne qui a les produits en main : le portail le consulte, il ne le fait pas.';
 
-    public function handle(Request $request, Closure $next): Response
+    /**
+     * ADR-215 — le Laboratoire : réceptionner, prélever, saisir, valider se font
+     * au laboratoire du site, par la personne qui a le tube sous les yeux.
+     */
+    public const LABORATORY_MESSAGE = 'Ce geste se fait au laboratoire du site, par la personne qui a le prélèvement sous les yeux : le portail le consulte, il ne le fait pas.';
+
+    public function handle(Request $request, Closure $next, ?string $context = null): Response
     {
         if ($request->user() instanceof RemoteSuperAdmin) {
-            return new JsonResponse(['message' => self::MESSAGE], 403);
+            return new JsonResponse(['message' => $context === 'laboratory' ? self::LABORATORY_MESSAGE : self::MESSAGE], 403);
         }
 
         return $next($request);

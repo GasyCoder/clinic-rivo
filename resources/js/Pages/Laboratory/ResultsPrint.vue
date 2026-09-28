@@ -5,6 +5,7 @@ import PaperSheet from '@/Components/Clinical/PaperSheet.vue';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
 import { INTERPRETATION_LABELS, resultText } from '@/utilities/labWorkbench';
+import { labUrl } from '@/utilities/labUrl';
 
 /**
  * ADR-213 / ADR-214 — la feuille de résultats : seules les analyses rendues
@@ -33,7 +34,7 @@ const rows = (item) => (item.nodes ?? []).filter((node) => !node.takes_result ||
     <PaperSheet
         :page-title="`Résultats · ${formatPatientName(patient)}`"
         document-title="Résultats d’analyses de laboratoire"
-        :back-href="`/laboratory/requests/${labRequest.uuid}`"
+        :back-href="labUrl(`/laboratory/requests/${labRequest.uuid}`)"
         back-label="Retour à la saisie"
     >
         <table class="ps-table">

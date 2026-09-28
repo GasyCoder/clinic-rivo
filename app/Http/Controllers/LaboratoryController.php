@@ -19,6 +19,7 @@ use App\Models\LabResult;
 use App\Models\LabSample;
 use App\Models\LabSampleType;
 use App\Models\LabTubeType;
+use App\Models\RemoteSuperAdmin;
 use App\Services\Laboratory\LabPaymentClearance;
 use App\Services\Laboratory\LabQueue;
 use App\Services\Laboratory\LabRequestPresenter;
@@ -130,7 +131,11 @@ class LaboratoryController extends Controller
         $items = $labRequest->items->sortBy('id')->map(fn (LabRequestItem $item) => $workbench->present($item))->values();
         $needsCulture = $items->contains(fn (array $item) => collect($item['nodes'])->contains('entry_mode', 'CULTURE'));
         $received = $labRequest->received_at !== null;
-        $canSample = $user->can('laboratory_samples.create');
+        // ADR-215 — sur le portail, les gestes cliniques restent au site : ils
+        // sont refusés par `rivo.site-only`, et l'écran les montre verrouillés.
+        $atSite = ! $user instanceof RemoteSuperAdmin;
+        $gesture = fn (string $permission): bool => $atSite && $user->can($permission);
+        $canSample = $gesture('laboratory_samples.create');
 
         return Inertia::render('Laboratory/Show', [
             'labRequest' => $presenter->header($labRequest),
@@ -138,20 +143,21 @@ class LaboratoryController extends Controller
             'samples' => $presenter->samples($labRequest),
             // ADR-214 — le contrôle du règlement ne sert qu'avant la réception.
             'payment' => $received ? null : $clearance->for($labRequest),
-            'sampleOptions' => ($canSample || $user->can('laboratory_orders.receive')) && ! $labRequest->cancelled_at ? $this->sampleOptions() : null,
-            'externalLabs' => $user->can('laboratory_orders.send_out') ? $this->externalLabs() : [],
+            'sampleOptions' => ($canSample || $gesture('laboratory_orders.receive')) && ! $labRequest->cancelled_at ? $this->sampleOptions() : null,
+            'externalLabs' => $gesture('laboratory_orders.send_out') ? $this->externalLabs() : [],
             'microbiology' => $needsCulture ? $workbench->microbiology() : [],
             'options' => LabEntryOptions::forScreen(),
             'can' => [
-                'enter' => $user->can('laboratory_results.create'),
-                'validate' => $user->can('laboratory_results.validate'),
-                'flag_critical' => $user->can('laboratory_results.flag_critical'),
+                'enter' => $gesture('laboratory_results.create'),
+                'validate' => $gesture('laboratory_results.validate'),
+                'flag_critical' => $gesture('laboratory_results.flag_critical'),
                 'microbiology' => $user->can('lab_microbiology.view'),
-                'receive' => $user->can('laboratory_orders.receive'),
+                'receive' => $gesture('laboratory_orders.receive'),
                 'sample' => $canSample,
-                'reject_sample' => $user->can('laboratory_samples.update'),
-                'send_out' => $user->can('laboratory_orders.send_out'),
+                'reject_sample' => $gesture('laboratory_samples.update'),
+                'send_out' => $gesture('laboratory_orders.send_out'),
                 'history' => $user->can('laboratory_results.view'),
+                'site_only' => ! $atSite,
             ],
         ]);
     }

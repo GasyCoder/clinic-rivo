@@ -10,6 +10,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, History, Search, Siren } from 'lucide-vu
 import { cn } from '@/lib/cn';
 import { formatDate } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
+import { labUrl } from '@/utilities/labUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -54,7 +55,7 @@ const identity = computed(() => [
     <Head :title="`Historique · ${formatPatientName(patient)}`" />
 
     <div class="mx-auto w-full max-w-screen-2xl space-y-4">
-        <Button :as="Link" href="/laboratory" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
+        <Button :as="Link" :href="labUrl('/laboratory')" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
 
         <header class="flex flex-wrap items-start justify-between gap-4">
             <div class="flex items-center gap-3">
@@ -89,7 +90,7 @@ const identity = computed(() => [
                             <th class="sticky left-0 z-10 min-w-[15rem] bg-muted px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Analyse</th>
                             <th class="min-w-[9rem] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Référence</th>
                             <th v-for="column in columns" :key="column.request_uuid" class="px-3 py-2 text-xs">
-                                <Link :href="`/laboratory/requests/${column.request_uuid}`" class="block font-semibold text-foreground hover:text-primary hover:underline">{{ formatDate(column.date) }}</Link>
+                                <Link :href="labUrl(`/laboratory/requests/${column.request_uuid}`)" class="block font-semibold text-foreground hover:text-primary hover:underline">{{ formatDate(column.date) }}</Link>
                                 <span class="font-mono text-[10px] font-normal text-muted-foreground">{{ column.lab_number }}</span>
                             </th>
                         </tr>

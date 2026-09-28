@@ -12,6 +12,8 @@ import TubeChip from '@/Components/Laboratory/TubeChip.vue';
 import { Ban, Plus, Printer, TestTubes } from 'lucide-vue-next';
 import { formatDateTime } from '@/utilities/date';
 import { emptySampleLine, sampleLinesPayload, sampleLinesTubeCount } from '@/utilities/labReception';
+import { labUrl } from '@/utilities/labUrl';
+import LabSiteOnlyAction from '@/Components/Laboratory/LabSiteOnlyAction.vue';
 
 /**
  * ADR-214 — les prélèvements d'une demande reçue : chaque tube, son
@@ -38,16 +40,16 @@ const openAdd = () => {
 const tubes = computed(() => sampleLinesTubeCount(addForm.samples));
 const add = () => addForm
     .transform((data) => ({ samples: sampleLinesPayload(data.samples) }))
-    .post(`/laboratory/requests/${props.labRequest.uuid}/samples`, { preserveScroll: true, onSuccess: () => { addOpen.value = false; } });
+    .post(labUrl(`/laboratory/requests/${props.labRequest.uuid}/samples`), { preserveScroll: true, onSuccess: () => { addOpen.value = false; } });
 
 const rejecting = ref(null);
 const rejectForm = useForm({ reason: '' });
 const openReject = (sample) => { rejecting.value = sample; rejectForm.reset(); rejectForm.clearErrors(); };
-const reject = () => rejectForm.post(`/laboratory/samples/${rejecting.value.uuid}/reject`, {
+const reject = () => rejectForm.post(labUrl(`/laboratory/samples/${rejecting.value.uuid}/reject`), {
     preserveScroll: true,
     onSuccess: () => { rejecting.value = null; },
 });
-const labelsHref = (sample = null) => `/laboratory/requests/${props.labRequest.uuid}/etiquettes${sample ? `?samples[]=${sample.uuid}` : ''}`;
+const labelsHref = (sample = null) => labUrl(`/laboratory/requests/${props.labRequest.uuid}/etiquettes`) + (sample ? `?samples[]=${sample.uuid}` : '');
 </script>
 
 <template>
@@ -56,7 +58,9 @@ const labelsHref = (sample = null) => `/laboratory/requests/${props.labRequest.u
             <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><TestTubes class="h-3.5 w-3.5" /> Prélèvements · {{ active.length }}</p>
             <div class="flex gap-1">
                 <Button v-if="active.length" :as="Link" :href="labelsHref()" size="xs" variant="outline"><Printer class="h-3.5 w-3.5" /> Étiquettes</Button>
-                <Button v-if="can.sample && sampleOptions && !labRequest.cancelled" type="button" size="xs" variant="outline" @click="openAdd"><Plus class="h-3.5 w-3.5" /> Ajouter</Button>
+                <LabSiteOnlyAction v-if="(can.sample && sampleOptions || can.site_only) && !labRequest.cancelled" label="Ajouter" size="xs">
+                    <Button type="button" size="xs" variant="outline" @click="openAdd"><Plus class="h-3.5 w-3.5" /> Ajouter</Button>
+                </LabSiteOnlyAction>
             </div>
         </header>
         <ul v-if="samples.length" class="max-h-[40vh] divide-y divide-border overflow-y-auto">

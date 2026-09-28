@@ -4,6 +4,7 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AnalysisCatalog;
+use App\Services\Laboratory\AnalysisCatalogDirectory;
 use App\Services\Laboratory\AnalysisCatalogImportService;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use App\Services\SuperAdmin\PortalSiteApiClient;
@@ -30,7 +31,8 @@ class AnalysisCatalogController extends Controller
         $site = mb_strtoupper(trim((string) ($filters['site'] ?? '')));
         $siteCodes = collect(config('rivo.clinics', []))->pluck('code')->all();
 
-        return Inertia::render('SuperAdmin/Analyses/Index', [
+        return Inertia::render('Analyses/Index', [
+            'context' => ['mode' => 'portal'],
             // La prestation se choisit à l'écran, parmi toutes : l'envoyer au site
             // lui ferait servir une liste réduite à elle seule.
             'sites' => $client->analysisCatalogsForAllSites(
@@ -44,7 +46,8 @@ class AnalysisCatalogController extends Controller
 
     public function create(Request $request, string $site, PortalSiteApiClient $client): Response
     {
-        return Inertia::render('SuperAdmin/Analyses/Create', [
+        return Inertia::render('Analyses/Create', [
+            'context' => ['mode' => 'portal'],
             // Never name this prop "site" — HandleInertiaRequests already
             // shares a global "site" prop describing THIS deployment (the
             // portal itself, incl. site.type === 'admin', which Menu.vue
@@ -61,7 +64,8 @@ class AnalysisCatalogController extends Controller
         $detail = $client->analysisDetail($site, $analysis, $request->user());
         abort_unless($detail['ok'], 503, $detail['message'] ?? 'Le site ne répond pas actuellement.');
 
-        return Inertia::render('SuperAdmin/Analyses/Edit', [
+        return Inertia::render('Analyses/Edit', [
+            'context' => ['mode' => 'portal'],
             // See create() above: must not be named "site".
             'clinicSite' => $this->siteMeta($site),
             'analysis' => $detail['data'],
@@ -128,7 +132,7 @@ class AnalysisCatalogController extends Controller
         );
     }
 
-    public function export(Request $request, PortalSiteApiClient $client, ExcelWorkbook $excel): StreamedResponse
+    public function export(Request $request, PortalSiteApiClient $client, ExcelWorkbook $excel, AnalysisCatalogDirectory $directory): StreamedResponse
     {
         $validated = $request->validate([
             'site_code' => $this->siteCodeRules(),
@@ -140,24 +144,7 @@ class AnalysisCatalogController extends Controller
 
         abort_unless($result && $result['ok'], 503, $result['message'] ?? 'Le site ne répond pas actuellement.');
 
-        $rows = collect(data_get($result, 'data.analyses', []))->map(fn (array $item) => [
-            data_get($item, 'catalog_item.code'),
-            $item['code'],
-            $item['level'],
-            data_get($item, 'parent.code'),
-            $item['designation'],
-            $item['description'],
-            $item['result_type'],
-            $item['reference_general'],
-            $item['reference_male'],
-            $item['reference_female'],
-            $item['reference_child_male'],
-            $item['reference_child_female'],
-            $item['unit'],
-            implode('|', $item['predefined_values'] ?? []),
-            $item['display_order'],
-            $item['is_active'] ? 'ACTIVE' : 'INACTIVE',
-        ]);
+        $rows = collect(data_get($result, 'data.analyses', []))->map(fn (array $item) => $directory->exportRow($item));
 
         return $excel->download(
             'catalogue-analyses-'.mb_strtolower($validated['site_code']).'-'.now()->format('Y-m-d-His'),
@@ -173,10 +160,7 @@ class AnalysisCatalogController extends Controller
             'modele-import-catalogue-analyses',
             'Analyses à importer',
             AnalysisCatalogImportService::HEADERS,
-            [
-                ['LAB-NFS', 'NFS-HB', 'CHILD', 'NFS', 'Hémoglobine', '', 'NUMERIC', '', '13–17', '12–16', '', '', 'g/dL', '', 10, 'ACTIVE'],
-                ['LAB-GROUP-RH', 'GROUP-RH', 'NORMAL', '', 'Groupe sanguin et Rhésus', '', 'CHOICE', '', '', '', '', '', '', 'A+|A-|B+|B-|AB+|AB-|O+|O-', 20, 'ACTIVE'],
-            ],
+            AnalysisCatalogDirectory::templateRows(),
         );
     }
 

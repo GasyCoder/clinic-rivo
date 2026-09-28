@@ -44,11 +44,14 @@ import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
 import { buildAnalysisTree, flattenAnalysisTree } from '@/utilities/analysisHierarchy';
 import { tariffsUrl } from '@/utilities/catalogGroups';
+import { analysisCatalogUrls, isPortalContext } from '@/utilities/analysisCatalogUrls';
 
 /**
  * ADR-063 — la structure technique d'une analyse est distincte de sa
- * prestation tarifable. Le portail ne lit jamais une base de site : toutes
- * les données et mutations de cet écran passent par les API des cliniques.
+ * prestation tarifable. Un seul écran pour le site et le portail
+ * (amendement du 2026-09-28) : le site lit sa propre base, le portail ne lit
+ * jamais une base de site — ses données et mutations passent par les API des
+ * cliniques. Le contexte vient du serveur ; les adresses en découlent.
  */
 defineOptions({ layout: AppLayout });
 
@@ -56,7 +59,10 @@ const props = defineProps({
     sites: { type: Array, default: () => [] },
     filters: { type: Object, default: () => ({}) },
     selectedSiteCode: { type: String, default: null },
+    context: { type: Object, default: () => ({ mode: 'portal' }) },
 });
+
+const portal = isPortalContext(props.context);
 
 const { can } = usePermissions();
 const requestedSite = props.sites.find((site) => site.site.code === props.selectedSiteCode)?.site.code;
@@ -70,7 +76,7 @@ const importOpen = ref(false);
 const importInputKey = ref(0);
 const expandedGroups = ref(new Set());
 const viewMode = ref('list');
-const viewStorageKey = 'rivo.view.super-admin-analyses';
+const viewStorageKey = portal ? 'rivo.view.super-admin-analyses' : 'rivo.view.analyses';
 
 // SSR : la première vue reste toujours la liste. La préférence du navigateur
 // s'applique seulement après hydratation pour garder le même HTML serveur/client.
@@ -141,8 +147,15 @@ const reachableSiteOptions = computed(() => props.sites
     .filter((site) => site.ok)
     .map((site) => ({ value: site.site.code, label: site.site.name })));
 const hasFilters = computed(() => Boolean(search.value || catalogItem.value || status.value !== 'ALL'));
-const exportUrl = computed(() => `/super-admin/analyses/export?site_code=${selectedSiteCode.value}&status=${status.value}`);
-const createUrl = computed(() => `/super-admin/analyses/${selectedSiteCode.value}/create`);
+const urls = computed(() => analysisCatalogUrls(props.context, selectedSiteCode.value));
+const exportUrl = computed(() => urls.value.export(status.value));
+const createUrl = computed(() => urls.value.create);
+// Le tarif vit dans « Tarifs & mutuelles » au portail, dans le catalogue
+// clinique sur un site : le même lien, là où chacun le règle.
+const tariffLink = (code) => (portal
+    ? tariffsUrl(selectedSiteCode.value, code)
+    : `/administration/catalog?${new URLSearchParams({ q: code }).toString()}`);
+const tariffPermission = portal ? 'catalog.tariffs.view' : 'catalog.items.view';
 
 const importForm = useForm({ site_code: selectedSiteCode.value, file: null });
 const importError = computed(() => Object.values(importForm.errors)[0] ?? '');
@@ -198,6 +211,7 @@ const toggleAllVisible = () => {
 };
 
 const replaceSiteInUrl = (code) => {
+    if (! portal) return;
     const url = new URL(window.location.href);
     url.searchParams.set('site', code);
     url.searchParams.delete('catalog_item');
@@ -225,10 +239,10 @@ const selectCatalogItem = (value) => {
 };
 const applyFilters = () => {
     expandedGroups.value = new Set();
-    router.get('/super-admin/analyses', {
+    router.get(urls.value.index, {
         q: search.value.trim() || undefined,
         status: status.value,
-        site: selectedSiteCode.value || undefined,
+        site: (portal && selectedSiteCode.value) || undefined,
         catalog_item: catalogItem.value || undefined,
     }, { preserveState: true, preserveScroll: true, replace: true });
 };
@@ -250,7 +264,7 @@ const goToPage = (page) => {
 };
 
 const toggleActive = (analysis) => router.post(
-    `/super-admin/analyses/${selectedSiteCode.value}/${analysis.uuid}/${analysis.is_active ? 'deactivate' : 'activate'}`,
+    urls.value.toggle(analysis.uuid, analysis.is_active),
     {},
     { preserveScroll: true },
 );
@@ -265,7 +279,7 @@ const analysisActions = (analysis) => [
     },
 ].filter(Boolean);
 const onAnalysisAction = (analysis, key) => {
-    if (key === 'edit') router.visit(`/super-admin/analyses/${selectedSiteCode.value}/${analysis.uuid}/edit`);
+    if (key === 'edit') router.visit(urls.value.edit(analysis.uuid));
     if (key === 'toggle') toggleActive(analysis);
 };
 
@@ -283,14 +297,14 @@ const closeImport = (force = false) => {
     importForm.clearErrors();
     importInputKey.value += 1;
 };
-const submitImport = () => importForm.post('/super-admin/analyses/import', {
+const submitImport = () => importForm.transform((data) => (portal ? data : { file: data.file })).post(urls.value.import, {
     forceFormData: true,
     preserveScroll: true,
     onSuccess: () => closeImport(true),
 });
 const onExcel = (key) => {
     if (key === 'export') window.location.assign(exportUrl.value);
-    if (key === 'template') window.location.assign('/super-admin/analyses/import-template');
+    if (key === 'template') window.location.assign(urls.value.template);
     if (key === 'import') openImport();
 };
 </script>
@@ -302,9 +316,11 @@ const onExcel = (key) => {
         <PageHeader
             compact
             tone="slate"
-            eyebrow="Super Administration · Laboratoire"
+            :eyebrow="portal ? 'Super Administration · Laboratoire' : 'Administration · Référentiel clinique'"
             title="Catalogue des analyses"
-            description="Structurez les examens, leurs unités et leurs références pour chaque clinique. Les tarifs restent gérés séparément."
+            :description="portal
+                ? 'Structurez les examens, leurs unités et leurs références pour chaque clinique. Les tarifs restent gérés séparément.'
+                : 'Structurez les examens de ce site, leurs unités et leurs références. Les tarifs restent gérés séparément.'"
             :icon="FlaskConical"
         >
             <template #actions>
@@ -324,7 +340,7 @@ const onExcel = (key) => {
         </PageHeader>
 
         <SettingsSiteSwitcher
-            v-if="sites.length"
+            v-if="portal && sites.length"
             :targets="sites"
             :model-value="selectedSiteCode"
             label="Site du catalogue affiché"
@@ -429,7 +445,7 @@ const onExcel = (key) => {
                         <h3 :class="cn('mt-3 text-base leading-6 text-foreground', analysis.is_bold ? 'font-bold' : 'font-semibold')">{{ analysis.designation }}</h3>
                         <div class="mt-1.5 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                             <span class="truncate">{{ analysis.catalog_item.name }}</span>
-                            <Link v-if="can('catalog.tariffs.view')" :href="tariffsUrl(selectedSiteCode, analysis.catalog_item.code)" class="shrink-0 font-medium text-primary underline-offset-4 hover:underline">Tarif</Link>
+                            <Link v-if="can(tariffPermission)" :href="tariffLink(analysis.catalog_item.code)" class="shrink-0 font-medium text-primary underline-offset-4 hover:underline">Tarif</Link>
                         </div>
 
                         <dl class="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-3 text-xs">
@@ -584,7 +600,7 @@ const onExcel = (key) => {
                                 <p class="truncate text-xs font-semibold text-foreground">{{ analysis.catalog_item.name }}</p>
                                 <div class="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
                                     <code>{{ analysis.catalog_item.code }}</code>
-                                    <Link v-if="can('catalog.tariffs.view')" :href="tariffsUrl(selectedSiteCode, analysis.catalog_item.code)" class="font-medium text-primary underline-offset-4 hover:underline">Voir le tarif</Link>
+                                    <Link v-if="can(tariffPermission)" :href="tariffLink(analysis.catalog_item.code)" class="font-medium text-primary underline-offset-4 hover:underline">Voir le tarif</Link>
                                 </div>
                             </td>
                             <td class="px-3 py-3 align-top text-xs text-muted-foreground">
@@ -621,7 +637,7 @@ const onExcel = (key) => {
             </div>
 
             <footer class="flex flex-col gap-3 border-t border-border px-4 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                <span><strong class="font-medium text-foreground">{{ rangeStart }}–{{ rangeEnd }}</strong> sur {{ analysisTree.length }} analyses principales · {{ orderedAnalyses.length }} lignes au total · via l’API de {{ selectedSite.site.name }}</span>
+                <span><strong class="font-medium text-foreground">{{ rangeStart }}–{{ rangeEnd }}</strong> sur {{ analysisTree.length }} analyses principales · {{ orderedAnalyses.length }} lignes au total<template v-if="portal"> · via l’API de {{ selectedSite.site.name }}</template></span>
                 <div v-if="pageCount > 1" class="flex items-center gap-2">
                     <Button type="button" size="sm" variant="outline" :disabled="pageNumber === 1" @click="goToPage(pageNumber - 1)"><ChevronLeft class="h-4 w-4" />Précédent</Button>
                     <span class="min-w-20 text-center tabular-nums">Page {{ pageNumber }} / {{ pageCount }}</span>
@@ -642,7 +658,7 @@ const onExcel = (key) => {
             </template>
 
             <form id="analysis-import-form" class="space-y-4" @submit.prevent="submitImport">
-                <FormField label="Site destinataire" required :icon="Server">
+                <FormField v-if="portal" label="Site destinataire" required :icon="Server">
                     <Select v-model="importForm.site_code" :options="reachableSiteOptions" placeholder="Choisir une clinique" class="w-full" />
                 </FormField>
                 <FormField label="Fichier Excel" required hint=".xlsx, 1 000 lignes maximum" :error="importError" :icon="FileSpreadsheet">
@@ -650,14 +666,14 @@ const onExcel = (key) => {
                 </FormField>
                 <p class="rounded-lg border border-border bg-muted/35 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
                     Besoin de la structure attendue ?
-                    <a href="/super-admin/analyses/import-template" class="font-semibold text-primary underline-offset-4 hover:underline">Télécharger le modèle Excel</a>.
+                    <a :href="urls.template" class="font-semibold text-primary underline-offset-4 hover:underline">Télécharger le modèle Excel</a>.
                 </p>
             </form>
 
             <template #footer>
                 <Button type="button" variant="outline" :disabled="importForm.processing" @click="closeImport">Annuler</Button>
-                <Button type="submit" form="analysis-import-form" :disabled="importForm.processing || ! importForm.file || ! importForm.site_code">
-                    <Upload class="h-4 w-4" />{{ importForm.processing ? 'Import en cours…' : 'Importer sur le site' }}
+                <Button type="submit" form="analysis-import-form" :disabled="importForm.processing || ! importForm.file || (portal && ! importForm.site_code)">
+                    <Upload class="h-4 w-4" />{{ importForm.processing ? 'Import en cours…' : (portal ? 'Importer sur le site' : 'Importer') }}
                 </Button>
             </template>
         </Dialog>

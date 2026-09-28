@@ -987,6 +987,8 @@ Le Laboratoire peut consulter un statut financier lorsque nécessaire.
 
 Il ne peut jamais créer ou encaisser un paiement.
 
+**Catalogue des analyses : un seul écran** (ADR-063, amendement du 2026-09-28). `Pages/Analyses/{Index,Create,Edit}` et `Components/Analyses/*` servent le site (`/administration/analyses`, `context.mode = site`, un seul site) et le portail (`/super-admin/analyses`, `context.mode = portal`, par l'API de chaque site). `AnalysisCatalogDirectory` porte la lecture (liste, compteurs, options, fiche, ligne d'export) pour le contrôleur du site et l'API ; `utilities/analysisCatalogUrls.js` les adresses. Ne pas recréer de page du catalogue sous `Administration/` ou `SuperAdmin/`.
+
 ---
 
 # Médecine

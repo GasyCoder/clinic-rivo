@@ -62,10 +62,14 @@ class AnalysisCatalogManagementTest extends TestCase
             ->get('/administration/analyses')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->component('Administration/Analyses/Index')
-                ->where('analyses.data.0.code', 'GLYC')
-                ->where('analyses.data.0.unit', 'g/L')
-                ->has('catalogItems', 1));
+                // Le même écran que le portail, pour ce seul site (ADR-063).
+                ->component('Analyses/Index')
+                ->where('context.mode', 'site')
+                ->has('sites', 1)
+                ->where('sites.0.ok', true)
+                ->where('sites.0.data.analyses.0.code', 'GLYC')
+                ->where('sites.0.data.analyses.0.unit', 'g/L')
+                ->has('sites.0.data.catalog_items', 1));
 
         $this->actingAs($actor)
             ->post("/administration/analyses/{$analysis->uuid}/deactivate")

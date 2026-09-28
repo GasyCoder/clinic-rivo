@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildAnalysisTree, flattenAnalysisTree } from '../../resources/js/utilities/analysisHierarchy.js';
 
-const source = fs.readFileSync('resources/js/Pages/SuperAdmin/Analyses/Index.vue', 'utf8');
-const formSource = fs.readFileSync('resources/js/Pages/SuperAdmin/Analyses/AnalysisForm.vue', 'utf8');
-const editSource = fs.readFileSync('resources/js/Pages/SuperAdmin/Analyses/Edit.vue', 'utf8');
+const source = fs.readFileSync('resources/js/Pages/Analyses/Index.vue', 'utf8');
+const formSource = fs.readFileSync('resources/js/Components/Analyses/AnalysisForm.vue', 'utf8');
+const editSource = fs.readFileSync('resources/js/Pages/Analyses/Edit.vue', 'utf8');
 
 test('the super admin analysis catalogue uses the shared shadcn workspace', () => {
     for (const component of ['Badge', 'Button', 'Card', 'Dialog', 'DropdownMenu', 'FormField', 'IconInput', 'Input', 'Select', 'Tabs']) {
@@ -94,8 +94,8 @@ test('remote site, permissions, tariffs and immutable API boundaries are preserv
     assert.match(source, /can\('analysis_catalog\.import'\)/);
     assert.match(source, /analysis_catalog\.deactivate/);
     assert.match(source, /analysis_catalog\.activate/);
-    assert.match(source, /tariffsUrl\(selectedSiteCode, analysis\.catalog_item\.code\)/);
-    assert.match(source, /données et mutations de cet écran passent par les API des cliniques/);
+    assert.match(source, /tariffsUrl\(selectedSiteCode\.value, code\)/);
+    assert.match(source, /ses données et mutations passent par les API des/);
 });
 
 test('Excel actions are grouped and import stays transactional in a dialog', () => {
@@ -103,5 +103,26 @@ test('Excel actions are grouped and import stays transactional in a dialog', () 
     assert.match(source, /title="Importer le catalogue des analyses"/);
     assert.match(source, /Une ligne invalide annule tout l’import/);
     assert.match(source, /forceFormData: true/);
-    assert.match(source, /\/super-admin\/analyses\/import-template/);
+    assert.match(source, /urls\.value\.template/);
+});
+
+test('one screen for site and portal: the context picks the addresses, never a second page', async () => {
+    const { analysisCatalogUrls, isPortalContext } = await import('../../resources/js/utilities/analysisCatalogUrls.js');
+    const portal = analysisCatalogUrls({ mode: 'portal' }, 'A');
+    const site = analysisCatalogUrls({ mode: 'site' }, 'A');
+
+    assert.equal(isPortalContext(undefined), true);
+    assert.equal(portal.edit('u1'), '/super-admin/analyses/A/u1/edit');
+    assert.equal(portal.toggle('u1', true), '/super-admin/analyses/A/u1/deactivate');
+    assert.equal(portal.export('ALL'), '/super-admin/analyses/export?site_code=A&status=ALL');
+    assert.equal(site.edit('u1'), '/administration/analyses/u1/edit');
+    assert.equal(site.update('u1'), '/administration/analyses/u1');
+    assert.equal(site.toggle('u1', false), '/administration/analyses/u1/activate');
+    assert.equal(site.create, '/administration/analyses/create');
+    assert.equal(site.export('ACTIVE'), '/administration/analyses/export?status=ACTIVE');
+
+    assert.equal(fs.existsSync('resources/js/Pages/Administration/Analyses'), false, 'plus de seconde page du catalogue sur le site');
+    assert.equal(fs.existsSync('resources/js/Pages/SuperAdmin/Analyses'), false, 'plus de seconde page du catalogue au portail');
+    assert.match(source, /v-if="portal && sites\.length"/, 'le choix du site n’existe qu’au portail');
+    assert.doesNotMatch(source, /['"`]\/super-admin\/analyses/, 'aucune adresse du portail écrite en dur dans l’écran partagé');
 });

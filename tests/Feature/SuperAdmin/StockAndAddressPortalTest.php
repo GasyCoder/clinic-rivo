@@ -123,7 +123,8 @@ class StockAndAddressPortalTest extends TestCase
         $this->actingAs($this->superAdmin)->get('/super-admin/analyses?status=ALL')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('SuperAdmin/Analyses/Index')
+                ->component('Analyses/Index')
+                ->where('context.mode', 'portal')
                 ->has('sites', 3)
                 ->where('sites.0.data.analyses.0.code', 'GLYC')
                 ->where('filters.status', 'ALL'));

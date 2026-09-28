@@ -6,9 +6,8 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Http\Controllers\Controller;
 use App\Models\AnalysisCatalog;
-use App\Models\CatalogItem;
 use App\Services\Catalog\CatalogActor;
-use App\Services\Laboratory\AnalysisCatalogHierarchy;
+use App\Services\Laboratory\AnalysisCatalogDirectory;
 use App\Services\Laboratory\AnalysisCatalogImportService;
 use App\Services\Laboratory\AnalysisCatalogManager;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -18,82 +17,28 @@ use Illuminate\Validation\Rule;
 
 class AnalysisCatalogController extends Controller
 {
-    public function index(Request $request, AnalysisCatalogHierarchy $hierarchy): JsonResponse
+    public function index(Request $request, AnalysisCatalogDirectory $directory): JsonResponse
     {
         $this->authorizeActor($request, 'analysis_catalog.view');
         $validated = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(['ACTIVE', 'INACTIVE', 'ALL'])],
+            'status' => ['nullable', Rule::in(AnalysisCatalogDirectory::STATUSES)],
             'catalog_item' => ['nullable', 'uuid'],
         ]);
-        $search = str($validated['q'] ?? '')->squish()->toString();
-        $status = $validated['status'] ?? 'ALL';
 
-        $hierarchyMetadata = $hierarchy->metadata();
-        $analyses = AnalysisCatalog::query()
-            ->with(['catalogItem:id,uuid,code,name', 'parent:id,uuid,code,designation'])
-            ->when($status !== 'ALL', fn ($query) => $query->where('is_active', $status === 'ACTIVE'))
-            ->when(filled($validated['catalog_item'] ?? null), fn ($query) => $query
-                ->whereHas('catalogItem', fn ($catalog) => $catalog->where('uuid', $validated['catalog_item'])))
-            ->when($search !== '', fn ($query) => $query->where(fn ($nested) => $nested
-                ->where('code', 'like', "%{$search}%")
-                ->orWhere('designation', 'like', "%{$search}%")
-                ->orWhereHas('catalogItem', fn ($catalog) => $catalog
-                    ->where('code', 'like', "%{$search}%")
-                    ->orWhere('name', 'like', "%{$search}%"))))
-            ->orderBy('catalog_item_id')
-            ->orderBy('display_order')
-            ->orderBy('designation')
-            ->limit(1000)
-            ->get();
-
-        return response()->json([
-            'data' => [
-                'analyses' => $analyses->map(fn (AnalysisCatalog $analysis) => $this->serialize(
-                    $analysis,
-                    $hierarchyMetadata[$analysis->id] ?? ['depth' => 0, 'path' => $analysis->designation],
-                ))->values(),
-                'catalog_items' => $this->laboratoryCatalogItems(),
-                'parents' => $hierarchy->parentOptions(),
-                'levels' => AnalysisCatalog::LEVELS,
-                'result_types' => AnalysisCatalog::RESULT_TYPES,
-                'exam_categories' => AnalysisCatalog::query()
-                    ->whereNotNull('exam_category')
-                    ->distinct()
-                    ->orderBy('exam_category')
-                    ->pluck('exam_category'),
-            ],
-            'meta' => [
-                'site' => ['code' => config('rivo.site.code'), 'name' => config('rivo.site.name')],
-                'summary' => [
-                    'displayed' => $analyses->count(),
-                    'active' => AnalysisCatalog::query()->where('is_active', true)->count(),
-                    'inactive' => AnalysisCatalog::query()->where('is_active', false)->count(),
-                    'services' => count($this->laboratoryCatalogItems()),
-                    'nested_groups' => AnalysisCatalog::query()
-                        ->where('level', AnalysisCatalog::CONTAINER_LEVEL)
-                        ->whereNotNull('parent_id')
-                        ->count(),
-                ],
-            ],
-        ]);
+        return response()->json($directory->listing(
+            $validated['q'] ?? '',
+            $validated['status'] ?? 'ALL',
+            $validated['catalog_item'] ?? null,
+        ));
     }
 
-    public function show(Request $request, string $analysisUuid): JsonResponse
+    public function show(Request $request, string $analysisUuid, AnalysisCatalogDirectory $directory): JsonResponse
     {
         $this->authorizeActor($request, 'analysis_catalog.view');
-        $analysis = AnalysisCatalog::query()->with(['catalogItem', 'parent'])->where('uuid', $analysisUuid)->firstOrFail();
+        $analysis = AnalysisCatalog::query()->where('uuid', $analysisUuid)->firstOrFail();
 
-        return response()->json([
-            'data' => [
-                ...$this->serialize($analysis),
-                'children' => $analysis->children()
-                    ->orderBy('display_order')->orderBy('designation')
-                    ->get()
-                    ->map(fn (AnalysisCatalog $child) => $this->serializeWithChildren($child, 1))
-                    ->values(),
-            ],
-        ]);
+        return response()->json(['data' => $directory->detail($analysis)]);
     }
 
     public function store(Request $request, AnalysisCatalogManager $manager): JsonResponse
@@ -103,7 +48,7 @@ class AnalysisCatalogController extends Controller
 
         return response()->json([
             'message' => "Analyse « {$analysis->designation} » ajoutée sur le site.",
-            'data' => $this->serialize($analysis->load(['catalogItem', 'parent'])),
+            'data' => app(AnalysisCatalogDirectory::class)->serialize($analysis->load(['catalogItem', 'parent'])),
         ], 201);
     }
 
@@ -118,7 +63,7 @@ class AnalysisCatalogController extends Controller
 
         return response()->json([
             'message' => "Analyse « {$analysis->designation} » mise à jour sur le site.",
-            'data' => $this->serialize($analysis),
+            'data' => app(AnalysisCatalogDirectory::class)->serialize($analysis),
         ]);
     }
 
@@ -129,7 +74,7 @@ class AnalysisCatalogController extends Controller
 
         return response()->json([
             'message' => 'Analyse activée sur le site.',
-            'data' => $this->serialize($manager->setActive($analysis, true, $actor)->load(['catalogItem', 'parent'])),
+            'data' => app(AnalysisCatalogDirectory::class)->serialize($manager->setActive($analysis, true, $actor)->load(['catalogItem', 'parent'])),
         ]);
     }
 
@@ -140,7 +85,7 @@ class AnalysisCatalogController extends Controller
 
         return response()->json([
             'message' => 'Analyse désactivée sur le site.',
-            'data' => $this->serialize($manager->setActive($analysis, false, $actor)->load(['catalogItem', 'parent'])),
+            'data' => app(AnalysisCatalogDirectory::class)->serialize($manager->setActive($analysis, false, $actor)->load(['catalogItem', 'parent'])),
         ]);
     }
 
@@ -230,71 +175,6 @@ class AnalysisCatalogController extends Controller
             'children.*.children.*.display_order' => ['nullable', 'integer', 'min:0', 'max:10000'],
             'children.*.children.*.is_active' => ['sometimes', 'boolean'],
             'children.*.children.*.is_bold' => ['sometimes', 'boolean'],
-        ];
-    }
-
-    /** @return array<int, array<string, string>> */
-    private function laboratoryCatalogItems(): array
-    {
-        return CatalogItem::query()
-            ->where('type', CatalogItemType::Service->value)
-            ->where('module', CatalogModule::Laboratory->value)
-            ->orderBy('name')
-            ->get(['uuid', 'code', 'name'])
-            ->map(fn (CatalogItem $item) => ['uuid' => $item->uuid, 'code' => $item->code, 'name' => $item->name])
-            ->all();
-    }
-
-    /**
-     * Serializes a sub-analysis for the inline editor together with its own
-     * children, when it is itself a group — the editor goes exactly one
-     * level deeper than the direct children already listed by show(), so
-     * $remainingDepth is always called with 1 from there.
-     *
-     * @return array<string, mixed>
-     */
-    private function serializeWithChildren(AnalysisCatalog $item, int $remainingDepth): array
-    {
-        return [
-            ...$this->serialize($item),
-            'children' => $remainingDepth > 0 && $item->level === AnalysisCatalog::CONTAINER_LEVEL
-                ? $item->children()
-                    ->orderBy('display_order')->orderBy('designation')
-                    ->get()
-                    ->map(fn (AnalysisCatalog $child) => $this->serializeWithChildren($child, $remainingDepth - 1))
-                    ->values()
-                : [],
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function serialize(AnalysisCatalog $item, ?array $hierarchy = null): array
-    {
-        return [
-            'uuid' => $item->uuid,
-            'code' => $item->code,
-            'level' => $item->level,
-            'designation' => $item->designation,
-            'description' => $item->description,
-            'exam_category' => $item->exam_category,
-            'result_type' => $item->result_type,
-            'reference_general' => $item->reference_general,
-            'reference_male' => $item->reference_male,
-            'reference_female' => $item->reference_female,
-            'reference_child_male' => $item->reference_child_male,
-            'reference_child_female' => $item->reference_child_female,
-            'unit' => $item->unit,
-            'predefined_values' => $item->predefined_values ?? [],
-            'display_order' => $item->display_order,
-            'is_active' => $item->is_active,
-            'is_bold' => $item->is_bold,
-            'catalog_item' => $item->catalogItem,
-            'parent' => $item->parent,
-            'updated_at' => $item->updated_at?->toIso8601String(),
-            'source_system' => $item->source_system,
-            'source_metadata' => $item->source_metadata,
-            'hierarchy_depth' => $hierarchy['depth'] ?? 0,
-            'hierarchy_path' => $hierarchy['path'] ?? $item->designation,
         ];
     }
 

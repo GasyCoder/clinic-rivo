@@ -3040,6 +3040,34 @@ met à jour par code et annule entièrement l’opération si une ligne est
 invalide. Les examens ECG/échographie restent des prestations
 `catalog_items` du module `IMAGING`, distinctes des analyses Laboratoire.
 
+## Amendement du 2026-09-28 — un seul écran pour le site et le portail
+
+Constat du propriétaire : `/administration/analyses` (site, DashWind) et
+`/super-admin/analyses` (portail, shadcn) étaient deux écrans différents pour
+le même catalogue, avec deux formulaires, deux listes et deux sérialisations.
+
+```text
+lecture      App\Services\Laboratory\AnalysisCatalogDirectory : liste, compteurs,
+             options du formulaire, fiche avec ses sous-analyses, ligne d'export —
+             lue par le contrôleur du site ET par l'API que le portail interroge
+pages        Pages/Analyses/{Index,Create,Edit} + Components/Analyses/{AnalysisForm,
+             SubAnalysesEditor}, rendues par les deux contrôleurs avec
+             `context.mode` = site | portal ; les copies Administration/ et
+             SuperAdmin/ sont supprimées
+adresses     utilities/analysisCatalogUrls.js : /administration/analyses/… sur un
+             site, /super-admin/analyses/{site}/… au portail — jamais devinées
+site         un seul site (le sien), sans choix de site ; import sans site
+             destinataire ; lien « Tarif » vers le catalogue clinique
+             (catalog.items.view), le portail garde « Tarifs & mutuelles »
+```
+
+Le site passe à shadcn (ADR-099) et gagne ce que le portail avait déjà :
+arbre par analyse principale, vues liste et grille, pagination, filtre par
+prestation à l'écran, menu Excel. Son statut par défaut devient « Toutes »,
+comme au portail. Le portail ne lit toujours aucune base de site (ADR-004).
+Aucune route, permission ni règle serveur ne change ; l'export du site est
+borné à 1 000 lignes, comme celui du portail.
+
 ---
 
 # ADR-064 — Socle de permissions d’un rôle éditable depuis le portail

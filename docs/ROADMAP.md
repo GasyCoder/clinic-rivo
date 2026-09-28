@@ -452,6 +452,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 # Phase 3 — Laboratoire
 
 - [x] Catalogue analyses structuré, références par profil et import/export Excel
+- [x] Catalogue des analyses : un seul écran partagé par le site et le portail (lecture, formulaire, adresses écrites une fois), plus de doublon DashWind / shadcn (ADR-063, amendement du 2026-09-28)
 - [x] File de paillasse filtrable (à analyser / rendues / toutes) avec cartes compteur ; une demande annulée par le médecin (ADR-079) quitte la file au lieu d'y rester à faire
 - [ ] Demande analyse
 - [ ] Analyse interne

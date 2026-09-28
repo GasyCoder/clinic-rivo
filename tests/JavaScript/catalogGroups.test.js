@@ -118,7 +118,7 @@ test('tarifs et analyses se renvoient l’un à l’autre', () => {
     assert.match(tariffs, /catalogCategories\(/);
     assert.match(tariffs, /analysesUrl\(/);
     assert.match(tariffs, /imaging_modality/);
-    const analyses = read('resources/js/Pages/SuperAdmin/Analyses/Index.vue');
+    const analyses = read('resources/js/Pages/Analyses/Index.vue');
     assert.match(analyses, /tariffsUrl\(/);
     assert.match(analyses, /filters\.catalog_item/);
 });

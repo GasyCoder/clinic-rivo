@@ -54,13 +54,8 @@ const requiredLabels = {
     designation: 'La désignation', result_type: 'Le type de résultat',
 };
 
-// Editing an existing analysis: every step already holds saved data, so all
-// steps are reachable and « Mettre à jour » is offered from any step — a
-// change made in step 1 never forces a walk through steps 2 to 5.
-const isEditing = computed(() => Boolean(props.analysisUuid));
-
 const currentStep = ref(1);
-const maxStepReached = ref(isEditing.value ? steps.length : 1);
+const maxStepReached = ref(1);
 const currentMeta = computed(() => steps[currentStep.value - 1]);
 const progress = computed(() => `${Math.round((currentStep.value / steps.length) * 100)}%`);
 
@@ -105,9 +100,9 @@ const goToStep = (step) => {
     currentStep.value = step;
     scrollToWizard();
 };
-const validateStep = (step) => {
+const validateCurrentStep = () => {
     let valid = true;
-    (requiredByStep.value[step] ?? []).forEach((field) => {
+    (requiredByStep.value[currentStep.value] ?? []).forEach((field) => {
         if (String(props.form[field] ?? '').trim() === '') {
             props.form.setError(field, `${requiredLabels[field]} est obligatoire avant de continuer.`);
             valid = false;
@@ -117,7 +112,6 @@ const validateStep = (step) => {
     });
     return valid;
 };
-const validateCurrentStep = () => validateStep(currentStep.value);
 const nextStep = () => {
     if (!validateCurrentStep()) return;
     currentStep.value = Math.min(steps.length, currentStep.value + 1);
@@ -134,21 +128,7 @@ const editStep = (step) => {
     scrollToWizard();
 };
 const submitForm = () => props.form.transform(payload)[props.submitMethod](props.submitUrl, { preserveScroll: true });
-// Updating from any step: a required field left empty on another step sends
-// the user there instead of letting the server bounce the whole form back.
-const update = () => {
-    const invalidStep = Object.keys(requiredByStep.value).map(Number).find((step) => !validateStep(step));
-    if (invalidStep) {
-        currentStep.value = invalidStep;
-        scrollToWizard();
-        return;
-    }
-    submitForm();
-};
-const submit = () => {
-    if (isEditing.value) return update();
-    return currentStep.value < steps.length ? nextStep() : submitForm();
-};
+const submit = () => (currentStep.value < steps.length ? nextStep() : submitForm());
 
 watch(
     () => props.form.errors,
@@ -288,8 +268,8 @@ const typeHint = (value) => ({
             <Button :as="Link" :href="cancelHref" size="rg" variant="white-outline">Annuler</Button>
             <div class="flex items-center justify-end gap-2">
                 <Button v-if="currentStep > 1" type="button" size="rg" variant="white-outline" @click="previousStep"><ArrowLeft class="h-4 w-4" />Précédent</Button>
-                <Button v-if="currentStep < steps.length" type="button" size="rg" :variant="isEditing ? 'white-outline' : undefined" @click="nextStep"><span class="me-2">{{ isEditing ? 'Étape suivante' : 'Continuer' }}</span><ArrowRight class="h-4 w-4" /></Button>
-                <Button v-if="isEditing || currentStep === steps.length" size="rg" type="submit" :disabled="form.processing"><Save class="h-4.5 w-4.5" />{{ form.processing ? 'Enregistrement…' : submitLabel }}</Button>
+                <Button v-if="currentStep < steps.length" type="button" size="rg" @click="nextStep"><span class="me-2">Continuer</span><ArrowRight class="h-4 w-4" /></Button>
+                <Button v-else size="rg" type="submit" :disabled="form.processing"><Save class="h-4.5 w-4.5" />{{ form.processing ? 'Enregistrement…' : submitLabel }}</Button>
             </div>
         </footer>
     </form>

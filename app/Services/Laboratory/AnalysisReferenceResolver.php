@@ -34,31 +34,45 @@ class AnalysisReferenceResolver
     /** @return array{value: ?string, profile: string} */
     public function resolve(AnalysisCatalog $analysis, Patient $patient, CarbonInterface $referenceDate): array
     {
-        $age = $patient->birth_date?->diffInYears($referenceDate) ?? $patient->declared_age;
-        $isChild = $age !== null && $age < 18;
-        $isMale = $patient->sex === PatientSex::Male;
-
-        $candidates = match (true) {
-            $isChild && $isMale => [
-                [$analysis->reference_child_male, 'Enfant · garçon'],
-                [$analysis->reference_male, 'Homme'],
-            ],
-            $isChild => [
-                [$analysis->reference_child_female, 'Enfant · fille'],
-                [$analysis->reference_female, 'Femme'],
-            ],
-            $isMale => [[$analysis->reference_male, 'Homme']],
-            default => [[$analysis->reference_female, 'Femme']],
-        };
-
-        $candidates[] = [$analysis->reference_general, 'Générale'];
-
-        foreach ($candidates as [$value, $profile]) {
+        foreach ($this->profiles($patient, $referenceDate) as [$key, $profile]) {
+            $value = $analysis->getAttribute("reference_{$key}");
             if (filled($value)) {
                 return ['value' => $value, 'profile' => $profile];
             }
         }
 
-        return ['value' => null, 'profile' => $isChild ? 'Enfant' : ($isMale ? 'Homme' : 'Femme')];
+        return ['value' => null, 'profile' => $this->fallbackProfile($patient, $referenceDate)];
+    }
+
+    /**
+     * Les profils à essayer pour ce patient, du plus précis au plus général :
+     * enfant (selon le sexe), puis adulte du même sexe, puis la référence
+     * générale. ADR-214 — les bornes critiques suivent le même ordre.
+     *
+     * @return array<int, array{0: string, 1: string}>
+     */
+    public function profiles(Patient $patient, CarbonInterface $referenceDate): array
+    {
+        $age = $patient->birth_date?->diffInYears($referenceDate) ?? $patient->declared_age;
+        $isChild = $age !== null && $age < 18;
+        $isMale = $patient->sex === PatientSex::Male;
+
+        $candidates = match (true) {
+            $isChild && $isMale => [['child_male', 'Enfant · garçon'], ['male', 'Homme']],
+            $isChild => [['child_female', 'Enfant · fille'], ['female', 'Femme']],
+            $isMale => [['male', 'Homme']],
+            default => [['female', 'Femme']],
+        };
+
+        $candidates[] = ['general', 'Générale'];
+
+        return $candidates;
+    }
+
+    private function fallbackProfile(Patient $patient, CarbonInterface $referenceDate): string
+    {
+        $age = $patient->birth_date?->diffInYears($referenceDate) ?? $patient->declared_age;
+
+        return ($age !== null && $age < 18) ? 'Enfant' : ($patient->sex === PatientSex::Male ? 'Homme' : 'Femme');
     }
 }

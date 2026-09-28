@@ -19,6 +19,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'requested_by', 'notes', 'requested_at',
     'cancelled_at', 'cancelled_by', 'cancel_reason',
     'archived_at', 'archived_by',
+    'lab_number', 'received_at', 'received_by', 'payment_exemption',
+    'conclusion', 'conclusion_at', 'conclusion_by',
 ])]
 class LabRequest extends Model
 {
@@ -26,7 +28,10 @@ class LabRequest extends Model
 
     protected function casts(): array
     {
-        return ['requested_at' => 'datetime', 'cancelled_at' => 'datetime', 'archived_at' => 'datetime'];
+        return [
+            'requested_at' => 'datetime', 'cancelled_at' => 'datetime', 'archived_at' => 'datetime',
+            'received_at' => 'datetime', 'conclusion_at' => 'datetime',
+        ];
     }
 
     public function episode(): BelongsTo
@@ -52,6 +57,28 @@ class LabRequest extends Model
     public function items(): HasMany
     {
         return $this->hasMany(LabRequestItem::class);
+    }
+
+    /** ADR-214 — les prélèvements de la demande, dans l'ordre de leurs étiquettes. */
+    public function samples(): HasMany
+    {
+        return $this->hasMany(LabSample::class)->orderBy('sequence');
+    }
+
+    public function receivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_by');
+    }
+
+    public function conclusionBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'conclusion_by');
+    }
+
+    /** ADR-214 — la demande est passée par la réception du laboratoire. */
+    public function isReceived(): bool
+    {
+        return $this->received_at !== null;
     }
 
     /** Display-only, computed from item resolution — never a second persisted flag. */

@@ -23,6 +23,8 @@ trait BuildsLabBench
 {
     private int $patientSequence = 0;
 
+    private int $labSequence = 0;
+
     protected function seedRoles(): void
     {
         $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
@@ -77,11 +79,19 @@ trait BuildsLabBench
         ]);
     }
 
-    protected function labRequest(Episode $episode, EpisodeOrientation $orientation, User $actor, bool $cancelled = false): LabRequest
+    /**
+     * Une demande déjà reçue au laboratoire par défaut (ADR-214) : la plupart des
+     * tests portent sur la paillasse, qui suit la réception. `received: false`
+     * pour une demande qui attend encore sa réception.
+     */
+    protected function labRequest(Episode $episode, EpisodeOrientation $orientation, User $actor, bool $cancelled = false, bool $received = true): LabRequest
     {
+        $this->labSequence++;
+
         return LabRequest::query()->create([
             'episode_id' => $episode->id, 'lab_orientation_id' => $orientation->id,
             'requested_by' => $actor->id, 'requested_at' => now(),
+            ...($received ? ['received_at' => now(), 'received_by' => $actor->id, 'lab_number' => sprintf('A-L26-%05d', 90000 + $this->labSequence)] : []),
             ...($cancelled ? ['cancelled_at' => now(), 'cancelled_by' => $actor->id, 'cancel_reason' => 'Plus nécessaire'] : []),
         ]);
     }

@@ -1,5 +1,7 @@
 import {
     Bug,
+    Droplets,
+    TestTubeDiagonal,
     AtSign,
     Activity,
     Ambulance,
@@ -228,6 +230,9 @@ export const PERMISSION_CATEGORIES = {
     laboratory_results: { label: 'Résultats d’analyses', module: 'laboratory', icon: TestTubes },
     analysis_catalog: { label: 'Catalogue des analyses', module: 'laboratory', icon: FlaskConical },
     lab_microbiology: { label: 'Germes et antibiotiques (microbiologie)', module: 'laboratory', icon: Bug },
+    laboratory_samples: { label: 'Prélèvements et étiquettes', module: 'laboratory', icon: Droplets },
+    laboratory_reports: { label: 'Rapports du laboratoire', module: 'laboratory', icon: ChartPie },
+    lab_sample_types: { label: 'Types de prélèvement et tubes', module: 'laboratory', icon: TestTubeDiagonal },
     imaging_orders: { label: 'Demandes d’imagerie (ECG, échographie)', module: 'laboratory', icon: ScanLine },
     imaging_results: { label: 'Résultats d’imagerie', module: 'laboratory', icon: FileImage },
     imaging_templates: { label: 'Feuilles de compte rendu d’imagerie', module: 'laboratory', icon: LayoutTemplate },

@@ -38,7 +38,7 @@ class CompleteLabItemAction
         }
 
         return DB::transaction(function () use ($item, $actor): LabRequestItem {
-            $locked = LabItemGuard::lockEditable($item);
+            $locked = LabItemGuard::lockWorkable($item);
             $locked->load(['results', 'antibiograms.results']);
 
             $filled = $locked->results->reject->isBlank();

@@ -15,6 +15,7 @@ use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\ImagingRequestItem;
 use App\Models\LabRequest;
+use App\Models\LabRequestItem;
 use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
@@ -248,7 +249,9 @@ class MedicineWizardRenderingTest extends TestCase
             );
 
         $item = LabRequest::query()->sole()->items()->sole();
-        $this->actingAs($this->labTechnician())->post("/laboratory/items/{$item->uuid}/result", [
+        $labTech = $this->labTechnician();
+        $this->receivedAtLaboratory($labTech, $item);
+        $this->actingAs($labTech)->post("/laboratory/items/{$item->uuid}/result", [
             'result_value' => 'Hb 13.2 g/dL',
         ]);
 
@@ -283,7 +286,9 @@ class MedicineWizardRenderingTest extends TestCase
                 ->where('passages.data.0.module.pending_reasons.0', '1 analyse en attente de résultat'));
 
         $item = LabRequest::query()->sole()->items()->sole();
-        $this->actingAs($this->labTechnician())->post("/laboratory/items/{$item->uuid}/result", [
+        $labTech = $this->labTechnician();
+        $this->receivedAtLaboratory($labTech, $item);
+        $this->actingAs($labTech)->post("/laboratory/items/{$item->uuid}/result", [
             'result_value' => 'Hb 13.2 g/dL',
         ]);
 
@@ -349,10 +354,18 @@ class MedicineWizardRenderingTest extends TestCase
         return User::factory()->create(['role_id' => $role->id]);
     }
 
+    /** ADR-214 — rien ne se saisit avant la réception de la demande au laboratoire. */
+    private function receivedAtLaboratory(User $labTech, LabRequestItem $item): void
+    {
+        $this->actingAs($labTech)
+            ->post("/laboratory/requests/{$item->labRequest->uuid}/receive", ['samples' => []])
+            ->assertSessionHasNoErrors();
+    }
+
     private function labTechnician(): User
     {
         $role = Role::query()->firstOrCreate(['code' => 'LABORATORY'], ['name' => 'Laboratoire']);
-        foreach (['laboratory_results.create', 'laboratory_results.view'] as $name) {
+        foreach (['laboratory_results.create', 'laboratory_results.view', 'laboratory_orders.receive'] as $name) {
             $permission = Permission::query()->firstOrCreate(['name' => $name]);
             $role->permissions()->syncWithoutDetaching([$permission->id]);
         }

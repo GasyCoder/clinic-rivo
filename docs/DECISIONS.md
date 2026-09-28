@@ -20342,7 +20342,9 @@ dossier existant      une recommandation oubliée à la première venue ne se ra
 
 **Status:** ACCEPTED (2026-09-28 — demande du propriétaire : intégrer dans RIVO les
 fonctionnalités de son application laboratoire `GasyCoder/labo-vuejs` — résultats,
-analyses, germes, bactéries, antibiogrammes — avec leur UI et UX)
+analyses, germes, bactéries, antibiogrammes — avec leur UI et UX) ; **complétée par
+l'ADR-214** (même jour) : réception et règlement, prélèvements, laboratoires extérieurs,
+bornes critiques, rapports — trois des points « signalés » ci-dessous y sont tranchés.
 
 **Complète l'ADR-063** (catalogue des analyses) et **l'ADR-068** (demandes d'analyses).
 Le CDC décrit le Laboratoire (demande, prélèvement, analyse, saisie, validation, résultat
@@ -20466,3 +20468,139 @@ analyses externes,        non repris
 vérification du paiement
 avant analyse
 ```
+
+---
+
+# ADR-214 — Laboratoire : réception, prélèvements, extérieur, bornes critiques, rapports
+
+**Status:** ACCEPTED (2026-09-28 — demande du propriétaire : « tous les fonctionnalités
+laboratoire » de `GasyCoder/labo-vuejs`, avec quatre arbitrages explicites ci-dessous)
+
+**Complète l'ADR-213** (paillasse) et tranche trois de ses points signalés (prélèvement,
+analyses externes, contrôle du paiement). Le CDC §14 décrit le parcours — demande,
+« Payé ? Non → En attente », prélèvement, analyse, validation, résultat critique,
+impression — et ses droits (`laboratory.orders.receive`, `.samples.create`,
+`.reports.view/export`) sans en fixer le détail ; ce qui suit vient de labo-vuejs et des
+arbitrages du propriétaire.
+
+## Les arbitrages
+
+```text
+règlement     bloquer, sauf exceptions : une analyse à régler à la Caisse retient le
+              prélèvement ; jamais une urgence (ADR-021), un patient hospitalisé
+              (ADR-162) ni une analyse prise en charge à 100 % ; l'état se voit toujours
+prélèvement   suivi sans prix : aucun montant au laboratoire (ADR-014) ; facturer un
+              prélèvement, c'est une prestation du catalogue au tarif du Super Admin (ADR-024)
+critique      bornes réglables par analyse et par profil, signal proposé : au-delà, le
+              résultat est marqué critique d'office ; le laboratoire peut retirer la marque
+extérieur     une analyse confiée à un laboratoire extérieur se suit comme les autres :
+              son résultat est transcrit, signé « réalisée par … », validé par le biologiste
+```
+
+## Réception : numéro de laboratoire et contrôle du règlement
+
+`ReceiveLabRequestAction` (`POST /laboratory/requests/{uuid}/receive`,
+`laboratory_orders.receive`) verrouille la demande, relit le règlement
+(`LabPaymentClearance`, par analyse : SETTLED, NOTHING_DUE, DUE, TO_INVOICE, NOT_BILLED,
+CANCELLED), puis donne le **numéro de laboratoire** `{SITE}-L{aa}-{NNNNN}` (séquence
+annuelle verrouillée, `lab_number_sequences`) et peut enregistrer les prélèvements dans le
+même geste. Refusée — avec le nom des analyses à régler — tant qu'une analyse est DUE ou
+TO_INVOICE, sauf exemption figée sur la demande (`payment_exemption` EMERGENCY /
+HOSPITALIZED) et dans l'audit (`laboratory.request.receive`). Une analyse NOT_BILLED
+(aucun tarif) **ne bloque pas** : il n'y a rien à régler, et l'écran le dit pour que la
+Réception régularise (ADR-103). Le laboratoire n'encaisse rien : il renvoie à la Caisse.
+
+**Rien ne se saisit avant la réception** : `LabItemGuard` refuse l'enregistrement, la fin
+et l'antibiogramme d'une demande non reçue. Les demandes déjà travaillées avant cette
+décision sont réputées reçues à la date de leur premier geste (migration
+`2026_11_17_090000`) ; celles que personne n'a touchées restent à réceptionner.
+
+La file commence par **« À réceptionner »** (vue par défaut quand elle n'est pas vide),
+avec l'état du règlement de chaque demande — jamais un montant. Scanner un tube ou saisir
+un numéro de laboratoire dans la recherche ouvre la demande.
+
+## Prélèvements et étiquettes
+
+`lab_samples` : une ligne par tube, type de prélèvement et tube **figés** (renommer ne
+réécrit aucune étiquette), code-barres `{n° labo}-{rang}` unique. `RecordLabSamplesAction`
+(`laboratory_samples.create`, 1 à 10 tubes par ligne) ; un tube non conforme se déclare
+avec un motif (`RejectLabSampleAction`, `laboratory_samples.update`) et n'est jamais
+supprimé (ADR-010) : il garde sa trace et perd son étiquette. Les étiquettes
+(`/laboratory/requests/{uuid}/etiquettes`) portent patient, type, tube (pastille de la
+couleur du bouchon, jamais seule) et un **Code 128 B** tracé en SVG
+(`utilities/code128.js`, vérifié contre une implémentation de référence), sur rouleau
+50 × 25 mm ou planche A4 de 24.
+
+Référentiel par site (`lab_tube_types`, `lab_sample_types`, `lab_sample_types.*`,
+`/laboratory/prelevements`) : code et nom uniques archives comprises, archivage avec motif,
+restauration, un tube proposé par un type ne s'archive pas, **aucun prix**. Référentiel de
+départ importable (`database/seeders/data/lab_samples.json`), sans rien écraser.
+
+## Laboratoire extérieur
+
+`SendOutLabItemAction` (`laboratory_orders.send_out`) : laboratoire, référence, remarque,
+auteur et date ; « Faire ici » l'annule tant qu'aucun résultat n'est rendu. Une analyse
+confiée à l'extérieur quitte la feuille de paillasse et se suit par un filtre de la file
+(`?externe=1`) et sur son **bon d'envoi** (`/bon-envoi`, une feuille par laboratoire, sans
+montant). Le résultat revenu se transcrit à la paillasse, se valide par le biologiste et
+s'imprime « réalisée par <laboratoire> ».
+
+## Bornes critiques
+
+`analysis_catalogs.critical_ranges` : borne basse et haute par profil (générale, homme,
+femme, enfant garçon, enfant fille — le plus précis l'emporte, comme les références),
+saisies au catalogue (`CriticalRangesField`, `LabCriticalRange::normalize` : nombres,
+basse sous la haute). À l'enregistrement d'une valeur numérique :
+
+```text
+au-delà d'une borne      critique d'office (critical_source AUTO), bornes figées
+                         sur le résultat (critical_snapshot « < 2,5 ou > 6,5 »)
+retiré par le laboratoire  DISMISSED : le signal ne revient pas tant que la valeur
+                         ne change pas
+signalé à la main        MANUAL : jamais retiré par un enregistrement
+revenu entre les bornes  le signal automatique tombe
+```
+
+Sans borne saisie, rien ne change (ADR-213) : aucune valeur critique n'est inventée.
+
+## Conclusion, feuille de paillasse, historique, rapports
+
+```text
+conclusion générale   le biologiste (laboratory_results.validate), imprimée sous tous les résultats
+feuille de paillasse  /laboratory/paillasse : ce qui reste à faire ici, une feuille par
+                      discipline, urgences d'abord, imprimable en paysage avec la place
+                      des résultats ; seules les demandes reçues, jamais l'extérieur
+historique patient    /laboratory/patients/{uuid}/historique : chaque paramètre, ses
+                      valeurs demande par demande (12 dernières), figées à la saisie
+rapports              /laboratory/rapports (laboratory_reports.view) : activité, délais
+                      médians (« — » quand rien n'est mesuré, ADR-102), disciplines,
+                      analyses les plus demandées, origines, ce qui attend ; export Excel
+                      (laboratory_reports.export, audité) ; aucun montant
+```
+
+## Droits
+
+```text
+laboratory_orders.receive / .send_out
+laboratory_samples.create / .update
+laboratory_reports.view / .export
+lab_sample_types.view / .create / .update / .archive / .restore
+```
+
+Accordés au rôle LABORATORY par la migration `2026_11_17_090000` (ADR-064), à jouer sur
+chaque site et sur le portail (le Super Admin les reçoit, ADR-186).
+
+## Signalé, non tranché
+
+```text
+NOT_BILLED             une analyse sans tarif ne retient pas le prélèvement : à confirmer
+Maternité              une patiente suivie en Maternité sans séjour hospitalier n'est pas
+                       exemptée du règlement
+options de labo-vuejs  « urgence » et « à domicile » du prélèvement, prix des prélèvements,
+                       notes du technicien, envoi par SMS ou email, image de marque par
+                       laboratoire, commissions des prescripteurs, journaux de caisse : non
+                       repris (RIVO a sa Caisse, ses paramètres et son audit)
+Excel du catalogue     l'import et l'export des analyses ne portent pas les bornes critiques
+biologiste             validate reste accordé à tout le rôle LABORATORY (ADR-213)
+```
+

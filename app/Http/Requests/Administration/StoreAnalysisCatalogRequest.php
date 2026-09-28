@@ -6,6 +6,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\LabEntryMode;
 use App\Models\AnalysisCatalog;
+use App\Support\Laboratory\LabCriticalRange;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -46,6 +47,7 @@ class StoreAnalysisCatalogRequest extends FormRequest
             'reference_female' => ['nullable', 'string', 'max:255'],
             'reference_child_male' => ['nullable', 'string', 'max:255'],
             'reference_child_female' => ['nullable', 'string', 'max:255'],
+            ...LabCriticalRange::rules(''),
             'unit' => ['nullable', 'string', 'max:60'],
             'predefined_values' => ['nullable', 'array', 'max:30'],
             'predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],
@@ -71,6 +73,7 @@ class StoreAnalysisCatalogRequest extends FormRequest
             'children.*.reference_female' => ['nullable', 'string', 'max:255'],
             'children.*.reference_child_male' => ['nullable', 'string', 'max:255'],
             'children.*.reference_child_female' => ['nullable', 'string', 'max:255'],
+            ...LabCriticalRange::rules('children.*.'),
             'children.*.unit' => ['nullable', 'string', 'max:60'],
             'children.*.predefined_values' => ['nullable', 'array', 'max:30'],
             'children.*.predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],
@@ -95,6 +98,7 @@ class StoreAnalysisCatalogRequest extends FormRequest
             'children.*.children.*.reference_female' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_child_male' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_child_female' => ['nullable', 'string', 'max:255'],
+            ...LabCriticalRange::rules('children.*.children.*.'),
             'children.*.children.*.unit' => ['nullable', 'string', 'max:60'],
             'children.*.children.*.predefined_values' => ['nullable', 'array', 'max:30'],
             'children.*.children.*.predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue';
-import { router, useForm, usePage } from '@inertiajs/vue3';
+import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import ClinicalSaveStatus from '@/Components/Clinical/ClinicalSaveStatus.vue';
 import LabAntibiogramEditor from '@/Components/Laboratory/LabAntibiogramEditor.vue';
 import LabResultField from '@/Components/Laboratory/LabResultField.vue';
@@ -10,10 +10,12 @@ import Card from '@/Components/Shadcn/Card.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
+import Input from '@/Components/Shadcn/Input.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import {
-    AlertTriangle, BadgeCheck, CheckCheck, History, Lock, RotateCcw, Siren, TriangleAlert,
+    AlertTriangle, BadgeCheck, Building2, CheckCheck, ClipboardCheck, FileText, History, Lock, RotateCcw, Send, Siren, TriangleAlert, Undo2,
 } from 'lucide-vue-next';
+import { criticalFlag } from '@/utilities/criticalRanges';
 import { cn } from '@/lib/cn';
 import { useAutosave } from '@/composables/useAutosave';
 import { formatDateTime } from '@/utilities/date';
@@ -33,10 +35,14 @@ const props = defineProps({
     microbiology: { type: Array, default: () => [] },
     can: { type: Object, default: () => ({}) },
     cancelled: { type: Boolean, default: false },
+    // ADR-214 — rien ne se saisit avant la réception de la demande.
+    received: { type: Boolean, default: true },
+    requestUuid: { type: String, default: '' },
+    externalLabs: { type: Array, default: () => [] },
 });
 
 const page = usePage();
-const writable = computed(() => props.item.editable && props.can.enter && !props.cancelled);
+const writable = computed(() => props.item.editable && props.can.enter && !props.cancelled && props.received);
 
 const nodes = computed(() => props.item.nodes ?? []);
 const inputs = computed(() => nodes.value.filter((node) => node.takes_result));
@@ -74,6 +80,26 @@ const setInterpretation = (uuid, value) => {
 const interpretationTone = { NORMAL: 'success', PATHOLOGICAL: 'danger' };
 
 const flagOf = (node) => (node.entry_mode === 'NUMERIC' ? rangeFlag(node.range, entryOf(node.uuid)?.value) : null);
+// ADR-214 — au-delà d'une borne critique du catalogue : marqué critique d'office à l'enregistrement.
+const criticalOf = (node) => (node.entry_mode === 'NUMERIC' ? criticalFlag(node.critical, entryOf(node.uuid)?.value) : null);
+
+// Laboratoire extérieur
+const sendOutOpen = ref(false);
+const sendOutForm = useForm({ laboratory: '', reference: '', notes: '' });
+const openSendOut = () => { sendOutForm.reset(); sendOutForm.clearErrors(); sendOutOpen.value = true; };
+const sendOut = () => sendOutForm.post(`/laboratory/items/${props.item.uuid}/send-out`, {
+    preserveScroll: true,
+    onSuccess: () => { sendOutOpen.value = false; },
+});
+const cancellingSendOut = ref(false);
+const cancelSendOut = () => {
+    cancellingSendOut.value = true;
+    router.post(`/laboratory/items/${props.item.uuid}/send-out/cancel`, {}, { preserveScroll: true, onFinish: () => { cancellingSendOut.value = false; } });
+};
+const canSendOut = computed(() => props.can.send_out && props.item.editable && !props.item.sent_out && !props.cancelled && props.received);
+const canCancelSendOut = computed(() => props.can.send_out && props.item.sent_out && props.item.status === 'PENDING' && !props.cancelled
+    && !(props.item.nodes ?? []).some((node) => node.result));
+const externalListId = computed(() => `external-labs-${props.item.uuid}`);
 
 // Critique : signalé à la main, sur un résultat enregistré.
 const toggleCritical = (node) => {
@@ -140,6 +166,23 @@ const anteriorityText = (node) => {
             <ClinicalSaveStatus v-if="writable && item.has_definitions" :saving="autosave.saving.value" :saved-at="autosave.savedAt.value" :dirty="form.isDirty" :failed="autosave.failed.value" retryable @retry="autosave.retry" />
         </header>
 
+        <!-- ADR-214 — avant la réception, la saisie reste fermée -->
+        <div v-if="!received && !cancelled" class="flex gap-2 border-b border-border bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            <ClipboardCheck class="mt-0.5 h-4 w-4 shrink-0" />
+            <p>Réceptionnez d’abord la demande : c’est la réception qui contrôle le règlement et enregistre les prélèvements.</p>
+        </div>
+        <div v-if="item.sent_out" class="flex flex-wrap items-start justify-between gap-2 border-b border-border bg-sky-50 px-4 py-2.5 text-sm text-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+            <p class="flex gap-2">
+                <Building2 class="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Confiée à <strong>{{ item.sent_out.laboratory }}</strong><template v-if="item.sent_out.at"> le {{ formatDateTime(item.sent_out.at) }}</template><template v-if="item.sent_out.by"> par {{ item.sent_out.by }}</template><template v-if="item.sent_out.reference"> · réf. {{ item.sent_out.reference }}</template>.
+                    Saisissez ici le résultat reçu : le biologiste valide la transcription.</span>
+            </p>
+            <span class="flex gap-1">
+                <Button v-if="requestUuid" :as="Link" :href="`/laboratory/requests/${requestUuid}/bon-envoi`" size="xs" variant="outline"><FileText class="h-3.5 w-3.5" /> Bon d’envoi</Button>
+                <Button v-if="canCancelSendOut" type="button" size="xs" variant="ghost" :disabled="cancellingSendOut" @click="cancelSendOut"><Undo2 class="h-3.5 w-3.5" /> Faire ici</Button>
+            </span>
+        </div>
+
         <!-- Où en est l'analyse -->
         <div v-if="item.status === 'TO_REDO'" class="flex gap-2 border-b border-border bg-destructive/5 px-4 py-2.5 text-sm text-destructive">
             <RotateCcw class="mt-0.5 h-4 w-4 shrink-0" />
@@ -173,11 +216,14 @@ const anteriorityText = (node) => {
                     {{ node.designation }}
                 </p>
 
-                <div v-else class="grid gap-2 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto] lg:items-start">
+                <div v-else class="grid gap-2 lg:grid-cols-[minmax(0,14rem)_minmax(12rem,1fr)_minmax(0,auto)] lg:items-start">
                     <div class="min-w-0">
                         <p :class="cn('text-sm text-foreground', node.is_bold ? 'font-bold' : 'font-medium')">{{ node.designation }}</p>
                         <p v-if="node.reference" class="mt-0.5 text-[11px] text-muted-foreground" :title="node.reference_profile ? `Référence : ${node.reference_profile}` : 'Référence'">
-                            Réf. {{ node.reference }}<template v-if="node.unit && node.entry_mode === 'NUMERIC'"> {{ node.unit }}</template>
+                            Réf. {{ node.reference }}<template v-if="node.unit && node.entry_mode === 'NUMERIC'">&nbsp;{{ node.unit }}</template>
+                        </p>
+                        <p v-if="node.critical" class="mt-0.5 flex items-center gap-1 text-[11px] text-destructive" :title="`Bornes critiques : ${node.critical.profile}`">
+                            <Siren class="h-3 w-3 shrink-0" />Critique {{ node.critical.text }}<template v-if="node.unit">&nbsp;{{ node.unit }}</template>
                         </p>
                         <p v-if="anteriorityText(node)" class="mt-0.5 flex items-start gap-1 text-[11px] text-muted-foreground">
                             <History class="mt-px h-3 w-3 shrink-0" /><span>Antériorité : {{ anteriorityText(node) }}</span>
@@ -195,7 +241,9 @@ const anteriorityText = (node) => {
                         <p v-if="fieldError(node.uuid)" class="text-xs text-destructive">{{ fieldError(node.uuid) }}</p>
                     </div>
 
-                    <div class="flex flex-wrap items-center gap-1.5 lg:justify-end">
+                    <!-- Bornée : repères et interprétation passent à la ligne plutôt que de recouvrir la saisie. -->
+                    <div class="flex flex-wrap items-center gap-1.5 lg:max-w-[20rem] lg:justify-end">
+                        <Badge v-if="criticalOf(node) && !node.result?.is_critical" tone="danger" title="Au-delà d’une borne critique : marqué critique à l’enregistrement"><Siren class="h-3 w-3" /> Valeur critique</Badge>
                         <Badge v-if="flagOf(node) && flagOf(node) !== 'NORMAL'" tone="danger">{{ FLAG_LABELS[flagOf(node)] }}</Badge>
                         <template v-if="node.interpretable">
                             <div v-if="writable" class="inline-flex rounded-lg border border-border p-0.5 text-[11px]" role="radiogroup" :aria-label="`Interprétation de ${node.designation}`">
@@ -230,10 +278,12 @@ const anteriorityText = (node) => {
                             size="xs"
                             :variant="node.result.is_critical ? 'danger' : 'ghost'"
                             :disabled="!can.flag_critical || cancelled"
-                            :title="node.result.is_critical ? 'Retirer le signalement critique' : 'Signaler ce résultat comme critique'"
+                            :title="node.result.is_critical
+                                ? (node.result.critical_source === 'AUTO' ? `Marqué critique d’office (${node.result.critical_snapshot}) — retirer la marque` : 'Retirer le signalement critique')
+                                : (node.result.critical_source === 'DISMISSED' ? 'Marque automatique retirée — la signaler de nouveau' : 'Signaler ce résultat comme critique')"
                             @click="toggleCritical(node)"
                         >
-                            <Siren class="h-3.5 w-3.5" />{{ node.result.is_critical ? 'Critique' : '' }}
+                            <Siren class="h-3.5 w-3.5" />{{ node.result.is_critical ? (node.result.critical_source === 'AUTO' ? 'Critique (auto)' : 'Critique') : '' }}
                         </Button>
                     </div>
 
@@ -284,7 +334,10 @@ const anteriorityText = (node) => {
         </div>
 
         <!-- Gestes -->
-        <footer v-if="!cancelled && (writable && item.has_definitions || (item.status === 'COMPLETED' && can.validate) || canReturn)" class="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-muted/30 px-4 py-3">
+        <footer v-if="!cancelled && (writable && item.has_definitions || (item.status === 'COMPLETED' && can.validate) || canReturn || canSendOut)" class="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-muted/30 px-4 py-3">
+            <Button v-if="canSendOut" type="button" variant="ghost" class="me-auto" @click="openSendOut">
+                <Send class="h-4 w-4" /> Envoyer à un laboratoire extérieur
+            </Button>
             <Button v-if="canReturn" type="button" variant="outline" @click="returnOpen = true">
                 <RotateCcw class="h-4 w-4" /> {{ item.status === 'VALIDATED' ? 'Rouvrir (à refaire)' : 'Renvoyer à refaire' }}
             </Button>
@@ -304,6 +357,25 @@ const anteriorityText = (node) => {
             :processing="completing"
             @confirm="complete"
         />
+
+        <Dialog v-model:open="sendOutOpen" title="Envoyer à un laboratoire extérieur" :description="`« ${item.name} » sera réalisée ailleurs ; son résultat se transcrit ici à réception, puis se valide.`" :dismissible="false">
+            <div class="space-y-4">
+                <FormField label="Laboratoire" :error="sendOutForm.errors.laboratory" required>
+                    <Input v-model="sendOutForm.laboratory" :list="externalListId" placeholder="Nom du laboratoire qui réalise l’analyse" />
+                    <datalist :id="externalListId"><option v-for="name in externalLabs" :key="name" :value="name" /></datalist>
+                </FormField>
+                <FormField label="Référence chez ce laboratoire" hint="(facultative)" :error="sendOutForm.errors.reference">
+                    <Input v-model="sendOutForm.reference" placeholder="N° de bon, de dossier…" />
+                </FormField>
+                <FormField label="Remarque" hint="(facultative, imprimée sur le bon d’envoi)" :error="sendOutForm.errors.notes">
+                    <Textarea v-model="sendOutForm.notes" rows="2" />
+                </FormField>
+            </div>
+            <template #footer>
+                <Button type="button" variant="outline" @click="sendOutOpen = false">Annuler</Button>
+                <Button type="button" :disabled="sendOutForm.processing || sendOutForm.laboratory.trim().length < 2" @click="sendOut"><Send class="h-4 w-4" /> Envoyer</Button>
+            </template>
+        </Dialog>
 
         <Dialog v-model:open="returnOpen" title="Renvoyer à refaire" :description="`« ${item.name} » repasse à la paillasse avec votre motif.`" :dismissible="false">
             <FormField label="Motif" :error="returnForm.errors.reason" required>

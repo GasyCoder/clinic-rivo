@@ -4,6 +4,8 @@ import Button from '@/Components/Shadcn/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-vue-next';
 import Input from '@/Components/Shadcn/Input.vue';
+import CriticalRangesField from './CriticalRangesField.vue';
+import { criticalRangesForm } from '@/utilities/criticalRanges';
 // Self-referencing: a sub-analysis can itself be a group, which then needs
 // this exact same list rendered again for its own sub-analyses — capped at
 // `maxDepth` so a request never has to validate an unbounded structure.
@@ -39,6 +41,7 @@ const emptyChild = () => ({
     reference_female: '',
     reference_child_male: '',
     reference_child_female: '',
+    critical_ranges: criticalRangesForm(),
     unit: '',
     predefined_values_text: '',
     is_bold: false,
@@ -101,6 +104,14 @@ const typeLabel = (value) => ({ NUMERIC: 'Numérique', TEXT: 'Texte', CHOICE: 'C
                     <Input v-model="child.exam_category" size="sm" list="exam-category-options" placeholder="Examen" />
                     <label class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-muted-foreground"><input v-model="child.is_bold" type="checkbox" class="rounded border-input text-primary focus:ring-ring" />Gras</label>
                 </div>
+                <CriticalRangesField
+                    v-if="child.critical_ranges && (child.result_type === 'NUMERIC' || child.entry_mode === 'NUMERIC')"
+                    v-model="child.critical_ranges"
+                    class="mt-2"
+                    compact
+                    :errors="form.errors"
+                    :error-prefix="`${pathPrefix}.${index}.critical_ranges`"
+                />
                 <FormError class="mt-1" :message="errorFor(index)" />
 
                 <SubAnalysesEditor

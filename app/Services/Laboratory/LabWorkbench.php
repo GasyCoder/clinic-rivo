@@ -9,6 +9,7 @@ use App\Models\LabBacteriumFamily;
 use App\Models\LabRequestItem;
 use App\Models\LabResult;
 use App\Models\Patient;
+use App\Support\Laboratory\LabCriticalRange;
 use App\Support\Laboratory\LabReferenceRange;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -82,7 +83,7 @@ class LabWorkbench
      */
     public function present(LabRequestItem $item): array
     {
-        $item->loadMissing(['results', 'antibiograms.results', 'startedBy:id,name', 'resultedBy:id,name', 'validatedBy:id,name', 'returnedBy:id,name']);
+        $item->loadMissing(['results', 'antibiograms.results', 'startedBy:id,name', 'resultedBy:id,name', 'validatedBy:id,name', 'returnedBy:id,name', 'sentOutBy:id,name']);
         $patient = $this->patient($item);
         $date = $this->referenceDate($item);
         $definitions = $this->definitions($item);
@@ -99,6 +100,7 @@ class LabWorkbench
                 ? ['value' => $result->reference_snapshot, 'profile' => null]
                 : $this->references->resolve($analysis, $patient, $date);
             $range = $mode === LabEntryMode::Numeric ? LabReferenceRange::parse($reference['value']) : null;
+            $critical = $mode === LabEntryMode::Numeric ? LabCriticalRange::resolve($analysis, $patient, $date) : null;
 
             return [
                 'uuid' => $analysis->uuid,
@@ -115,6 +117,7 @@ class LabWorkbench
                 'reference' => $reference['value'],
                 'reference_profile' => $reference['profile'],
                 'range' => $range?->toArray(),
+                'critical' => $critical?->toArray(),
                 'choices' => array_values($analysis->predefined_values ?? []),
                 'result' => $result ? $this->presentResult($result) : null,
                 'antibiograms' => $mode === LabEntryMode::Culture
@@ -145,6 +148,13 @@ class LabWorkbench
             'returned_at' => $item->returned_at,
             'returned_by' => $item->returnedBy?->name,
             'return_reason' => $item->return_reason,
+            'sent_out' => $item->sent_out_at ? [
+                'laboratory' => $item->external_lab_name,
+                'reference' => $item->external_reference,
+                'notes' => $item->sent_out_notes,
+                'at' => $item->sent_out_at,
+                'by' => $item->sentOutBy?->name,
+            ] : null,
             'critical_count' => $item->results->where('is_critical', true)->count(),
             'pathological_count' => $item->results->where('interpretation', 'PATHOLOGICAL')->count(),
         ];
@@ -160,6 +170,8 @@ class LabWorkbench
             'interpretation' => $result->interpretation,
             'range_flag' => $result->range_flag,
             'is_critical' => $result->is_critical,
+            'critical_source' => $result->critical_source,
+            'critical_snapshot' => $result->critical_snapshot,
             'updated_at' => $result->updated_at,
         ];
     }

@@ -97,6 +97,7 @@ class MedicineParaclinicalFlowTest extends TestCase
         $item = LabRequestItem::query()->sole();
 
         $labTech = $this->labTechnician();
+        $this->receivedAtLaboratory($labTech, $item);
         $this->actingAs($labTech)->post("/laboratory/items/{$item->uuid}/result", [
             'result_value' => 'Hb 13.2 g/dL, GB 7200/mm3',
         ])->assertRedirect();
@@ -247,10 +248,18 @@ class MedicineParaclinicalFlowTest extends TestCase
         return User::factory()->create(['role_id' => $role->id]);
     }
 
+    /** ADR-214 — rien ne se saisit avant la réception de la demande au laboratoire. */
+    private function receivedAtLaboratory(User $labTech, LabRequestItem $item): void
+    {
+        $this->actingAs($labTech)
+            ->post("/laboratory/requests/{$item->labRequest->uuid}/receive", ['samples' => []])
+            ->assertSessionHasNoErrors();
+    }
+
     private function labTechnician(): User
     {
         $role = Role::query()->firstOrCreate(['code' => 'LABORATORY'], ['name' => 'Laboratoire']);
-        foreach (['laboratory_results.create', 'laboratory_results.view'] as $name) {
+        foreach (['laboratory_results.create', 'laboratory_results.view', 'laboratory_orders.receive'] as $name) {
             $permission = Permission::query()->firstOrCreate(['name' => $name]);
             $role->permissions()->syncWithoutDetaching([$permission->id]);
         }

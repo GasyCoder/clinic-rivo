@@ -495,6 +495,18 @@ class PermissionSeeder extends Seeder
         'lab_microbiology.update' => 'Modifier le référentiel de microbiologie',
         'lab_microbiology.archive' => 'Archiver une entrée du référentiel de microbiologie',
         'lab_microbiology.restore' => 'Restaurer une entrée du référentiel de microbiologie',
+        // ADR-214 — réception, prélèvements, envoi extérieur, rapports, référentiel des prélèvements.
+        'laboratory_orders.receive' => 'Réceptionner une demande d’analyses (contrôle du règlement)',
+        'laboratory_orders.send_out' => 'Envoyer une analyse à un laboratoire extérieur',
+        'laboratory_samples.create' => 'Enregistrer un prélèvement et imprimer ses étiquettes',
+        'laboratory_samples.update' => 'Déclarer un prélèvement non conforme',
+        'laboratory_reports.view' => 'Voir les rapports du laboratoire',
+        'laboratory_reports.export' => 'Exporter les rapports du laboratoire en Excel',
+        'lab_sample_types.view' => 'Voir le référentiel des prélèvements et des tubes',
+        'lab_sample_types.create' => 'Ajouter un type de prélèvement ou de tube',
+        'lab_sample_types.update' => 'Modifier un type de prélèvement ou de tube',
+        'lab_sample_types.archive' => 'Archiver un type de prélèvement ou de tube',
+        'lab_sample_types.restore' => 'Restaurer un type de prélèvement ou de tube',
 
         // ECG / échographie : aucun workspace dédié n'existe encore, donc
         // demande et compte rendu restent tous deux portés par Médecine.

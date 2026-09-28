@@ -12,6 +12,7 @@ use App\Models\LabResult;
 use App\Models\User;
 use App\Services\Laboratory\AnalysisReferenceResolver;
 use App\Services\Laboratory\LabWorkbench;
+use App\Support\Laboratory\LabCriticalRange;
 use App\Support\Laboratory\LabEntryOptions;
 use App\Support\Laboratory\LabReferenceRange;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -29,6 +30,11 @@ use Illuminate\Validation\ValidationException;
  * L'interprétation (normal / pathologique) est celle que le technicien choisit ;
  * s'il n'en a pas choisi, elle est proposée depuis la référence (hors bornes →
  * pathologique) ou le score de Nugent — jamais un diagnostic.
+ *
+ * ADR-214 — au-delà d'une borne critique saisie au catalogue, le résultat est
+ * marqué critique d'office. Le laboratoire peut retirer la marque : elle ne
+ * revient que si la valeur change. Un signalement à la main n'est jamais retiré
+ * par un enregistrement.
  */
 class SaveLabResultsAction
 {
@@ -45,7 +51,7 @@ class SaveLabResultsAction
         }
 
         return DB::transaction(function () use ($item, $payload, $actor): LabRequestItem {
-            $locked = LabItemGuard::lockEditable($item);
+            $locked = LabItemGuard::lockWorkable($item);
             $definitions = $this->workbench->definitions($locked)->pluck('analysis')->keyBy('uuid');
             $patient = $this->workbench->patient($locked);
             $date = $this->workbench->referenceDate($locked);
@@ -78,6 +84,8 @@ class SaveLabResultsAction
                     ?? $this->references->resolve($analysis, $patient, $date)['value'];
                 $rangeFlag = $mode === LabEntryMode::Numeric ? LabReferenceRange::parse($reference)?->flag($normalized['value']) : null;
                 $interpretation = $this->interpretation($mode, $entry, $normalized, $rangeFlag, $existing);
+                $critical = $mode === LabEntryMode::Numeric ? LabCriticalRange::resolve($analysis, $patient, $date) : null;
+                $criticalState = $this->criticalState($existing, $critical?->flag($normalized['value']) !== null, $existing === null || $existing->value !== $normalized['value']);
 
                 LabResult::query()->updateOrCreate(
                     ['lab_request_item_id' => $locked->id, 'analysis_catalog_id' => $analysis->id],
@@ -91,6 +99,8 @@ class SaveLabResultsAction
                         'interpretation' => $interpretation,
                         'range_flag' => $rangeFlag,
                         'entered_by' => $actor->getKey(),
+                        'critical_snapshot' => $critical?->describe(),
+                        ...$criticalState,
                     ],
                 );
 
@@ -254,6 +264,32 @@ class SaveLabResultsAction
             $mode === LabEntryMode::Nugent && $normalized['value'] !== null => LabEntryOptions::nugent((int) $normalized['value'])['suggested'],
             default => $existing?->interpretation,
         };
+    }
+
+    /**
+     * ADR-214 — la marque « critique » après cet enregistrement.
+     *
+     * @return array<string, mixed>
+     */
+    private function criticalState(?LabResult $existing, bool $beyondBounds, bool $valueChanged): array
+    {
+        $source = $existing?->critical_source ?? ($existing?->is_critical ? LabResult::CRITICAL_MANUAL : null);
+
+        if ($source === LabResult::CRITICAL_MANUAL) {
+            return [];
+        }
+        if ($source === LabResult::CRITICAL_DISMISSED && ! $valueChanged) {
+            return [];
+        }
+        if ($beyondBounds) {
+            return $source === LabResult::CRITICAL_AUTO
+                ? []
+                : ['is_critical' => true, 'critical_source' => LabResult::CRITICAL_AUTO, 'critical_flagged_at' => now(), 'critical_flagged_by' => null];
+        }
+
+        return in_array($source, [LabResult::CRITICAL_AUTO, LabResult::CRITICAL_DISMISSED], true)
+            ? ['is_critical' => false, 'critical_source' => null, 'critical_flagged_at' => null, 'critical_flagged_by' => null]
+            : [];
     }
 
     /** Un antibiogramme par germe retenu ; celui d'un germe retiré part avec lui (brouillon). */

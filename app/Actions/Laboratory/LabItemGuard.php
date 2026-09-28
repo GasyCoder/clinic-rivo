@@ -10,6 +10,9 @@ use Illuminate\Validation\ValidationException;
  * ADR-213 — les conditions communes aux gestes de la paillasse, relues sur une
  * ligne verrouillée : une demande retirée par le médecin ne se travaille plus
  * (ADR-079), et une analyse terminée ou validée ne se modifie plus.
+ *
+ * ADR-214 — et rien ne se saisit avant la réception de la demande : c'est elle
+ * qui contrôle le règlement (CDC §14 : « Payé ? Non → En attente »).
  */
 final class LabItemGuard
 {
@@ -38,5 +41,21 @@ final class LabItemGuard
         }
 
         return $locked;
+    }
+
+    /** Saisissable, et la demande est passée par la réception du laboratoire. */
+    public static function lockWorkable(LabRequestItem $item): LabRequestItem
+    {
+        $locked = self::lockEditable($item);
+        self::ensureReceived($locked);
+
+        return $locked;
+    }
+
+    public static function ensureReceived(LabRequestItem $item, string $key = 'item'): void
+    {
+        if ($item->labRequest->received_at === null) {
+            throw ValidationException::withMessages([$key => 'Réceptionnez d’abord la demande : c’est la réception qui contrôle le règlement et enregistre les prélèvements.']);
+        }
     }
 }

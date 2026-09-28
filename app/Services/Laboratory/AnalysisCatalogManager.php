@@ -8,6 +8,7 @@ use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
 use App\Models\User;
 use App\Services\Catalog\CatalogActor;
+use App\Support\Laboratory\LabCriticalRange;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -20,6 +21,7 @@ class AnalysisCatalogManager
         return DB::transaction(function () use ($data, $actor): AnalysisCatalog {
             $catalogActor = $this->actor($actor);
             [$catalogItem, $parent] = $this->relations($data);
+            $data = $this->criticalRanges($data);
 
             return AnalysisCatalog::query()->create([
                 ...Arr::except($data, ['catalog_item_uuid', 'parent_uuid']),
@@ -40,6 +42,7 @@ class AnalysisCatalogManager
             $catalogActor = $this->actor($actor);
             $locked = AnalysisCatalog::query()->lockForUpdate()->findOrFail($analysis->getKey());
             [$catalogItem, $parent] = $this->relations($data, $locked);
+            $data = $this->criticalRanges($data);
 
             $locked->update([
                 ...Arr::except($data, ['catalog_item_uuid', 'parent_uuid']),
@@ -109,6 +112,7 @@ class AnalysisCatalogManager
             }
 
             $grandchildren = $childData['children'] ?? [];
+            $childData = $this->criticalRanges($childData, "children.{$index}.critical_ranges");
             $payload = [
                 ...Arr::except($childData, ['uuid', 'children']),
                 'catalog_item_uuid' => $parent->catalogItem->uuid,
@@ -159,6 +163,22 @@ class AnalysisCatalogManager
      * @param  array<string, mixed>  $data
      * @return array{CatalogItem, ?AnalysisCatalog}
      */
+    /**
+     * ADR-214 — les bornes critiques, relues en nombres (« 2,5 » vaut 2.5), la
+     * basse sous la haute ; une clé absente laisse les bornes en place.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function criticalRanges(array $data, string $errorKey = 'critical_ranges'): array
+    {
+        if (array_key_exists('critical_ranges', $data)) {
+            $data['critical_ranges'] = LabCriticalRange::normalize(is_array($data['critical_ranges']) ? $data['critical_ranges'] : null, $errorKey);
+        }
+
+        return $data;
+    }
+
     private function relations(array $data, ?AnalysisCatalog $current = null): array
     {
         $catalogItem = CatalogItem::query()

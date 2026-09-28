@@ -136,6 +136,7 @@ class AnalysisCatalogDirectory
             'reference_female' => $item->reference_female,
             'reference_child_male' => $item->reference_child_male,
             'reference_child_female' => $item->reference_child_female,
+            'critical_ranges' => $item->critical_ranges,
             'unit' => $item->unit,
             'predefined_values' => $item->predefined_values ?? [],
             'display_order' => $item->display_order,

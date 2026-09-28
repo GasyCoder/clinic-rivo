@@ -24,6 +24,8 @@ class RecordLabResultAction
                 ]);
             }
 
+            LabItemGuard::ensureReceived($locked, 'result_value');
+
             if ($locked->resulted_at !== null) {
                 throw ValidationException::withMessages([
                     'result_value' => 'Un résultat a déjà été enregistré pour cette analyse.',

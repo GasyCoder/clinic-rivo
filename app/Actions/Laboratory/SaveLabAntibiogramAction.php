@@ -26,7 +26,7 @@ class SaveLabAntibiogramAction
         }
 
         return DB::transaction(function () use ($item, $antibiogram, $lines, $notes): LabAntibiogram {
-            $locked = LabItemGuard::lockEditable($item);
+            $locked = LabItemGuard::lockWorkable($item);
             if ($antibiogram->lab_request_item_id !== $locked->id) {
                 abort(404);
             }

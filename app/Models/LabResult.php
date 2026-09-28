@@ -17,12 +17,20 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'lab_request_item_id', 'analysis_catalog_id', 'designation_snapshot', 'entry_mode', 'unit_snapshot',
     'reference_snapshot', 'value', 'selections', 'interpretation', 'range_flag',
     'is_critical', 'critical_flagged_at', 'critical_flagged_by', 'entered_by',
+    'critical_source', 'critical_snapshot',
 ])]
 class LabResult extends Model
 {
     use Auditable, HasUuid;
 
     public const INTERPRETATIONS = ['NORMAL', 'PATHOLOGICAL'];
+
+    /** ADR-214 — d'où vient la marque « critique ». */
+    public const CRITICAL_AUTO = 'AUTO';
+
+    public const CRITICAL_MANUAL = 'MANUAL';
+
+    public const CRITICAL_DISMISSED = 'DISMISSED';
 
     protected function casts(): array
     {

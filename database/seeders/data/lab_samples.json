@@ -1,0 +1,17 @@
+{
+    "source": "labo-vuejs (base ctb-cover), tables type_tubes et prelevements — sans les prix, et sans « Urgence » ni « Prélèvement à domicile », qui étaient des lignes de tarif et non des types de prélèvement (ADR-214).",
+    "tubes": [
+        { "code": "SEC", "name": "Tube sec", "cap_color": "Rouge", "color_hex": "#dc2626" },
+        { "code": "CITR", "name": "Tube citrate", "cap_color": "Bleu", "color_hex": "#2563eb" },
+        { "code": "EDTA", "name": "Tube EDTA", "cap_color": "Violet", "color_hex": "#7c3aed" },
+        { "code": "HEPA", "name": "Tube hépariné", "cap_color": "Vert", "color_hex": "#16a34a" },
+        { "code": "FLACON", "name": "Flacon stérile", "cap_color": "Transparent", "color_hex": null },
+        { "code": "ECOUVILLON", "name": "Écouvillon", "cap_color": "Blanc", "color_hex": "#f8fafc" }
+    ],
+    "samples": [
+        { "name": "Prélèvement sanguin", "tube": "SEC" },
+        { "name": "Prélèvement sanguin avec HGPO", "tube": "SEC" },
+        { "name": "Prélèvement sanguin avec G50", "tube": "SEC" },
+        { "name": "Prélèvement avec écouvillon stérile", "tube": "ECOUVILLON" }
+    ]
+}

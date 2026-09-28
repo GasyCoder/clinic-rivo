@@ -7,19 +7,25 @@ import { formatPatientName } from '@/utilities/patient';
 import { INTERPRETATION_LABELS, resultText } from '@/utilities/labWorkbench';
 
 /**
- * ADR-213 — la feuille de résultats : seules les analyses rendues s'impriment,
- * et une analyse non validée le dit sur la feuille.
+ * ADR-213 / ADR-214 — la feuille de résultats : seules les analyses rendues
+ * s'impriment, et une analyse non validée le dit sur la feuille. Elle porte le
+ * n° de laboratoire, les prélèvements, le laboratoire extérieur qui a réalisé
+ * une analyse qui lui a été confiée, et la conclusion générale du biologiste.
  */
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
     labRequest: { type: Object, required: true },
     items: { type: Array, default: () => [] },
+    samples: { type: Array, default: () => [] },
     options: { type: Object, default: () => ({}) },
 });
 
 const ANTIBIOGRAM_LABELS = { S: 'Sensible', I: 'Intermédiaire', R: 'Résistant' };
 const patient = computed(() => props.labRequest.patient);
+const samplesText = computed(() => props.samples
+    .map((sample) => `${sample.sample_type}${sample.tube ? ` (${sample.tube.code})` : ''} — ${formatDateTime(sample.collected_at)}`)
+    .join(' · '));
 const rows = (item) => (item.nodes ?? []).filter((node) => !node.takes_result || node.result);
 </script>
 
@@ -48,6 +54,16 @@ const rows = (item) => (item.nodes ?? []).filter((node) => !node.takes_result ||
                     <th class="ps-label ps-label-blue-soft">Demandée le</th>
                     <td>{{ formatDateTime(labRequest.requested_at) }}<template v-if="labRequest.requested_by"> — {{ labRequest.requested_by }}</template></td>
                 </tr>
+                <tr>
+                    <th class="ps-label ps-label-blue-soft">N° laboratoire</th>
+                    <td><strong>{{ labRequest.lab_number ?? '—' }}</strong></td>
+                    <th class="ps-label ps-label-blue-soft">Reçue le</th>
+                    <td>{{ labRequest.received_at ? formatDateTime(labRequest.received_at) : '—' }}</td>
+                </tr>
+                <tr v-if="samples.length">
+                    <th class="ps-label ps-label-blue-soft">Prélèvements</th>
+                    <td colspan="3">{{ samplesText }}</td>
+                </tr>
             </tbody>
         </table>
 
@@ -56,7 +72,12 @@ const rows = (item) => (item.nodes ?? []).filter((node) => !node.takes_result ||
         <section v-for="item in items" :key="item.uuid" style="break-inside: avoid">
             <table class="ps-table">
                 <thead>
-                    <tr><th colspan="4" class="ps-section ps-section-blue">{{ item.name }}</th></tr>
+                    <tr>
+                        <th colspan="4" class="ps-section ps-section-blue">
+                            {{ item.name }}
+                            <template v-if="item.sent_out"> — réalisée par {{ item.sent_out.laboratory }}<template v-if="item.sent_out.reference"> (réf. {{ item.sent_out.reference }})</template></template>
+                        </th>
+                    </tr>
                     <tr>
                         <th style="width: 34%; text-align: left">Analyse</th>
                         <th style="width: 30%; text-align: left">Résultat</th>
@@ -74,7 +95,7 @@ const rows = (item) => (item.nodes ?? []).filter((node) => !node.takes_result ||
                                 <td :style="{ paddingLeft: `${8 + node.depth * 14}px`, fontWeight: node.is_bold ? 700 : 400 }">{{ node.designation }}</td>
                                 <td :style="{ fontWeight: node.result.interpretation === 'PATHOLOGICAL' ? 700 : 400 }">
                                     {{ resultText(node, options) }}<template v-if="node.unit && node.entry_mode === 'NUMERIC'"> {{ node.unit }}</template>
-                                    <template v-if="node.result.is_critical"> — CRITIQUE</template>
+                                    <template v-if="node.result.is_critical"> — CRITIQUE<template v-if="node.result.critical_snapshot"> ({{ node.result.critical_snapshot }})</template></template>
                                 </td>
                                 <td>{{ node.reference ?? '' }}</td>
                                 <td>{{ INTERPRETATION_LABELS[node.result.interpretation] ?? '' }}</td>
@@ -113,5 +134,17 @@ const rows = (item) => (item.nodes ?? []).filter((node) => !node.takes_result ||
                 </tbody>
             </table>
         </section>
+
+        <table v-if="labRequest.conclusion" class="ps-table" style="break-inside: avoid">
+            <tbody>
+                <tr><th class="ps-section ps-section-green">Conclusion générale</th></tr>
+                <tr>
+                    <td style="white-space: pre-line">
+                        {{ labRequest.conclusion }}
+                        <template v-if="labRequest.conclusion_by">&#10;— {{ labRequest.conclusion_by }}, le {{ formatDateTime(labRequest.conclusion_at) }}</template>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
     </PaperSheet>
 </template>

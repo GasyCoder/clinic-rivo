@@ -454,13 +454,12 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Catalogue analyses structuré, références par profil et import/export Excel
 - [x] Catalogue des analyses : un seul écran partagé par le site et le portail (lecture, formulaire, adresses écrites une fois), plus de doublon DashWind / shadcn (ADR-063, amendement du 2026-09-28)
 - [x] File de paillasse filtrable (à analyser / rendues / toutes) avec cartes compteur ; une demande annulée par le médecin (ADR-079) quitte la file au lieu d'y rester à faire
-- [ ] Demande analyse
-- [ ] Analyse interne
-- [ ] Analyse externe
-- [ ] Vérification statut paiement
-- [ ] Prélèvement
-- [ ] Echantillon
-- [ ] Analyse
+- [x] Réception au laboratoire : numéro de laboratoire annuel, contrôle du règlement par analyse (bloquant sauf urgence, hospitalisé, prise en charge à 100 %), aucun montant affiché (ADR-214)
+- [x] Prélèvements : un tube par ligne, code-barres Code 128 imprimé (rouleau 50 × 25 mm ou planche A4), non-conformité avec motif, jamais supprimés (ADR-214)
+- [x] Référentiel des types de prélèvement et des tubes par site, sans prix, référentiel de départ importable (ADR-214)
+- [x] Analyse externe : confiée à un laboratoire extérieur, bon d'envoi, résultat transcrit « réalisée par … » et validé (ADR-214)
+- [x] Scanner un tube ou saisir un n° de laboratoire ouvre la demande ; la file commence par « À réceptionner » (ADR-214)
+- [x] Rien ne se saisit avant la réception (ADR-214)
 - [x] Saisie résultat : analyse par analyse du catalogue, dix modes de saisie repris de labo-vuejs, enregistrement automatique, interprétation proposée (ADR-213)
 - [x] Validation résultat : Terminer (technicien) puis Valider (biologiste), par analyse ou toute la demande (ADR-213)
 - [x] Correction contrôlée : renvoyer à refaire avec motif, résultat rendu gardé lisible (ADR-213)
@@ -469,9 +468,13 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] File de la paillasse par demande : À faire / À refaire / À valider / Validées (ADR-213)
 - [x] Microbiologie : familles, germes, antibiotiques par site, référentiel de départ importable ; antibiogramme S/I/R par germe identifié (ADR-213)
 - [x] Mode de saisie choisi dans le formulaire du catalogue des analyses (ADR-213)
-- [ ] Biologiste distinct du technicien, microbiologie pour l'Administration, valeurs critiques — à décider (ADR-213)
-- [ ] Export
-- [ ] Rapport
+- [x] Bornes critiques par analyse et par profil au catalogue : critique proposé d'office, retirable, bornes figées sur le résultat (ADR-214)
+- [x] Conclusion générale du biologiste, imprimée sous les résultats (ADR-214)
+- [x] Feuille de paillasse par discipline, imprimable (ADR-214)
+- [x] Historique des résultats d'un patient, demande par demande (ADR-214)
+- [x] Rapports : activité, délais médians, disciplines, origines, en attente ; export Excel audité (ADR-214)
+- [ ] Biologiste distinct du technicien, microbiologie pour l'Administration — à décider (ADR-213)
+- [ ] Analyse sans tarif (non facturée) qui retient ou non le prélèvement, Maternité sans séjour exemptée ou non, bornes critiques dans l'Excel du catalogue — à décider (ADR-214)
 
 Règle :
 

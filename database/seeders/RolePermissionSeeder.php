@@ -317,7 +317,7 @@ class RolePermissionSeeder extends Seeder
             'care_consumables.view', 'care_consumables.serve',
         ],
         // ADR-213 — la paillasse : saisie structurée, validation du biologiste,
-        // référentiel de microbiologie. Le prélèvement reste hors périmètre.
+        // référentiel de microbiologie. ADR-214 : réception, prélèvements, rapports.
         'LABORATORY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
@@ -326,6 +326,12 @@ class RolePermissionSeeder extends Seeder
             'laboratory_results.validate', 'laboratory_results.flag_critical',
             'lab_microbiology.view', 'lab_microbiology.create', 'lab_microbiology.update',
             'lab_microbiology.archive', 'lab_microbiology.restore',
+            // ADR-214
+            'laboratory_orders.receive', 'laboratory_orders.send_out',
+            'laboratory_samples.create', 'laboratory_samples.update',
+            'laboratory_reports.view', 'laboratory_reports.export',
+            'lab_sample_types.view', 'lab_sample_types.create', 'lab_sample_types.update',
+            'lab_sample_types.archive', 'lab_sample_types.restore',
         ],
     ];
 

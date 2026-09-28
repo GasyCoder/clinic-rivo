@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'result_value', 'result_notes', 'reference_snapshot', 'resulted_at', 'resulted_by',
     'status', 'conclusion', 'started_at', 'started_by', 'validated_at', 'validated_by',
     'returned_at', 'returned_by', 'return_reason',
+    'external_lab_name', 'external_reference', 'sent_out_notes', 'sent_out_at', 'sent_out_by',
 ])]
 class LabRequestItem extends Model
 {
@@ -30,6 +31,7 @@ class LabRequestItem extends Model
             'started_at' => 'datetime',
             'validated_at' => 'datetime',
             'returned_at' => 'datetime',
+            'sent_out_at' => 'datetime',
         ];
     }
 
@@ -43,6 +45,17 @@ class LabRequestItem extends Model
     public function hasStarted(): bool
     {
         return $this->resulted_at !== null || $this->currentStatus() !== LabItemStatus::Pending;
+    }
+
+    /** ADR-214 — l'analyse est confiée à un laboratoire extérieur. */
+    public function isSentOut(): bool
+    {
+        return $this->sent_out_at !== null;
+    }
+
+    public function sentOutBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'sent_out_by');
     }
 
     public function results(): HasMany

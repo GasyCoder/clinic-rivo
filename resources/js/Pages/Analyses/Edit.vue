@@ -1,4 +1,5 @@
 <script setup>
+import { criticalRangesForm } from '@/utilities/criticalRanges';
 import { useForm, Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { Activity, ArrowLeft } from 'lucide-vue-next';
@@ -36,6 +37,7 @@ const childRowFrom = (row) => ({
     reference_female: row.reference_female ?? '',
     reference_child_male: row.reference_child_male ?? '',
     reference_child_female: row.reference_child_female ?? '',
+    critical_ranges: criticalRangesForm(row.critical_ranges),
     unit: row.unit ?? '',
     predefined_values_text: (row.predefined_values ?? []).join('|'),
     is_bold: row.is_bold ?? false,
@@ -62,6 +64,7 @@ const form = useForm({
     reference_female: props.analysis.reference_female ?? '',
     reference_child_male: props.analysis.reference_child_male ?? '',
     reference_child_female: props.analysis.reference_child_female ?? '',
+    critical_ranges: criticalRangesForm(props.analysis.critical_ranges),
     unit: props.analysis.unit ?? '',
     predefined_values_text: (props.analysis.predefined_values ?? []).join('|'),
     display_order: props.analysis.display_order,

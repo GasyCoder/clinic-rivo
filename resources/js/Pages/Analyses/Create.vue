@@ -1,4 +1,5 @@
 <script setup>
+import { criticalRangesForm } from '@/utilities/criticalRanges';
 import { useForm, Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { Activity, ArrowLeft } from 'lucide-vue-next';
@@ -39,6 +40,7 @@ const form = useForm({
     reference_female: '',
     reference_child_male: '',
     reference_child_female: '',
+    critical_ranges: criticalRangesForm(),
     unit: '',
     predefined_values_text: '',
     display_order: 0,

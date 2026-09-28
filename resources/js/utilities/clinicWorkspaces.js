@@ -1,4 +1,7 @@
 import {
+    ChartPie,
+    ListChecks,
+    TestTube,
     AtSign,
     Activity,
     Ambulance,
@@ -94,6 +97,10 @@ export const CLINIC_WORKSPACES = [
     // ADR-213 — l'entrée suit le droit de la route (`laboratory_results.view`) :
     // un compte qui prescrit sans voir les résultats n'y a rien à faire.
     { key: 'laboratory', group: 'clinical', text: 'Laboratoire', description: 'Paillasse, résultats et validation', icon: FlaskConical, link: '/laboratory', permission: 'laboratory_results.view', tone: 'cyan' },
+    // ADR-214 — la feuille de paillasse, les rapports et le référentiel des prélèvements.
+    { key: 'lab-worklist', group: 'clinical', text: 'Feuille de paillasse', description: 'Analyses à faire, par discipline', icon: ListChecks, link: '/laboratory/paillasse', permission: 'laboratory_results.view', tone: 'cyan' },
+    { key: 'lab-reports', group: 'clinical', text: 'Rapports du laboratoire', description: 'Activité, délais et disciplines', icon: ChartPie, link: '/laboratory/rapports', permission: 'laboratory_reports.view', tone: 'cyan' },
+    { key: 'lab-sample-types', group: 'clinical', text: 'Prélèvements & tubes', description: 'Types de prélèvement et tubes', icon: TestTube, link: '/laboratory/prelevements', permission: 'lab_sample_types.view', tone: 'cyan' },
     { key: 'lab-microbiology', group: 'clinical', text: 'Germes & antibiotiques', description: 'Familles, germes et antibiotiques testés', icon: Bug, link: '/laboratory/microbiologie', permission: 'lab_microbiology.view', tone: 'cyan' },
     // care.view alone also powers the read-only projection embedded in
     // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on
@@ -233,7 +240,7 @@ export const SIDEBAR_GROUPS = [
         key: 'laboratory-space',
         text: 'Laboratoire',
         icon: FlaskConical,
-        members: ['laboratory', 'lab-microbiology'],
+        members: ['laboratory', 'lab-worklist', 'lab-reports', 'lab-sample-types', 'lab-microbiology'],
         labels: { laboratory: 'Paillasse' },
     },
     {

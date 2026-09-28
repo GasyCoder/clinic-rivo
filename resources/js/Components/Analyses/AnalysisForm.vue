@@ -8,6 +8,9 @@ import { lucideIcon } from '@/lib/icons';
 import Input from '@/Components/Shadcn/Input.vue';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import SubAnalysesEditor from './SubAnalysesEditor.vue';
+import CriticalRangesField from './CriticalRangesField.vue';
+import { criticalRangesCount, criticalRangesPayload } from '@/utilities/criticalRanges';
+import { Siren } from 'lucide-vue-next';
 
 const props = defineProps({
     form: { type: Object, required: true },
@@ -40,7 +43,7 @@ const steps = [
 const stepFields = {
     1: ['catalog_item_uuid', 'code', 'level', 'parent_uuid'],
     2: ['designation', 'exam_category', 'result_type', 'unit', 'display_order', 'is_bold'],
-    3: ['reference_general', 'reference_male', 'reference_female', 'reference_child_male', 'reference_child_female', 'predefined_values_text', 'description'],
+    3: ['reference_general', 'reference_male', 'reference_female', 'reference_child_male', 'reference_child_female', 'critical_ranges', 'predefined_values_text', 'description'],
     4: ['children'],
     5: [],
 };
@@ -91,14 +94,20 @@ const transformChild = (child, index) => ({
     ...child,
     display_order: index + 1,
     predefined_values: splitPredefinedValues(child.predefined_values_text),
+    critical_ranges: criticalRangesPayload(child.critical_ranges),
     children: child.level === 'PARENT' ? child.children.map(transformChild) : [],
 });
 const payload = (data) => ({
     ...data,
     parent_uuid: mayHaveParent(data.level) ? data.parent_uuid : null,
     predefined_values: splitPredefinedValues(data.predefined_values_text),
+    critical_ranges: criticalRangesPayload(data.critical_ranges),
     children: data.level === 'PARENT' ? data.children.map(transformChild) : [],
 });
+
+// ADR-214 — les bornes critiques ne valent que pour un résultat numérique.
+const isNumeric = computed(() => props.form.result_type === 'NUMERIC' || props.form.entry_mode === 'NUMERIC');
+const criticalCount = computed(() => criticalRangesCount(props.form.critical_ranges));
 
 const scrollToWizard = () => nextTick(() => document.getElementById('analysis-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
 const goToStep = (step) => {
@@ -250,6 +259,16 @@ const typeHint = (value) => ({
                 <div class="space-y-4"><div class="flex items-center gap-2"><span class="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-50 text-cyan-600 dark:bg-cyan-950"><List class="h-4 w-4" /></span><h3 class="text-sm font-bold text-foreground">Références par profil</h3></div><div class="grid gap-4 sm:grid-cols-2"><div v-for="field in [{ key: 'reference_general', label: 'Référence générale' }, { key: 'reference_male', label: 'Homme' }, { key: 'reference_female', label: 'Femme' }, { key: 'reference_child_male', label: 'Enfant garçon' }, { key: 'reference_child_female', label: 'Enfant fille' }]" :key="field.key"><label :for="field.key" class="mb-1.5 block text-sm font-medium text-foreground">{{ field.label }}</label><Input :id="field.key" v-model="form[field.key]" placeholder="Intervalle ou texte" /><FormError v-if="form.errors[field.key]">{{ form.errors[field.key] }}</FormError></div></div></div>
                 <div class="space-y-4 lg:border-s lg:border-border lg:ps-6 dark:lg:border-border"><div class="flex items-center gap-2"><span class="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-950"><Pencil class="h-4 w-4" /></span><h3 class="text-sm font-bold text-foreground">Valeurs et description</h3></div><div><label for="predefined_values_text" class="mb-1.5 block text-sm font-medium text-foreground">Valeurs prédéfinies</label><Input id="predefined_values_text" v-model="form.predefined_values_text" placeholder="Positif|Négatif|Indéterminé" /><p class="mt-1.5 text-xs text-muted-foreground">Séparez les choix par |</p><FormError v-if="form.errors.predefined_values_text">{{ form.errors.predefined_values_text }}</FormError></div><div><label for="description" class="mb-1.5 block text-sm font-medium text-foreground">Description</label><Input id="description" v-model="form.description" placeholder="Méthode ou précision utile" /><FormError v-if="form.errors.description">{{ form.errors.description }}</FormError></div></div>
             </div>
+            <div v-if="isNumeric && form.critical_ranges" class="space-y-3 border-t border-border p-5 sm:p-6">
+                <div class="flex items-center gap-2">
+                    <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-destructive/10 text-destructive"><Siren class="h-4 w-4" /></span>
+                    <div>
+                        <h3 class="text-sm font-bold text-foreground">Bornes critiques <span class="font-normal text-muted-foreground">(facultatives)</span></h3>
+                        <p class="text-xs text-muted-foreground">Au-delà, le résultat est marqué critique d’office à la paillasse ; le laboratoire peut retirer la marque. Saisies par la clinique, jamais proposées par RIVO.</p>
+                    </div>
+                </div>
+                <CriticalRangesField v-model="form.critical_ranges" :errors="form.errors" class="max-w-xl" />
+            </div>
         </section>
 
         <section v-else-if="currentStep === 4" class="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
@@ -276,7 +295,7 @@ const typeHint = (value) => ({
                 <div class="grid gap-3 p-5 sm:grid-cols-2 sm:p-6">
                     <button type="button" class="rounded-xl border border-border p-4 text-start transition hover:border-primary/40" @click="editStep(1)"><span class="flex items-center justify-between"><span class="text-[11px] font-bold uppercase tracking-wide text-primary">Classification</span><Pencil class="h-4 w-4" /></span><strong class="mt-3 block font-mono text-base text-foreground">{{ form.code || 'Code à renseigner' }}</strong><span class="mt-1 block text-xs text-muted-foreground">{{ levelLabel(form.level) }} · {{ selectedCatalogItem ? `${selectedCatalogItem.code} · ${selectedCatalogItem.name}` : 'Prestation non choisie' }}<template v-if="selectedParent"> · sous {{ selectedParent.path }}</template></span></button>
                     <button type="button" class="rounded-xl border border-border p-4 text-start transition hover:border-primary/40" @click="editStep(2)"><span class="flex items-center justify-between"><span class="text-[11px] font-bold uppercase tracking-wide text-sky-600">Définition</span><Pencil class="h-4 w-4" /></span><strong class="mt-3 block text-base text-foreground">{{ form.designation || 'Désignation à renseigner' }}</strong><span class="mt-1 block text-xs text-muted-foreground">{{ typeLabel(form.result_type) }}{{ form.unit ? ` · ${form.unit}` : '' }}{{ form.exam_category ? ` · ${form.exam_category}` : '' }}</span></button>
-                    <button type="button" class="rounded-xl border border-border p-4 text-start transition hover:border-primary/40" @click="editStep(3)"><span class="flex items-center justify-between"><span class="text-[11px] font-bold uppercase tracking-wide text-cyan-600">Références</span><Pencil class="h-4 w-4" /></span><strong class="mt-3 block text-sm text-foreground">{{ referencesCount }} référence(s) renseignée(s)</strong><span class="mt-1 block text-xs text-muted-foreground">{{ form.predefined_values_text || 'Aucune valeur prédéfinie' }}</span></button>
+                    <button type="button" class="rounded-xl border border-border p-4 text-start transition hover:border-primary/40" @click="editStep(3)"><span class="flex items-center justify-between"><span class="text-[11px] font-bold uppercase tracking-wide text-cyan-600">Références</span><Pencil class="h-4 w-4" /></span><strong class="mt-3 block text-sm text-foreground">{{ referencesCount }} référence(s) renseignée(s)</strong><span class="mt-1 block text-xs text-muted-foreground">{{ form.predefined_values_text || 'Aucune valeur prédéfinie' }}</span><span v-if="isNumeric" class="mt-1 block text-xs text-muted-foreground">{{ criticalCount ? `${criticalCount} profil(s) avec bornes critiques` : 'Aucune borne critique' }}</span></button>
                     <button type="button" class="rounded-xl border border-border p-4 text-start transition hover:border-primary/40" @click="editStep(4)"><span class="flex items-center justify-between"><span class="text-[11px] font-bold uppercase tracking-wide text-violet-600">Sous-analyses</span><Pencil class="h-4 w-4" /></span><strong class="mt-3 block text-sm text-foreground">{{ form.level === 'PARENT' ? `${form.children.length} sous-analyse(s)` : 'Non applicable' }}</strong><span class="mt-1 block text-xs text-muted-foreground">{{ form.is_bold ? 'Affichée en gras à l’impression' : 'Affichage normal' }}</span></button>
                 </div>
             </div>

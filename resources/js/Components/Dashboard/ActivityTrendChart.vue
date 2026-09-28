@@ -14,6 +14,9 @@ const props = defineProps({
     title: { type: String, default: 'Activité des 7 derniers jours' },
     description: { type: String, default: 'Patients et activités visibles selon vos permissions.' },
     compact: { type: Boolean, default: false },
+    /** Ce que dit un graphique vide ; par défaut, celui de la vue d'ensemble (sept jours). */
+    emptyTitle: { type: String, default: 'Aucune activité sur les 7 derniers jours' },
+    emptyDescription: { type: String, default: 'La courbe apparaîtra dès le premier passage, patient ou encaissement enregistré.' },
 });
 
 const chart = {
@@ -296,8 +299,8 @@ const color = (tone) => colors[tone] ?? colors.navy;
 
         <div v-else class="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
             <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-muted text-muted-foreground ring-1 ring-inset ring-border"><LineChart class="h-5 w-5" /></span>
-            <h3 class="text-sm font-bold text-foreground">{{ allSeries.length ? 'Aucune activité sur les 7 derniers jours' : 'Aucune série disponible' }}</h3>
-            <p class="max-w-sm text-xs leading-5 text-muted-foreground">{{ allSeries.length ? 'La courbe apparaîtra dès le premier passage, patient ou encaissement enregistré.' : 'Aucune donnée compatible avec vos permissions n’est disponible pour cette période.' }}</p>
+            <h3 class="text-sm font-bold text-foreground">{{ allSeries.length ? emptyTitle : 'Aucune série disponible' }}</h3>
+            <p class="max-w-sm text-xs leading-5 text-muted-foreground">{{ allSeries.length ? emptyDescription : 'Aucune donnée compatible avec vos permissions n’est disponible pour cette période.' }}</p>
         </div>
     </Card>
 </template>

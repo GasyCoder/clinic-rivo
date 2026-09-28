@@ -664,6 +664,18 @@ class PortalSiteApiClient
             ->all();
     }
 
+    /** Les listes de choix du formulaire d'une désignation, sur un site. */
+    public function catalogOptions(string $siteCode, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/catalog/options', [], $actor);
+    }
+
+    /** Une désignation d'un site, archivée comprise, avec son historique tarifaire. */
+    public function catalogItem(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/catalog/'.$uuid, [], $actor);
+    }
+
     /** @param array<string, mixed> $data */
     public function createCatalogItem(string $siteCode, array $data, User $actor): array
     {

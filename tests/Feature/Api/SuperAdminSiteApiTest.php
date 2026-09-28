@@ -359,6 +359,39 @@ class SuperAdminSiteApiTest extends TestCase
         ]);
     }
 
+    public function test_a_single_designation_and_the_form_options_are_read_without_the_whole_catalog(): void
+    {
+        $item = CatalogItem::query()->create([
+            'code' => 'ECHO-ABD', 'name' => 'Échographie abdominale', 'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Imaging, 'unit' => 'examen', 'billable' => true,
+            'stockable' => false, 'created_by' => $this->actor->id, 'updated_by' => $this->actor->id,
+        ]);
+        $item->delete();
+        $readers = ['catalog.items.view', 'catalog.tariffs.view'];
+
+        $this->withHeaders($this->headers(null, null, $readers))
+            ->getJson('/api/v1/super-admin/catalog/options')
+            ->assertOk()
+            ->assertJsonMissingPath('data.items')
+            ->assertJsonPath('data.options.tariff_categories.0.value', 'STANDARD');
+
+        // Une désignation archivée reste lisible sur sa page : on la restaure depuis là.
+        $this->withHeaders($this->headers(null, null, $readers))
+            ->getJson("/api/v1/super-admin/catalog/{$item->uuid}")
+            ->assertOk()
+            ->assertJsonPath('data.item.code', 'ECHO-ABD')
+            ->assertJsonPath('data.item.archived', true)
+            ->assertJsonPath('data.options.modules.0.value', 'RECEPTION');
+
+        $this->withHeaders($this->headers(null, null, $readers))
+            ->getJson('/api/v1/super-admin/catalog/'.Str::uuid())
+            ->assertNotFound();
+
+        $this->withHeaders($this->headers(null, null, ['catalog.tariffs.view']))
+            ->getJson("/api/v1/super-admin/catalog/{$item->uuid}")
+            ->assertForbidden();
+    }
+
     public function test_catalog_items_expose_their_analyses_and_an_imaging_family_only_imaging_carries(): void
     {
         $permissions = ['catalog.items.view', 'catalog.items.create', 'catalog.items.update', 'catalog.tariffs.create'];

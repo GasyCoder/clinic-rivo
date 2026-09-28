@@ -91,6 +91,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Onglet « Partenaire médical » retiré de l'étape Patient : un partenaire se choisit à la prise en charge ; `partner_uuid` refusé à l'arrivée, sexe et naissance retirés de la fiche partenaire (ADR-211, amendement bis)
 - [x] « Mutuelles & partenaires » renommé « Mutuelles » (page « Tarifs & mutuelles ») : « partenaire » ne désigne plus que le module Partenaires (ADR-211, amendement bis)
 - [x] Page « Tarifs & mutuelles » du portail passée à shadcn (ADR-099) : site et section en onglets, cartes-compteurs qui filtrent (dont « Sans tarif standard / mutuelle »), tableaux et six fenêtres shadcn (import compris) ; aucune route ni règle modifiée
+- [x] « Tarifs & mutuelles » : une catégorie à la fois dans une colonne de navigation (plus de vue « Tous »), onglets Actives / Sans tarif standard / Sans tarif mutuelle / Archivées par catégorie, recherche qui nomme les autres catégories, actions en menu, sans cartes ni bandeau colorés ; export Excel d'une seule catégorie (ADR-044, amendement du 2026-09-28)
+- [x] Une désignation se crée et se modifie sur sa propre page (catégorie, identification, Réception, Soins, Personnel, tarifs), plus dans une fenêtre ; en modification, les deux tarifs et leur historique sur la même page ; case « Motif automatique » écrite par le serveur à la place du champ Motif (ADR-044, amendement bis)
 - [ ] Faire passer l'étape Patient de l'accueil et la modification du dossier patient sur le même champ d'adresse (ADR-211)
 - [ ] Couverture d'un partenaire (chambre, lit, taux…) — aucune règle : 0 % pour l'instant (ADR-211)
 - [ ] ISPG (mutuelle, ADR-045) et ISPSG (partenaire) : même établissement ? À confirmer (ADR-211)

@@ -175,7 +175,7 @@ de stock accepte seulement `STOCK_INITIAL` pour un lot nouveau ou `ENTREE` pour
 ajouter une quantité ; chaque ligne crée dans le site cible un mouvement
 immuable, transactionnel, idempotent et audité avec l'identité de l'acteur
 central. Aucun ajustement, sortie ou délivrance n'est créé par cet import. Voir
-ADR-042.
+ADR-042. Depuis l'amendement du 2026-09-28 de l'ADR-044, la page `/super-admin/workspaces/tariffs` se lit **une catégorie à la fois** : `TariffCategoryNav` (colonne de gauche, `?module=` ; `?section=mutuelles`), `catalogCategories()` compte chaque catégorie sur toutes les désignations, `CATEGORY_VIEWS` porte les onglets, `categoryForSearch()` ouvre la catégorie d'un `?q=CODE`, `categoryIcon()` (`utilities/tariffCategoryIcons.js`) ; l'export accepte `module=<catégorie>` (`IMAGING:UNCLASSIFIED` = sans famille). Une désignation se crée et se modifie sur `SuperAdmin/Tariffs/ItemForm` (`/items/create?site=&module=`, `/items/{site}/{uuid}/edit`, props `targetSite` — jamais `site` —, `item`, `options`, `category`, `siteError`), alimentée par `GET /api/v1/super-admin/catalog/options` et `/catalog/{uuid}` ; « Motif automatique » : le portail écrit le motif quand `tariff_reason_auto` / `reason_auto` est vrai.
 
 Le tableau de bord central est alimenté par le rapport que chaque site sert
 sur `/api/v1/super-admin/reports/overview` (ADR-102) : activité, finance,

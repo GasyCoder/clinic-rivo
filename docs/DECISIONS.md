@@ -1840,6 +1840,86 @@ sont ajoutées seulement lorsqu’aucune prestation clinique n’existe encore s
 le site : un redémarrage ne recrée donc pas un tarif suspendu et n’écrase jamais
 une décision tarifaire saisie pendant les tests.
 
+## Amendement du 2026-09-28 — une catégorie à la fois, sans couleurs qui crient
+
+Constat du propriétaire sur `/super-admin/workspaces/tariffs?module=LABORATORY` : trop
+de choses à l'écran (cinq cartes-compteurs colorées, un bandeau jaune « À régler »,
+treize puces de domaine, des pastilles de discipline, des boutons « Configurer »
+ambre, des pastilles « Active » vertes), et les catégories mêlées dans une vue « Tous ».
+Demande : séparer complètement les désignations majeures, chacune comme une catégorie
+indépendante, dans une interface sobre en shadcn (ADR-099).
+
+```text
+navigation   une colonne à gauche : chaque catégorie (un domaine ; l'Imagerie par
+             famille, ADR-106) avec son nombre en service, puis « Mutuelles » ; sur
+             téléphone, la même liste en choix déroulant. Plus de vue « Tous » : on
+             ne voit jamais les désignations de deux catégories à la fois
+catégorie    en-tête (nom, nombre en service, avancement « N / M tarifées »), puis
+             des onglets Actives · Sans tarif standard · Sans tarif mutuelle ·
+             Archivées, comptés dans la catégorie ; dessous la recherche, la
+             discipline (Laboratoire), le type (s'il y en a plusieurs) et
+             « Points à vérifier » (sans politique Personnel, nom en double, sans
+             analyse technique), chacun seulement s'il a quelque chose à montrer
+recherche    limitée à la catégorie ; ce qu'elle trouve ailleurs est nommé
+             (« Aussi trouvé dans : Échographie (14) ») et s'ouvre d'un clic avec
+             la même recherche. Un lien `?q=CODE` venu du catalogue des analyses
+             ouvre la catégorie de ce code
+ligne        nom, puis code · unité · discipline · analyses en texte discret ;
+             repères neutres « Doublon », « Famille à choisir », « Sans analyse » ;
+             tarif, ou « Définir » en bouton discret ; actions dans un menu « … »
+Excel        un seul menu dans l'en-tête : exporter la catégorie, exporter tout le
+             site, importer, modèle. `export?module=` accepte une catégorie
+             (`LABORATORY`, `IMAGING:ULTRASOUND`, `IMAGING:UNCLASSIFIED`) ; la
+             famille non classée se lit sur l'absence de famille, jamais devinée
+retirés      les cartes-compteurs, le bandeau jaune, les puces de domaine, le choix
+             « Les deux grilles » (les onglets Sans tarif le remplacent), la
+             colonne État (les onglets séparent actives et archivées), le badge
+             « Écritures auditées » (la phrase d'en-tête le dit)
+```
+
+La couleur n'est plus portée que par l'action principale et l'avancement ; un état se
+lit par son mot. Une sélection ne survit ni à un changement de catégorie ni d'onglet :
+on n'agit jamais sur ce qu'on ne voit pas. Aucune permission, aucune règle tarifaire,
+aucune route d'écriture ne change ; l'API des sites n'est pas modifiée.
+
+## Amendement du 2026-09-28 (bis) — une désignation a sa propre page ; le motif d'un tarif peut être automatique
+
+Demande du propriétaire : la fenêtre « Nouvelle désignation » était peu logique (code avant le
+nom, « Module » et « Famille d'imagerie » séparés, motif à retaper à chaque tarif). Elle devient
+une page, et le champ Motif une case à cocher « Motif automatique ».
+
+```text
+pages        /super-admin/workspaces/tariffs/items/create?site=A&module=LABORATORY
+             (catalog.items.create) et …/items/{site}/{uuid}/edit (catalog.items.view +
+             catalog.tariffs.view) ; la liste n'a plus de fenêtre de désignation ni de tarif :
+             « Nouvelle désignation », le nom, « Modifier », un montant et « Définir » y mènent
+             (`?grille=MUTUAL#tarifs` ouvre la bonne grille)
+ordre        Catégorie et type → Identification (désignation, code, unité, description) →
+             Réception → Soins (acte de Soins) → Avantage Personnel → Tarifs. La catégorie se
+             choisit comme dans la liste : un domaine, ou une famille d'imagerie
+             (`categoryChoices`, `categoryFields`) ; « non classée » n'écrit aucune famille
+fiche        en modification, les deux tarifs côte à côte (montant, depuis quand, par qui),
+             « Modifier / Définir », « Suspendre » et l'historique ; archiver et restaurer
+             depuis l'en-tête ; une désignation archivée se lit en lecture seule
+barre        collante au bas : ce qui manque encore (« À compléter : le code, le tarif… »),
+             Annuler, Créer / Enregistrer — jamais un bouton grisé sans raison
+après        une création ramène à sa catégorie, ouverte sur son code ; une erreur du site
+             garde la page et ses champs
+```
+
+**Motif automatique**, cochée par défaut. C'est le portail qui écrit le motif, jamais le
+navigateur (`tariff_reason_auto` à la création, `reason_auto` pour un tarif) : « Tarif initial
+fixé à la création de la désignation (motif automatique). » et « Tarif mutuelle fixé à
+25 000 Ar depuis la fiche de la désignation (motif automatique). » Décochée, le motif s'écrit à
+la main et reste exigé. Suspendre un tarif et archiver une désignation gardent un motif écrit à
+la main : ce sont des décisions (ADR-009, ADR-010).
+
+L'API des sites gagne deux lectures, sans rien changer aux écritures :
+`GET /api/v1/super-admin/catalog/options` (les listes de choix du formulaire) et
+`GET /api/v1/super-admin/catalog/{uuid}` (une désignation, archivée comprise, avec son historique),
+toutes deux gardées par `catalog.items.view`. La page reçoit son site dans `targetSite`, jamais
+`site` : la prop partagée du même nom porte le menu du portail. Aucune permission nouvelle.
+
 ---
 
 # ADR-045 — Référentiel des mutuelles et partenaires par site

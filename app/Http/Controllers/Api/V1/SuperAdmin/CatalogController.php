@@ -105,6 +105,39 @@ class CatalogController extends Controller
         ]);
     }
 
+    /**
+     * Les listes de choix du formulaire d'une désignation (types, domaines,
+     * familles d'imagerie, parcours, politiques Personnel, grilles), sans le
+     * catalogue entier : la page « Nouvelle désignation » du portail n'a besoin
+     * que d'elles.
+     */
+    public function formOptions(Request $request): JsonResponse
+    {
+        $this->authorizeActor(CatalogActor::fromRemoteRequest($request), 'catalog.items.view');
+
+        return response()->json([
+            'data' => ['options' => $this->options()],
+            'meta' => ['site' => ['code' => config('rivo.site.code'), 'name' => config('rivo.site.name')]],
+        ]);
+    }
+
+    /** Une désignation, archivée comprise, avec son historique tarifaire et les listes de choix. */
+    public function show(Request $request, string $catalogUuid): JsonResponse
+    {
+        $actor = CatalogActor::fromRemoteRequest($request);
+        $this->authorizeActor($actor, 'catalog.items.view');
+        $canViewTariffs = $actor->can('catalog.tariffs.view');
+        $item = CatalogItem::withTrashed()->where('uuid', $catalogUuid)->firstOrFail();
+
+        return response()->json([
+            'data' => [
+                'item' => $this->serializeItem($this->loadItem($item), $canViewTariffs),
+                'options' => $this->options(),
+            ],
+            'meta' => ['site' => ['code' => config('rivo.site.code'), 'name' => config('rivo.site.name')]],
+        ]);
+    }
+
     public function store(
         StoreCatalogItemRequest $request,
         CreateCatalogItemAction $action,

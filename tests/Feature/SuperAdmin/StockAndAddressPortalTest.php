@@ -630,6 +630,35 @@ class StockAndAddressPortalTest extends TestCase
             && $request['rows'][1]['coverage_rate'] === '80.00');
     }
 
+    public function test_a_tariff_export_can_cover_a_single_category_imaging_split_by_family(): void
+    {
+        $payload = $this->catalogPayload('Mampikony');
+        $template = $payload['data']['items'][0];
+        $payload['data']['items'] = [
+            $template,
+            [...$template, 'uuid' => 'lab-uuid', 'code' => 'NFS', 'name' => 'NFS', 'module' => 'LABORATORY', 'module_label' => 'Laboratoire'],
+            [...$template, 'uuid' => 'echo-uuid', 'code' => 'ECHO-ABD', 'name' => 'Échographie abdominale', 'module' => 'IMAGING', 'module_label' => 'Imagerie', 'imaging_modality' => 'ULTRASOUND'],
+            [...$template, 'uuid' => 'x-uuid', 'code' => 'IMG-X', 'name' => 'Examen sans famille', 'module' => 'IMAGING', 'module_label' => 'Imagerie', 'imaging_modality' => null],
+        ];
+        Http::fake(['https://m.test/api/v1/super-admin/catalog*' => Http::response($payload, 200)]);
+
+        $codes = fn (string $category) => array_column(array_slice($this->excelRows(
+            $this->actingAs($this->superAdmin)
+                ->get('/super-admin/workspaces/tariffs/export?site_code=M&module='.urlencode($category))
+                ->assertOk()
+                ->streamedContent(),
+        ), 1), 2);
+
+        $this->assertSame(['NFS'], $codes('LABORATORY'));
+        $this->assertSame(['ECHO-ABD'], $codes('IMAGING:ULTRASOUND'));
+        // Sans famille réglée, un examen reste « non classé » : jamais rangé d'office (ADR-106).
+        $this->assertSame(['IMG-X'], $codes('IMAGING:UNCLASSIFIED'));
+
+        $this->actingAs($this->superAdmin)
+            ->get('/super-admin/workspaces/tariffs/export?site_code=M&module=not-a-category')
+            ->assertSessionHasErrors('module');
+    }
+
     /** @return array<string, mixed> */
     private function stockPayload(string $site, int $available): array
     {

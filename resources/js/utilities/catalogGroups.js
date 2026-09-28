@@ -30,6 +30,27 @@ export function catalogGroupKey(item) {
         ?? IMAGING_UNCLASSIFIED;
 }
 
+/**
+ * Les catégories proposées au formulaire d'une désignation, dans l'ordre du
+ * site et avec les mêmes noms que la navigation : l'Imagerie s'y choisit par
+ * famille, « non classée » comprise (on peut toujours la choisir plus tard).
+ */
+export function categoryChoices(modules = []) {
+    return modules.flatMap((module) => (module.value === IMAGING
+        ? IMAGING_FAMILIES.map((family) => ({ value: family.key, label: family.label }))
+        : [{ value: module.value, label: module.label }]));
+}
+
+/** Ce qu'une catégorie écrit sur la désignation : son domaine et, en Imagerie, sa famille. */
+export function categoryFields(key) {
+    const [module, family] = String(key ?? '').split(':');
+
+    return {
+        module,
+        imaging_modality: module === IMAGING && family && family !== 'UNCLASSIFIED' ? family : '',
+    };
+}
+
 /** Le domaine dont relève un groupe (`IMAGING:ULTRASOUND` → `IMAGING`). */
 export const groupModule = (key) => String(key ?? '').split(':')[0];
 
@@ -81,6 +102,69 @@ export function catalogGroups(items, modules = []) {
                 unclassified: group.key === IMAGING_UNCLASSIFIED,
             };
         });
+}
+
+/**
+ * Les catégories de l'écran « Tarifs & mutuelles », chacune lue à part : ce
+ * qu'elle a en service, archivé, et ce qui reste à tarifer dans chaque grille.
+ * Calculées sur toutes les désignations du site, jamais sur une liste déjà
+ * filtrée : la navigation ne bouge pas quand on cherche.
+ */
+export function catalogCategories(items, modules = []) {
+    const members = new Map();
+    items.forEach((item) => {
+        const key = catalogGroupKey(item);
+        members.set(key, [...(members.get(key) ?? []), item]);
+    });
+
+    return catalogGroups(items, modules).map((group) => {
+        const all = members.get(group.key) ?? [];
+        const active = all.filter((item) => ! item.archived);
+        const billable = active.filter((item) => item.billable);
+
+        return {
+            key: group.key,
+            module: group.module,
+            label: group.label,
+            unclassified: group.unclassified,
+            active: active.length,
+            archived: all.length - active.length,
+            billable: billable.length,
+            missingStandard: billable.filter((item) => ! item.current_standard_tariff).length,
+            missingMutual: billable.filter((item) => ! item.current_mutual_tariff).length,
+        };
+    });
+}
+
+/** Ce que chaque onglet d'une catégorie garde. */
+export const CATEGORY_VIEWS = {
+    ACTIVE: (item) => ! item.archived,
+    MISSING_STANDARD: (item) => ! item.archived && item.billable && ! item.current_standard_tariff,
+    MISSING_MUTUAL: (item) => ! item.archived && item.billable && ! item.current_mutual_tariff,
+    ARCHIVED: (item) => Boolean(item.archived),
+};
+
+/** La recherche d'une désignation : code, nom ou description, sans accents ni casse. */
+export function matchesSearch(item, needle) {
+    const wanted = normalizeLabel(needle);
+    if (! wanted) return true;
+
+    return [item.name, item.code, item.description].some((value) => normalizeLabel(value).includes(wanted));
+}
+
+/**
+ * La catégorie à ouvrir pour une recherche venue d'ailleurs (le catalogue des
+ * analyses renvoie `?q=CODE`) : celle du code exact, sinon de la première
+ * désignation trouvée ; `null` si rien ne correspond.
+ */
+export function categoryForSearch(items, needle) {
+    const wanted = normalizeLabel(needle);
+    if (! wanted) return null;
+
+    const exact = items.find((item) => normalizeLabel(item.code) === wanted);
+    const found = exact ?? items.find((item) => matchesSearch(item, needle));
+
+    return found ? catalogGroupKey(found) : null;
 }
 
 /** Un libellé comparable : sans accents, sans casse, espaces simplifiés. */

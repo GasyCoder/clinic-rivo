@@ -41,7 +41,10 @@ class CatalogController extends Controller
             'site_code' => ['required', Rule::in(['ALL', ...$this->siteCodes()])],
             'uuids' => ['nullable', 'array', 'max:100'],
             'uuids.*' => ['required', 'uuid', 'distinct'],
+            // Une catégorie de l'écran : un domaine, ou une famille d'imagerie (`IMAGING:ULTRASOUND`).
+            'module' => ['nullable', 'string', 'max:40', 'regex:/^[A-Z_]+(:[A-Z_]+)?$/'],
         ]);
+        $category = $validated['module'] ?? null;
         $sites = collect($client->catalogForAllSites($request->user(), ['status' => 'ALL']))
             ->when($validated['site_code'] !== 'ALL', fn ($items) => $items->where('site.code', $validated['site_code']))
             ->where('ok', true)
@@ -52,6 +55,7 @@ class CatalogController extends Controller
         $selectedUuids = collect($validated['uuids'] ?? []);
         $selectedItems = $sites->flatMap(fn (array $site) => collect(data_get($site, 'data.items', []))
             ->when($selectedUuids->isNotEmpty(), fn ($items) => $items->whereIn('uuid', $selectedUuids))
+            ->when($category !== null, fn ($items) => $items->filter(fn (array $item) => $this->inCategory($item, $category)))
             ->map(fn (array $item) => ['site' => $site, 'item' => $item]));
 
         if ($selectedUuids->isNotEmpty() && $selectedItems->count() !== $selectedUuids->count()) {
@@ -74,6 +78,9 @@ class CatalogController extends Controller
         $scope = $selectedUuids->isNotEmpty()
             ? 'selection-'.$selectedUuids->count()
             : ($validated['site_code'] === 'ALL' ? 'tous-les-sites' : mb_strtolower($validated['site_code']));
+        if ($category !== null && $selectedUuids->isEmpty()) {
+            $scope .= '-'.mb_strtolower(str_replace([':', '_'], '-', $category));
+        }
 
         return $excel->download(
             'tarifs-'.$scope.'-'.now()->format('Y-m-d-His'),
@@ -84,6 +91,30 @@ class CatalogController extends Controller
             ],
             $rows,
         );
+    }
+
+    /**
+     * La catégorie d'une désignation, comme l'écran la lit : son domaine, et pour
+     * l'Imagerie sa famille réglée au catalogue (ADR-106). Une famille absente
+     * reste « non classée », jamais devinée.
+     *
+     * @param  array<string, mixed>  $item
+     */
+    private function inCategory(array $item, string $category): bool
+    {
+        [$module, $family] = array_pad(explode(':', $category, 2), 2, null);
+
+        if (($item['module'] ?? null) !== $module) {
+            return false;
+        }
+
+        if ($family === null) {
+            return true;
+        }
+
+        return $family === 'UNCLASSIFIED'
+            ? blank($item['imaging_modality'] ?? null)
+            : ($item['imaging_modality'] ?? null) === $family;
     }
 
     public function template(ExcelWorkbook $excel): StreamedResponse
@@ -116,14 +147,66 @@ class CatalogController extends Controller
         );
     }
 
+    /** La page « Nouvelle désignation » d'un site, rangée d'avance dans la catégorie d'où l'on vient. */
+    public function create(Request $request, PortalSiteApiClient $client): Response
+    {
+        $siteCode = $this->queriedSiteCode($request);
+        $validated = $request->validate([
+            'module' => ['nullable', 'string', 'max:40', 'regex:/^[A-Z_]+(:[A-Z_]+)?$/'],
+        ]);
+        $result = $client->catalogOptions($siteCode, $request->user());
+
+        return Inertia::render('SuperAdmin/Tariffs/ItemForm', [
+            // Jamais `site` : la prop partagée du même nom porte le menu du portail.
+            'targetSite' => $this->siteIdentity($siteCode),
+            'item' => null,
+            'options' => $result['ok'] ? data_get($result, 'data.options') : null,
+            'category' => $validated['module'] ?? null,
+            'siteError' => $result['ok'] ? null : $result['message'],
+        ]);
+    }
+
+    /** La fiche d'une désignation : ce qui la décrit, puis ses deux tarifs et leur historique. */
+    public function edit(Request $request, string $site, string $catalog, PortalSiteApiClient $client): Response
+    {
+        $this->assertRouteSite($site);
+        $siteCode = mb_strtoupper($site);
+        $result = $client->catalogItem($siteCode, $catalog, $request->user());
+        abort_if(($result['http_status'] ?? null) === 404, 404);
+
+        return Inertia::render('SuperAdmin/Tariffs/ItemForm', [
+            // Jamais `site` : la prop partagée du même nom porte le menu du portail.
+            'targetSite' => $this->siteIdentity($siteCode),
+            'item' => $result['ok'] ? data_get($result, 'data.item') : null,
+            'options' => $result['ok'] ? data_get($result, 'data.options') : null,
+            'category' => null,
+            'siteError' => $result['ok'] ? null : $result['message'],
+        ]);
+    }
+
     public function store(Request $request, PortalSiteApiClient $client): RedirectResponse
     {
         $siteCode = $this->validatedSiteCode($request);
+        $request->validate(['tariff_reason_auto' => ['sometimes', 'boolean']]);
+        $payload = $this->itemPayload($request, true);
 
-        return $this->respond(
-            $client->createCatalogItem($siteCode, $this->itemPayload($request, true), $request->user()),
-            'Désignation créée.',
-        );
+        // Le motif automatique est écrit ici, jamais par le navigateur : il dit ce qui s'est passé.
+        if ($request->boolean('tariff_reason_auto') && filled($payload['tariff_amount'] ?? null)) {
+            $payload['tariff_reason'] = 'Tarif initial fixé à la création de la désignation (motif automatique).';
+        }
+
+        $result = $client->createCatalogItem($siteCode, $payload, $request->user());
+
+        if (! $result['ok']) {
+            return $this->respond($result, '');
+        }
+
+        // Retour à la catégorie de la nouvelle désignation, ouverte sur son code.
+        return redirect('/super-admin/workspaces/tariffs?'.http_build_query(array_filter([
+            'site' => $siteCode,
+            'module' => $this->categoryOf((array) ($result['data'] ?? [])),
+            'q' => data_get($result, 'data.code'),
+        ])))->with('status', $result['message'] ?: 'Désignation créée.');
     }
 
     public function update(
@@ -218,8 +301,18 @@ class CatalogController extends Controller
         $validated = $request->validate([
             'tariff_category' => ['required', new Enum(CatalogTariffCategory::class)],
             'tariff_amount' => ['required', 'numeric', 'gt:0', 'max:999999999.99', 'decimal:0,2'],
-            'reason' => ['required', 'string', 'max:1000'],
+            'reason_auto' => ['sometimes', 'boolean'],
+            'reason' => [Rule::requiredIf(! $request->boolean('reason_auto')), 'nullable', 'string', 'max:1000'],
         ]);
+
+        // Le motif automatique dit la grille et le montant : l'historique reste lisible sans rien taper.
+        if ($request->boolean('reason_auto')) {
+            $validated['reason'] = sprintf(
+                'Tarif %s fixé à %s Ar depuis la fiche de la désignation (motif automatique).',
+                mb_strtolower(CatalogTariffCategory::from($validated['tariff_category'])->label()),
+                $this->formatAmount((string) $validated['tariff_amount']),
+            );
+        }
 
         return $this->respond(
             $client->setCatalogTariff(
@@ -256,6 +349,60 @@ class CatalogController extends Controller
             ),
             'Tarif suspendu.',
         );
+    }
+
+    /** Le site de la page, lu sur `?site=` ; à défaut le premier site configuré. */
+    private function queriedSiteCode(Request $request): string
+    {
+        $code = mb_strtoupper(trim((string) $request->query('site', '')));
+        $codes = $this->siteCodes();
+        abort_if($codes === [], 404);
+
+        if ($code === '') {
+            return $codes[0];
+        }
+
+        abort_unless(in_array($code, $codes, true), 404);
+
+        return $code;
+    }
+
+    /** @return array{code: string, name: string} */
+    private function siteIdentity(string $code): array
+    {
+        $site = collect(config('rivo.clinics', []))->firstWhere('code', $code) ?? [];
+
+        return ['code' => $code, 'name' => (string) ($site['name'] ?? $code)];
+    }
+
+    /**
+     * La catégorie de l'écran pour une désignation : son domaine, et pour
+     * l'Imagerie sa famille réglée au catalogue (ADR-106), jamais devinée.
+     *
+     * @param  array<string, mixed>  $item
+     */
+    private function categoryOf(array $item): ?string
+    {
+        $module = $item['module'] ?? null;
+
+        if (! is_string($module) || $module === '') {
+            return null;
+        }
+
+        if ($module !== 'IMAGING') {
+            return $module;
+        }
+
+        return 'IMAGING:'.(filled($item['imaging_modality'] ?? null) ? $item['imaging_modality'] : 'UNCLASSIFIED');
+    }
+
+    /** « 25 000 », « 12 500,50 » : l'écriture d'un montant dans un motif. */
+    private function formatAmount(string $amount): string
+    {
+        $value = (float) $amount;
+        $decimals = fmod($value, 1.0) === 0.0 ? 0 : 2;
+
+        return number_format($value, $decimals, ',', ' ');
     }
 
     private function validatedSiteCode(Request $request): string

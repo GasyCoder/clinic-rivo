@@ -256,6 +256,8 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/catalog/tariffs/import', [CatalogController::class, 'importTariffs'])->name('catalog.tariffs.import');
         Route::post('/catalog/bulk/archive', [CatalogController::class, 'bulkArchive'])->name('catalog.bulk.archive');
         Route::post('/catalog/bulk/restore', [CatalogController::class, 'bulkRestore'])->name('catalog.bulk.restore');
+        Route::get('/catalog/options', [CatalogController::class, 'formOptions'])->name('catalog.options');
+        Route::get('/catalog/{catalogUuid}', [CatalogController::class, 'show'])->name('catalog.show');
         Route::put('/catalog/{catalogUuid}', [CatalogController::class, 'update'])->name('catalog.update');
         Route::delete('/catalog/{catalogUuid}', [CatalogController::class, 'destroy'])->name('catalog.destroy');
         Route::post('/catalog/{catalogUuid}/restore', [CatalogController::class, 'restore'])->name('catalog.restore');

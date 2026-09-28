@@ -376,6 +376,8 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::get('/workspaces/tariffs/export', [SuperAdminCatalogController::class, 'export'])->name('tariffs.export')->middleware('can:catalog.tariffs.export');
         Route::get('/workspaces/tariffs/import-template', [SuperAdminCatalogController::class, 'template'])->name('tariffs.import-template')->middleware('can:catalog.tariffs.import');
         Route::post('/workspaces/tariffs/import', [SuperAdminCatalogController::class, 'import'])->name('tariffs.import')->middleware('can:catalog.tariffs.import');
+        Route::get('/workspaces/tariffs/items/create', [SuperAdminCatalogController::class, 'create'])->name('tariffs.items.create')->middleware('can:catalog.items.create');
+        Route::get('/workspaces/tariffs/items/{site}/{catalog}/edit', [SuperAdminCatalogController::class, 'edit'])->name('tariffs.items.edit')->middleware(['can:catalog.items.view', 'can:catalog.tariffs.view']);
         Route::post('/workspaces/tariffs/items', [SuperAdminCatalogController::class, 'store'])->name('tariffs.items.store')->middleware('can:catalog.items.create');
         Route::post('/workspaces/tariffs/items/bulk/archive', [SuperAdminCatalogController::class, 'bulkArchive'])->name('tariffs.items.bulk.archive')->middleware('can:catalog.items.delete');
         Route::post('/workspaces/tariffs/items/bulk/restore', [SuperAdminCatalogController::class, 'bulkRestore'])->name('tariffs.items.bulk.restore')->middleware(['can:trash.restore', 'can:catalog.items.restore']);

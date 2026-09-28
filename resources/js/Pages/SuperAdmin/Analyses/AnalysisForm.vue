@@ -266,9 +266,20 @@ const typeHint = (value) => ({
 
         <footer class="sticky bottom-3 z-10 flex flex-col-reverse gap-2 rounded-xl border border-border bg-card/95 p-3 shadow-lg backdrop-blur /95 sm:flex-row sm:items-center sm:justify-between">
             <Button :as="Link" :href="cancelHref" size="rg" variant="white-outline">Annuler</Button>
-            <div class="flex items-center justify-end gap-2">
+            <div class="flex flex-wrap items-center justify-end gap-2">
                 <Button v-if="currentStep > 1" type="button" size="rg" variant="white-outline" @click="previousStep"><ArrowLeft class="h-4 w-4" />Précédent</Button>
-                <Button v-if="currentStep < steps.length" type="button" size="rg" @click="nextStep"><span class="me-2">Continuer</span><ArrowRight class="h-4 w-4" /></Button>
+                <Button
+                    v-if="analysisUuid && currentStep < steps.length"
+                    type="button"
+                    size="rg"
+                    :disabled="form.processing || !form.isDirty"
+                    :title="form.isDirty ? 'Enregistrer maintenant sans parcourir les autres étapes' : 'Aucune modification à enregistrer'"
+                    @click="submitForm"
+                >
+                    <Save class="h-4.5 w-4.5" />
+                    {{ form.processing ? 'Mise à jour…' : 'Mettre à jour' }}
+                </Button>
+                <Button v-if="currentStep < steps.length" type="button" size="rg" :variant="analysisUuid ? 'white-outline' : 'default'" :disabled="form.processing" @click="nextStep"><span class="me-2">Continuer</span><ArrowRight class="h-4 w-4" /></Button>
                 <Button v-else size="rg" type="submit" :disabled="form.processing"><Save class="h-4.5 w-4.5" />{{ form.processing ? 'Enregistrement…' : submitLabel }}</Button>
             </div>
         </footer>

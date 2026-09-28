@@ -2,15 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
+    CATEGORY_VIEWS,
     IMAGING_UNCLASSIFIED,
     analysesUrl,
     catalogAttention,
+    catalogCategories,
     catalogGroupKey,
     catalogGroups,
+    categoryChoices,
+    categoryFields,
+    categoryForSearch,
     disciplineLabel,
     duplicateNames,
     laboratoryDisciplines,
     matchesAttention,
+    matchesSearch,
     normalizeLabel,
     tariffsUrl,
 } from '../../resources/js/utilities/catalogGroups.js';
@@ -109,10 +115,104 @@ test('tarifs et analyses se renvoient l’un à l’autre', () => {
     assert.equal(tariffsUrl('A', 'LEGACY-LAB-16'), '/super-admin/workspaces/tariffs?site=A&q=LEGACY-LAB-16');
 
     const tariffs = read('resources/js/Pages/SuperAdmin/Tariffs/Index.vue');
-    assert.match(tariffs, /catalogGroups\(/);
+    assert.match(tariffs, /catalogCategories\(/);
     assert.match(tariffs, /analysesUrl\(/);
     assert.match(tariffs, /imaging_modality/);
     const analyses = read('resources/js/Pages/SuperAdmin/Analyses/Index.vue');
     assert.match(analyses, /tariffsUrl\(/);
     assert.match(analyses, /filters\.catalog_item/);
+});
+
+test('chaque catégorie se compte à part : en service, archivées, et ce qui reste à tarifer dans chaque grille', () => {
+    const categories = catalogCategories([
+        item({ code: 'NFS', module: 'LABORATORY', current_standard_tariff: { amount: '8000' }, current_mutual_tariff: { amount: '7000' } }),
+        item({ code: 'GLY', module: 'LABORATORY', current_standard_tariff: { amount: '5000' } }),
+        item({ code: 'OLD', module: 'LABORATORY', archived: true }),
+        item({ code: 'FREE', module: 'LABORATORY', billable: false }),
+        item({ code: 'ECHO', module: 'IMAGING', imaging_modality: 'ULTRASOUND' }),
+    ], MODULES);
+
+    assert.deepEqual(categories.map((category) => category.key), ['LABORATORY', 'IMAGING:ULTRASOUND']);
+    assert.deepEqual(categories[0], {
+        key: 'LABORATORY', module: 'LABORATORY', label: 'Laboratoire', unclassified: false,
+        active: 3, archived: 1, billable: 2, missingStandard: 0, missingMutual: 1,
+    });
+    assert.equal(categories[1].missingStandard, 1);
+});
+
+test('les onglets d’une catégorie gardent ce qu’ils disent, jamais une archivée parmi les actives', () => {
+    const priced = item({ code: 'A', current_standard_tariff: { amount: '1' } });
+    const unpriced = item({ code: 'B' });
+    const free = item({ code: 'C', billable: false });
+    const archived = item({ code: 'D', archived: true });
+    const keep = (view) => [priced, unpriced, free, archived].filter(CATEGORY_VIEWS[view]).map((entry) => entry.code);
+
+    assert.deepEqual(keep('ACTIVE'), ['A', 'B', 'C']);
+    assert.deepEqual(keep('MISSING_STANDARD'), ['B']);
+    assert.deepEqual(keep('MISSING_MUTUAL'), ['A', 'B']);
+    assert.deepEqual(keep('ARCHIVED'), ['D']);
+});
+
+test('une recherche venue du catalogue des analyses ouvre la catégorie de son code, sans accents ni casse', () => {
+    const items = [
+        item({ code: 'CONSULT', module: 'MEDICINE', name: 'Consultation' }),
+        item({ code: 'LEGACY-LAB-16', module: 'LABORATORY', name: 'Glycémie' }),
+        item({ code: 'ECHO-ABD', module: 'IMAGING', name: 'Échographie abdominale', imaging_modality: 'ULTRASOUND' }),
+    ];
+
+    assert.equal(categoryForSearch(items, 'legacy-lab-16'), 'LABORATORY');
+    assert.equal(categoryForSearch(items, 'echographie'), 'IMAGING:ULTRASOUND');
+    assert.equal(categoryForSearch(items, 'inconnu'), null);
+    assert.equal(categoryForSearch(items, ''), null);
+    assert.equal(matchesSearch(items[1], 'GLYCEMIE'), true);
+    assert.equal(matchesSearch(items[1], ''), true);
+});
+
+test('Tarifs & mutuelles : une catégorie à la fois, sans cartes colorées ni bandeau jaune', () => {
+    const page = read('resources/js/Pages/SuperAdmin/Tariffs/Index.vue');
+    const nav = read('resources/js/Components/SuperAdmin/Tariffs/TariffCategoryNav.vue');
+
+    assert.match(page, /<TariffCategoryNav/);
+    assert.match(nav, /aria-current/);
+    // Plus aucune vue « Tous » qui mélange les catégories, ni les cartes-compteurs colorées.
+    assert.doesNotMatch(page, /QueueCounters/);
+    assert.doesNotMatch(page, /chooseGroup\(''\)/);
+    assert.doesNotMatch(page, /amber-|emerald-/);
+    // L'export d'une catégorie part au serveur avec sa clé, famille d'imagerie comprise.
+    assert.match(page, /params\.set\('module', category\)/);
+});
+
+test('le formulaire range une désignation dans une catégorie : un domaine, ou une famille d’imagerie', () => {
+    assert.deepEqual(categoryChoices(MODULES).map((choice) => choice.value), [
+        'MEDICINE', 'LABORATORY', 'IMAGING:ULTRASOUND', 'IMAGING:CARDIOLOGY', IMAGING_UNCLASSIFIED, 'SURGERY',
+    ]);
+    assert.deepEqual(categoryFields('LABORATORY'), { module: 'LABORATORY', imaging_modality: '' });
+    assert.deepEqual(categoryFields('IMAGING:CARDIOLOGY'), { module: 'IMAGING', imaging_modality: 'CARDIOLOGY' });
+    // « Non classée » n'écrit aucune famille : elle se choisira plus tard, jamais devinée.
+    assert.deepEqual(categoryFields(IMAGING_UNCLASSIFIED), { module: 'IMAGING', imaging_modality: '' });
+    // Aller-retour : la catégorie écrite est celle que la liste relira.
+    ['LABORATORY', 'IMAGING:ULTRASOUND', IMAGING_UNCLASSIFIED].forEach((key) => {
+        assert.equal(catalogGroupKey(categoryFields(key)), key);
+    });
+});
+
+test('une désignation se crée et se modifie sur sa page ; le motif d’un tarif peut être automatique', () => {
+    const list = read('resources/js/Pages/SuperAdmin/Tariffs/Index.vue');
+    const page = read('resources/js/Pages/SuperAdmin/Tariffs/ItemForm.vue');
+
+    // Plus de fenêtre de désignation ni de tarif dans la liste : des liens vers la page.
+    assert.doesNotMatch(list, /itemModalOpen|tariffTarget|Nouvelle désignation'\s*:/);
+    assert.match(list, /tariffs\/items\/create\?/);
+    assert.match(list, /\/edit\$\{grid \? `\?grille=\$\{grid\}#tarifs`/);
+    // La page : case « Motif automatique » cochée par défaut, le texte libre seulement si on la décoche.
+    assert.match(page, /tariff_reason_auto: true/);
+    assert.match(page, /reason_auto: true/);
+    assert.match(page, /v-if="! form\.tariff_reason_auto"/);
+    // Le navigateur n'envoie jamais le texte du motif automatique : le serveur l'écrit.
+    assert.match(page, /tariff_reason: data\.tariff_reason_auto \? '' : data\.tariff_reason/);
+    // Suspendre un tarif ou archiver reste une décision dont le motif s'écrit à la main.
+    assert.match(page, /confirmationForm\.reason\.trim\(\)/);
+    // Une prop `site` masquerait la prop partagée du même nom : le menu du portail disparaîtrait.
+    assert.doesNotMatch(page, /^\s{4}site:\s*\{/m);
+    assert.match(page, /targetSite: \{ type: Object, required: true \}/);
 });

@@ -54,8 +54,13 @@ const requiredLabels = {
     designation: 'La désignation', result_type: 'Le type de résultat',
 };
 
+// Editing an existing analysis: every step already holds saved data, so all
+// steps are reachable at once — a change in step 1 never forces a walk
+// through steps 2 to 5 before « Mettre à jour ».
+const isEditing = computed(() => Boolean(props.analysisUuid));
+
 const currentStep = ref(1);
-const maxStepReached = ref(1);
+const maxStepReached = ref(isEditing.value ? steps.length : 1);
 const currentMeta = computed(() => steps[currentStep.value - 1]);
 const progress = computed(() => `${Math.round((currentStep.value / steps.length) * 100)}%`);
 
@@ -100,9 +105,9 @@ const goToStep = (step) => {
     currentStep.value = step;
     scrollToWizard();
 };
-const validateCurrentStep = () => {
+const validateStep = (step) => {
     let valid = true;
-    (requiredByStep.value[currentStep.value] ?? []).forEach((field) => {
+    (requiredByStep.value[step] ?? []).forEach((field) => {
         if (String(props.form[field] ?? '').trim() === '') {
             props.form.setError(field, `${requiredLabels[field]} est obligatoire avant de continuer.`);
             valid = false;
@@ -112,6 +117,7 @@ const validateCurrentStep = () => {
     });
     return valid;
 };
+const validateCurrentStep = () => validateStep(currentStep.value);
 const nextStep = () => {
     if (!validateCurrentStep()) return;
     currentStep.value = Math.min(steps.length, currentStep.value + 1);
@@ -127,7 +133,17 @@ const editStep = (step) => {
     currentStep.value = step;
     scrollToWizard();
 };
-const submitForm = () => props.form.transform(payload)[props.submitMethod](props.submitUrl, { preserveScroll: true });
+// Saving from any step: a required field left empty on another step brings
+// the user there instead of letting the server bounce the whole form back.
+const submitForm = () => {
+    const invalidStep = Object.keys(requiredByStep.value).map(Number).find((step) => !validateStep(step));
+    if (invalidStep) {
+        currentStep.value = invalidStep;
+        scrollToWizard();
+        return;
+    }
+    props.form.transform(payload)[props.submitMethod](props.submitUrl, { preserveScroll: true });
+};
 const submit = () => (currentStep.value < steps.length ? nextStep() : submitForm());
 
 watch(

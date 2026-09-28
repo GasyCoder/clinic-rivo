@@ -53,8 +53,13 @@ const requiredLabels = {
     designation: 'La désignation', result_type: 'Le type de résultat',
 };
 
+// Editing an existing analysis: every step already holds saved data, so all
+// steps are reachable at once — a change in step 1 never forces a walk
+// through steps 2 to 5 before « Mettre à jour ».
+const isEditing = computed(() => Boolean(props.analysisUuid));
+
 const currentStep = ref(1);
-const maxStepReached = ref(1);
+const maxStepReached = ref(isEditing.value ? steps.length : 1);
 const currentMeta = computed(() => steps[currentStep.value - 1]);
 const progress = computed(() => `${Math.round((currentStep.value / steps.length) * 100)}%`);
 
@@ -99,9 +104,9 @@ const goToStep = (step) => {
     currentStep.value = step;
     scrollToWizard();
 };
-const validateCurrentStep = () => {
+const validateStep = (step) => {
     let valid = true;
-    (requiredByStep.value[currentStep.value] ?? []).forEach((field) => {
+    (requiredByStep.value[step] ?? []).forEach((field) => {
         if (String(props.form[field] ?? '').trim() === '') {
             props.form.setError(field, `${requiredLabels[field]} est obligatoire avant de continuer.`);
             valid = false;
@@ -111,6 +116,7 @@ const validateCurrentStep = () => {
     });
     return valid;
 };
+const validateCurrentStep = () => validateStep(currentStep.value);
 const nextStep = () => {
     if (!validateCurrentStep()) return;
     currentStep.value = Math.min(steps.length, currentStep.value + 1);
@@ -126,7 +132,17 @@ const editStep = (step) => {
     currentStep.value = step;
     scrollToWizard();
 };
-const submitForm = () => props.form.transform(payload)[props.submitMethod](props.submitUrl, { preserveScroll: true });
+// Saving from any step: a required field left empty on another step brings
+// the user there instead of letting the server bounce the whole form back.
+const submitForm = () => {
+    const invalidStep = Object.keys(requiredByStep.value).map(Number).find((step) => !validateStep(step));
+    if (invalidStep) {
+        currentStep.value = invalidStep;
+        scrollToWizard();
+        return;
+    }
+    props.form.transform(payload)[props.submitMethod](props.submitUrl, { preserveScroll: true });
+};
 const submit = () => (currentStep.value < steps.length ? nextStep() : submitForm());
 
 watch(
@@ -265,9 +281,20 @@ const typeHint = (value) => ({
 
         <footer class="sticky bottom-3 z-10 flex flex-col-reverse gap-2 rounded-xl border border-gray-200 bg-white/95 p-3 shadow-lg backdrop-blur dark:border-gray-800 dark:bg-gray-950/95 sm:flex-row sm:items-center sm:justify-between">
             <Button :as="Link" :href="cancelHref" size="rg" variant="white-outline">Annuler</Button>
-            <div class="flex items-center justify-end gap-2">
+            <div class="flex flex-wrap items-center justify-end gap-2">
                 <Button v-if="currentStep > 1" type="button" size="rg" variant="white-outline" @click="previousStep"><Icon name="arrow-left" /><span class="ms-2">Précédent</span></Button>
-                <Button v-if="currentStep < steps.length" type="button" size="rg" @click="nextStep"><span class="me-2">Continuer</span><Icon name="arrow-right" /></Button>
+                <Button
+                    v-if="analysisUuid && currentStep < steps.length"
+                    type="button"
+                    size="rg"
+                    :disabled="form.processing || !form.isDirty"
+                    :title="form.isDirty ? 'Enregistrer maintenant sans parcourir les autres étapes' : 'Aucune modification à enregistrer'"
+                    @click="submitForm"
+                >
+                    <Icon class="text-lg" name="save" />
+                    <span class="ms-2">{{ form.processing ? 'Mise à jour…' : 'Mettre à jour' }}</span>
+                </Button>
+                <Button v-if="currentStep < steps.length" type="button" size="rg" :variant="analysisUuid ? 'white-outline' : 'primary'" :disabled="form.processing" @click="nextStep"><span class="me-2">Continuer</span><Icon name="arrow-right" /></Button>
                 <Button v-else size="rg" type="submit" :disabled="form.processing"><Icon class="text-lg" name="save" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : submitLabel }}</span></Button>
             </div>
         </footer>

@@ -56,7 +56,7 @@ const identity = (patient) => [
 <template>
     <Head title="Feuille de paillasse" />
 
-    <div class="lab-worklist mx-auto w-full max-w-screen-xl space-y-4">
+    <div class="lab-worklist w-full space-y-4">
         <div class="lab-worklist-actions space-y-4">
             <Button :as="Link" :href="labUrl('/laboratory')" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
 

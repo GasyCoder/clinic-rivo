@@ -124,7 +124,7 @@ const archiveName = computed(() => {
 <template>
     <Head title="Prélèvements & tubes" />
 
-    <div class="mx-auto w-full max-w-screen-xl space-y-5">
+    <div class="w-full space-y-5">
         <Button :as="Link" :href="labUrl('/laboratory')" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" /> File du laboratoire</Button>
 
         <header class="flex flex-wrap items-start justify-between gap-4">

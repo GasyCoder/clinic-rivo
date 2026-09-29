@@ -429,6 +429,50 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'POST', 'super-admin/app-settings/maintenance/lift', ['reason' => $reason], $actor);
     }
 
+    /**
+     * ADR-222 — les réglages de l'assistant IA de chaque site.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function assistantSettingsForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/assistant-settings', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * La clé éventuelle part dans le corps, de serveur à serveur ; le site ne la renvoie jamais.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function updateAssistantSettings(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/assistant-settings', $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function removeAssistantKey(string $siteCode, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/assistant-settings/key', [], $actor);
+    }
+
+    /**
+     * Un essai réel du fournisseur, qui peut prendre le délai réglé : attendu plus
+     * longtemps qu'un appel ordinaire, et jamais relancé (chaque essai est facturé).
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function testAssistantConnection(string $siteCode, array $data, User $actor): array
+    {
+        $timeout = min(130, max(15, (int) ($data['timeout_seconds'] ?? 60) + 10));
+
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/assistant-settings/test', $data, $actor, timeout: $timeout, attempts: 1);
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function usersForAllSites(User $actor, array $query = []): array
     {
@@ -1289,7 +1333,7 @@ class PortalSiteApiClient
     }
 
     /** @return array<string, mixed> */
-    private function request(array $site, string $method, string $path, array $payload, User $actor, ?UploadedFile $file = null, string $fileField = 'file'): array
+    private function request(array $site, string $method, string $path, array $payload, User $actor, ?UploadedFile $file = null, string $fileField = 'file', ?int $timeout = null, ?int $attempts = null): array
     {
         $identity = ['code' => $site['code'], 'name' => $site['name']];
         $apiUrl = trim((string) ($site['api_url'] ?? ''));
@@ -1317,8 +1361,8 @@ class PortalSiteApiClient
                     'X-Rivo-Actor-Name' => $actor->name,
                     'X-Rivo-Actor-Permissions' => $actor->effectivePermissionNames()->implode(','),
                 ])
-                ->timeout(max(1, (int) config('rivo.site_api.timeout', 5)))
-                ->retry(max(1, (int) config('rivo.site_api.retry_times', 2)), 150, throw: false);
+                ->timeout(max(1, $timeout ?? (int) config('rivo.site_api.timeout', 5)))
+                ->retry(max(1, $attempts ?? (int) config('rivo.site_api.retry_times', 2)), 150, throw: false);
 
             if ($method !== 'GET') {
                 $pending = $pending->withHeaders(['Idempotency-Key' => (string) Str::uuid()]);

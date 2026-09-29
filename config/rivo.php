@@ -306,6 +306,21 @@ return [
         'days' => (int) env('RIVO_ACCOUNT_ACTIVATION_DAYS', 14),
     ],
 
+    /*
+     * ADR-222 — l'assistant d'utilisation du logiciel. Il se règle depuis le portail
+     * (Paramètres › Assistant IA), site par site, et ces valeurs ne servent qu'en
+     * secours quand rien n'y est réglé. La clé d'un fournisseur n'est jamais ici : en
+     * secours, c'est la variable du SDK (OPENAI_API_KEY, ANTHROPIC_API_KEY…).
+     */
+    'assistant' => [
+        'enabled' => (bool) env('RIVO_AI_ENABLED', false),
+        'provider' => env('RIVO_AI_PROVIDER'),
+        'model' => env('RIVO_AI_MODEL'),
+        'max_output_tokens' => (int) env('RIVO_AI_MAX_OUTPUT_TOKENS', 800),
+        'timeout' => (int) env('RIVO_AI_TIMEOUT', 30),
+        'rate_limit_per_hour' => (int) env('RIVO_AI_RATE_LIMIT_PER_HOUR', 20),
+    ],
+
     'site_api' => [
         'token' => env('RIVO_SITE_API_TOKEN'),
         'timeout' => (int) env('RIVO_SITE_API_TIMEOUT', 5),

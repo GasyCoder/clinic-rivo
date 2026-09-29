@@ -8,7 +8,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules\Enum;
 
 /**
- * ADR-213 — un avantage ou une prime : type, montant, motif, fréquence, dates.
+ * ADR-221 — un avantage ou une prime : type, montant, motif, fréquence, dates.
  * La création exige tout ; une correction peut n'envoyer que ce qui change
  * (enregistrement automatique de la fiche).
  */

@@ -9,7 +9,7 @@ import { currencyLabel, formatMoney } from '@/utilities/money';
 import EmployeeSectionCard from './EmployeeSectionCard.vue';
 
 /**
- * ADR-206 / ADR-213 — la rémunération déclarée : un salaire (personnel), une
+ * ADR-206 / ADR-221 — la rémunération déclarée : un salaire (personnel), une
  * indemnité (stagiaire) ou rien (bénévole). Aucune paie, retenue ni net n'en
  * est calculé (ADR-066). Un salaire ou une indemnité ne part qu'avec son montant.
  */

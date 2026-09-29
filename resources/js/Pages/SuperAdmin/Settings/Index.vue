@@ -8,6 +8,7 @@ import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import AdvancedSettings from '@/Components/Settings/AdvancedSettings.vue';
 import AgeBandSettings from '@/Components/Settings/AgeBandSettings.vue';
+import AssistantSettings from '@/Components/Settings/AssistantSettings.vue';
 import BadgeSettings from '@/Components/Settings/BadgeSettings.vue';
 import CurrencySettings from '@/Components/Settings/CurrencySettings.vue';
 import DirectionSettings from '@/Components/Settings/DirectionSettings.vue';
@@ -54,6 +55,8 @@ const props = defineProps({
     // ADR-191 — thèmes proposés et bornes de la numérotation.
     themePresets: { type: Object, default: () => ({}) },
     numberingOptions: { type: Object, default: () => ({}) },
+    // ADR-222 — les réglages de l'assistant IA de chaque cible (seulement sur son module).
+    assistant: { type: Object, default: null },
 });
 
 const page = usePage();
@@ -386,6 +389,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                             :site-name="target.site.name"
                             :is-portal="isPortal"
                         />
+                        <AssistantSettings
+                            v-else-if="current.id === 'assistant'"
+                            :assistant="assistant"
+                            :site-code="selectedCode"
+                            :site-name="target.site.name"
+                            :is-portal="isPortal"
+                        />
 
                         <!-- Un refus qui ne porte sur aucun champ (site injoignable, base non migrée…) : dit ici, jamais tu. -->
                         <p v-if="form.errors.site_code" class="flex items-start gap-2 rounded-lg border border-destructive/40 px-4 py-3 text-sm text-destructive" role="alert">
@@ -439,7 +449,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                         <li>la remise du personnel, les mentions légales, la direction et la visibilité ;</li>
                         <li>le logo, l’icône, la signature, le fond de connexion et l’emblème du badge.</li>
                     </ul>
-                    <p class="mt-3 font-medium">Les coupons et l’état de maintenance ne seront pas modifiés.</p>
+                    <p class="mt-3 font-medium">Les coupons, l’état de maintenance et les réglages de l’assistant IA ne seront pas modifiés.</p>
                     <p v-if="form.isDirty" class="mt-2">Les modifications non enregistrées seront également abandonnées.</p>
                 </div>
 

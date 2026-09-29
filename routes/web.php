@@ -9,6 +9,8 @@ use App\Http\Controllers\Administration\UserController as AdministrationUserCont
 use App\Http\Controllers\AnesthesiaClearanceController;
 use App\Http\Controllers\AnesthesiaController;
 use App\Http\Controllers\AnesthesiaWorkspaceController;
+use App\Http\Controllers\Assistant\AssistantController;
+use App\Http\Controllers\Assistant\AssistantConversationController;
 use App\Http\Controllers\AttentionDigestController;
 use App\Http\Controllers\Auth\AccountActivationController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
@@ -158,6 +160,19 @@ Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.
     // ADR-191 — taille du texte, animations et contraste propres à ce compte.
     Route::put('/profil/apparence', [ProfileController::class, 'updateAppearance'])->name('profile.appearance.update');
 });
+
+// ADR-222 — l'assistant d'aide au logiciel, sur un site comme sur le portail. Il
+// explique l'application, ne modifie rien et ne voit aucune donnée de patient.
+Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.deployment', 'can:ai_assistant.use'])
+    ->prefix('assistant')
+    ->name('assistant.')
+    ->group(function () {
+        Route::get('/suggestions', [AssistantController::class, 'suggestions'])->name('suggestions');
+        Route::post('/messages', [AssistantController::class, 'ask'])->middleware('throttle:assistant-ai')->name('ask');
+        Route::get('/conversations', [AssistantConversationController::class, 'index'])->name('conversations.index');
+        Route::get('/conversations/{conversation}', [AssistantConversationController::class, 'show'])->whereUuid('conversation')->name('conversations.show');
+        Route::delete('/conversations/{conversation}', [AssistantConversationController::class, 'destroy'])->whereUuid('conversation')->name('conversations.destroy');
+    });
 
 // ADR-195 — la messagerie : les boîtes pro, chez l'hébergeur (IMAP/SMTP). Sa propre boîte
 // avec `webmail.view`, celle d'un autre employé avec `webmail.open_any` — sur un site, ou
@@ -325,6 +340,10 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         // ADR-193 — la maintenance d'un site, par son API.
         Route::put('/settings/maintenance', [SuperAdminAppSettingsController::class, 'updateMaintenance'])->name('settings.maintenance.update')->middleware('can:app_maintenance.update');
         Route::post('/settings/maintenance/lift', [SuperAdminAppSettingsController::class, 'liftMaintenance'])->name('settings.maintenance.lift')->middleware('can:app_maintenance.update');
+        // ADR-222 — l'assistant IA d'un site ou du portail : réglages, clé, test de connexion.
+        Route::put('/settings/assistant', [SuperAdminAppSettingsController::class, 'updateAssistant'])->name('settings.assistant.update')->middleware('can:ai_settings.update');
+        Route::delete('/settings/assistant/key', [SuperAdminAppSettingsController::class, 'removeAssistantKey'])->name('settings.assistant.key.destroy')->middleware('can:ai_settings.update');
+        Route::post('/settings/assistant/test', [SuperAdminAppSettingsController::class, 'testAssistant'])->name('settings.assistant.test')->middleware(['can:ai_settings.update', 'throttle:10,1']);
         // ADR-190 — adresses email professionnelles : le portail seul parle à l'hébergeur.
         // ADR-197 — l'accès du personnel : adresse pro + compte RIVO en un geste, remis au RH du site.
         Route::get('/staff-access', [SuperAdminStaffAccessController::class, 'index'])->name('staff-access.index')->middleware('can:staff_access.view');

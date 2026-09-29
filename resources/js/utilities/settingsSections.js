@@ -1,4 +1,4 @@
-import { BadgePercent, Baby, Coins, Construction, Globe, Hash, IdCard, Landmark, LayoutTemplate, Palette, PenLine, SearchX, SlidersHorizontal } from 'lucide-vue-next';
+import { BadgePercent, Baby, Coins, Construction, Globe, Hash, IdCard, Landmark, LayoutTemplate, Palette, PenLine, SearchX, SlidersHorizontal, Sparkles } from 'lucide-vue-next';
 import { BADGE_FIELDS } from './employeeBadge.js';
 
 /**
@@ -16,6 +16,7 @@ export const SETTINGS_GROUPS = Object.freeze([
     { id: 'etablissement', label: 'Établissement & documents', description: 'Ce qui s’imprime sur les factures, reçus et documents, et les remises.' },
     { id: 'confidentialite', label: 'Confidentialité', description: 'Ce que l’extérieur peut voir de l’application.' },
     { id: 'exploitation', label: 'Exploitation', description: 'La disponibilité de chaque site pour ses utilisateurs.' },
+    { id: 'ia', label: 'Intelligence artificielle', description: 'L’assistant qui aide à utiliser le logiciel.' },
 ]);
 
 export const SETTINGS_SECTIONS = Object.freeze([
@@ -88,6 +89,13 @@ export const SETTINGS_SECTIONS = Object.freeze([
         // aucun champ du formulaire commun, donc pas de « Enregistrer » en pied.
         id: 'maintenance', group: 'exploitation', label: 'Maintenance', icon: Construction,
         description: 'Fermer un site pour une intervention, avec un message.',
+        fields: [],
+    },
+    {
+        // ADR-222 — ses propres réglages, ses propres droits (`ai_settings.*`) et sa clé :
+        // aucun champ du formulaire commun, donc pas de « Enregistrer » en pied.
+        id: 'assistant', group: 'ia', label: 'Assistant IA', icon: Sparkles,
+        description: 'Fournisseur, modèle, clé d’API, limites et consommation.',
         fields: [],
     },
 ]);

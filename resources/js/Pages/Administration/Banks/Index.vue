@@ -37,7 +37,7 @@ import { cn } from '@/lib/cn';
 import { hrUrl } from '@/utilities/hrUrl';
 
 /**
- * ADR-213 — le module Banques : la liste des banques du site, que la fiche d'un
+ * ADR-221 — le module Banques : la liste des banques du site, que la fiche d'un
  * employé propose pour son compte bancaire. « BOA », « Bank of Africa » et
  * « BANK OF AFRICA » ne font plus trois banques : le serveur refuse un doublon
  * et nomme la banque qui existe déjà. Mêmes droits que les autres référentiels

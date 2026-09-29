@@ -11,6 +11,7 @@ import HrPortalBar from '@/Components/Administration/HrPortalBar.vue';
 import PharmacyPortalBar from '@/Components/Pharmacy/PharmacyPortalBar.vue';
 import LaboratoryPortalBar from '@/Components/Laboratory/LaboratoryPortalBar.vue';
 import MaintenanceBanner from '@/Components/Layout/MaintenanceBanner.vue';
+import AssistantLauncher from '@/Components/Assistant/AssistantLauncher.vue';
 import { usePageLoading } from '@/composables/usePageLoading';
 
 import { useThemeSync } from '@/composables/useThemeSync';
@@ -71,6 +72,9 @@ const sidebarResizing = ref(false);
 
             <Footer />
         </div>
+
+        <!-- ADR-222 — l'assistant d'aide au logiciel, s'il est disponible pour ce compte. -->
+        <AssistantLauncher />
     </div>
 </template>
 

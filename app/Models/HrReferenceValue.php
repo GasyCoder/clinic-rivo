@@ -72,7 +72,7 @@ class HrReferenceValue extends Model
     }
 
     /**
-     * ADR-213 — une fonction ouvre-t-elle droit aux avantages et primes ? Réglé
+     * ADR-221 — une fonction ouvre-t-elle droit aux avantages et primes ? Réglé
      * dans le module Fonctions ; absent vaut non.
      */
     public function grantsBenefits(): bool
@@ -81,7 +81,7 @@ class HrReferenceValue extends Model
             && (bool) ($this->metadata['benefits_eligible'] ?? false);
     }
 
-    /** ADR-213 — les avantages déclarés sous ce type. */
+    /** ADR-221 — les avantages déclarés sous ce type. */
     public function benefits(): HasMany
     {
         return $this->hasMany(EmployeeBenefit::class, 'benefit_type_id');

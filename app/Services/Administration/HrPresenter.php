@@ -105,7 +105,7 @@ class HrPresenter
             'remuneration_type' => $employee->remuneration_type?->value,
             'remuneration_label' => $employee->remuneration_type?->label(),
             'remuneration_amount' => $employee->remuneration_amount,
-            // ADR-213 — la banque, choisie dans le module Banques ; archivée depuis, elle reste lisible.
+            // ADR-221 — la banque, choisie dans le module Banques ; archivée depuis, elle reste lisible.
             'bank_uuid' => $employee->bank?->uuid,
             'bank' => $employee->bank ? $this->bank($employee->bank) : null,
             'bank_account_number' => $employee->bank_account_number,
@@ -114,7 +114,7 @@ class HrPresenter
     }
 
     /**
-     * ADR-213 — une banque du référentiel, telle qu'une liste ou une fiche la montre.
+     * ADR-221 — une banque du référentiel, telle qu'une liste ou une fiche la montre.
      *
      * @return array<string, mixed>
      */
@@ -130,7 +130,7 @@ class HrPresenter
     }
 
     /**
-     * ADR-213 — un avantage ou une prime déclaré. Confidentiel comme la
+     * ADR-221 — un avantage ou une prime déclaré. Confidentiel comme la
      * rémunération : servi seulement avec `employees.payroll.view`.
      *
      * @return array<string, mixed>

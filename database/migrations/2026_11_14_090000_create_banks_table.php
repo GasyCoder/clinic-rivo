@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
- * ADR-213 — le référentiel des banques du site, et la banque du compte d'un employé.
+ * ADR-221 — le référentiel des banques du site, et la banque du compte d'un employé.
  *
  * Une banque n'est plus un texte libre répété sur chaque fiche : « BOA »,
  * « Bank of Africa » et « BANK OF AFRICA » désignaient la même. Le module

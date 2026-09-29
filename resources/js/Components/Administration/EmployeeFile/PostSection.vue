@@ -15,7 +15,7 @@ import { seniority } from '@/utilities/seniority';
 import EmployeeSectionCard from './EmployeeSectionCard.vue';
 
 /**
- * ADR-213 — Poste : matricule, département, fonction, date d'entrée, état.
+ * ADR-221 — Poste : matricule, département, fonction, date d'entrée, état.
  *
  * ADR-194 — la fonction suit le département ; une fonction reliée à aucun
  * département reste proposée partout, et le couple déjà enregistré reste

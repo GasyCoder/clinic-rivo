@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\SuperAdmin\AddressEntryController;
 use App\Http\Controllers\Api\V1\SuperAdmin\AnalysisCatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\AppSettingsController;
+use App\Http\Controllers\Api\V1\SuperAdmin\AssistantSettingsController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CashRegisterController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\DocumentTemplateController;
@@ -217,6 +218,11 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         // ADR-193 — la maintenance du site, pilotée depuis le portail.
         Route::put('/app-settings/maintenance', [AppSettingsController::class, 'updateMaintenance'])->name('app-settings.maintenance.update');
         Route::post('/app-settings/maintenance/lift', [AppSettingsController::class, 'liftMaintenance'])->name('app-settings.maintenance.lift');
+        // ADR-222 — l'assistant d'aide au logiciel de ce site : fournisseur, modèle, clé, limites.
+        Route::get('/assistant-settings', [AssistantSettingsController::class, 'show'])->name('assistant-settings.show');
+        Route::put('/assistant-settings', [AssistantSettingsController::class, 'update'])->name('assistant-settings.update');
+        Route::delete('/assistant-settings/key', [AssistantSettingsController::class, 'destroyKey'])->name('assistant-settings.key.destroy');
+        Route::post('/assistant-settings/test', [AssistantSettingsController::class, 'test'])->name('assistant-settings.test');
 
         // ADR-133 — seuils des patients VIP de ce site.
         Route::get('/patient-vip-settings', [PatientVipSettingsController::class, 'show'])->name('patient-vip-settings.show');

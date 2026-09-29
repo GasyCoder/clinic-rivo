@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * ADR-213 — une banque du référentiel du site (BOA, BNI, BMOI…).
+ * ADR-221 — une banque du référentiel du site (BOA, BNI, BMOI…).
  *
  * Le code et le nom se normalisent à l'écriture : deux saisies d'une même
  * banque se reconnaissent (BankName). Une banque portée par une fiche ne se

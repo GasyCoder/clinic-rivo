@@ -58,6 +58,10 @@ class PermissionSeeder extends Seeder
         // ADR-193 — la maintenance d'un site : la mettre, et la traverser.
         'app_maintenance.update' => 'Mettre un site en maintenance, la programmer ou la lever',
         'app_maintenance.bypass' => 'Utiliser le site pendant sa maintenance',
+        // ADR-222 — l'assistant d'aide au logiciel : l'utiliser, et le régler.
+        'ai_assistant.use' => 'Utiliser l’assistant IA d’aide au logiciel',
+        'ai_settings.view' => 'Voir les réglages de l’assistant IA (fournisseur, modèle, consommation)',
+        'ai_settings.update' => 'Régler l’assistant IA : fournisseur, modèle, clé, limites',
         'audit.view' => 'Voir le journal d’audit',
         'api.view' => 'Voir l’état des intégrations API',
         'trash.view' => 'Voir la corbeille multi-sites',

@@ -51,7 +51,7 @@ class HrReferenceSeeder extends Seeder
             'INTERN' => 'Stagiaire',
             'VOLUNTEER' => 'Bénévole',
         ],
-        // ADR-213 — les types d'avantage et de prime, proposés puis modifiables.
+        // ADR-221 — les types d'avantage et de prime, proposés puis modifiables.
         'BENEFIT_TYPE' => [
             'LODGING' => 'Logement',
             'TRANSPORT' => 'Transport',
@@ -130,7 +130,7 @@ class HrReferenceSeeder extends Seeder
         DefaultJobTitleDepartments::apply();
         // ADR-199 — le rôle proposé par chaque fonction livrée, jamais par-dessus un réglage.
         DefaultJobTitleAccountRoles::apply();
-        // ADR-213 — « Médecin » ouvre droit aux avantages, jamais par-dessus un réglage.
+        // ADR-221 — « Médecin » ouvre droit aux avantages, jamais par-dessus un réglage.
         JobTitleBenefits::apply();
 
         foreach (array_values(self::LEAVE_TYPES) as $position => $definition) {

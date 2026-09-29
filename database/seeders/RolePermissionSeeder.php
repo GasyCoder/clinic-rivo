@@ -22,6 +22,8 @@ class RolePermissionSeeder extends Seeder
         'ADMINISTRATION' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             // ADR-192 — une remise durable accordée à un patient est une dérogation habilitée.
             'discounts.view', 'discounts.approve',
             // ADR-190 — le RH voit les adresses ; le Super Admin les crée (ADR-197).
@@ -95,6 +97,8 @@ class RolePermissionSeeder extends Seeder
         'LOGISTICS' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'logistics.view', 'logistics.manage',
             'administrative_stock.view', 'administrative_stock.entry',
             'administrative_stock.exit', 'administrative_stock.inventory',
@@ -113,6 +117,8 @@ class RolePermissionSeeder extends Seeder
             'webmail.view',
             // Amendement ADR-216 quater — les résultats validés par le médecin, à remettre au patient.
             'laboratory_results.validated_view',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'reception.view',
             // ADR-192 — la Caisse applique la remise en encaissant.
             'discounts.view', 'discounts.create',
@@ -167,6 +173,8 @@ class RolePermissionSeeder extends Seeder
         'MEDICINE' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'medical_record.view',
             'consultations.view', 'consultations.create', 'consultations.update',
             'consultations.delete',
@@ -236,6 +244,8 @@ class RolePermissionSeeder extends Seeder
         'NURSE' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'care.view', 'care.create', 'care.update', 'care.complete',
             'vitals.view', 'vitals.create', 'vitals.update', 'medical_orders.view',
             'patients.medical_history.view',
@@ -265,6 +275,8 @@ class RolePermissionSeeder extends Seeder
         'SURGERY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule', 'surgery.reset',
             'surgery.preoperative.view', 'surgery.preoperative.validate',
             'surgery.intervention.create', 'surgery.intervention.update',
@@ -283,6 +295,8 @@ class RolePermissionSeeder extends Seeder
         'PHARMACY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'pharmacy.view', 'pharmacy.dispense', 'pharmacy.dispense.prepare_invoice', 'pharmacy.dispense.print',
             // ADR-104 — `pharmacy.counter_sales.create` quitte ce socle :
             // toute vente de médicament est désormais prise à la Réception,
@@ -327,6 +341,8 @@ class RolePermissionSeeder extends Seeder
         'LABORATORY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'paraclinical_requests.view',
             'laboratory_orders.view', 'laboratory_results.view', 'laboratory_results.create',
             'laboratory_results.validate', 'laboratory_results.flag_critical', 'laboratory_results.return',

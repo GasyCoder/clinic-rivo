@@ -22,7 +22,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 /**
- * ADR-213 — module Banques, avantages et primes, et fiche employé enregistrée
+ * ADR-221 — module Banques, avantages et primes, et fiche employé enregistrée
  * section par section (enregistrement automatique).
  */
 class EmployeeBanksAndBenefitsTest extends TestCase
@@ -188,14 +188,15 @@ class EmployeeBanksAndBenefitsTest extends TestCase
         $this->assertNull($employee->refresh()->bank_id);
     }
 
-    public function test_a_short_creation_opens_the_file_in_sections(): void
+    public function test_the_first_step_creates_the_file_and_the_wizard_continues_in_it(): void
     {
         $response = $this->actingAs($this->hr)->post('/administration/employees', [
             'last_name' => 'Rabe', 'sex' => 'F', 'active' => true, 'after' => 'edit',
         ])->assertSessionHasNoErrors();
 
         $employee = Employee::query()->where('last_name', 'Rabe')->firstOrFail();
-        $response->assertRedirect("/administration/employees/{$employee->uuid}/edit");
+        // Le parcours reprend à l'étape suivante, où tout s'enregistre tout seul.
+        $response->assertRedirect("/administration/employees/{$employee->uuid}/edit?section=contact");
 
         $this->actingAs($this->hr)->get("/administration/employees/{$employee->uuid}/edit")
             ->assertOk()
@@ -203,6 +204,23 @@ class EmployeeBanksAndBenefitsTest extends TestCase
                 ->has('banks', 4)
                 ->where('benefitOptions.eligible', false)
                 ->has('benefitOptions.types', 7));
+    }
+
+    public function test_a_trainee_follows_the_same_wizard_then_reaches_the_internship(): void
+    {
+        $response = $this->actingAs($this->hr)->post('/administration/employees', [
+            'last_name' => 'Soa', 'sex' => 'F', 'active' => true, 'after' => 'edit', 'internship' => true,
+        ])->assertSessionHasNoErrors();
+
+        $trainee = Employee::query()->where('last_name', 'Soa')->firstOrFail();
+        $response->assertRedirect("/administration/employees/{$trainee->uuid}/edit?section=contact&stage=1");
+
+        // Au bout du parcours, « Terminer » mène au stage.
+        $this->actingAs($this->hr)->get("/administration/employees/{$trainee->uuid}/edit?section=contact&stage=1")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('internshipIntent', true)->where('section', 'contact'));
+        $this->actingAs($this->hr)->get("/administration/employees/{$trainee->uuid}/edit")
+            ->assertInertia(fn (Assert $page) => $page->where('internshipIntent', false));
     }
 
     /* ------------------------------------------------------------------ */

@@ -7,7 +7,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * ADR-213 — une banque archivée n'est plus proposée ; les fiches qui la portent la gardent.
+ * ADR-221 — une banque archivée n'est plus proposée ; les fiches qui la portent la gardent.
  */
 class ArchiveBankAction
 {

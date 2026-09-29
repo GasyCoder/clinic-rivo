@@ -83,7 +83,7 @@ abstract class EmployeeDataRequest extends FormRequest
                 Rule::requiredIf(fn () => $this->remunerationType()?->hasAmount() ?? false),
                 'numeric', 'min:0', 'max:999999999.99', 'decimal:0,2',
             ],
-            // ADR-213 — la banque, choisie dans le module Banques (EmployeePayroll la résout).
+            // ADR-221 — la banque, choisie dans le module Banques (EmployeePayroll la résout).
             'bank_uuid' => ['nullable', 'uuid'],
             'bank_account_number' => ['nullable', 'string', 'max:50', 'regex:/^[A-Z0-9][A-Z0-9 -]*$/'],
             'bank_account_holder' => ['nullable', 'required_with:bank_account_number', 'string', 'max:150'],
@@ -215,7 +215,7 @@ abstract class EmployeeDataRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
-            // ADR-213 — un envoi partiel qui passe au salaire sans montant ne laisse pas un salaire vide.
+            // ADR-221 — un envoi partiel qui passe au salaire sans montant ne laisse pas un salaire vide.
             $employee = $this->route('employee');
             if ($this->exists('remuneration_type') && ! $this->exists('remuneration_amount')
                 && ($this->remunerationType()?->hasAmount() ?? false)

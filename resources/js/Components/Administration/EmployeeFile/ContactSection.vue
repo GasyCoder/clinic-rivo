@@ -1,11 +1,12 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, inject, onBeforeUnmount, ref, watch } from 'vue';
 import { useForm } from '@inertiajs/vue3';
-import { Contact, IdCard, Mail, MapPin, Phone, Plus } from 'lucide-vue-next';
+import { Contact, IdCard, Mail, Phone, Plus } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
+import AddressEntryField from '@/Components/Administration/AddressEntryField.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import ShadSelect from '@/Components/Shadcn/Select.vue';
 import { useSectionAutosave } from '@/composables/useSectionAutosave';
@@ -13,7 +14,7 @@ import { usePermissions } from '@/composables/usePermissions';
 import EmployeeSectionCard from './EmployeeSectionCard.vue';
 
 /**
- * ADR-213 — Contact et pièce d'identité, enregistrés tout seuls.
+ * ADR-221 — Contact et pièce d'identité, enregistrés tout seuls.
  *
  * Une nouvelle adresse, elle, s'ajoute par un bouton : enregistrée à la pause
  * de frappe, elle créerait une entrée du référentiel pour chaque mot tapé.
@@ -45,22 +46,31 @@ watch(() => form.identity_document_number, (number) => {
     if (number && ! form.identity_document_type) form.identity_document_type = 'CIN';
 });
 
-const addressOptions = computed(() => [
-    { value: '', label: 'Non renseignée' },
-    ...props.addresses.map((item) => ({ value: item.uuid, label: item.available ? item.label : `${item.label} — archivée`, disabled: ! item.available })),
-]);
 const identityTypeOptions = computed(() => [{ value: '', label: 'Non renseigné' }, ...(props.options.identity_document_types ?? [])]);
 
-/* Nouvelle adresse : un geste explicite. */
-const addingAddress = ref(false);
+/*
+ * L'adresse : le champ commun des fiches (AddressEntryField). Une nouvelle
+ * adresse s'ajoute par un bouton, jamais à la pause de frappe ; passer en
+ * « Nouvelle » ne retire pas l'adresse déjà enregistrée tant que la nouvelle
+ * n'est pas ajoutée.
+ */
+const addressMode = ref('existing');
 const addressForm = useForm({ new_address_label: '' });
+const pickAddress = (value) => {
+    if (addressMode.value === 'new' && value === '') return;
+    form.address_entry_uuid = value;
+};
+watch(addressMode, () => {
+    form.clearErrors('address_entry_uuid');
+    addressForm.clearErrors();
+});
 const addAddress = () => addressForm.transform((data) => ({ ...data, _autosave: true })).put(props.url, {
     preserveScroll: true,
     preserveState: true,
     onSuccess: (page) => {
         const created = page.props.employee?.address_entry_uuid;
         addressForm.reset();
-        addingAddress.value = false;
+        addressMode.value = 'existing';
         // La nouvelle adresse est déjà enregistrée sur la fiche : la liste la reprend sans renvoi.
         if (created) {
             form.address_entry_uuid = created;
@@ -68,6 +78,12 @@ const addAddress = () => addressForm.transform((data) => ({ ...data, _autosave: 
         }
     },
 });
+
+// Une adresse tapée mais pas ajoutée retient « Continuer » et la sortie de la page.
+const registry = inject('employeeSections', null);
+const newAddressState = computed(() => (addressMode.value === 'new' && addressForm.new_address_label.trim() ? 'incomplete' : 'idle'));
+registry?.register('contact:address', { state: newAddressState, savedAt: null, flush: (done) => done(), retry: () => {} });
+onBeforeUnmount(() => registry?.unregister('contact:address'));
 </script>
 
 <template>
@@ -99,16 +115,19 @@ const addAddress = () => addressForm.transform((data) => ({ ...data, _autosave: 
                         <p v-else class="text-xs leading-5 text-muted-foreground">L’email d’un employé est son adresse professionnelle, créée avec son accès.</p>
                     </div>
                 </div>
-                <FormField as="div" label="Adresse" :error="form.errors.address_entry_uuid || addressForm.errors.new_address_label">
-                    <template v-if="can('address_entries.create') && canEdit" #action>
-                        <button type="button" class="text-xs font-semibold text-primary hover:underline" @click="addingAddress = ! addingAddress">{{ addingAddress ? 'Annuler' : '+ Nouvelle adresse' }}</button>
-                    </template>
-                    <ShadSelect id="address_entry_uuid" v-model="form.address_entry_uuid" :options="addressOptions" :icon="MapPin" placeholder="Non renseignée" class="w-full" aria-label="Adresse" :disabled="! canEdit" />
-                    <form v-if="addingAddress" class="mt-2 flex gap-2" @submit.prevent="addAddress">
-                        <IconInput v-model="addressForm.new_address_label" :icon="MapPin" placeholder="Saisir la nouvelle adresse" aria-label="Nouvelle adresse" class="flex-1" />
-                        <Button type="submit" size="sm" :disabled="addressForm.processing || ! addressForm.new_address_label.trim()"><Plus class="h-4 w-4" />Ajouter</Button>
-                    </form>
-                </FormField>
+                <AddressEntryField
+                    v-model:new-label="addressForm.new_address_label"
+                    v-model:mode="addressMode"
+                    :entry="form.address_entry_uuid"
+                    :addresses="addresses"
+                    :can-create="can('address_entries.create') && canEdit"
+                    :error="form.errors.address_entry_uuid || addressForm.errors.new_address_label"
+                    @update:entry="pickAddress"
+                />
+                <div v-if="addressMode === 'new'" class="-mt-2 flex items-center justify-end gap-2">
+                    <Button type="button" size="xs" variant="ghost" @click="addressMode = 'existing'">Annuler</Button>
+                    <Button type="button" size="xs" :disabled="addressForm.processing || ! addressForm.new_address_label.trim()" @click="addAddress"><Plus class="h-3.5 w-3.5" />Ajouter cette adresse</Button>
+                </div>
             </section>
             <section class="space-y-4 lg:ps-6" aria-labelledby="document-title">
                 <h3 id="document-title" class="flex items-center gap-2 text-sm font-bold text-foreground"><IdCard class="h-4 w-4 text-violet-600" />Pièce administrative</h3>

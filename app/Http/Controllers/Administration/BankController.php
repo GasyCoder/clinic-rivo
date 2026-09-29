@@ -17,7 +17,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * ADR-213 — le module Banques de l'espace RH : la liste des banques du site,
+ * ADR-221 — le module Banques de l'espace RH : la liste des banques du site,
  * que la fiche d'un employé propose pour son compte bancaire. Mêmes droits
  * que les autres référentiels RH (`hr_settings.*`) ; servi aussi au portail
  * par `routes/hr.php` (ADR-187).

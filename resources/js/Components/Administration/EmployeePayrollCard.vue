@@ -11,7 +11,7 @@ import { formatMoney } from '@/utilities/money';
  * La carte n'est rendue que si le serveur a servi ces données, c'est-à-dire à qui
  * détient `employees.payroll.view` ; aucune paie n'est calculée.
  *
- * ADR-213 — la banque vient du module Banques ; les avantages et primes en
+ * ADR-221 — la banque vient du module Banques ; les avantages et primes en
  * cours se lisent ici (sans total ni net), et se gèrent dans la fiche.
  */
 const props = defineProps({
@@ -82,7 +82,7 @@ const amount = computed(() => (props.payroll.remuneration_amount !== null && pro
         </dl>
         <p v-if="! payroll.bank_account_number" class="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground"><Landmark class="h-3.5 w-3.5" aria-hidden="true" />Aucun compte bancaire enregistré.</p>
 
-        <!-- ADR-213 — avantages et primes en cours, sans total ni net. -->
+        <!-- ADR-221 — avantages et primes en cours, sans total ni net. -->
         <div class="mt-4 border-t border-border pt-4">
             <div class="flex items-center justify-between gap-2">
                 <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Gift class="h-3.5 w-3.5" aria-hidden="true" />Avantages et primes</p>

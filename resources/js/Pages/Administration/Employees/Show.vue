@@ -47,7 +47,7 @@ const props = defineProps({
     professionalEmail: { type: Object, default: null },
     // ADR-206 — servie seulement avec employees.payroll.view.
     payroll: { type: Object, default: null },
-    // ADR-213 — avantages et primes, confidentiels comme la rémunération.
+    // ADR-221 — avantages et primes, confidentiels comme la rémunération.
     benefits: { type: Array, default: null },
     // ADR-209 — le badge du personnel, tel qu'il s'imprime ; absent pour un dossier archivé.
     badge: { type: Object, default: null },

@@ -108,6 +108,7 @@ test('the settings read module by module: the open module in a card, the modules
         identite: 'IdentitySettings', theme: 'ThemeSettings', avance: 'AdvancedSettings', ecrans: 'ScreenTemplates',
         numerotation: 'NumberingSettings', ages: 'AgeBandSettings', badges: 'BadgeSettings', monnaie: 'CurrencySettings', remises: 'DiscountSettings', legal: 'LegalSettings',
         direction: 'DirectionSettings', visibilite: 'SearchVisibilitySettings', maintenance: 'MaintenanceSettings',
+        assistant: 'AssistantSettings',
     };
     assert.deepEqual(Object.keys(COMPONENTS), [...SETTINGS_SECTION_IDS]);
     assert.match(section, /:id="`reglages-\$\{id\}`"/);
@@ -201,7 +202,7 @@ test('the settings read module by module: the open module in a card, the modules
     assert.match(page, /:disabled="!resetSettingsConfirmed"/);
     assert.match(page, /router\.delete\('\/super-admin\/settings\/reset'/, 'la réinitialisation utilise son action serveur auditée');
     assert.match(page, /title="Réinitialiser tous les paramètres \?"/);
-    assert.match(page, /Les coupons et l’état de maintenance ne seront pas modifiés\./);
+    assert.match(page, /Les coupons, l’état de maintenance et les réglages de l’assistant IA ne seront pas modifiés\./);
     assert.match(asset, /router\.post\(`\/super-admin\/settings\/assets\/\$\{props\.kind\}`/);
     assert.match(asset, /forceFormData: true/);
     assert.match(asset, /title="`Retirer : \$\{label\.toLowerCase\(\)\} \?`"|:title="`Retirer : \$\{label\.toLowerCase\(\)\} \?`"/);

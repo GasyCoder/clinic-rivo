@@ -167,12 +167,17 @@ test('the employee file and its pages are written in shadcn and keep their HR ad
     const autosave = fs.readFileSync('resources/js/composables/useSectionAutosave.js', 'utf8');
     const photo = fs.readFileSync('resources/js/Components/Administration/EmployeePhotoField.vue', 'utf8');
 
-    // ADR-213 — une création courte, puis la fiche en sections.
-    assert.match(create, /form\.post\(hrUrl\('\/administration\/employees'\)\)/);
-    assert.match(create, /after: props\.internshipIntent \? 'internship' : 'edit'/);
-    assert.doesNotMatch(create, /Continuer/);
+    // ADR-221 — le parcours à étapes est gardé : « Continuer » sur l'Identité crée
+    // le dossier, puis la fiche reprend la même barre d'étapes.
+    assert.match(create, /form\.post\(hrUrl\('\/administration\/employees'\), \{ preserveScroll: true \}\)/);
+    assert.match(create, /after: 'edit',\s*internship: props\.internshipIntent/);
+    assert.match(create, /<EmployeeStepBar :steps="steps" current="identity" locked \/>/);
+    assert.match(create, /'Continuer'/);
+    assert.match(edit, /<EmployeeStepBar :steps="steps" :current="current" :state-of="stateOf" @select="open" \/>/);
+    assert.match(edit, /Continuer<span/);
+    assert.match(edit, /const goNext = async \(\) => \{[\s\S]*await settle\(current\.value\)/, '« Continuer » enregistre l’étape avant de passer à la suivante');
 
-    // La fiche écrit par la même adresse, section par section, sans bouton « Enregistrer ».
+    // La fiche écrit par la même adresse, étape par étape, sans bouton « Enregistrer ».
     assert.match(edit, /const url = hrUrl\(`\/administration\/employees\/\$\{props\.employee\.uuid\}`\)/);
     assert.match(autosave, /_autosave: true/);
     assert.match(autosave, /useAutosave\(form, send/);
@@ -180,6 +185,7 @@ test('the employee file and its pages are written in shadcn and keep their HR ad
     assert.match(sections.IdentitySection, /_method: 'put'[\s\S]*forceFormData: true/);
     // Une nouvelle adresse s'ajoute par un bouton, jamais à chaque frappe.
     assert.match(sections.ContactSection, /new_address_label/);
+    assert.match(sections.ContactSection, /@click="addAddress"/);
     assert.doesNotMatch(sections.ContactSection.slice(sections.ContactSection.indexOf('useSectionAutosave(')), /^\s*new_address_label:/m);
 
     for (const source of [create, edit, ...Object.values(sections)]) {

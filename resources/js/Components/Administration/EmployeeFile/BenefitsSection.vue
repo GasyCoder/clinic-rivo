@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, inject, onBeforeUnmount, ref } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
 import { Archive, ChevronDown, Coins, Gift, Info, Plus, Tag } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -18,7 +18,7 @@ import BenefitCard from './BenefitCard.vue';
 import EmployeeSectionCard from './EmployeeSectionCard.vue';
 
 /**
- * ADR-213 — les avantages et primes : logement, transport, repas, téléphone,
+ * ADR-221 — les avantages et primes : logement, transport, repas, téléphone,
  * assurance, prime… Chacun porte un montant (facultatif pour un avantage en
  * nature), un motif et une fréquence.
  *
@@ -54,6 +54,13 @@ const submitAdd = () => addForm
     .transform((data) => ({ ...data, ends_on: data.frequency === 'MONTHLY' ? data.ends_on : '' }))
     .post(props.url, { preserveScroll: true, preserveState: true, onSuccess: () => { adding.value = false; addForm.reset(); } });
 const canSubmitAdd = computed(() => addForm.benefit_type_uuid && addForm.reason.trim().length >= 3 && addForm.starts_on && ! addForm.processing);
+
+// Un ajout commencé mais pas envoyé retient « Continuer » et la sortie de la page :
+// il n'est enregistré qu'à « Ajouter ».
+const registry = inject('employeeSections', null);
+const draftState = computed(() => (adding.value && addForm.isDirty ? 'incomplete' : 'idle'));
+registry?.register('benefit:new', { state: draftState, savedAt: null, flush: (done) => done(), retry: () => {} });
+onBeforeUnmount(() => registry?.unregister('benefit:new'));
 
 /* Retirer : avec un motif, jamais supprimé. */
 const retiring = ref(null);

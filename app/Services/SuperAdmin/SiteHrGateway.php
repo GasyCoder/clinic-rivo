@@ -35,7 +35,7 @@ class SiteHrGateway extends SiteScreenGateway
             'Administration/HrStructure/', 'Administration/ProfessionalEmails/', 'Administration/Internships/', 'Administration/StaffAccess/',
             // ADR-212 — les bonus du personnel.
             'Administration/Bonus/',
-            // ADR-213 — le module Banques.
+            // ADR-221 — le module Banques.
             'Administration/Banks/',
         ];
     }

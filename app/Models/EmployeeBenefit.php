@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * ADR-213 — un avantage ou une prime déclaré pour un employé : un type, un
+ * ADR-221 — un avantage ou une prime déclaré pour un employé : un type, un
  * montant (facultatif pour un avantage en nature), un motif, une fréquence.
  *
  * Une déclaration du RH (ADR-206) : aucun total, aucun net n'en est calculé.

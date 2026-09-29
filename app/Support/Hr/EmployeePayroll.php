@@ -17,7 +17,7 @@ use Illuminate\Validation\ValidationException;
  * sont jamais la seule garde — et un dossier « non rémunéré » n'a pas de montant.
  * Omettre ces champs les laisse tels quels.
  *
- * ADR-213 — la banque du compte se choisit dans le module Banques (`bank_uuid`) ;
+ * ADR-221 — la banque du compte se choisit dans le module Banques (`bank_uuid`) ;
  * une banque archivée depuis reste acceptée pour la fiche qui la porte déjà.
  */
 final class EmployeePayroll

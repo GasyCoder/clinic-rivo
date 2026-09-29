@@ -182,7 +182,7 @@ class EmployeeController extends Controller
             'employee' => $this->presenter->employee($employee),
             // ADR-206 — données sensibles : servies seulement avec leur droit, jamais vides.
             'payroll' => $user->can('employees.payroll.view') ? $this->presenter->payroll($employee) : null,
-            // ADR-213 — avantages et primes : confidentiels comme la rémunération.
+            // ADR-221 — avantages et primes : confidentiels comme la rémunération.
             'benefits' => $user->can('employees.payroll.view') ? $this->benefits($employee) : null,
             'contracts' => $contracts,
             'documents' => $documents,
@@ -229,8 +229,8 @@ class EmployeeController extends Controller
     }
 
     /**
-     * ADR-213 — la fiche en sections, chacune enregistrée automatiquement :
-     * plus de parcours en étapes pour modifier un dossier.
+     * ADR-221 — la fiche : le même parcours à étapes que la création, chaque
+     * étape enregistrée automatiquement ; « Continuer » passe à la suivante.
      */
     public function edit(Request $request, Employee $employee): Response
     {
@@ -250,7 +250,7 @@ class EmployeeController extends Controller
             'employee' => $this->presenter->employee($employee),
             // ADR-206 — prérempli pour qui peut lire ou modifier la rémunération.
             'payroll' => $payroll ? $this->presenter->payroll($employee) : null,
-            // ADR-213 — la liste du module Banques, et les avantages de la personne.
+            // ADR-221 — la liste du module Banques, et les avantages de la personne.
             'banks' => $payroll ? $this->bankOptions($employee->bank_id) : [],
             'benefits' => $payroll ? $this->benefits($employee) : null,
             'benefitOptions' => $payroll ? [
@@ -264,11 +264,15 @@ class EmployeeController extends Controller
             ] : null,
             // Ouvrir directement une section : ?section=pay depuis la fiche.
             'section' => (string) $request->query('section', ''),
+            // ADR-194 — « Nouveau stagiaire » : au bout du parcours, son stage.
+            'internshipIntent' => $request->boolean('stage')
+                && $user->can('contracts.create')
+                && $this->internships->hasInternshipType(),
         ]);
     }
 
     /**
-     * ADR-213 — les banques proposées : actives, plus celle que la fiche porte
+     * ADR-221 — les banques proposées : actives, plus celle que la fiche porte
      * déjà si elle a été archivée depuis.
      *
      * @return array<int, array<string, mixed>>
@@ -287,7 +291,7 @@ class EmployeeController extends Controller
     }
 
     /**
-     * ADR-213 — les avantages et primes d'une personne, en cours d'abord ; les
+     * ADR-221 — les avantages et primes d'une personne, en cours d'abord ; les
      * retirés restent lisibles, avec leur motif.
      *
      * @return array<int, array<string, mixed>>
@@ -303,7 +307,7 @@ class EmployeeController extends Controller
 
     public function store(StoreEmployeeRequest $request, CreateEmployeeAction $action): RedirectResponse
     {
-        $employee = $action->execute($request->safe()->except('after'), $request->user());
+        $employee = $action->execute($request->safe()->except(['after', 'internship']), $request->user());
 
         // ADR-194 — un stagiaire : le dossier est créé, son stage vient ensuite.
         if ($request->validated('after') === 'internship' && $request->user()->can('contracts.create')) {
@@ -311,10 +315,16 @@ class EmployeeController extends Controller
                 ->with('status', "Dossier {$employee->employee_number} créé. Enregistrez maintenant son stage : filière, école, encadrant et dates.");
         }
 
-        // ADR-213 — création courte : on complète ensuite la fiche, section par section.
+        // ADR-221 — le dossier est créé à la première étape : le parcours continue
+        // dans la fiche, où chaque étape s'enregistre toute seule.
         if ($request->validated('after') === 'edit' && $request->user()->can('update', $employee)) {
-            return to_route('administration.employees.edit', $employee)
-                ->with('status', "Dossier {$employee->employee_number} créé. Complétez la fiche : chaque section s’enregistre toute seule.");
+            $next = ['employee' => $employee, 'section' => 'contact'];
+            if ($request->boolean('internship')) {
+                $next['stage'] = 1;
+            }
+
+            return to_route('administration.employees.edit', $next)
+                ->with('status', "Dossier {$employee->employee_number} créé. Continuez : chaque étape s’enregistre toute seule.");
         }
 
         return to_route('administration.employees.show', $employee)
@@ -325,7 +335,7 @@ class EmployeeController extends Controller
     {
         $employee = $action->execute($employee, $request->safe()->except(['after', '_autosave']), $request->user());
 
-        // ADR-213 — un enregistrement automatique reste sur la fiche, sans message :
+        // ADR-221 — un enregistrement automatique reste sur la fiche, sans message :
         // son statut se lit près de la section, jamais dans un toast.
         if ($request->boolean('_autosave')) {
             return back();
@@ -510,7 +520,7 @@ class EmployeeController extends Controller
                 'label' => $reference->label,
                 'available' => $reference->active && ! $reference->trashed(),
                 'department_uuids' => $reference->departments->pluck('uuid')->values()->all(),
-                // ADR-213 — cette fonction ouvre-t-elle droit aux avantages et primes ?
+                // ADR-221 — cette fonction ouvre-t-elle droit aux avantages et primes ?
                 'grants_benefits' => $reference->grantsBenefits(),
             ])->all();
     }

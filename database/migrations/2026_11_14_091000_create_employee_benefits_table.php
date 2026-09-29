@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
- * ADR-213 — les avantages et primes d'un employé (logement, transport, repas,
+ * ADR-221 — les avantages et primes d'un employé (logement, transport, repas,
  * téléphone, assurance, prime…) : un type, un montant, un motif, une fréquence.
  *
  * Une déclaration du RH, comme la rémunération (ADR-206) : aucun total, aucune

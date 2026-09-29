@@ -6,7 +6,7 @@ use App\Models\Bank;
 use App\Models\User;
 
 /**
- * ADR-213 — le module Banques suit les droits des autres référentiels RH
+ * ADR-221 — le module Banques suit les droits des autres référentiels RH
  * (Départements, Fonctions : `hr_settings.*`), aucune permission nouvelle.
  */
 class BankPolicy

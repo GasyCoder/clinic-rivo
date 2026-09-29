@@ -13,7 +13,7 @@ import { cn } from '@/lib/cn';
 import { currencyLabel } from '@/utilities/money';
 
 /**
- * ADR-213 — un avantage ou une prime déjà déclaré : corrigé sur place,
+ * ADR-221 — un avantage ou une prime déjà déclaré : corrigé sur place,
  * enregistré tout seul. Le retirer demande un motif (il reste dans l'historique).
  */
 const props = defineProps({

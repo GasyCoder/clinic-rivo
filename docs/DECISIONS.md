@@ -21269,7 +21269,7 @@ feuille imprimée partielle        une discipline dont aucune demande n'est coch
 
 ---
 
-# ADR-221 — Fiche employé en sections enregistrées toutes seules ; module Banques ; avantages et primes
+# ADR-221 — Dossier employé en étapes enregistrées toutes seules ; module Banques ; avantages et primes
 
 > Numérotée **ADR-213** à sa rédaction ; renumérotée **ADR-221** au rebase sur `origin/dev` (2026-09-29), les numéros 213 à 220 étant déjà pris par le Laboratoire. Les références du code ont suivi.
 
@@ -21277,7 +21277,7 @@ feuille imprimée partielle        une discipline dont aucune demande n'est coch
 formulaire avec Continuer / Enregistrer ; salaire, indemnités pour stagiaire ou bénévole, avantages : prix, motif,
 chaque médecin uniquement ; un module Banques séparé » ; trois arbitrages, question par question)
 
-**Amende l'ADR-066/187/194/206** (le dossier employé n'est plus un parcours en étapes) et **complète l'ADR-206**
+**Amende l'ADR-066/187/194/206** (chaque étape du dossier employé s'enregistre seule) et **complète l'ADR-206**
 (la banque du compte, les avantages et primes). Le CDC ne décrit ni salaire, ni avantage, ni banque (§17 ne liste
 que `employees.*`) : les règles ci-dessous sont celles du propriétaire. **Aucune paie n'est calculée** (ADR-066) :
 ni total, ni retenue, ni net.
@@ -21292,15 +21292,30 @@ retenues    aucune : la règle de l'ADR-206 reste (salaire de base + avantages d
 migrations  écrites, testées, puis appliquées sur les bases locales (site et portail)
 ```
 
-## La création courte, puis la fiche en sections
+## Le même parcours à étapes, enregistré tout seul
 
-La création ne demande plus que le genre, le nom, les prénoms, le matricule (proposé, ADR-191) et la photo
-facultative ; « Créer et compléter la fiche » (`after=edit`) ouvre la fiche. « Nouveau stagiaire » garde sa suite
-(`after=internship`, ADR-194). L'ancien parcours en six étapes (`EmployeeForm.vue`) est retiré.
+Une première version remplaçait la création par une carte courte, puis la fiche par des sections sans ordre. Le
+propriétaire l'a refusée le même jour (« je n'ai pas besoin de cette fenêtre au début, garder la forme précédente,
+mais avec l'enregistrement automatique et Continuer ») : le parcours à étapes reste, **sans aucun bouton
+« Enregistrer »**.
 
-La fiche (`/administration/employees/{uuid}/edit`, aussi servie au portail, ADR-187) se lit en sections, avec une
-navigation directe : Identité · Poste · Contact · Famille et qualification · Rémunération · Banque · Avantages et
-primes (les trois dernières seulement avec `employees.payroll.view` ou `.update`). `?section=` ouvre une section.
+```text
+étapes         Identité · Contact · Poste · Compléments · Rémunération · Avantages · Banque · Récapitulatif
+               (Rémunération, Avantages et Banque seulement avec employees.payroll.*), une seule liste
+               (utilities/employeeSteps.js) lue par la création et la modification, barre EmployeeStepBar
+création       /administration/employees/create : l'étape Identité seule (genre, nom, prénoms, naissance,
+               photo facultative ; matricule proposé, ADR-191), les autres étapes affichées verrouillées ;
+               « Continuer » crée le dossier (after=edit) et ouvre la fiche sur /edit?section=contact
+stagiaire      même parcours (?stagiaire=1 → &stage=1) ; « Terminer et saisir le stage » ouvre le contrat
+               de stage (ADR-194)
+fiche          /administration/employees/{uuid}/edit (aussi au portail, ADR-187) : le même parcours ;
+               Précédent / « Continuer · <étape suivante> » ; toute étape s'ouvre d'un clic dans la barre,
+               ?section= en garde la trace dans l'adresse
+Continuer      attend l'enregistrement de l'étape ; une étape refusée ou incomplète retient la suite et
+               dit pourquoi — rien n'est perdu, rien ne part en silence
+Récapitulatif  chaque étape résumée avec son état (Enregistré, À compléter, Refusé), crayon pour y revenir ;
+               « Terminer » ouvre la fiche de l'employé
+```
 
 ```text
 enregistrement   chaque section n'envoie que ses champs, ~1 s après la dernière saisie (debounce),
@@ -21370,4 +21385,188 @@ sur chaque site et sur le portail. Aucune permission nouvelle.
 export / import Excel   la banque et les avantages n'y sont pas (comme la rémunération, ADR-206)
 référentiel central     les banques sont par site ; une liste poussée par le portail à tous les sites est à décider
 rendu                   vérifié par le build et les tests (PHP et JS), pas dans un navigateur
+```
+
+---
+
+# ADR-222 — Assistant IA d'aide au logiciel (Laravel AI SDK), réglé par site depuis le portail
+
+> Numérotée **ADR-214** à sa rédaction ; renumérotée **ADR-222** au rebase sur `origin/dev` (2026-09-29), le numéro 214 étant déjà pris par le Laboratoire. Les références du code ont suivi.
+
+**Status:** ACCEPTED (2026-09-29 — spécification explicite du propriétaire)
+
+Le CDC ne décrit aucun assistant IA : les règles ci-dessous sont celles du propriétaire. L'assistant aide à
+**utiliser RIVO** — où cliquer, quel écran, quel droit, pourquoi un bouton est grisé, quelle étape vient
+ensuite. **Ce n'est pas un assistant médical** et, en V1, il ne fait **aucune action** : il lit l'aide et les
+droits du compte, l'utilisateur agit lui-même.
+
+## Architecture
+
+```text
+Vue (bouton flottant + panneau)  →  Laravel (/assistant/*)  →  ClinicAssistant (agent du SDK)
+                                                               →  Laravel AI SDK  →  fournisseur réglé
+```
+
+Le navigateur n'appelle jamais un fournisseur et ne voit jamais une clé. `laravel/ai` (SDK officiel, v1) est
+installé ; ce qu'il fournit n'est pas refait : agent (`Promptable`), conversations (`RemembersConversations`,
+tables `agent_conversations` / `agent_conversation_messages`), outils (`Tool`), flux (`stream()`), faux pour
+les tests (`ClinicAssistant::fake()`), exceptions de fournisseur.
+
+```text
+app/Ai/Agents/ClinicAssistant.php          l'agent : règles fixes, contexte, aide, 3 outils, 4 étapes au plus
+app/Ai/Agents/AssistantConnectionCheck.php « Tester la connexion » : 16 tokens, sans outil ni conversation
+app/Ai/Tools/SearchApplicationHelp.php     cherche dans l'aide (modules ouverts au compte seulement)
+app/Ai/Tools/ListAccessibleModules.php     les modules que le compte peut ouvrir
+app/Ai/Tools/GetModuleAccess.php           ses droits sur un module, et ceux qui lui manquent
+```
+
+Les trois outils sont **en lecture seule** et reçoivent le compte : ils ne voient que ce que ses droits
+ouvrent. Aucun outil n'écrit, ne crée ni ne modifie quoi que ce soit.
+
+## Réglages : par site et par portail, depuis Paramètres › Assistant IA
+
+`ai_assistant_settings` (une ligne par base, comme `app_settings`, ADR-184) : activé, fournisseur, modèle, clé,
+longueur d'une réponse (tokens), température, délai, questions par heure, questions par jour et par compte,
+budget mensuel de tokens, consignes de l'établissement. Une table à part, et non `app_settings`, parce que
+celle-ci est servie entière au navigateur et effacée par la réinitialisation (ADR-210) : la clé ne doit ni
+l'un ni l'autre. La réinitialisation ADR-210 ne touche donc pas l'assistant, et sa confirmation le dit.
+
+`AssistantConfiguration` est le **seul** lecteur de cette table et de la clé. Chaque valeur se résout dans
+l'ordre : réglage de la base → configuration du déploiement (`config/rivo.php` `assistant.*`, `RIVO_AI_*`, et
+pour la clé la variable du SDK `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`…) → « non configuré ». Le fournisseur est
+déclaré au SDK pour la requête sous un nom propre (`rivo-assistant`), sans toucher aux fournisseurs du `.env`.
+Aucun nom de modèle n'est écrit dans le code : la liste proposée vient des modèles par défaut du SDK
+(`AssistantModelCatalog`), et un autre se saisit à la main.
+
+Fournisseurs : OpenAI, Anthropic, Gemini, OpenRouter, Mistral, DeepSeek, Groq, xAI (`AssistantProvider`, ceux
+que le SDK sait appeler en texte).
+
+Le portail règle un site **uniquement par son API** (`/api/v1/super-admin/assistant-settings`, GET / PUT /
+DELETE `key` / POST `test`, jeton du site, idempotence, droits revérifiés, acteur distant audité) et se règle
+lui-même dans sa base. Le test de connexion d'un site part avec un délai allongé et sans nouvel essai.
+
+## La clé
+
+```text
+stockée     chiffrée (cast `encrypted`), attribut caché : jamais sérialisée
+affichée    ••••••••••••••••ABCD, seulement les 4 derniers caractères
+envoyée     au site, de serveur à serveur, dans le corps du PUT ; jamais renvoyée ni relue
+champ vide  la clé enregistrée est gardée, jamais remplacée par du vide
+remplacer   saisir la nouvelle clé ; changer de fournisseur sans nouvelle clé est refusé
+retirer     un geste à part (« Retirer la clé »), confirmé, audité
+session     `api_key` exclue des champs remis en session après un refus (`dontFlash`) : la session vit en base
+journaux    jamais : l'audit dit « remplacée » / « retirée » ; une erreur de fournisseur est journalisée
+            par sa catégorie, son code HTTP, le fournisseur et le modèle, jamais son message
+navigateur  ni prop Inertia, ni réponse JSON, ni stockage local ; le champ se vide après l'enregistrement
+```
+
+Audit : `ai_settings.update` (anciennes et nouvelles valeurs, sans la clé), `ai_settings.key_remove`.
+
+## Ce qui part au fournisseur — le strict nécessaire
+
+```text
+la question   nettoyée par PromptRedactor : email, téléphone, numéro de dossier / passage / matricule,
+              CIN, longue suite de chiffres → [numéro de dossier], [téléphone]… C'est la version nettoyée
+              qui est gardée dans la conversation. Un nom propre n'est pas reconnu : l'écran et les
+              consignes demandent de n'en saisir aucun
+le contexte   rôle, profil métier, site, adresse de la page (identifiants remplacés par {id}), écran,
+              section (#ordonnance), module, droits du compte sur ce module, modules qu'il peut ouvrir
+              (AssistantPageContext). Jamais le contenu, ni le titre de la page (il peut porter un nom)
+l'aide        les sections des fiches des seuls modules que le compte peut ouvrir (7 000 + 5 000
+              caractères au plus)
+l'historique  les 10 derniers messages de la conversation
+```
+
+Aucune donnée de patient n'est lue par l'assistant : aucun outil n'accède à un dossier.
+
+## Assistant non médical
+
+Les règles fixes de l'agent — qu'aucune consigne de l'établissement ne lève — interdisent diagnostic,
+traitement, dose et conduite médicale : la réponse renvoie au médecin ou au soignant, puis indique où la
+consigner dans le logiciel. Elles interdisent aussi d'inventer un menu, un bouton ou un droit, de détailler un
+module que le compte n'ouvre pas, et de prétendre avoir agi.
+
+## La base de connaissance
+
+`resources/ai/clinic-assistant/*.md` : 21 fiches, une par module réellement présent (général, réception,
+sorties & règlements, caisse, patients, soins, médecine, examens paracliniques, hospitalisation, chirurgie,
+anesthésie, maternité, pharmacie, transferts, pédiatrie, décès, gardiennage, RH, référentiels, accès,
+Super Administration), écrites depuis les routes, les écrans et ces décisions — libellés des boutons relus
+dans les composants. `AssistantKnowledge` déclare pour chaque module ses adresses, les droits qui l'ouvrent,
+ses mots-clés et ses questions proposées ; la recherche est lexicale (sans accents, par racines). Pas de base
+vectorielle : la documentation tient en quelques dizaines de sections, et `search()` est le seul point à
+remplacer si elle grandit.
+
+Une fiche se met à jour **avec** la fonctionnalité qu'elle décrit : un workflow changé sans sa fiche fait
+mentir l'assistant.
+
+## Écran
+
+Un bouton « Assistant » en bas à droite de la mise en page persistante (`AssistantLauncher`), un panneau
+latéral shadcn (`Sheet`, plein écran sur téléphone) : discussion, historique, nouvelle conversation, questions
+proposées selon la page et les droits, réponse en flux, arrêt, copie, Markdown sûr (échappé d'abord, balises
+ajoutées ensuite), erreurs en phrases simples. Il n'apparaît que si l'assistant est activé, configuré et que le
+compte a `ai_assistant.use` (prop partagée `assistant`, sans fournisseur ni modèle ni clé). Réglages :
+`AssistantSettings` (fournisseur, modèle, clé masquée, limites, consignes, « Tester la connexion »,
+consommation du jour et du mois).
+
+Le projet est en **JavaScript** (Vue 3), pas en TypeScript : les nouveaux fichiers suivent le projet, avec des
+types JSDoc. Introduire TypeScript pour ce seul module serait une seconde convention.
+
+## Flux et hébergement
+
+`POST /assistant/messages` répond en **Server-Sent Events** lus par `fetch` : ni WebSocket, ni serveur Node, ni
+Redis, ni file d'attente. `X-Accel-Buffering: no` demande au proxy de ne pas retenir le flux ; sur un
+hébergement mutualisé (o2switch) qui le retient quand même, la réponse arrive d'un bloc, sans autre différence.
+L'arrêt de l'utilisateur se lit entre deux morceaux, et la consommation est quand même enregistrée.
+
+## Conversations
+
+Celles du SDK, dans la base du site. Toute lecture passe par le propriétaire (`participant_type`,
+`participant_id`) : la conversation d'un autre compte répond « introuvable ». Le titre est la première question
+(tronquée) : aucune génération de titre, donc aucun appel de plus. Historique : 20 dernières conversations,
+40 messages rechargés ; suppression par son propriétaire.
+
+## Coûts et limites
+
+```text
+question           1 000 caractères au plus
+réponse            max output tokens réglable (100 à 4 000), 4 étapes d'outils au plus
+par heure          limiteur « assistant-ai », par compte (jamais par IP : un poste est partagé)
+par jour           nombre de questions par compte — facultatif
+par mois           budget de tokens de toute la base — facultatif
+```
+
+Chaque question écrit une ligne `ai_assistant_usages` (compte, conversation, fournisseur, modèle, statut,
+tokens d'entrée et de sortie comptés par le fournisseur, durée). Aucun montant n'est calculé : RIVO ne connaît
+pas les prix des fournisseurs. Les réglages affichent la consommation du jour et du mois.
+
+## Erreurs
+
+Jamais une erreur 500 ni un message de fournisseur à l'écran : `AssistantErrors` ramène chaque échec à une
+phrase — clé refusée, modèle inexistant, crédit épuisé, fournisseur surchargé ou limité, délai dépassé,
+réseau, flux interrompu, assistant désactivé ou non configuré, quota atteint.
+
+## Droits
+
+```text
+ai_assistant.use     se servir de l'assistant   ADMINISTRATION, LOGISTICS, RECEPTION, MEDICINE, NURSE,
+                                                SURGERY, PHARMACY, LABORATORY (sites) ; SUPER_ADMIN (portail)
+ai_settings.view     voir les réglages          SUPER_ADMIN du portail
+ai_settings.update   régler, clé, test          SUPER_ADMIN du portail
+```
+
+Migration `2026_11_16_091000_create_ai_assistant_tables` (tables et droits) et
+`2026_11_16_090000_create_agent_conversations_table` (conversations du SDK), à jouer sur chaque site et sur le
+portail ; le Super Admin reçoit ses droits à la migration (ADR-186).
+
+## Signalé, non tranché
+
+```text
+nom propre dans une question   non reconnu par le filtre ; seul l'avertissement de l'écran le prévient
+actions                        aucune en V1 (règle du propriétaire) ; en ajouter exigerait confirmation et audit
+fournisseur de secours         non construit ; un seul fournisseur par base
+consommation centrale          chaque base compte la sienne ; aucun tableau consolidé multi-sites
+fiches d'aide                  à tenir à jour à chaque évolution d'un workflow
+rendu                          vérifié par les tests et le build, pas dans un navigateur ni avec un vrai fournisseur
 ```

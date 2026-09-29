@@ -9,7 +9,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * ADR-213 — retirer un avantage déclaré : il s'archive avec son motif, jamais
+ * ADR-221 — retirer un avantage déclaré : il s'archive avec son motif, jamais
  * supprimé (ADR-009). Pour qu'il s'arrête à une date, on renseigne sa fin.
  */
 class ArchiveEmployeeBenefitAction

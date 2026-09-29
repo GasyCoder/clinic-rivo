@@ -11,7 +11,7 @@ enum HrReferenceType: string
     case AttestationType = 'ATTESTATION_TYPE';
     // ADR-194 — la filière d'un stage (Infirmier, Sage-femme…).
     case InternshipField = 'INTERNSHIP_FIELD';
-    // ADR-213 — le type d'un avantage ou d'une prime (Logement, Transport, Prime…).
+    // ADR-221 — le type d'un avantage ou d'une prime (Logement, Transport, Prime…).
     case BenefitType = 'BENEFIT_TYPE';
 
     public function label(): string

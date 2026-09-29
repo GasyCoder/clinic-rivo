@@ -3,7 +3,7 @@
 namespace App\Enums;
 
 /**
- * ADR-213 — un avantage revient chaque mois (logement, transport…) ou n'est
+ * ADR-221 — un avantage revient chaque mois (logement, transport…) ou n'est
  * versé qu'une fois (une prime). Une déclaration : rien n'en est calculé.
  */
 enum EmployeeBenefitFrequency: string

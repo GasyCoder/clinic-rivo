@@ -70,6 +70,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectGuestsTo('/login');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // ADR-222 — une validation refusée remet les champs saisis en session (en
+        // base) : la clé d'un fournisseur d'IA n'y est jamais écrite.
+        $exceptions->dontFlash(['api_key']);
+
         // ADR-195 — la boîte s'ouvre au premier usage (LazyMailServer) : un mot de
         // passe refusé ou un serveur injoignable se découvre dans le contrôleur. Il se
         // dit comme à l'ouverture : mot de passe redemandé, ou page « serveur

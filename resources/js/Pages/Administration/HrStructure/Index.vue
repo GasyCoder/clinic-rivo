@@ -51,7 +51,7 @@ import { hrUrl } from '@/utilities/hrUrl';
  * celui qui l'exerce : l'accès du personnel et l'assistant de compte le
  * préremplissent. Une proposition, jamais un droit.
  *
- * ADR-213 — et si elle ouvre droit aux avantages et primes (« Médecin » d'office).
+ * ADR-221 — et si elle ouvre droit aux avantages et primes (« Médecin » d'office).
  */
 defineOptions({ layout: AppLayout });
 
@@ -202,7 +202,7 @@ const submit = () => {
         // Le rôle proposé ne concerne qu'une fonction (ADR-199) ; vide = aucun.
         account_role_code: isJobTitles.value ? (data.account_role_code || null) : undefined,
         account_profile_code: isJobTitles.value ? (data.account_profile_code || null) : undefined,
-        // ADR-213 — seulement pour une fonction.
+        // ADR-221 — seulement pour une fonction.
         benefits_eligible: isJobTitles.value ? Boolean(data.benefits_eligible) : undefined,
     });
 
@@ -334,7 +334,7 @@ const employeeLine = (item) => {
                                 <span class="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">{{ item.account_role.role_name }}<template v-if="item.account_role.profile_name"> · {{ item.account_role.profile_name }}</template></span>
                             </template>
                             <span v-else class="text-muted-foreground">Aucun rôle proposé pour le compte</span>
-                            <!-- ADR-213 — ouvre droit aux avantages et primes. -->
+                            <!-- ADR-221 — ouvre droit aux avantages et primes. -->
                             <span v-if="item.benefits_eligible" class="ms-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><Gift class="h-3 w-3" aria-hidden="true" />Avantages et primes</span>
                         </p>
                         <p v-else-if="! item.archived" class="mt-1 text-xs leading-5 text-muted-foreground">
@@ -407,7 +407,7 @@ const employeeLine = (item) => {
                     </div>
                     <p class="mt-3 text-xs leading-5 text-muted-foreground">Prérempli quand on crée le compte d’un employé de cette fonction, et toujours modifiable à ce moment-là. La fonction ne donne aucun droit.</p>
                 </fieldset>
-                <!-- ADR-213 — qui peut recevoir un avantage ou une prime se règle ici, par fonction. -->
+                <!-- ADR-221 — qui peut recevoir un avantage ou une prime se règle ici, par fonction. -->
                 <label v-if="isJobTitles" for="structure-benefits" class="flex cursor-pointer items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3.5 py-3 dark:border-emerald-900 dark:bg-emerald-950/20">
                     <Checkbox id="structure-benefits" v-model="form.benefits_eligible" class="mt-0.5" />
                     <span>

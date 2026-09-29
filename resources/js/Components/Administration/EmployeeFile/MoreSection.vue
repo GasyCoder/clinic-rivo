@@ -10,7 +10,7 @@ import { useSectionAutosave } from '@/composables/useSectionAutosave';
 import EmployeeSectionCard from './EmployeeSectionCard.vue';
 
 /**
- * ADR-213 — Famille, qualification et matériel : des informations déclaratives,
+ * ADR-221 — Famille, qualification et matériel : des informations déclaratives,
  * toutes facultatives, enregistrées toutes seules.
  */
 const props = defineProps({

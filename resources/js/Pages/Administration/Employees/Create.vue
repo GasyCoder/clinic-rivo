@@ -1,142 +1,155 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import { ArrowLeft, ArrowRight, Check, GraduationCap, Hash, Info, Sparkles, User, Zap } from 'lucide-vue-next';
+import { ArrowLeft, ArrowRight, CloudUpload, GraduationCap, Info, User } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
-import Card from '@/Components/Shadcn/Card.vue';
-import FormField from '@/Components/Shadcn/FormField.vue';
-import IconInput from '@/Components/Shadcn/IconInput.vue';
-import Input from '@/Components/Shadcn/Input.vue';
+import Dialog from '@/Components/Shadcn/Dialog.vue';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
-import EmployeePhotoField from '@/Components/Administration/EmployeePhotoField.vue';
-import { cn } from '@/lib/cn';
+import EmployeeSectionCard from '@/Components/Administration/EmployeeFile/EmployeeSectionCard.vue';
+import EmployeeStepBar from '@/Components/Administration/EmployeeFile/EmployeeStepBar.vue';
+import IdentityFields from '@/Components/Administration/EmployeeFile/IdentityFields.vue';
+import { usePermissions } from '@/composables/usePermissions';
+import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard';
+import { employeeSteps } from '@/utilities/employeeSteps';
 import { hrUrl } from '@/utilities/hrUrl';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 
 /**
- * ADR-213 — une création courte : le genre, le nom et le matricule suffisent
- * pour ouvrir le dossier. On arrive ensuite dans la fiche en sections, où tout
- * le reste (poste, contact, rémunération, banque, avantages) s'enregistre tout
- * seul. Plus de parcours en six étapes.
+ * ADR-221 — la création d'un employé garde le parcours à étapes, sans rien
+ * retenir jusqu'au bout : « Continuer » sur l'Identité crée le dossier, puis
+ * chaque étape suivante s'enregistre toute seule (Edit.vue, même barre).
+ * Le matricule est proposé selon le modèle du site (ADR-191) et se corrige à
+ * l'étape Poste.
  *
- * ADR-194 — « Nouveau stagiaire » : après le dossier, son stage.
+ * ADR-194 — « Nouveau stagiaire » : le même parcours, et son stage à la fin.
  */
 defineOptions({ layout: AppLayout });
 const props = defineProps({
     options: Object, departments: Array, jobTitles: Array, addresses: [Array, Object],
-    // ADR-191 — le prochain matricule du modèle du site, proposé et modifiable.
     suggestedEmployeeNumber: { type: String, default: '' },
     employeeNumberModel: { type: String, default: '' },
     currentPair: { type: Object, default: null },
     internshipIntent: { type: Boolean, default: false },
 });
+const { can } = usePermissions();
+
+const steps = computed(() => employeeSteps({ payroll: can('employees.payroll.view') || can('employees.payroll.update') }));
 
 const form = useForm({
-    sex: '', last_name: '', first_name: '',
+    sex: '', last_name: '', first_name: '', birth_date: '', birth_place: '',
     employee_number: props.suggestedEmployeeNumber ?? '',
     active: true,
     // ADR-194 — la photo 4 × 4 part avec le dossier (multipart).
     photo: null, remove_photo: false,
-    after: props.internshipIntent ? 'internship' : 'edit',
+    after: 'edit',
+    internship: props.internshipIntent,
 });
 
-const typedName = computed(() => [form.last_name, form.first_name].filter(Boolean).join(' '));
-const ready = computed(() => form.sex && form.last_name.trim() && ! form.processing);
+const REQUIRED = { sex: 'Le genre', last_name: 'Le nom' };
 const back = props.internshipIntent ? hrUrl('/administration/internships') : hrUrl('/administration/employees');
-const submit = () => form.post(hrUrl('/administration/employees'));
+
+/** Ce qui manque avant de créer le dossier, dit sous le champ comme dans l'ancien parcours. */
+const validate = () => {
+    let first = null;
+    Object.entries(REQUIRED).forEach(([field, label]) => {
+        if (String(form[field] ?? '').trim() === '') {
+            form.setError(field, `${label} est obligatoire avant de continuer.`);
+            first ??= field;
+        }
+    });
+    if (first) nextTick(() => document.getElementById(first)?.focus());
+    return ! first;
+};
+watch(() => [form.sex, form.last_name], () => {
+    Object.keys(REQUIRED).forEach((field) => {
+        if (String(form[field] ?? '').trim() !== '' && String(form.errors[field] ?? '').includes('avant de continuer')) form.clearErrors(field);
+    });
+});
+
+const submit = () => {
+    if (form.processing || ! validate()) return;
+    form.post(hrUrl('/administration/employees'), { preserveScroll: true });
+};
 const focusField = (field) => document.getElementById(field)?.focus();
+
+/* Quitter avant « Continuer » : la saisie n'est encore nulle part. */
+const typed = computed(() => form.isDirty && ! form.processing && ! form.wasSuccessful);
+const { pendingVisit, leave, stay } = useUnsavedChangesGuard(typed);
+const leaving = ref(false);
+watch(pendingVisit, (visit) => { leaving.value = Boolean(visit); });
+const stayHere = () => { leaving.value = false; stay(); };
+const leaveAnyway = () => { leaving.value = false; leave(); };
 </script>
 
 <template>
     <Head :title="internshipIntent ? 'Nouveau stagiaire' : 'Nouvel employé'" />
-    <div class="mx-auto w-full max-w-3xl space-y-4">
+    <div class="w-full space-y-4">
         <HrPageHeader
             compact
-            :eyebrow="internshipIntent ? 'Stages · Dossier du stagiaire' : 'Dossier personnel'"
-            :title="internshipIntent ? 'Nouveau stagiaire' : 'Nouvel employé'"
+            :eyebrow="internshipIntent ? 'Stages · Dossier du stagiaire' : 'Dossier personnel · Parcours guidé'"
+            :title="internshipIntent ? 'Nouveau stagiaire' : 'Créer un employé'"
             :description="internshipIntent
-                ? 'D’abord son dossier (genre, nom, matricule), puis son stage : filière, école, encadrant et dates.'
-                : 'Trois informations pour ouvrir le dossier. Vous complétez ensuite la fiche : chaque section s’enregistre toute seule.'"
+                ? 'Son dossier étape par étape, puis son stage : filière, école, encadrant et dates. Chaque étape s’enregistre toute seule.'
+                : 'Avancez étape par étape. « Continuer » crée le dossier ; ensuite, chaque étape s’enregistre toute seule.'"
             :icon="internshipIntent ? GraduationCap : 'user-add'"
         >
             <template #actions><Button :as="Link" :href="back" variant="outline" size="sm"><ArrowLeft class="h-4 w-4" />{{ internshipIntent ? 'Retour aux stages' : 'Retour aux employés' }}</Button></template>
         </HrPageHeader>
 
-        <ValidationErrorSummary :errors="form.errors" @select="focusField" />
+        <form id="employee-wizard" class="scroll-mt-3 space-y-3" novalidate @submit.prevent="submit">
+            <ValidationErrorSummary :errors="form.errors" @select="focusField" />
 
-        <Card class="overflow-hidden">
-            <form novalidate @submit.prevent="submit">
-                <div class="flex flex-col gap-4 border-b border-border bg-muted/30 p-4 sm:flex-row sm:items-center sm:p-5">
-                    <EmployeePhotoField
-                        v-model="form.photo"
-                        v-model:remove="form.remove_photo"
-                        :name="typedName"
-                        :error="form.errors.photo"
-                    />
-                </div>
+            <EmployeeStepBar :steps="steps" current="identity" locked />
 
-                <div class="space-y-4 p-4 sm:p-5">
-                    <FormField as="div" label="Genre" required :error="form.errors.sex">
-                        <div id="sex" role="radiogroup" aria-label="Genre" tabindex="-1" class="grid gap-2.5 focus:outline-none sm:grid-cols-2">
-                            <button
-                                v-for="item in options.sexes"
-                                :key="item.value"
-                                type="button"
-                                role="radio"
-                                :aria-checked="form.sex === item.value"
-                                :class="cn(
-                                    'flex items-center gap-2.5 rounded-lg border p-2.5 text-start shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                                    form.sex === item.value ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-primary/40 hover:bg-accent/50',
-                                )"
-                                @click="form.sex = item.value; form.clearErrors('sex')"
-                            >
-                                <span :class="cn('grid h-8 w-8 shrink-0 place-items-center rounded-full', form.sex === item.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')">
-                                    <Check v-if="form.sex === item.value" class="h-4 w-4" :stroke-width="3" />
-                                    <User v-else class="h-4 w-4" />
-                                </span>
-                                <span>
-                                    <span class="block text-sm font-semibold text-foreground">{{ item.label }}</span>
-                                    <span class="mt-0.5 block text-xs text-muted-foreground">Civilité {{ item.value === 'M' ? 'M.' : 'Mme' }}</span>
-                                </span>
-                            </button>
-                        </div>
-                    </FormField>
-                    <div class="grid gap-4 sm:grid-cols-2">
-                        <FormField label="Nom" required :error="form.errors.last_name">
-                            <Input id="last_name" v-model="form.last_name" autocomplete="family-name" :aria-invalid="Boolean(form.errors.last_name)" />
-                        </FormField>
-                        <FormField label="Prénoms" :error="form.errors.first_name">
-                            <Input id="first_name" v-model="form.first_name" autocomplete="given-name" />
-                        </FormField>
-                    </div>
-                    <FormField label="Matricule" :error="form.errors.employee_number">
-                        <IconInput id="employee_number" v-model="form.employee_number" :icon="Hash" autocomplete="off" :placeholder="suggestedEmployeeNumber || 'Ex. RH-2026-001'" class="font-mono sm:max-w-xs" />
-                        <span v-if="suggestedEmployeeNumber" class="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground">
-                            <Sparkles class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" />
-                            <span>Proposé selon le modèle <span class="font-mono text-foreground">{{ employeeNumberModel }}</span> — modifiable. Laissé vide, il est attribué d’office.</span>
-                        </span>
-                        <span v-if="suggestedEmployeeNumber && form.employee_number !== suggestedEmployeeNumber" class="mt-1 block text-xs">
-                            <button v-if="form.employee_number !== suggestedEmployeeNumber" type="button" class="font-semibold text-primary hover:underline" @click="form.employee_number = suggestedEmployeeNumber">Reprendre {{ suggestedEmployeeNumber }}</button>
-                        </span>
-                    </FormField>
+            <EmployeeSectionCard
+                :icon="User"
+                title="Identité"
+                description="Qui est la personne. Le nom et le genre sont exigés ; la civilité se déduit du genre."
+            >
+                <template #status>
+                    <p class="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><CloudUpload class="h-3.5 w-3.5" aria-hidden="true" />Enregistré à « Continuer »</p>
+                </template>
+                <IdentityFields
+                    v-model:photo="form.photo"
+                    v-model:remove-photo="form.remove_photo"
+                    :form="form"
+                    :options="options"
+                    :photo-error="form.errors.photo"
+                    photo-subtitle="Facultative : elle part avec le dossier."
+                >
                     <p class="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
-                        <Zap class="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                        <span v-if="internshipIntent">Après la création, vous saisirez son stage ; sa fiche se complète ensuite, section par section.</span>
-                        <span v-else>Après la création, la fiche s’ouvre : poste, contact, rémunération, banque et avantages s’y complètent et s’enregistrent tout seuls, section par section.</span>
+                        <Info class="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                        <span>
+                            Matricule proposé<template v-if="suggestedEmployeeNumber"> : <strong class="font-mono text-foreground">{{ suggestedEmployeeNumber }}</strong> (modèle <span class="font-mono">{{ employeeNumberModel }}</span>)</template>, modifiable à l’étape Poste.
+                            Aucun compte de connexion ni contrat n’est créé : chacun a ses propres droits.
+                        </span>
                     </p>
-                    <p class="flex items-start gap-2 text-[11px] leading-4 text-muted-foreground">
-                        <Info class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />Aucun compte de connexion ni contrat n’est créé : chacun a ses propres droits (Utilisateurs, Contrats).
-                    </p>
-                </div>
+                </IdentityFields>
+            </EmployeeSectionCard>
 
-                <footer class="flex flex-col-reverse gap-2 border-t border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
-                    <Button :as="Link" :href="back" variant="ghost" size="sm">Annuler</Button>
-                    <Button type="submit" variant="success" size="sm" :disabled="! ready">
-                        {{ form.processing ? 'Création…' : internshipIntent ? 'Créer et saisir le stage' : 'Créer et compléter la fiche' }}<ArrowRight class="h-4 w-4" />
+            <footer class="sticky bottom-2 z-10 flex items-center justify-between gap-2 rounded-xl border border-border bg-card/95 p-2 shadow-lg backdrop-blur">
+                <Button :as="Link" :href="back" variant="ghost" size="sm">Annuler</Button>
+                <div class="flex items-center gap-2">
+                    <p class="hidden px-1 text-end text-[11px] text-muted-foreground md:block">« Continuer » crée le dossier ; la suite s’enregistre toute seule.</p>
+                    <Button type="submit" size="sm" :disabled="form.processing">
+                        {{ form.processing ? 'Création du dossier…' : 'Continuer' }}<ArrowRight class="h-4 w-4" />
                     </Button>
-                </footer>
-            </form>
-        </Card>
+                </div>
+            </footer>
+        </form>
+
+        <Dialog
+            :open="leaving"
+            title="Le dossier n’est pas encore créé"
+            description="Ce que vous avez saisi n’est enregistré qu’à « Continuer ». Si vous quittez maintenant, la saisie est perdue."
+            :dismissible="false"
+            @update:open="(value) => value || stayHere()"
+        >
+            <template #footer>
+                <Button type="button" variant="outline" @click="leaveAnyway">Quitter sans créer</Button>
+                <Button type="button" @click="stayHere">Rester</Button>
+            </template>
+        </Dialog>
     </div>
 </template>

@@ -12,7 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
 /**
- * ADR-213 — les avantages et primes d'un employé, écrits depuis sa fiche.
+ * ADR-221 — les avantages et primes d'un employé, écrits depuis sa fiche.
  * Une correction enregistrée automatiquement revient sans message (`_autosave`).
  */
 class EmployeeBenefitController extends Controller

@@ -6,7 +6,7 @@ use App\Models\Bank;
 use Illuminate\Support\Str;
 
 /**
- * ADR-213 — reconnaître deux saisies d'une même banque.
+ * ADR-221 — reconnaître deux saisies d'une même banque.
  *
  * « Bank of Africa », « BANK OF AFRICA » et « Bank of Africa Madagascar » sont
  * une seule banque, « BOA Madagascar » aussi quand BOA existe. La règle est

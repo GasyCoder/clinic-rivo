@@ -26,7 +26,7 @@ class UpdateHrReferenceValueAction
             if ($metadata !== null) {
                 $data['metadata'] = $metadata;
             }
-            // ADR-213 — la fonction ouvre-t-elle droit aux avantages et primes ?
+            // ADR-221 — la fonction ouvre-t-elle droit aux avantages et primes ?
             [$data, $benefits] = JobTitleBenefits::takeFrom($data, $data['metadata'] ?? $reference->metadata);
             if ($benefits !== null) {
                 $data['metadata'] = $benefits;

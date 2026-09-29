@@ -11,7 +11,7 @@ import { hrUrl } from '@/utilities/hrUrl';
 import EmployeeSectionCard from './EmployeeSectionCard.vue';
 
 /**
- * ADR-213 — le compte bancaire : la banque se choisit dans le module Banques
+ * ADR-221 — le compte bancaire : la banque se choisit dans le module Banques
  * (plus de texte libre : « BOA » et « Bank of Africa » sont une seule banque),
  * puis le numéro et le titulaire tel qu'il figure à la banque.
  */

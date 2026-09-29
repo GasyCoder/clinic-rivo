@@ -5,19 +5,23 @@ namespace App\Providers;
 use App\Actions\Role\SyncPortalSuperAdminPermissionsAction;
 use App\Models\Permission;
 use App\Models\User;
+use App\Services\Assistant\AssistantConfiguration;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\SiteMaintenanceState;
 use App\Services\Webmail\WebmailAccess;
 use App\Services\Webmail\WebmailSignOn;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Database\Events\NoPendingMigrations;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -34,6 +38,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(SiteMaintenanceState::class);
         // ADR-195 — la boîte du titulaire, résolue une fois par requête.
         $this->app->scoped(WebmailAccess::class);
+        // ADR-222 — la configuration de l'assistant : une lecture de ses réglages par requête.
+        $this->app->scoped(AssistantConfiguration::class);
     }
 
     /**
@@ -83,6 +89,16 @@ class AppServiceProvider extends ServiceProvider
 
             $signOn->forgetDevice();
         });
+
+        // ADR-222 — l'assistant : un nombre de questions par heure et par compte, réglé
+        // depuis le portail. Par compte, jamais par adresse IP : un poste de soins est
+        // partagé, et toute la clinique sort souvent par la même adresse.
+        RateLimiter::for('assistant-ai', fn (Request $request) => Limit::perHour(app(AssistantConfiguration::class)->rateLimitPerHour())
+            ->by('assistant:'.($request->user()?->getAuthIdentifier() ?? $request->ip()))
+            ->response(fn () => response()->json([
+                'message' => 'Vous avez posé beaucoup de questions en peu de temps. Réessayez dans un moment.',
+                'reason' => 'rate_limited',
+            ], 429)));
 
         // ADR-009 / CDC §11: the three columns every SoftDeletable model
         // needs, declared once so they can never drift between migrations.

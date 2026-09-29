@@ -4,11 +4,14 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Actions\Settings\ResetAppSettingsAction;
 use App\Actions\Settings\StoreAppSettingAssetAction;
+use App\Actions\Settings\TestAssistantConnectionAction;
 use App\Actions\Settings\UpdateAppSettingsAction;
+use App\Actions\Settings\UpdateAssistantSettingsAction;
 use App\Enums\AuthTemplate;
 use App\Enums\BadgeLogoStyle;
 use App\Enums\ProfileTemplate;
 use App\Http\Controllers\Controller;
+use App\Services\Assistant\AssistantSettingsPresenter;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\AppSettingsPresenter;
@@ -16,7 +19,9 @@ use App\Services\SuperAdmin\PortalSiteApiClient;
 use App\Support\Numbering\EmployeeNumberFormat;
 use App\Support\Numbering\PatientNumberFormat;
 use App\Support\Settings\AppSettingsRules;
+use App\Support\Settings\AssistantSettingsRules;
 use App\Support\Settings\ThemePresets;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -40,13 +45,13 @@ class AppSettingsController extends Controller
      * même ordre, que `resources/js/utilities/settingsSections.js` (vérifié par test) ;
      * le premier s'ouvre quand on arrive sur « Paramètres ».
      */
-    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'badges', 'monnaie', 'remises', 'legal', 'direction', 'visibilite', 'maintenance'];
+    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'badges', 'monnaie', 'remises', 'legal', 'direction', 'visibilite', 'maintenance', 'assistant'];
 
     /**
      * La page d'un module. Sans module, le premier : comme dans les paramètres de
      * ChatGPT ou de Claude, « Paramètres » ouvre directement ses réglages.
      */
-    public function index(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, ?string $section = null): Response|RedirectResponse
+    public function index(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, ?string $section = null): Response|RedirectResponse
     {
         if ($section === null) {
             return redirect()->route('super-admin.settings.section', ['section' => self::SECTIONS[0], ...$request->query()]);
@@ -68,6 +73,10 @@ class AppSettingsController extends Controller
         return Inertia::render('SuperAdmin/Settings/Index', [
             'section' => $section,
             'targets' => [...$sites, $portal],
+            // ADR-222 — les réglages de l'assistant, lus seulement sur leur module et avec leur droit.
+            'assistant' => $section === 'assistant' && $request->user()->can('ai_settings.view')
+                ? $this->assistantTargets($request, $client, $assistantPresenter)
+                : null,
             'limits' => [
                 'baby_max_age' => AppSettingsRules::BABY_MAX_AGE_LIMIT,
                 'child_max_age' => AppSettingsRules::CHILD_MAX_AGE_LIMIT,
@@ -222,6 +231,80 @@ class AppSettingsController extends Controller
         $validated = $request->validate(AppSettingsRules::maintenanceLift());
 
         return $this->relay($client->liftSiteMaintenance($target, $validated['reason'] ?? null, $request->user()), 'Maintenance levée.', 'maintenance');
+    }
+
+    /**
+     * ADR-222 — les réglages de l'assistant d'une cible. Le portail écrit dans sa base ;
+     * un site ne se règle que par son API. La clé saisie part au site dans le corps de
+     * la requête et n'est jamais renvoyée au navigateur.
+     */
+    public function updateAssistant(Request $request, PortalSiteApiClient $client, UpdateAssistantSettingsAction $action): RedirectResponse
+    {
+        $target = $this->target($request);
+        $validated = $request->validate(AssistantSettingsRules::settings(), AssistantSettingsRules::messages());
+
+        if ($target === self::PORTAL) {
+            $action->execute($validated, CatalogActor::fromUser($request->user()));
+
+            return back()->with('status', 'Réglages de l’assistant du portail enregistrés.');
+        }
+
+        return $this->relay($client->updateAssistantSettings($target, $validated, $request->user()), 'Réglages de l’assistant enregistrés.', 'assistant');
+    }
+
+    /** Retirer la clé : un geste à part, confirmé à l'écran — jamais l'effet d'un champ laissé vide. */
+    public function removeAssistantKey(Request $request, PortalSiteApiClient $client, UpdateAssistantSettingsAction $action): RedirectResponse
+    {
+        $target = $this->target($request);
+
+        if ($target === self::PORTAL) {
+            $action->removeKey(CatalogActor::fromUser($request->user()));
+
+            return back()->with('status', 'Clé d’API du portail retirée.');
+        }
+
+        return $this->relay($client->removeAssistantKey($target, $request->user()), 'Clé d’API retirée.', 'api_key');
+    }
+
+    /** « Tester la connexion » : le résultat revient en JSON, affiché sans recharger la page. */
+    public function testAssistant(Request $request, PortalSiteApiClient $client, TestAssistantConnectionAction $action): JsonResponse
+    {
+        $target = $this->target($request);
+        $validated = $request->validate(AssistantSettingsRules::test(), AssistantSettingsRules::messages());
+
+        if ($target === self::PORTAL) {
+            return response()->json($action->execute($validated, CatalogActor::fromUser($request->user())));
+        }
+
+        $result = $client->testAssistantConnection($target, $validated, $request->user());
+
+        if ($result['ok'] && is_array($result['data'])) {
+            return response()->json($result['data']);
+        }
+
+        return response()->json([
+            'ok' => false,
+            'reason' => 'site',
+            'message' => $result['message'] ?: 'Le site n’a pas pu faire le test.',
+            'errors' => $result['errors'] ?? [],
+        ], ($result['http_status'] ?? null) === 422 ? 422 : 200);
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function assistantTargets(Request $request, PortalSiteApiClient $client, AssistantSettingsPresenter $presenter): array
+    {
+        $targets = collect($client->assistantSettingsForAllSites($request->user()))
+            ->mapWithKeys(fn (array $site) => [$site['site']['code'] => [
+                'ok' => $site['ok'],
+                'status' => $site['status'],
+                'message' => $site['message'],
+                'data' => $site['data'],
+            ]])
+            ->all();
+
+        $targets[self::PORTAL] = ['ok' => true, 'status' => 'ONLINE', 'message' => null, 'data' => $presenter->payload()];
+
+        return $targets;
     }
 
     /** Un site, jamais le portail : les remises ne portent que sur les factures des sites, la maintenance que sur leurs comptes. */

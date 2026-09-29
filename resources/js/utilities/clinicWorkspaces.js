@@ -173,7 +173,7 @@ export const CLINIC_WORKSPACES = [
             // ADR-188 — les deux référentiels de structure ont leur module.
             { code: 'hr-departments', icon: Network, label: 'Départements', link: '/administration/departments', activeLinks: ['/administration/departments'], permission: 'hr_settings.view' },
             { code: 'hr-job-titles', icon: BriefcaseBusiness, label: 'Fonctions', link: '/administration/job-titles', activeLinks: ['/administration/job-titles'], permission: 'hr_settings.view' },
-            // ADR-213 — le référentiel des banques, proposé au compte bancaire d'un employé.
+            // ADR-221 — le référentiel des banques, proposé au compte bancaire d'un employé.
             { code: 'hr-banks', icon: Landmark, label: 'Banques', link: '/administration/banks', activeLinks: ['/administration/banks'], permission: 'hr_settings.view' },
             { code: 'hr-settings', icon: Settings, label: 'Paramètres', link: '/administration/settings', activeLinks: ['/administration/settings'], permission: 'hr_settings.view' },
         ],

@@ -6,7 +6,7 @@ use App\Enums\HrReferenceType;
 use App\Models\HrReferenceValue;
 
 /**
- * ADR-213 — qui peut recevoir un avantage ou une prime se règle par fonction,
+ * ADR-221 — qui peut recevoir un avantage ou une prime se règle par fonction,
  * dans le module Fonctions (métadonnée `benefits_eligible`). Arbitrage du
  * propriétaire : « Médecin » ouvre droit d'office ; rien n'est codé en dur
  * ailleurs, et une décision déjà prise n'est jamais réécrite.

@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-213 — ajouter ou corriger une banque du référentiel.
+ * ADR-221 — ajouter ou corriger une banque du référentiel.
  *
  * Un doublon est refusé ici aussi, pas seulement par la requête : « Bank of
  * Africa » n'entre pas quand « BOA — Bank of Africa Madagascar » existe, même

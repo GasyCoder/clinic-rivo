@@ -9,7 +9,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
 /**
- * ADR-213 — une banque saisie depuis le module Banques (RH).
+ * ADR-221 — une banque saisie depuis le module Banques (RH).
  */
 class BankRequest extends FormRequest
 {

@@ -1,49 +1,45 @@
 <script setup>
 import { computed, nextTick, onMounted, provide, reactive, ref, watch } from 'vue';
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import {
     ArrowLeft,
-    Briefcase,
+    ArrowRight,
+    Check,
     CircleAlert,
     CircleCheck,
     CircleDashed,
-    Contact,
     Eye,
-    Gift,
-    Landmark,
-    ListPlus,
     Loader2,
-    User,
-    Wallet,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
-import Card from '@/Components/Shadcn/Card.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
-import EmployeePhoto from '@/Components/Administration/EmployeePhoto.vue';
 import BankSection from '@/Components/Administration/EmployeeFile/BankSection.vue';
 import BenefitsSection from '@/Components/Administration/EmployeeFile/BenefitsSection.vue';
 import ContactSection from '@/Components/Administration/EmployeeFile/ContactSection.vue';
+import EmployeeRecap from '@/Components/Administration/EmployeeFile/EmployeeRecap.vue';
+import EmployeeStepBar from '@/Components/Administration/EmployeeFile/EmployeeStepBar.vue';
 import IdentitySection from '@/Components/Administration/EmployeeFile/IdentitySection.vue';
 import MoreSection from '@/Components/Administration/EmployeeFile/MoreSection.vue';
 import PaySection from '@/Components/Administration/EmployeeFile/PaySection.vue';
 import PostSection from '@/Components/Administration/EmployeeFile/PostSection.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard';
-import { cn } from '@/lib/cn';
 import { formatTime } from '@/utilities/date';
+import { employeeSteps, neighbourStep } from '@/utilities/employeeSteps';
 import { hrUrl } from '@/utilities/hrUrl';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 
 /**
- * ADR-213 — la fiche d'un employé en sections, chacune enregistrée toute seule
- * environ une seconde après la dernière saisie : plus de parcours en étapes ni
- * de bouton « Enregistrer ». On passe directement d'une section à l'autre.
+ * ADR-221 — le dossier d'un employé en parcours à étapes, comme à la création,
+ * mais chaque étape s'enregistre toute seule environ une seconde après la
+ * dernière saisie. « Continuer » enregistre ce qui reste de l'étape, puis passe
+ * à la suivante ; on peut aussi cliquer directement sur une étape.
  *
- * Chaque section n'envoie que ses champs (mêmes droits, même validation, même
- * audit que l'ancien formulaire) : une erreur dans l'une n'empêche pas les
- * autres de s'enregistrer. Les sections restent montées (v-show) pour que leur
- * enregistrement continue quand on change de section.
+ * Chaque étape n'envoie que ses champs (mêmes droits, même validation, même
+ * audit) : une erreur dans l'une n'empêche pas les autres de s'enregistrer. Les
+ * étapes restent montées (v-show) pour que leur enregistrement continue quand
+ * on passe à la suivante.
  */
 defineOptions({ layout: AppLayout });
 const props = defineProps({
@@ -52,33 +48,26 @@ const props = defineProps({
     currentPair: { type: Object, default: null },
     // ADR-206 — la rémunération et le compte bancaire, servis avec leur droit.
     payroll: { type: Object, default: null },
-    // ADR-213 — le module Banques et les avantages de la personne.
+    // ADR-221 — le module Banques et les avantages de la personne.
     banks: { type: Array, default: () => [] },
     benefits: { type: Array, default: null },
     benefitOptions: { type: Object, default: null },
     section: { type: String, default: '' },
+    // ADR-194 — « Nouveau stagiaire » : au bout du parcours, son stage.
+    internshipIntent: { type: Boolean, default: false },
 });
 const { can } = usePermissions();
 
-// La même adresse que l'ancien formulaire : un PUT partiel par section.
+// La même adresse que l'ancien formulaire : un PUT partiel par étape.
 const url = hrUrl(`/administration/employees/${props.employee.uuid}`);
 const canEdit = computed(() => can('employees.update'));
 const canEditPayroll = computed(() => canEdit.value && can('employees.payroll.update'));
 
 /* ------------------------------------------------------------------ */
-/* Les sections et leur état d'enregistrement                          */
+/* Les étapes et leur état d'enregistrement                            */
 /* ------------------------------------------------------------------ */
 
-const SECTIONS = [
-    { key: 'identity', label: 'Identité', hint: 'Nom, genre, naissance, photo', icon: User },
-    { key: 'post', label: 'Poste', hint: 'Matricule, service, fonction', icon: Briefcase },
-    { key: 'contact', label: 'Contact', hint: 'Téléphone, adresse, pièce', icon: Contact },
-    { key: 'more', label: 'Famille et qualification', hint: 'Famille, diplôme, matériel', icon: ListPlus },
-    { key: 'pay', label: 'Rémunération', hint: 'Salaire ou indemnité', icon: Wallet, payroll: true },
-    { key: 'bank', label: 'Banque', hint: 'Banque et compte', icon: Landmark, payroll: true },
-    { key: 'benefits', label: 'Avantages et primes', hint: 'Montant et motif', icon: Gift, payroll: true },
-];
-const sections = computed(() => SECTIONS.filter((section) => ! section.payroll || props.payroll !== null));
+const steps = computed(() => employeeSteps({ payroll: props.payroll !== null && props.benefitOptions !== null }));
 
 const registry = reactive({});
 provide('employeeSections', {
@@ -86,182 +75,223 @@ provide('employeeSections', {
     unregister: (key) => { delete registry[key]; },
 });
 
-/** Les enregistrements d'une section (une carte d'avantage en est une à part). */
+/** Les enregistrements d'une étape : ses champs, et ce qui s'y ajoute (une carte d'avantage, une adresse). */
 const entriesOf = (key) => Object.entries(registry)
-    .filter(([name]) => name === key || (key === 'benefits' && name.startsWith('benefit:')))
+    .filter(([name]) => name === key || name.startsWith(`${key}:`) || (key === 'benefits' && name.startsWith('benefit:')))
     .map(([, api]) => api);
 const RANK = { failed: 5, incomplete: 4, saving: 3, dirty: 2, saved: 1, idle: 0 };
-const stateOf = (key) => entriesOf(key).reduce((worst, api) => (RANK[api.state] > RANK[worst] ? api.state : worst), 'idle');
+const worst = (states) => states.reduce((current, state) => (RANK[state] > RANK[current] ? state : current), 'idle');
+const stateOf = (key) => worst(entriesOf(key).map((api) => api.state));
 
-const allStates = computed(() => sections.value.map((section) => stateOf(section.key)));
-const overall = computed(() => allStates.value.reduce((worst, state) => (RANK[state] > RANK[worst] ? state : worst), 'idle'));
+const allStates = computed(() => steps.value.map((step) => stateOf(step.key)));
+const overall = computed(() => worst(allStates.value));
 const lastSavedAt = computed(() => Object.values(registry).map((api) => api.savedAt).filter(Boolean).sort().at(-1) ?? null);
-
-const STATE_ICONS = {
-    failed: { icon: CircleAlert, tone: 'text-destructive', label: 'Échec de l’enregistrement' },
-    incomplete: { icon: CircleDashed, tone: 'text-amber-600 dark:text-amber-400', label: 'À compléter' },
-    saving: { icon: Loader2, tone: 'text-muted-foreground animate-spin', label: 'Enregistrement…' },
-    dirty: { icon: CircleDashed, tone: 'text-amber-600 dark:text-amber-400', label: 'Modifications en attente' },
-    saved: { icon: CircleCheck, tone: 'text-emerald-600 dark:text-emerald-400', label: 'Enregistré' },
-};
 
 /* ------------------------------------------------------------------ */
 /* Navigation                                                          */
 /* ------------------------------------------------------------------ */
 
-const initial = sections.value.some((section) => section.key === props.section) ? props.section : 'identity';
+const initial = steps.value.some((step) => step.key === props.section) ? props.section : 'identity';
 const current = ref(initial);
+const attention = ref('');
+const scrollToWizard = (smooth = true) => nextTick(() => document.getElementById('employee-wizard')?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' }));
 const open = (key) => {
     current.value = key;
-    nextTick(() => document.getElementById('employee-sections')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    attention.value = '';
+    scrollToWizard();
 };
-// L'adresse garde la section ouverte : un retour ou un rechargement y ramène.
+// L'adresse garde l'étape ouverte : un retour ou un rechargement y ramène.
 watch(current, (key) => {
     const target = new URL(window.location.href);
     target.searchParams.set('section', key);
     window.history.replaceState(window.history.state, '', target);
 });
 onMounted(() => {
-    if (initial !== 'identity') nextTick(() => document.getElementById('employee-sections')?.scrollIntoView({ block: 'start' }));
+    if (initial !== 'identity') scrollToWizard(false);
 });
 
+const previous = computed(() => neighbourStep(steps.value, current.value, -1));
+const next = computed(() => neighbourStep(steps.value, current.value, 1));
+const currentMeta = computed(() => steps.value.find((step) => step.key === current.value));
+
+/** Attend qu'aucun enregistrement de l'étape ne soit en route. */
+const whileSaving = (key) => new Promise((resolve) => {
+    const busy = () => entriesOf(key).some((api) => api.state === 'saving');
+    if (! busy()) {
+        resolve();
+        return;
+    }
+    const stop = watch(busy, (value) => {
+        if (value) return;
+        stop();
+        resolve();
+    });
+});
+
+/** Envoie tout de suite ce que l'étape attend encore ; vrai si tout est passé. */
+const settle = async (key) => {
+    await whileSaving(key);
+    const waiting = entriesOf(key).filter((api) => api.state === 'dirty');
+    const results = await Promise.all(waiting.map((api) => new Promise((resolve) => {
+        api.flush(() => resolve(true), () => resolve(false));
+    })));
+    await whileSaving(key);
+
+    return results.every(Boolean) && ! ['incomplete', 'failed'].includes(stateOf(key));
+};
+
+const advancing = ref(false);
+const blockedMessage = (key) => (stateOf(key) === 'failed'
+    ? 'Cette étape n’a pas pu s’enregistrer : corrigez ce qui est indiqué, puis continuez.'
+    : 'Cette étape n’est pas complète : terminez la saisie indiquée (ou annulez-la), puis continuez.');
+
+/** « Continuer » : l'étape s'enregistre d'abord, puis on passe à la suivante. */
+const goNext = async () => {
+    if (advancing.value || ! next.value) return;
+    advancing.value = true;
+    const ok = await settle(current.value);
+    advancing.value = false;
+    if (! ok) {
+        attention.value = blockedMessage(current.value);
+        scrollToWizard();
+        return;
+    }
+    open(next.value);
+};
+const goPrevious = () => previous.value && open(previous.value);
+
 /* ------------------------------------------------------------------ */
-/* Quitter : tout ce qui attend part d'abord                           */
+/* Terminer, ou quitter : tout ce qui attend part d'abord              */
 /* ------------------------------------------------------------------ */
 
 const pending = computed(() => allStates.value.some((state) => ['dirty', 'saving', 'incomplete', 'failed'].includes(state)));
 const { pendingVisit, leave, stay } = useUnsavedChangesGuard(pending);
 const blocked = ref(false);
 
-const flushAll = () => new Promise((resolve) => {
-    const waiting = Object.values(registry).filter((api) => api.state === 'dirty');
-    let left = waiting.length;
-    let ok = true;
-
-    if (! left) {
-        resolve(true);
-        return;
-    }
-    waiting.forEach((api) => api.flush(
-        () => { left -= 1; if (! left) resolve(ok); },
-        () => { ok = false; left -= 1; if (! left) resolve(ok); },
-    ));
-});
+const flushAll = async () => {
+    const results = await Promise.all(steps.value.map((step) => settle(step.key)));
+    return results.every(Boolean);
+};
 
 // Des modifications seulement en attente partent, puis on s'en va ; une saisie
 // incomplète ou refusée demande à la personne ce qu'elle veut faire.
 watch(pendingVisit, async (visit) => {
     if (! visit) return;
-    const blocking = allStates.value.some((state) => ['incomplete', 'failed'].includes(state));
-    if (! blocking && (await flushAll())) {
+    if (await flushAll()) {
         leave();
         return;
     }
     blocked.value = true;
 });
+const firstProblem = () => steps.value.find((step) => ['incomplete', 'failed'].includes(stateOf(step.key)));
 const stayHere = () => {
     blocked.value = false;
     stay();
-    const firstProblem = sections.value.find((section) => ['incomplete', 'failed'].includes(stateOf(section.key)));
-    if (firstProblem) open(firstProblem.key);
+    const problem = firstProblem();
+    if (problem) {
+        open(problem.key);
+        attention.value = blockedMessage(problem.key);
+    }
 };
 const leaveAnyway = () => {
     blocked.value = false;
     leave();
+};
+
+const finishUrl = computed(() => (props.internshipIntent
+    ? hrUrl(`/administration/contracts/create?employee=${props.employee.uuid}&type=stage`)
+    : hrUrl(`/administration/employees/${props.employee.uuid}`)));
+const finishing = ref(false);
+const finish = async () => {
+    if (finishing.value) return;
+    finishing.value = true;
+    const ok = await flushAll();
+    finishing.value = false;
+    if (! ok) {
+        const problem = firstProblem();
+        if (problem) {
+            open(problem.key);
+            attention.value = blockedMessage(problem.key);
+        }
+        return;
+    }
+    router.visit(finishUrl.value);
 };
 </script>
 
 <template>
     <Head :title="`Fiche de ${employee.name}`" />
     <div class="w-full space-y-4">
-        <HrPageHeader compact :eyebrow="`${employee.employee_number} · Fiche du personnel`" :title="employee.name" description="Chaque section s’enregistre toute seule, une seconde après votre dernière saisie. Passez directement d’une section à l’autre." icon="edit">
+        <HrPageHeader compact :eyebrow="`${employee.employee_number} · Dossier personnel · Parcours guidé`" :title="employee.name" description="Avancez étape par étape : chaque étape s’enregistre toute seule, une seconde après votre dernière saisie." icon="edit">
             <template #actions>
-                <p class="flex min-h-9 items-center gap-1.5 text-xs font-medium" role="status" aria-live="polite">
-                    <template v-if="overall === 'saving'"><Loader2 class="h-4 w-4 animate-spin text-muted-foreground" /><span class="text-muted-foreground">Enregistrement…</span></template>
-                    <template v-else-if="overall === 'failed'"><CircleAlert class="h-4 w-4 text-destructive" /><span class="text-destructive">Une section n’a pas pu s’enregistrer</span></template>
-                    <template v-else-if="overall === 'incomplete'"><CircleDashed class="h-4 w-4 text-amber-600" /><span class="text-amber-700 dark:text-amber-400">Une section est à compléter</span></template>
-                    <template v-else-if="overall === 'dirty'"><CircleDashed class="h-4 w-4 text-amber-600" /><span class="text-muted-foreground">Modifications en attente…</span></template>
-                    <template v-else-if="lastSavedAt"><CircleCheck class="h-4 w-4 text-emerald-600" /><span class="text-emerald-700 dark:text-emerald-400">Tout est enregistré · {{ formatTime(lastSavedAt) }}</span></template>
-                    <template v-else><CircleCheck class="h-4 w-4 text-muted-foreground" /><span class="text-muted-foreground">Enregistrement automatique</span></template>
-                </p>
                 <Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" variant="outline" size="sm"><Eye class="h-4 w-4" />Voir la fiche</Button>
                 <Button :as="Link" :href="hrUrl('/administration/employees')" variant="ghost" size="sm"><ArrowLeft class="h-4 w-4" />Employés</Button>
             </template>
         </HrPageHeader>
 
-        <div id="employee-sections" class="grid scroll-mt-3 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
-            <!-- Les sections : un clic, pas de « Continuer ». -->
-            <nav aria-label="Sections de la fiche" class="min-w-0 lg:sticky lg:top-3 lg:self-start">
-                <Card class="p-2">
-                    <div class="mb-2 hidden items-center gap-2.5 border-b border-border px-2 pb-2.5 pt-1 lg:flex">
-                        <EmployeePhoto :src="employee.photo_url" :name="employee.name" size="sm" />
-                        <div class="min-w-0">
-                            <p class="truncate text-sm font-semibold text-foreground">{{ employee.name }}</p>
-                            <p class="truncate text-[11px] text-muted-foreground">{{ employee.job_title || 'Fonction à définir' }}</p>
-                        </div>
-                    </div>
-                    <ul class="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible" role="tablist" aria-orientation="vertical">
-                        <li v-for="section in sections" :key="section.key" class="shrink-0">
-                            <button
-                                type="button"
-                                role="tab"
-                                :aria-selected="current === section.key"
-                                :aria-controls="`section-${section.key}`"
-                                :class="cn(
-                                    'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                                    current === section.key ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent/60',
-                                )"
-                                @click="open(section.key)"
-                            >
-                                <component :is="section.icon" class="h-4 w-4 shrink-0" />
-                                <span class="min-w-0 flex-1">
-                                    <span class="block whitespace-nowrap text-sm font-semibold lg:truncate">{{ section.label }}</span>
-                                    <span class="hidden truncate text-[11px] text-muted-foreground lg:block">{{ section.hint }}</span>
-                                </span>
-                                <component
-                                    :is="STATE_ICONS[stateOf(section.key)].icon"
-                                    v-if="STATE_ICONS[stateOf(section.key)]"
-                                    :class="cn('h-3.5 w-3.5 shrink-0', STATE_ICONS[stateOf(section.key)].tone)"
-                                    :aria-label="STATE_ICONS[stateOf(section.key)].label"
-                                />
-                            </button>
-                        </li>
-                    </ul>
-                </Card>
-            </nav>
+        <div id="employee-wizard" class="scroll-mt-3 space-y-3">
+            <EmployeeStepBar :steps="steps" :current="current" :state-of="stateOf" @select="open" />
+
+            <p v-if="attention" class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200" role="alert">
+                <CircleAlert class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{{ attention }}
+            </p>
 
             <div class="min-w-0">
-                <div id="section-identity" v-show="current === 'identity'" role="tabpanel">
+                <div id="section-identity" v-show="current === 'identity'">
                     <IdentitySection :employee="employee" :options="options" :url="url" :can-edit="canEdit" />
                 </div>
-                <div id="section-post" v-show="current === 'post'" role="tabpanel">
-                    <PostSection :employee="employee" :departments="departments" :job-titles="jobTitles" :current-pair="currentPair" :url="url" :can-edit="canEdit" />
-                </div>
-                <div id="section-contact" v-show="current === 'contact'" role="tabpanel">
+                <div id="section-contact" v-show="current === 'contact'">
                     <ContactSection :employee="employee" :options="options" :addresses="addresses" :url="url" :can-edit="canEdit" />
                 </div>
-                <div id="section-more" v-show="current === 'more'" role="tabpanel">
+                <div id="section-post" v-show="current === 'post'">
+                    <PostSection :employee="employee" :departments="departments" :job-titles="jobTitles" :current-pair="currentPair" :url="url" :can-edit="canEdit" />
+                </div>
+                <div id="section-more" v-show="current === 'more'">
                     <MoreSection :employee="employee" :options="options" :url="url" :can-edit="canEdit" />
                 </div>
-                <template v-if="payroll !== null">
-                    <div id="section-pay" v-show="current === 'pay'" role="tabpanel">
+                <template v-if="payroll !== null && benefitOptions !== null">
+                    <div id="section-pay" v-show="current === 'pay'">
                         <PaySection :payroll="payroll" :url="url" :can-edit="canEditPayroll" />
                     </div>
-                    <div id="section-bank" v-show="current === 'bank'" role="tabpanel">
-                        <BankSection :employee="employee" :payroll="payroll" :banks="banks" :url="url" :can-edit="canEditPayroll" />
-                    </div>
-                    <div v-if="benefitOptions" id="section-benefits" v-show="current === 'benefits'" role="tabpanel">
+                    <div id="section-benefits" v-show="current === 'benefits'">
                         <BenefitsSection :benefits="benefits ?? []" :options="benefitOptions" :url="`${url}/benefits`" :can-edit="canEditPayroll" />
                     </div>
+                    <div id="section-bank" v-show="current === 'bank'">
+                        <BankSection :employee="employee" :payroll="payroll" :banks="banks" :url="url" :can-edit="canEditPayroll" />
+                    </div>
                 </template>
+                <div id="section-done" v-show="current === 'done'">
+                    <EmployeeRecap :steps="steps" :employee="employee" :payroll="payroll" :benefits="benefits" :state-of="stateOf" @edit="open" />
+                </div>
             </div>
+
+            <footer class="sticky bottom-2 z-10 flex items-center justify-between gap-2 rounded-xl border border-border bg-card/95 p-2 shadow-lg backdrop-blur">
+                <p class="flex min-h-8 min-w-0 items-center gap-1.5 px-1 text-xs font-medium [&>span]:truncate" role="status" aria-live="polite">
+                    <template v-if="overall === 'saving' || advancing || finishing"><Loader2 class="h-4 w-4 animate-spin text-muted-foreground" /><span class="text-muted-foreground">Enregistrement…</span></template>
+                    <template v-else-if="overall === 'failed'"><CircleAlert class="h-4 w-4 text-destructive" /><span class="text-destructive">Une étape n’a pas pu s’enregistrer</span></template>
+                    <template v-else-if="overall === 'incomplete'"><CircleDashed class="h-4 w-4 text-amber-600" /><span class="text-amber-700 dark:text-amber-400">Une étape est à compléter</span></template>
+                    <template v-else-if="overall === 'dirty'"><CircleDashed class="h-4 w-4 text-amber-600" /><span class="text-muted-foreground">Modifications en attente…</span></template>
+                    <template v-else-if="lastSavedAt"><CircleCheck class="h-4 w-4 text-emerald-600" /><span class="text-emerald-700 dark:text-emerald-400">Tout est enregistré · {{ formatTime(lastSavedAt) }}</span></template>
+                    <template v-else><CircleCheck class="h-4 w-4 text-muted-foreground" /><span class="text-muted-foreground">Enregistrement automatique</span></template>
+                </p>
+                <div class="flex shrink-0 items-center justify-end gap-2">
+                    <Button v-if="previous" type="button" variant="outline" size="sm" :aria-label="`Précédent : ${steps.find((step) => step.key === previous)?.label}`" @click="goPrevious"><ArrowLeft class="h-4 w-4" /><span class="hidden sm:inline">Précédent</span></Button>
+                    <Button v-if="next" type="button" size="sm" :disabled="advancing" @click="goNext">
+                        Continuer<span class="hidden sm:inline">· {{ steps.find((step) => step.key === next)?.label }}</span><ArrowRight class="h-4 w-4" />
+                    </Button>
+                    <Button v-else type="button" variant="success" size="sm" :disabled="finishing" @click="finish">
+                        <Check class="h-4 w-4" :stroke-width="3" />{{ internshipIntent ? 'Terminer et saisir le stage' : 'Terminer' }}
+                    </Button>
+                </div>
+            </footer>
+            <p class="sr-only" aria-live="polite">Étape {{ currentMeta?.number }} sur {{ steps.length }} : {{ currentMeta?.label }}</p>
         </div>
 
         <!-- Quitter avec une saisie à compléter ou refusée. -->
         <Dialog
             :open="blocked"
             title="Une modification n’est pas enregistrée"
-            description="Une section est à compléter ou a été refusée. Si vous quittez maintenant, cette modification sera perdue."
+            description="Une étape est à compléter ou a été refusée. Si vous quittez maintenant, cette modification sera perdue."
             :dismissible="false"
             @update:open="(value) => value || stayHere()"
         >

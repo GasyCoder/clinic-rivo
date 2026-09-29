@@ -2,6 +2,9 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Controllers\SuperAdmin\AppSettingsController;
+use App\Models\User;
+use App\Services\Assistant\AssistantConfiguration;
 use App\Services\Notifications\NotificationCenter;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\SiteMaintenanceState;
@@ -97,6 +100,8 @@ class HandleInertiaRequests extends Middleware
                 'available' => app(WebmailAccess::class)->canUse($user),
                 'connected' => app(WebmailAccess::class)->password(app(WebmailAccess::class)->current($user)) !== null,
             ],
+            // ADR-222 — l'assistant d'aide au logiciel (voir assistant()).
+            'assistant' => fn () => $this->assistant($user),
             // ADR-197 — le nombre de notifications non lues, pour la pastille de la cloche.
             // Une base pas encore migrée ne fait tomber aucune page : la cloche dit 0.
             'notifications' => fn () => [
@@ -118,6 +123,36 @@ class HandleInertiaRequests extends Middleware
                 'bulk_report' => fn () => $request->session()->get('bulk_report'),
                 'print_ticket_url' => fn () => $request->session()->get('print_ticket_url'),
             ],
+        ];
+    }
+
+    /**
+     * ADR-222 — l'assistant d'aide au logiciel : proposé seulement s'il est activé,
+     * configuré, et si le compte a `ai_assistant.use`. Jamais ni clé, ni fournisseur,
+     * ni modèle : le navigateur n'en a pas besoin.
+     *
+     * Le Super Administrateur du portail, qui peut le régler, voit le bouton même
+     * avant tout réglage : le panneau lui dit ce qui manque et où le régler. Sans cela,
+     * rien dans l'interface ne laisse deviner que l'assistant existe.
+     *
+     * @return array{available: bool, max_length: int, setup: ?array{state: string, url: string}}
+     */
+    private function assistant(?User $user): array
+    {
+        $status = $user !== null && $user->can('ai_assistant.use')
+            ? rescue(fn () => app(AssistantConfiguration::class)->status(), null, report: false)
+            : null;
+        $available = ($status['available'] ?? false) === true;
+        $configurable = $user !== null && config('rivo.site.type') === 'admin' && $user->can('ai_settings.update');
+
+        return [
+            'available' => $available,
+            'max_length' => AssistantConfiguration::MAX_QUESTION_LENGTH,
+            'setup' => ! $available && $configurable ? [
+                // `unconfigured` : ni fournisseur, ni modèle, ni clé ; `disabled` : prêt mais éteint.
+                'state' => ($status['configured'] ?? false) ? 'disabled' : 'unconfigured',
+                'url' => '/super-admin/settings/assistant?site='.AppSettingsController::PORTAL,
+            ] : null,
         ];
     }
 }

@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-213 — déclarer ou corriger un avantage (ou une prime) d'un employé.
+ * ADR-221 — déclarer ou corriger un avantage (ou une prime) d'un employé.
  *
  *   droit       `employees.payroll.update`, revérifié ici (ADR-206) — jamais
  *               seulement par la requête ou l'écran

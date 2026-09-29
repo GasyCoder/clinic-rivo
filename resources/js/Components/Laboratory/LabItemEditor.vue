@@ -9,11 +9,12 @@ import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
+import DropdownMenu from '@/Components/Shadcn/DropdownMenu.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import {
-    AlertTriangle, BadgeCheck, Building2, CheckCheck, ClipboardList, Eraser, FileText, History, Lock, NotebookPen, RotateCcw, Save, Send, SendHorizontal, Siren, TriangleAlert, Undo2,
+    AlertTriangle, BadgeCheck, Building2, CheckCheck, ClipboardList, Eraser, FileText, ChevronDown, History, Lock, MoreHorizontal, NotebookPen, RotateCcw, SendHorizontal, Siren, TriangleAlert, Undo2,
 } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import { useAutosave } from '@/composables/useAutosave';
@@ -91,8 +92,6 @@ const noteError = (uuid) => {
 // ADR-219 — remettre la saisie à zéro, tant que rien n'est envoyé au médecin.
 const resetOpen = ref(false);
 const resetting = ref(false);
-const canReset = computed(() => writable.value && props.item.has_definitions && props.item.resettable
-    && (hasEntries(props.item) || form.isDirty));
 const clearForm = () => {
     form.entries = inputs.value.map((node) => entryFromNode(node));
     form.notes = notesFromNodes(nodes.value);
@@ -115,7 +114,6 @@ const reset = () => {
         onFinish: () => { resetting.value = false; },
     });
 };
-const saveNow = () => autosave.flush();
 const expected = computed(() => inputs.value.length);
 const typeLabel = (node) => LAB_ENTRY_MODE_LABELS[node.entry_mode] ?? node.entry_mode;
 
@@ -156,7 +154,6 @@ const portalGestures = computed(() => {
 
     return [];
 });
-const canSendOut = computed(() => props.can.send_out && props.item.editable && !props.item.sent_out && !props.cancelled);
 const canCancelSendOut = computed(() => props.can.send_out && props.item.sent_out && props.item.status === 'PENDING' && !props.cancelled
     && !(props.item.nodes ?? []).some((node) => node.result));
 const externalListId = computed(() => `external-labs-${props.item.uuid}`);
@@ -186,13 +183,69 @@ const sendBack = () => returnForm.post(labUrl(`/laboratory/items/${props.item.uu
     onSuccess: () => { returnOpen.value = false; returnForm.reset(); },
 });
 // Amendement ADR-216 du 2026-09-29 — un droit propre (`laboratory_results.return`),
-// réglé depuis le portail. Sans lui, le bouton reste visible et verrouillé (ADR-158).
+// réglé depuis le portail.
 const returnable = computed(() => !props.cancelled && ['COMPLETED', 'VALIDATED'].includes(props.item.status));
 const canReturn = computed(() => returnable.value && Boolean(props.can.return));
-const returnLocked = computed(() => returnable.value && !props.can.return);
-const returnLockedReason = computed(() => (props.can.site_only
-    ? 'Renvoyer à refaire se fait au site, par la personne qui a le prélèvement.'
-    : 'Renvoyer à refaire demande le droit « laboratory_results.return », à demander à un administrateur.'));
+
+// Les gestes secondaires tiennent dans un menu : chacun dit ce qu'il fait et, quand
+// il n'est pas disponible, pourquoi (ADR-158) — un bouton absent se lit « la
+// fonction n'existe pas ». Un seul bouton principal reste : « Envoyer au médecin ».
+const SITE_ONLY = 'Ce geste se fait au site, par la personne qui a le prélèvement.';
+const returnReason = computed(() => {
+    if (props.can.site_only) return SITE_ONLY;
+    if (!returnable.value) return 'Possible une fois l’analyse terminée ou envoyée au médecin : avant, corrigez simplement la saisie.';
+    if (!props.can.return) return 'Demande le droit « laboratory_results.return », à obtenir d’un administrateur.';
+
+    return null;
+});
+const sendOutReason = computed(() => {
+    if (props.can.site_only) return SITE_ONLY;
+    if (props.item.sent_out) return `Déjà confiée à ${props.item.sent_out.laboratory}.`;
+    if (!props.item.editable) return 'L’analyse est déjà terminée ici.';
+    if (!props.can.send_out) return 'Demande le droit « laboratory_orders.send_out ».';
+
+    return null;
+});
+const resetReason = computed(() => {
+    if (props.can.site_only) return SITE_ONLY;
+    if (!props.item.resettable || !props.item.editable) return 'Impossible une fois l’analyse envoyée au médecin : utilisez « Renvoyer à refaire ».';
+    if (!writable.value) return 'Demande le droit « laboratory_results.create ».';
+    if (!(hasEntries(props.item) || form.isDirty)) return 'Rien n’est encore saisi.';
+
+    return null;
+});
+const moreActions = computed(() => [
+    {
+        key: 'return',
+        icon: RotateCcw,
+        label: props.item.status === 'VALIDATED' ? 'Reprendre (à refaire)' : 'Renvoyer à refaire',
+        description: returnReason.value ?? (props.item.status === 'VALIDATED'
+            ? 'Rouvre un résultat déjà envoyé, avec un motif ; le médecin est prévenu.'
+            : 'Rouvre un résultat terminé pour le corriger, avec un motif.'),
+        disabled: returnReason.value !== null,
+    },
+    {
+        key: 'send-out',
+        icon: Building2,
+        label: 'Confier à un laboratoire extérieur',
+        description: sendOutReason.value ?? 'Si l’analyse n’est pas faite ici : un bon d’envoi s’imprime, puis vous saisissez ici le résultat reçu.',
+        disabled: sendOutReason.value !== null,
+    },
+    {
+        key: 'reset',
+        icon: Eraser,
+        label: 'Réinitialiser la saisie',
+        description: resetReason.value ?? 'Efface tous les résultats saisis de cette analyse ; tracé.',
+        disabled: resetReason.value !== null,
+        destructive: true,
+        separatorBefore: true,
+    },
+]);
+const onMoreAction = (key) => {
+    if (key === 'return') returnOpen.value = true;
+    if (key === 'send-out') openSendOut();
+    if (key === 'reset') resetOpen.value = true;
+};
 
 // Résultat en une fois (analyse sans définition au catalogue)
 const legacy = useForm({ result_value: '', result_notes: '' });
@@ -238,9 +291,6 @@ const anteriorityText = (node) => {
                     </div>
                 </div>
             </div>
-            <Button v-if="canReset" type="button" size="sm" variant="outline" class="text-destructive hover:text-destructive" @click="resetOpen = true">
-                <Eraser class="h-4 w-4" /> Réinitialiser la saisie
-            </Button>
         </header>
 
         <div v-if="item.sent_out" class="flex flex-wrap items-start justify-between gap-2 border-b border-border bg-sky-50 px-4 py-2.5 text-sm text-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
@@ -453,29 +503,25 @@ const anteriorityText = (node) => {
             <p v-else class="text-sm text-muted-foreground">Aucun résultat saisi.</p>
         </div>
 
-        <!-- Gestes : l'état de l'enregistrement à gauche, les actions à droite -->
+        <!-- Gestes : l'état de l'enregistrement à gauche ; un seul bouton principal, les autres dans un menu -->
         <footer
-            v-if="!cancelled && (writable || canSend || canReturn || returnLocked || canSendOut || portalGestures.length)"
+            v-if="!cancelled"
             class="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80"
         >
-            <div class="me-auto flex flex-wrap items-center gap-2">
+            <div class="me-auto flex min-w-0 flex-col gap-0.5">
                 <ClinicalSaveStatus v-if="writable && item.has_definitions" :saving="autosave.saving.value" :saved-at="autosave.savedAt.value" :dirty="form.isDirty" :failed="autosave.failed.value" retryable @retry="autosave.retry" />
-                <Button v-if="canSendOut" type="button" size="sm" variant="ghost" @click="openSendOut">
-                    <Send class="h-4 w-4" /> Laboratoire extérieur
-                </Button>
+                <p v-if="canSend || portalGestures.length" class="hidden text-xs text-muted-foreground sm:block">
+                    La saisie s’enregistre seule. « Envoyer au médecin » valide le résultat et le lui transmet.
+                </p>
             </div>
-            <Button v-if="canReturn" type="button" size="sm" variant="outline" @click="returnOpen = true">
-                <RotateCcw class="h-4 w-4" /> {{ item.status === 'VALIDATED' ? 'Reprendre (à refaire)' : 'Renvoyer à refaire' }}
-            </Button>
-            <span v-else-if="returnLocked" class="inline-flex" :title="returnLockedReason">
-                <Button type="button" size="sm" variant="outline" disabled :aria-label="`Renvoyer à refaire — ${returnLockedReason}`">
-                    <Lock class="h-4 w-4" /> {{ item.status === 'VALIDATED' ? 'Reprendre (à refaire)' : 'Renvoyer à refaire' }}
-                </Button>
-            </span>
-            <Button v-if="writable && item.has_definitions" type="button" size="sm" variant="outline" :disabled="autosave.saving.value || !form.isDirty" @click="saveNow">
-                <Save class="h-4 w-4" /> Enregistrer
-            </Button>
-            <Button v-if="canSend" type="button" size="sm" :disabled="preparing || (item.status !== 'COMPLETED' && filled === 0)" @click="send">
+            <DropdownMenu :items="moreActions" label="Autres actions" @select="onMoreAction">
+                <template #trigger>
+                    <Button type="button" size="sm" variant="outline" aria-label="Autres actions sur cette analyse">
+                        <MoreHorizontal class="h-4 w-4" /> Autres actions <ChevronDown class="h-3.5 w-3.5 opacity-60" />
+                    </Button>
+                </template>
+            </DropdownMenu>
+            <Button v-if="canSend" type="button" size="sm" :disabled="preparing || (item.status !== 'COMPLETED' && filled === 0)" :title="filled === 0 && item.status !== 'COMPLETED' ? 'Saisissez au moins un résultat.' : 'Valide le résultat et le transmet au médecin ; il ne se modifie plus ensuite.'" @click="send">
                 <SendHorizontal class="h-4 w-4" /> Envoyer au médecin
             </Button>
             <LabSiteOnlyAction v-for="gesture in portalGestures" :key="gesture.label" :label="gesture.label" :variant="gesture.variant" />
@@ -492,7 +538,12 @@ const anteriorityText = (node) => {
             </template>
         </Dialog>
 
-        <Dialog v-model:open="sendOutOpen" title="Envoyer à un laboratoire extérieur" :description="`« ${item.name} » sera réalisée ailleurs ; son résultat se transcrit ici à réception, puis se valide.`" :dismissible="false">
+        <Dialog v-model:open="sendOutOpen" title="Confier à un laboratoire extérieur" :description="`« ${item.name} » n’est pas faite ici : vous l’envoyez à un autre laboratoire.`" :dismissible="false">
+            <ol class="mb-4 space-y-1 rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
+                <li>1. Indiquez le laboratoire ; un <strong class="text-foreground">bon d’envoi</strong> s’imprime pour accompagner le prélèvement.</li>
+                <li>2. Quand le résultat revient, saisissez-le ici, sur cette analyse.</li>
+                <li>3. Puis « Envoyer au médecin » : le compte rendu dira « réalisée par » ce laboratoire.</li>
+            </ol>
             <div class="space-y-4">
                 <FormField label="Laboratoire" :error="sendOutForm.errors.laboratory" required>
                     <Input v-model="sendOutForm.laboratory" :list="externalListId" placeholder="Nom du laboratoire qui réalise l’analyse" />
@@ -507,7 +558,7 @@ const anteriorityText = (node) => {
             </div>
             <template #footer>
                 <Button type="button" variant="outline" @click="sendOutOpen = false">Annuler</Button>
-                <Button type="button" :disabled="sendOutForm.processing || sendOutForm.laboratory.trim().length < 2" @click="sendOut"><Send class="h-4 w-4" /> Envoyer</Button>
+                <Button type="button" :disabled="sendOutForm.processing || sendOutForm.laboratory.trim().length < 2" @click="sendOut"><Building2 class="h-4 w-4" /> Confier l’analyse</Button>
             </template>
         </Dialog>
 

@@ -21061,6 +21061,28 @@ tracé    laboratory.results.reset, avec ce qui a été effacé (valeurs, notes,
 
 Aucune permission nouvelle, aucune migration.
 
+
+## Amendement du 2026-09-29 — un bouton principal, les autres gestes dans un menu
+
+Retour du propriétaire : « À refaire » introuvable, et trois boutons incompris (laboratoire extérieur,
+« Envoyer au médecin », « Enregistrer la conclusion »). Présentation seulement : aucune route, aucun droit,
+aucune règle serveur ne change.
+
+```text
+pied d'une analyse   l'état de l'enregistrement et une phrase : « La saisie s'enregistre seule.
+                     « Envoyer au médecin » valide le résultat et le lui transmet. » ; un seul bouton
+                     principal, « Envoyer au médecin » ; le bouton « Enregistrer » est retiré
+                     (l'enregistrement est automatique, et l'envoi fait partir ce qui reste)
+Autres actions       un menu : Renvoyer à refaire · Confier à un laboratoire extérieur · Réinitialiser
+                     la saisie ; chaque entrée dit ce qu'elle fait ou, indisponible, pourquoi —
+                     « Renvoyer à refaire » : « Possible une fois l'analyse terminée ou envoyée au
+                     médecin : avant, corrigez simplement la saisie », ou le droit à demander (ADR-158)
+laboratoire          renommé « Confier à un laboratoire extérieur » ; la fenêtre dit les trois temps :
+extérieur            bon d'envoi, résultat saisi ici au retour, envoi au médecin « réalisée par »
+conclusion générale  marquée facultative, expliquée (synthèse de toute la demande, imprimée sous les
+                     résultats, lue par le médecin) et enregistrée d'elle-même ; « Enregistrer la
+                     conclusion » est retiré ; « Envoyer au médecin » la fait partir d'abord
+```
 ---
 
 # ADR-220 — Demandes d'analyses : archiver, corriger, mettre à la corbeille, une à une ou en lot

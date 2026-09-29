@@ -13,6 +13,8 @@ import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
+import ClinicalSaveStatus from '@/Components/Clinical/ClinicalSaveStatus.vue';
+import { useAutosave } from '@/composables/useAutosave';
 import {
     Archive, ArrowLeft, Ban, BadgeCheck, Building2, CheckCheck, ClipboardCheck, ClipboardList, Download, FileSignature, FileText, History, Loader, Microscope, RotateCcw, Send, Siren, Stethoscope, TestTubes, Trash2, Wallet,
 } from 'lucide-vue-next';
@@ -81,17 +83,27 @@ const duePayment = computed(() => (props.payment?.lines ?? []).filter((line) => 
 const editor = ref(null);
 const sendOpen = ref(false);
 const preselected = ref([]);
+// Conclusion générale (ADR-214), écrite par qui envoie les résultats (ADR-216).
+// Elle s'enregistre d'elle-même, comme la saisie : plus de bouton à part.
+const conclusionForm = useForm({ conclusion: props.labRequest.conclusion ?? '' });
+const canConclude = computed(() => props.can.send && !props.labRequest.cancelled && !allValidated.value);
+const conclusionAutosave = useAutosave(conclusionForm, (options) => conclusionForm.put(
+    labUrl(`/laboratory/requests/${props.labRequest.uuid}/conclusion`), options,
+), { enabled: () => canConclude.value });
+// Une valeur venue du serveur ne remplace jamais une frappe en cours.
+watch(() => props.labRequest.conclusion, (value) => {
+    if (!conclusionForm.isDirty) {
+        conclusionForm.defaults({ conclusion: value ?? '' });
+        conclusionForm.reset();
+    }
+});
+
 const openSend = (uuids = []) => {
     const open = () => { preselected.value = uuids; sendOpen.value = true; };
-    if (editor.value?.flush) editor.value.flush(open, () => {});
-    else open();
+    // La conclusion en cours part aussi avant la fenêtre d'envoi.
+    const flushEditor = () => (editor.value?.flush ? editor.value.flush(open, () => {}) : open());
+    conclusionAutosave.flush(flushEditor, () => {});
 };
-
-// Conclusion générale (ADR-214), écrite par qui envoie les résultats (ADR-216)
-const conclusionForm = useForm({ conclusion: props.labRequest.conclusion ?? '' });
-watch(() => props.labRequest.conclusion, (value) => { conclusionForm.defaults({ conclusion: value ?? '' }); conclusionForm.reset(); });
-const canConclude = computed(() => props.can.send && !props.labRequest.cancelled && !allValidated.value);
-const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${props.labRequest.uuid}/conclusion`), { preserveScroll: true });
 </script>
 
 <template>
@@ -282,18 +294,19 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
                 <Card v-else class="p-8 text-center text-sm text-muted-foreground">Aucune analyse dans cette demande.</Card>
 
                 <Card v-if="canConclude || labRequest.conclusion" class="p-4">
-                    <div class="mb-2 flex items-center gap-2">
+                    <div class="mb-2 flex flex-wrap items-center gap-2">
                         <FileSignature class="h-4 w-4 text-primary" />
                         <h2 class="text-sm font-bold text-foreground">Conclusion générale</h2>
-                        <span class="text-xs text-muted-foreground">— imprimée sous tous les résultats, lue par le médecin</span>
+                        <Badge v-if="canConclude" variant="outline" class="text-[10px]">facultative</Badge>
+                        <span class="text-xs text-muted-foreground">— une synthèse pour toute la demande, imprimée sous les résultats et lue par le médecin</span>
                     </div>
                     <template v-if="canConclude">
                         <FormField :error="conclusionForm.errors.conclusion">
-                            <Textarea v-model="conclusionForm.conclusion" rows="3" placeholder="Synthèse de la demande, commentaire au prescripteur…" />
+                            <Textarea v-model="conclusionForm.conclusion" rows="3" placeholder="Ex. anémie microcytaire à contrôler ; à corréler à la clinique…" />
                         </FormField>
-                        <div class="mt-2 flex items-center justify-end gap-2">
-                            <span v-if="labRequest.conclusion_by" class="me-auto text-xs text-muted-foreground">{{ labRequest.conclusion_by }} · {{ formatDateTime(labRequest.conclusion_at) }}</span>
-                            <Button type="button" size="sm" :disabled="conclusionForm.processing || !conclusionForm.isDirty" @click="saveConclusion">Enregistrer la conclusion</Button>
+                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                            <ClinicalSaveStatus :saving="conclusionAutosave.saving.value" :saved-at="conclusionAutosave.savedAt.value" :dirty="conclusionForm.isDirty" :failed="conclusionAutosave.failed.value" retryable @retry="conclusionAutosave.retry" />
+                            <span v-if="labRequest.conclusion_by" class="ms-auto text-xs text-muted-foreground">{{ labRequest.conclusion_by }} · {{ formatDateTime(labRequest.conclusion_at) }}</span>
                         </div>
                     </template>
                     <template v-else>

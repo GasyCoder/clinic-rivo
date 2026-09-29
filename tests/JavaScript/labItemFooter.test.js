@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+/**
+ * Paillasse — un seul bouton principal par analyse (« Envoyer au médecin »),
+ * les gestes secondaires dans « Autres actions », chacun avec ce qu'il fait ou
+ * pourquoi il est indisponible ; la conclusion générale s'enregistre d'elle-même.
+ */
+const editor = fs.readFileSync('resources/js/Components/Laboratory/LabItemEditor.vue', 'utf8');
+const page = fs.readFileSync('resources/js/Pages/Laboratory/Show.vue', 'utf8');
+
+test('les gestes secondaires d’une analyse sont dans un seul menu, jamais masqués', () => {
+    assert.match(editor, /<DropdownMenu :items="moreActions"/);
+    for (const key of ["key: 'return'", "key: 'send-out'", "key: 'reset'"]) {
+        assert.ok(editor.includes(key), `${key} manque au menu`);
+    }
+    // Chaque entrée dit pourquoi elle est indisponible, au lieu de disparaître.
+    for (const reason of ['returnReason', 'sendOutReason', 'resetReason']) {
+        assert.match(editor, new RegExp(`disabled: ${reason}\\.value !== null`));
+    }
+    // Plus de bouton « Enregistrer » ni de réinitialisation dans l'en-tête : l'enregistrement est automatique.
+    assert.doesNotMatch(editor, /> Enregistrer\s*</);
+    assert.doesNotMatch(editor, /@click="resetOpen = true"/);
+});
+
+test('« Renvoyer à refaire » dit quand il devient possible', () => {
+    assert.match(editor, /Possible une fois l’analyse terminée ou envoyée au médecin/);
+    assert.match(editor, /laboratory_results\.return/);
+});
+
+test('la conclusion générale s’enregistre d’elle-même, sans bouton à part', () => {
+    assert.doesNotMatch(page, /Enregistrer la conclusion/);
+    assert.match(page, /useAutosave\(conclusionForm/);
+    // Envoyer au médecin fait d'abord partir la conclusion en cours.
+    assert.match(page, /conclusionAutosave\.flush\(/);
+});

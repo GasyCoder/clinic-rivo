@@ -506,6 +506,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Nom d'analyse en gras seulement si le catalogue le dit, à l'écran et sur le PDF (ADR-219)
 - [x] « Demandes d'examens » : le laboratoire y a le bouton de sa file (Traiter, Continuer, Reprendre, Envoyer, Voir) (ADR-219)
 - [x] Paillasse : barre glissable entre « Tâche(s) à traiter » et l'analyse, en-tête rangé ; « Demandes d'examens » : un seul statut pour une analyse, le règlement en repère dessous (ADR-219)
+- [x] Compte rendu PDF : le bloc final (envoyé, validé, signature) ne part jamais seul sur une page — resserré pour tenir sur une page, sinon les dernières lignes descendent avec lui, « (suite) » en cas de coupure dans une analyse (ADR-218, amendement du 2026-09-29)
 - [ ] Image de signature du biologiste sur le PDF, envoi du PDF au patient — à décider (ADR-218)
 - [ ] Microbiologie pour l'Administration — à décider (ADR-213) ; envoi des résultats au patient — aucun canal défini (ADR-216)
 - [ ] Analyse sans tarif (non facturée) qui retient ou non le prélèvement, Maternité sans séjour exemptée ou non, bornes critiques dans l'Excel du catalogue — à décider (ADR-214)

@@ -13,6 +13,9 @@ use App\Services\Settings\AppSettings;
 use App\Support\Laboratory\LabEntryOptions;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
+use Dompdf\Canvas;
+use Dompdf\Dompdf;
+use Dompdf\Frame;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -38,6 +41,24 @@ use Illuminate\Support\Str;
 class LabResultReport
 {
     private const ANTIBIOGRAM = ['S' => 'Sensible', 'I' => 'Intermédiaire', 'R' => 'Résistant'];
+
+    /** Les lignes qui accompagnent le bloc final quand il faut changer de page. */
+    private const CARRIED_ROWS = 6;
+
+    /** En dessous, la dernière page — la signature et presque rien — est trop légère. */
+    private const ROWS_WITH_CLOSING = 4;
+
+    /** Ce qui reste au moins sous les résultats de la page qu'on quitte. */
+    private const KEPT_ROWS = 3;
+
+    /** Une analyse coupée garde plus que ces lignes (titre compris) au bas de la page. */
+    private const ITEM_KEPT_ROWS = 2;
+
+    /** Une ligne qui annonce les suivantes : jamais seule au bas d'une page. */
+    private const LEADING_KINDS = ['title', 'heading', 'abg-title'];
+
+    /** Une ligne qui complète la précédente (note, reprise) : jamais seule en haut d'une page. */
+    private const TRAILING_KINDS = ['note'];
 
     public function __construct(
         private readonly LabWorkbench $workbench,
@@ -98,19 +119,167 @@ class LabResultReport
         ];
     }
 
-    /** Le PDF, avec « Page n / N » au bas de chaque page. */
+    /**
+     * Le PDF, avec « Page n / N » au bas de chaque page.
+     *
+     * Le bloc final (qui a envoyé, qui a validé, la signature) ne part jamais seul
+     * sur une page : s'il ne tient pas sous les derniers résultats, le compte rendu
+     * est d'abord resserré pour qu'il y tienne — souvent une page au lieu de deux —,
+     * puis, si le compte rendu est trop long pour cela, ses dernières lignes
+     * descendent avec lui sur la page suivante.
+     */
     public function render(array $report): string
     {
-        $pdf = Pdf::loadView('pdf.laboratory.results', ['report' => $report])
-            ->setPaper('a4')
-            ->setOption('isFontSubsettingEnabled', true); // seules les lettres utilisées : un PDF léger
-        $dompdf = $pdf->getDomPDF();
-        $dompdf->render();
+        $dompdf = $this->paginate($report)['dompdf'];
         $canvas = $dompdf->getCanvas();
         $font = $dompdf->getFontMetrics()->getFont('DejaVu Sans');
         $canvas->page_text($canvas->get_width() - 80, $canvas->get_height() - 24, 'Page {PAGE_NUM} / {PAGE_COUNT}', $font, 7, [0.6, 0.6, 0.6]);
 
         return (string) $dompdf->output();
+    }
+
+    /**
+     * La mise en page retenue, parmi l'ordinaire, la resserrée et celles où les
+     * dernières lignes sont reportées : jamais le bloc final seul, puis le moins
+     * de pages, puis une dernière page qui porte assez de résultats, puis, à égalité,
+     * la mise en page ordinaire.
+     *
+     * @return array{dompdf: Dompdf, layout: array<string, mixed>, rows: array<int, array{page: int, kind: string, section: int, item: int}>, pages: int, closing: ?int, orphaned: bool, balanced: bool}
+     */
+    public function paginate(array $report): array
+    {
+        $normal = $this->layout($report);
+        if ($normal['balanced']) {
+            return $normal;
+        }
+
+        $compact = $this->layout($report, ['compact' => true]);
+        if ($compact['balanced'] && $compact['pages'] < $normal['pages']) {
+            return $compact;
+        }
+
+        $candidates = [$normal, $compact];
+        $bases = $compact['pages'] < $normal['pages'] ? [$normal, $compact] : [$normal];
+        foreach ($bases as $base) {
+            if (($carry = $this->carry($base)) !== null) {
+                $candidates[] = $this->layout($report, $carry + $base['layout']);
+            }
+        }
+
+        usort($candidates, fn (array $a, array $b) => [$a['orphaned'], $a['pages'], ! $a['balanced'], $a['layout']['compact'] ?? false]
+            <=> [$b['orphaned'], $b['pages'], ! $b['balanced'], $b['layout']['compact'] ?? false]);
+
+        return $candidates[0];
+    }
+
+    /**
+     * Un rendu, et où chaque ligne de résultats, la conclusion et le bloc final
+     * sont tombés : la vue les marque (`data-row`, `#pdf-conclusion`, `#pdf-closing`).
+     *
+     * @param  array{compact?: bool, break_before?: int, break_section?: int}  $layout
+     * @return array{dompdf: Dompdf, layout: array<string, mixed>, rows: array<int, array{page: int, kind: string, section: int, item: int}>, pages: int, closing: ?int, orphaned: bool, balanced: bool}
+     */
+    private function layout(array $report, array $layout = []): array
+    {
+        $dompdf = Pdf::loadView('pdf.laboratory.results', ['report' => $report, 'layout' => $layout])
+            ->setPaper('a4')
+            ->setOption('isFontSubsettingEnabled', true) // seules les lettres utilisées : un PDF léger
+            ->getDomPDF();
+
+        $rows = [];
+        $conclusion = null;
+        $closing = null;
+        $dompdf->setCallbacks([[
+            'event' => 'begin_frame',
+            'f' => function (Frame $frame, Canvas $canvas) use (&$rows, &$conclusion, &$closing): void {
+                $node = $frame->get_node();
+                if (! $node instanceof \DOMElement) {
+                    return;
+                }
+                $page = $canvas->get_page_number();
+                if ($node->hasAttribute('data-row')) {
+                    $rows[(int) $node->getAttribute('data-row')] ??= [
+                        'page' => $page,
+                        'kind' => $node->getAttribute('data-kind'),
+                        'section' => (int) $node->getAttribute('data-section'),
+                        'item' => (int) $node->getAttribute('data-item'),
+                    ];
+                } elseif ($node->getAttribute('id') === 'pdf-conclusion') {
+                    $conclusion ??= $page;
+                } elseif ($node->getAttribute('id') === 'pdf-closing') {
+                    $closing ??= $page;
+                }
+            },
+        ]]);
+        $dompdf->render();
+        ksort($rows);
+
+        $pages = $dompdf->getCanvas()->get_page_count();
+        $lastContent = max([0, $conclusion ?? 0, ...array_column($rows, 'page')]);
+        // Rien au-dessus de lui sur sa page : le bloc final est parti seul.
+        $orphaned = $closing !== null && $lastContent > 0 && $closing > $lastContent;
+        $withClosing = count(array_filter($rows, fn (array $row) => $row['page'] === $closing));
+
+        return [
+            'dompdf' => $dompdf,
+            'layout' => $layout,
+            'rows' => $rows,
+            'pages' => $pages,
+            'closing' => $closing,
+            'orphaned' => $orphaned,
+            // Une dernière page qui ne porte qu'une ou deux lignes avec la signature est
+            // à peine mieux : la conclusion générale, elle, suffit à la remplir.
+            'balanced' => ! $orphaned && ($pages === 1 || $closing === null || $conclusion === $closing
+                || $withClosing >= self::ROWS_WITH_CLOSING),
+        ];
+    }
+
+    /**
+     * Où forcer le saut de page pour que des lignes accompagnent le bloc final :
+     * les dernières de la page qui précède la sienne, sans séparer un titre de ce
+     * qu'il annonce ni une note de sa ligne. `null` quand cette page n'en a pas
+     * assez pour en céder sans se vider.
+     *
+     * @param  array{rows: array<int, array{page: int, kind: string, section: int, item: int}>, closing: ?int}  $measure
+     * @return array{break_before?: int, break_section?: int}|null
+     */
+    private function carry(array $measure): ?array
+    {
+        $rows = $measure['rows'];
+        $closing = $measure['closing'];
+        if ($closing === null || $closing < 2) {
+            return null;
+        }
+        $already = count(array_filter($rows, fn (array $row) => $row['page'] === $closing));
+        $donor = array_keys(array_filter($rows, fn (array $row) => $row['page'] === $closing - 1));
+        if (count($donor) < 2 || $already >= self::CARRIED_ROWS) {
+            return null;
+        }
+
+        $index = count($donor) - max(1, min(self::CARRIED_ROWS - $already, count($donor) - self::KEPT_ROWS));
+        while ($index > 0 && (in_array($rows[$donor[$index - 1]]['kind'], self::LEADING_KINDS, true)
+            || in_array($rows[$donor[$index]]['kind'], self::TRAILING_KINDS, true))) {
+            $index--;
+        }
+        // Une analyse ne laisse pas son titre et une seule ligne au bas de la page : elle descend entière.
+        $start = $index;
+        while ($start > 0 && $rows[$donor[$start - 1]]['item'] === $rows[$donor[$index]]['item']) {
+            $start--;
+        }
+        if ($start > 0 && $index - $start <= self::ITEM_KEPT_ROWS) {
+            $index = $start;
+        }
+        if ($index === 0) {
+            return null;
+        }
+
+        $first = $donor[$index];
+        $section = $rows[$first]['section'];
+
+        // Première ligne d'une section : c'est la section entière qui change de page, titre compris.
+        return $rows[$donor[$index - 1]]['section'] !== $section
+            ? ['break_section' => $section]
+            : ['break_before' => $first];
     }
 
     /** Le nom du fichier : le patient et le numéro de laboratoire, lisibles. */

@@ -21068,6 +21068,33 @@ anciens     un compte rendu d'avant cette décision n'est pas figé : le PDF se 
 Migration `2026_11_19_090000_create_lab_analysis_notes_table`, à jouer sur chaque site et sur le portail.
 Aucune permission nouvelle.
 
+## Amendement du 2026-09-29 — le bloc final ne part jamais seul sur une page
+
+Constat du propriétaire : un compte rendu d'une page et quelques lignes ouvrait une page 2 pour le seul bloc
+final (qui a envoyé, qui a validé, « Le responsable du laboratoire ») — il était insécable et ne tenait plus
+sous les derniers résultats. Demande : tout sur une page, ou faire descendre du contenu pour donner du poids à
+la page 2. Les deux sont faits, dans cet ordre (`LabResultReport::paginate()`) :
+
+```text
+1  rendu ordinaire      gardé si le bloc final est avec des résultats, et si la dernière page en porte au
+                        moins 4 (ou la conclusion générale)
+2  rendu resserré       espacements et corps réduits (8,2 pt), gardé s'il économise une page : un compte
+                        rendu légèrement trop long tient sur une seule
+3  lignes reportées     sinon, les dernières lignes (6 au plus, 3 laissées au moins) descendent avec le bloc
+                        final ; un titre ne reste pas seul au bas d'une page, une note ne part pas sans sa
+                        ligne, une analyse ne laisse pas son titre et une ligne au bas de la page ; la section
+                        descend entière quand la coupure tombe sur sa première ligne
+choix                   jamais le bloc final seul, puis le moins de pages, puis une dernière page assez
+                        remplie, puis, à égalité, la mise en page ordinaire
+```
+
+Chaque rendu relit où tombent les lignes (la vue les numérote : `data-row`, `data-kind`, `data-section`,
+`data-item` ; rappel dompdf `begin_frame`). Une coupure forcée au milieu d'une analyse reprend son nom
+(« Numération formule sanguine (suite) ») ; l'en-tête de la section se répète en haut de la page, comme dompdf
+le fait déjà. Le bloc final est aussi plus court : sa colonne de gauche passe à 64 %, les dates ne passent plus
+à la ligne. Un compte rendu d'une page ne coûte qu'un rendu ; au pire quatre (≈ 1 s). Aucune donnée, route ni
+permission ne change.
+
 ---
 
 # ADR-219 — La paillasse se lit comme labo-vuejs : cartes par ligne, conclusion partielle, remise à zéro

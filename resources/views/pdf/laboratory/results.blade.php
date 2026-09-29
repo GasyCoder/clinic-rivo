@@ -57,17 +57,59 @@
     .closing { page-break-inside: avoid; margin-top: 10pt; }
     .identity { border-top: 0.5pt solid #e5e7eb; padding-top: 2pt; text-align: center; font-size: 7.4pt; color: #1e3a8a; }
     .sign { width: 100%; border-collapse: collapse; margin-top: 8pt; }
-    .sign td { width: 50%; vertical-align: top; font-size: 8pt; }
+    .sign td { vertical-align: top; font-size: 8pt; }
+    .sign td.meta { width: 64%; padding-right: 10pt; }
+    .sign td.signature { width: 36%; }
     .sign .box { height: 38pt; }
+    .cont td { font-weight: bold; font-size: 9.2pt; padding-top: 2pt !important; }
+
+    /*
+        Resserré : utilisé seulement quand le bloc final ne tiendrait pas sous les
+        derniers résultats (LabResultReport::render) — le compte rendu garde alors
+        une page de moins plutôt que d'en ouvrir une pour la seule signature.
+    */
+    body.compact { font-size: 8.2pt; line-height: 1.18; }
+    .compact .brand img { max-height: 46pt; }
+    .compact .patient { margin: 4pt 0 6pt; }
+    .compact .patient td { line-height: 1.3; padding-bottom: 4pt; }
+    .compact table.results { margin-bottom: 7pt; }
+    .compact table.results tbody td { padding: 0.6pt 0; }
+    .compact .item-title td { padding-top: 2pt !important; }
+    .compact .closing { margin-top: 5pt; }
+    .compact .sign { margin-top: 4pt; }
+    .compact .sign .box { height: 28pt; }
 </style>
 </head>
-<body>
 @php
     $site = $report['site'];
     $patient = $report['patient'];
     $req = $report['request'];
     $pad = fn (int $depth) => 'padding-left: '.(max(0, $depth) * 11).'pt;';
+
+    // La mise en page choisie par LabResultReport::render : resserrée, ou un saut de
+    // page avant une ligne (ou une section) pour que le bloc final ne parte pas seul.
+    $layout = array_merge(['compact' => false, 'break_before' => null, 'break_section' => null], $layout ?? []);
+    $rowNo = 0;
+    $sectionIndex = 0;
+    $itemName = '';
+    $itemIndex = 0;
+    $itemFirstRow = 0;
+    // Chaque ligne de résultats est numérotée et typée : le rendu relit sur quelle page
+    // elle tombe. Le saut forcé au milieu d'une analyse reprend son nom (« (suite) »).
+    $tr = function (string $kind, string $class = '') use (&$rowNo, &$sectionIndex, &$itemName, &$itemIndex, &$itemFirstRow, $layout): string {
+        $rowNo++;
+        $attributes = ' data-row="'.$rowNo.'" data-kind="'.$kind.'" data-section="'.$sectionIndex.'" data-item="'.$itemIndex.'"'.($class !== '' ? ' class="'.$class.'"' : '');
+        if ($rowNo !== $layout['break_before']) {
+            return '<tr'.$attributes.'>';
+        }
+        if ($rowNo === $itemFirstRow) {
+            return '<tr'.$attributes.' style="page-break-before: always">';
+        }
+
+        return '<tr class="cont" style="page-break-before: always"><td colspan="4">'.e($itemName).' <span class="muted">(suite)</span></td></tr><tr'.$attributes.'>';
+    };
 @endphp
+<body class="{{ $layout['compact'] ? 'compact' : '' }}">
 
 <div id="footer">
     {{ $site['brand'] }}@if($site['site']) — {{ $site['site'] }}@endif · {{ $patient['name'] }} · Dossier n° {{ $patient['number'] }}
@@ -122,7 +164,8 @@
 </table>
 
 @forelse($report['sections'] as $section)
-    <table class="results">
+    @php $sectionIndex = $loop->index; @endphp
+    <table class="results" @if($layout['break_section'] === $loop->index) style="page-break-before: always" @endif>
         <thead>
             <tr>
                 <td class="c-des section accent">{{ $section['title'] }}</td>
@@ -134,25 +177,26 @@
         </thead>
         <tbody>
         @foreach($section['items'] as $item)
+            @php $itemName = $item['name']; $itemIndex++; $itemFirstRow = $rowNo + 1; @endphp
             @if($item['title_row'])
-                <tr class="item-title">
+                {!! $tr('title', 'item-title') !!}
                     <td colspan="4">{{ $item['name'] }}@if($item['sent_out'])<span class="muted"> — réalisée par {{ $item['sent_out'] }}</span>@endif</td>
                 </tr>
             @elseif($item['sent_out'])
-                <tr><td colspan="4" class="muted">{{ $item['name'] }} — réalisée par {{ $item['sent_out'] }}</td></tr>
+                {!! $tr('title') !!}<td colspan="4" class="muted">{{ $item['name'] }} — réalisée par {{ $item['sent_out'] }}</td></tr>
             @endif
 
             @if($item['text'] !== null)
-                <tr><td colspan="4" class="text" style="{{ $pad(1) }}">{{ $item['text'] }}</td></tr>
+                {!! $tr('text') !!}<td colspan="4" class="text" style="{{ $pad(1) }}">{{ $item['text'] }}</td></tr>
             @endif
 
             @foreach($item['rows'] as $row)
                 @switch($row['kind'])
                     @case('heading')
-                        <tr><td colspan="4" class="heading {{ $row['bold'] ? 'bold' : 'plain' }}" style="{{ $pad($row['depth']) }}">{{ $row['designation'] }}</td></tr>
+                        {!! $tr('heading') !!}<td colspan="4" class="heading {{ $row['bold'] ? 'bold' : 'plain' }}" style="{{ $pad($row['depth']) }}">{{ $row['designation'] }}</td></tr>
                         @break
                     @case('result')
-                        <tr>
+                        {!! $tr('result') !!}
                             <td class="c-des {{ $row['bold'] ? 'bold' : '' }}" style="{{ $pad($row['depth']) }}">{{ $row['designation'] }}</td>
                             <td class="c-res {{ $row['pathological'] || $row['critical'] ? 'bold' : '' }} {{ $row['critical'] ? 'critical' : '' }}">
                                 {{ $row['value'] }}@if($row['flag'] === 'HIGH')<span class="flag"> ↑</span>@elseif($row['flag'] === 'LOW')<span class="flag"> ↓</span>@endif
@@ -163,26 +207,26 @@
                         </tr>
                         @break
                     @case('antibiogram')
-                        <tr><td colspan="4" class="abg-title" style="{{ $pad($row['depth']) }}">Antibiogramme de <i>{{ $row['bacterium'] }}</i></td></tr>
+                        {!! $tr('abg-title') !!}<td colspan="4" class="abg-title" style="{{ $pad($row['depth']) }}">Antibiogramme de <i>{{ $row['bacterium'] }}</i></td></tr>
                         @forelse($row['lines'] as $line)
-                            <tr class="abg-line">
+                            {!! $tr('abg-line', 'abg-line') !!}
                                 <td style="{{ $pad($row['depth'] + 1) }}">{{ $line['antibiotic'] }}</td>
                                 <td class="{{ $line['resistant'] ? 'bold' : '' }}" @if($line['intermediate']) style="font-style: italic" @endif>{{ $line['label'] }}</td>
                                 <td class="ref">{{ $line['measure'] }}</td>
                                 <td></td>
                             </tr>
                         @empty
-                            <tr><td colspan="4" class="muted" style="{{ $pad($row['depth'] + 1) }}">Aucun antibiotique testé.</td></tr>
+                            {!! $tr('abg-line') !!}<td colspan="4" class="muted" style="{{ $pad($row['depth'] + 1) }}">Aucun antibiotique testé.</td></tr>
                         @endforelse
                         @if($row['notes'])
-                            <tr>
+                            {!! $tr('note') !!}
                                 <td class="note-label" style="{{ $pad($row['depth'] + 1) }}">Notes :</td>
                                 <td colspan="3" class="note-text">{{ $row['notes'] }}</td>
                             </tr>
                         @endif
                         @break
                     @case('note')
-                        <tr>
+                        {!! $tr('note') !!}
                             <td class="note-label" style="{{ $pad($row['depth']) }}">Notes :</td>
                             <td colspan="3" class="note-text">{!! nl2br(e($row['text'])) !!}</td>
                         </tr>
@@ -191,10 +235,10 @@
             @endforeach
 
             @if($item['in_correction'])
-                <tr><td colspan="4" class="critical" style="{{ $pad(1) }}">Repris par le laboratoire pour être refait{{ is_string($item['in_correction']) ? ' ('.$item['in_correction'].')' : '' }} : ne vous fiez pas à cette valeur, un nouvel envoi suivra.</td></tr>
+                {!! $tr('note') !!}<td colspan="4" class="critical" style="{{ $pad(1) }}">Repris par le laboratoire pour être refait{{ is_string($item['in_correction']) ? ' ('.$item['in_correction'].')' : '' }} : ne vous fiez pas à cette valeur, un nouvel envoi suivra.</td></tr>
             @endif
             @if($item['provisional'])
-                <tr><td colspan="4" class="muted" style="{{ $pad(1) }}">Résultat provisoire : pas encore envoyé au médecin.</td></tr>
+                {!! $tr('note') !!}<td colspan="4" class="muted" style="{{ $pad(1) }}">Résultat provisoire : pas encore envoyé au médecin.</td></tr>
             @endif
         @endforeach
         </tbody>
@@ -204,17 +248,17 @@
 @endforelse
 
 @if(filled($report['conclusion']))
-    <div class="general">
+    <div class="general" id="pdf-conclusion">
         <div class="title accent">Conclusion générale</div>
         {!! nl2br(e($report['conclusion'])) !!}
     </div>
 @endif
 
-<div class="closing">
+<div class="closing" id="pdf-closing">
     <div class="identity">{{ $patient['name'] }} — Dossier n° {{ $patient['number'] }}@if($req['lab_number']) — {{ $req['lab_number'] }}@endif</div>
     <table class="sign">
         <tr>
-            <td class="muted">
+            <td class="muted meta">
                 @if($report['validation']['by'])
                     Résultats envoyés au médecin par {{ implode(', ', $report['validation']['by']) }}@if($report['validation']['at']) le {{ $report['validation']['at'] }}@endif.<br>
                 @endif
@@ -226,7 +270,7 @@
                 @endif
                 Édité le {{ $report['generated_at'] }}.
             </td>
-            <td style="text-align: right">
+            <td class="signature" style="text-align: right">
                 <span class="strong">Le responsable du laboratoire</span>
                 <div class="box"></div>
             </td>

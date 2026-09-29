@@ -44,7 +44,7 @@ final class FakeMailServer implements MailServer
         $this->folders[$folder]['messages'][$uid] = [
             'uid' => $uid,
             'from' => ['name' => 'Expéditeur', 'email' => 'expediteur@exemple.mg'],
-            'to' => [['name' => '', 'email' => 'soa.rakoto@cbdc.mg']],
+            'to' => [['name' => '', 'email' => 'soa.rakoto@cliniquesaintgeorges.mg']],
             'cc' => [],
             'bcc' => [],
             'reply_to' => [],

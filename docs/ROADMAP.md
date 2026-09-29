@@ -840,11 +840,11 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Adresses email professionnelles : demande par le RH depuis la fiche employé, création par le Super Admin chez l'hébergeur (API cPanel o2switch), mot de passe montré une fois, adresse reportée sur la fiche (ADR-190)
 - [x] Suspension au départ de l'employé (vue « À suspendre »), réactivation, nouveau mot de passe ; jamais de suppression ; reprise sans double création si le site ne confirme pas (ADR-190)
 - [x] Accès à l'hébergeur vérifié sur abyssin.o2switch.net avec le mot de passe du compte : o2switch refuse l'authentification Basic sur l'API, le client ouvre une session cPanel puis la ferme (ADR-190, correction du 2026-09-25)
-- [x] Première création réelle d'une boîte sur cbdc.mg depuis le portail (ADR-190)
+- [x] Première création réelle d'une boîte sur le domaine de test depuis le portail (ADR-190)
 - [x] Création accélérée : session cPanel gardée quelques minutes et ouverte d'avance à l'ouverture de la fenêtre ; une opération passe de 5–17 s à 2–3 s (ADR-190)
 - [x] Page RH « Emails professionnels » sur chaque site ; un RH à qui le Super Admin accorde le droit crée, suspend, réactive ou renouvelle le mot de passe depuis son site (accès à l'hébergeur posés aussi sur le site) (ADR-190, amendement)
 - [x] Plus de champ email à la création ni à l'import d'un employé : son email est l'adresse pro, posée à son activation ; une modification de fiche ne l'efface plus (ADR-190, amendement du 2026-09-25)
-- [ ] Domaine officiel de la clinique à la place de cbdc.mg (ADR-190)
+- [x] Domaine officiel cliniquesaintgeorges.mg à la place du domaine de test ; adresses de test retirées, base du site réinitialisée (ADR-190, amendement du 2026-09-29)
 - [x] Accès du personnel en un geste depuis le portail : adresse pro + compte RIVO (sans mot de passe depuis l'ADR-202) ; l'hébergeur n'est appelé qu'après l'accord du site, et un nouvel essai ne recrée jamais la boîte (ADR-197)
 - [x] ~~Remise au RH du site : notification, fiches d'accès imprimables, mots de passe chiffrés effacés à la remise (7 jours au plus, 24 h après le premier affichage), chaque affichage audité ; afficher et remettre restent au site, verrouillés sur le portail (ADR-197)~~ — remplacé par l'ADR-202 : plus aucun mot de passe à remettre
 - [x] Liste RH des remises refaite : cartes-filtres (À remettre, Remis, Effacés, Toutes), recherche par employé, délai d'effacement coloré par urgence, frise d'avancement, bouton selon ce qui attend (ADR-197, amendement du 2026-09-26)

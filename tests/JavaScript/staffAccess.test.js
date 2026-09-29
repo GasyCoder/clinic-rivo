@@ -25,7 +25,7 @@ test('a row says what is still missing before its access is created', () => {
 });
 
 test('the proposed address is the one already asked for, else the site suggestion', () => {
-    assert.equal(initialLocalPart({ mailbox: { status: 'REQUESTED', address: 'hery.rabe@cbdc.mg' }, suggestion: 'autre' }), 'hery.rabe');
+    assert.equal(initialLocalPart({ mailbox: { status: 'REQUESTED', address: 'hery.rabe@cliniquesaintgeorges.mg' }, suggestion: 'autre' }), 'hery.rabe');
     assert.equal(initialLocalPart({ mailbox: null, suggestion: 'soa.rakoto' }), 'soa.rakoto');
     assert.equal(initialLocalPart({}), '');
 });
@@ -166,16 +166,16 @@ test('ADR-202 — the HR button says what the hand-over waits for', () => {
 });
 
 test('ADR-202 — the message the HR shares says where to sign in, with the address already typed, and no secret', () => {
-    assert.equal(loginLink('https://a.test/login', 'vola.rabe@cbdc.mg'), 'https://a.test/login?email=vola.rabe%40cbdc.mg');
+    assert.equal(loginLink('https://a.test/login', 'vola.rabe@cliniquesaintgeorges.mg'), 'https://a.test/login?email=vola.rabe%40cliniquesaintgeorges.mg');
     assert.equal(loginLink('https://a.test/login', null), 'https://a.test/login');
 
-    const item = { employee_name: 'Vola RABE', login_email: 'vola.rabe@cbdc.mg', mailbox_address: 'vola.rabe@cbdc.mg' };
+    const item = { employee_name: 'Vola RABE', login_email: 'vola.rabe@cliniquesaintgeorges.mg', mailbox_address: 'vola.rabe@cliniquesaintgeorges.mg' };
     const message = shareMessage(item, { loginUrl: 'https://a.test/login', brand: 'RIVO', site: 'Ambondromamy', deadline: '2026-10-10T10:00:00+03:00' });
     assert.match(message, /^Bonjour Vola,/);
     assert.match(message, /Votre compte RIVO — Ambondromamy est créé\./);
-    assert.match(message, /avant le 10\/10\/2026 sur : https:\/\/a\.test\/login\?email=vola\.rabe%40cbdc\.mg/);
+    assert.match(message, /avant le 10\/10\/2026 sur : https:\/\/a\.test\/login\?email=vola\.rabe%40cliniquesaintgeorges\.mg/);
     assert.match(message, /vous choisirez vous-même votre mot de passe/);
-    assert.match(message, /messagerie professionnelle vola\.rabe@cbdc\.mg/);
+    assert.match(message, /messagerie professionnelle vola\.rabe@cliniquesaintgeorges\.mg/);
     assert.doesNotMatch(shareMessage({ ...item, mailbox_address: null }, { loginUrl: 'https://a.test/login' }), /messagerie/);
 });
 

@@ -14,12 +14,12 @@ use Tests\TestCase;
  *
  *   docker run -d --name rivo-greenmail -p 127.0.0.1:3143:3143 -p 127.0.0.1:3025:3025 \
  *     -e GREENMAIL_OPTS='-Dgreenmail.setup.test.imap -Dgreenmail.setup.test.smtp -Dgreenmail.hostname=0.0.0.0
- *       -Dgreenmail.users=soa.rakoto:secret-boite@cbdc.mg -Dgreenmail.users.login=email' greenmail/standalone:2.1.2
+ *       -Dgreenmail.users=soa.rakoto:secret-boite@cliniquesaintgeorges.mg -Dgreenmail.users.login=email' greenmail/standalone:2.1.2
  *   RIVO_WEBMAIL_TEST_SERVER=127.0.0.1 php artisan test tests/Feature/Webmail/ImapMailServerIntegrationTest.php
  */
 class ImapMailServerIntegrationTest extends TestCase
 {
-    private const ADDRESS = 'soa.rakoto@cbdc.mg';
+    private const ADDRESS = 'soa.rakoto@cliniquesaintgeorges.mg';
 
     private const PASSWORD = 'secret-boite';
 

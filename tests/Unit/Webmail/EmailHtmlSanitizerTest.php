@@ -71,7 +71,7 @@ class EmailHtmlSanitizerTest extends TestCase
 
     public function test_a_built_message_is_threaded_and_its_body_cleaned(): void
     {
-        $email = OutgoingMessage::build('soa@cbdc.mg', 'Soa Rakoto', [
+        $email = OutgoingMessage::build('soa@cliniquesaintgeorges.mg', 'Soa Rakoto', [
             'to' => 'Dr Vola <A@exemple.mg>', 'cc' => 'b@exemple.mg', 'subject' => '  Re: Bilan ', 'body_html' => '<p>Oui</p><script>x()</script>',
         ], [], [['name' => 'n.pdf', 'type' => 'application/pdf', 'content' => '%PDF']], ['message_id' => 'orig@x.mg', 'references' => null]);
 
@@ -79,7 +79,7 @@ class EmailHtmlSanitizerTest extends TestCase
         $this->assertSame(['a@exemple.mg', 'Dr Vola'], [$email->getTo()[0]->getAddress(), $email->getTo()[0]->getName()], 'le nom saisi est gardé');
         $this->assertSame('b@exemple.mg', $email->getCc()[0]->getAddress());
         $this->assertStringNotContainsString('script', (string) $email->getHtmlBody());
-        $this->assertStringEndsWith('@cbdc.mg', $email->getHeaders()->get('Message-ID')->getIds()[0]);
+        $this->assertStringEndsWith('@cliniquesaintgeorges.mg', $email->getHeaders()->get('Message-ID')->getIds()[0]);
         $this->assertSame('<orig@x.mg>', $email->getHeaders()->get('References')->getBodyAsString());
         $this->assertCount(1, $email->getAttachments());
     }

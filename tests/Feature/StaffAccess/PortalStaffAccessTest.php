@@ -58,7 +58,7 @@ class PortalStaffAccessTest extends TestCase
                 ['code' => 'A', 'name' => 'Ambondromamy', 'url' => 'https://a.test', 'api_url' => 'https://a.test/api/v1', 'api_token' => 'a-token'],
             ],
             'rivo.professional_email' => [
-                'domain' => 'cbdc.mg',
+                'domain' => 'cliniquesaintgeorges.mg',
                 'hosting' => ['url' => self::HOST, 'user' => 'flbe4406', 'token' => 'SECRET-TOKEN', 'quota_mb' => 1024, 'timeout' => 5],
             ],
         ]);
@@ -78,7 +78,7 @@ class PortalStaffAccessTest extends TestCase
                 return $request['dry_run'] ?? false
                     ? Http::response(['message' => 'Prêt à créer.'])
                     : Http::response(['message' => 'Accès de Hery RABE créé.', 'data' => [
-                        'user' => ['uuid' => 'u-1', 'name' => 'Hery RABE', 'email' => 'hery.rabe@cbdc.mg'],
+                        'user' => ['uuid' => 'u-1', 'name' => 'Hery RABE', 'email' => 'hery.rabe@cliniquesaintgeorges.mg'],
                         'handover' => ['uuid' => self::HANDOVER, 'status' => 'DRAFT'],
                     ]], 201);
             },
@@ -91,7 +91,7 @@ class PortalStaffAccessTest extends TestCase
         $this->actingAs($this->superAdmin)
             ->postJson('/super-admin/staff-access/A/grant', $this->grantPayload())
             ->assertCreated()
-            ->assertJsonPath('email', 'hery.rabe@cbdc.mg')
+            ->assertJsonPath('email', 'hery.rabe@cliniquesaintgeorges.mg')
             ->assertJsonPath('handover.uuid', self::HANDOVER)
             ->assertJsonMissingPath('password')
             ->assertJsonMissingPath('renewed');
@@ -103,8 +103,8 @@ class PortalStaffAccessTest extends TestCase
             $this->assertArrayNotHasKey('password', $grant);
             $this->assertArrayNotHasKey('mailbox_shares_password', $grant);
         }
-        $this->assertSame('hery.rabe@cbdc.mg', $grants[1]['email']);
-        $this->assertSame('hery.rabe@cbdc.mg', $grants[1]['mailbox_address']);
+        $this->assertSame('hery.rabe@cliniquesaintgeorges.mg', $grants[1]['email']);
+        $this->assertSame('hery.rabe@cliniquesaintgeorges.mg', $grants[1]['mailbox_address']);
 
         // La boîte reçoit un mot de passe aléatoire que personne ne voit ; il n'est gardé nulle part.
         $hostPassword = null;
@@ -162,7 +162,7 @@ class PortalStaffAccessTest extends TestCase
         $grants = [];
         Http::fake([
             self::SITE.'/staff-access/employees/'.self::EMPLOYEE => Http::response(['data' => $this->employee([
-                'mailbox' => ['uuid' => self::MAILBOX, 'status' => 'ACTIVE', 'address' => 'hery.rabe@cbdc.mg'],
+                'mailbox' => ['uuid' => self::MAILBOX, 'status' => 'ACTIVE', 'address' => 'hery.rabe@cliniquesaintgeorges.mg'],
             ])]),
             self::SITE.'/staff-access/grant' => function (Request $request) use (&$grants) {
                 $grants[] = $request->data();
@@ -175,10 +175,10 @@ class PortalStaffAccessTest extends TestCase
         $this->actingAs($this->superAdmin)
             ->postJson('/super-admin/staff-access/A/grant', [...$this->grantPayload(), 'local_part' => 'ignore.moi'])
             ->assertCreated()
-            ->assertJsonPath('email', 'hery.rabe@cbdc.mg');
+            ->assertJsonPath('email', 'hery.rabe@cliniquesaintgeorges.mg');
 
         // Elle recevra le mot de passe que l'employé choisira : rien ne change chez l'hébergeur d'ici là.
-        $this->assertSame('hery.rabe@cbdc.mg', end($grants)['email']);
+        $this->assertSame('hery.rabe@cliniquesaintgeorges.mg', end($grants)['email']);
         Http::assertNotSent(fn (Request $request) => str_starts_with($request->url(), self::HOST));
     }
 
@@ -186,7 +186,7 @@ class PortalStaffAccessTest extends TestCase
     {
         Http::fake([
             self::SITE.'/staff-access/employees/'.self::EMPLOYEE => Http::response(['data' => $this->employee([
-                'mailbox' => ['uuid' => self::MAILBOX, 'status' => 'SUSPENDED', 'address' => 'hery.rabe@cbdc.mg'],
+                'mailbox' => ['uuid' => self::MAILBOX, 'status' => 'SUSPENDED', 'address' => 'hery.rabe@cliniquesaintgeorges.mg'],
             ])]),
             '*' => Http::response(['status' => 1]),
         ]);
@@ -194,7 +194,7 @@ class PortalStaffAccessTest extends TestCase
         $this->actingAs($this->superAdmin)
             ->postJson('/super-admin/staff-access/A/grant', $this->grantPayload())
             ->assertStatus(422)
-            ->assertJsonPath('message', 'L’adresse hery.rabe@cbdc.mg est suspendue : réactivez-la dans « Emails professionnels », puis recommencez.');
+            ->assertJsonPath('message', 'L’adresse hery.rabe@cliniquesaintgeorges.mg est suspendue : réactivez-la dans « Emails professionnels », puis recommencez.');
 
         Http::assertSentCount(1);
     }
@@ -383,7 +383,7 @@ class PortalStaffAccessTest extends TestCase
     {
         return [
             'uuid' => self::MAILBOX,
-            'address' => 'hery.rabe@cbdc.mg',
+            'address' => 'hery.rabe@cliniquesaintgeorges.mg',
             'status' => $status,
             'status_label' => $status,
             'open' => true,

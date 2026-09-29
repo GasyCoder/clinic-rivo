@@ -45,7 +45,7 @@ class ProfessionalEmailPortalTest extends TestCase
                 ['code' => 'A', 'name' => 'Ambondromamy', 'url' => 'https://a.test', 'api_url' => 'https://a.test/api/v1', 'api_token' => 'a-token'],
             ],
             'rivo.professional_email' => [
-                'domain' => 'cbdc.mg',
+                'domain' => 'cliniquesaintgeorges.mg',
                 'hosting' => ['url' => self::HOST, 'user' => 'flbe4406', 'token' => 'SECRET-TOKEN', 'quota_mb' => 1024, 'timeout' => 5],
             ],
         ]);
@@ -57,7 +57,7 @@ class ProfessionalEmailPortalTest extends TestCase
     {
         Http::fake(['https://a.test/api/v1/super-admin/professional-mailboxes' => Http::response([
             'data' => [$this->mailbox()],
-            'meta' => ['domain' => 'cbdc.mg', 'summary' => ['requested' => 1]],
+            'meta' => ['domain' => 'cliniquesaintgeorges.mg', 'summary' => ['requested' => 1]],
         ])]);
 
         $this->actingAs($this->superAdmin)->get('/super-admin/professional-emails')
@@ -65,24 +65,24 @@ class ProfessionalEmailPortalTest extends TestCase
             ->assertDontSee('SECRET-TOKEN')
             ->assertInertia(fn (Assert $page) => $page
                 ->component('SuperAdmin/ProfessionalEmails/Index')
-                ->where('sites.0.data.0.address', 'hery.rabe@cbdc.mg')
+                ->where('sites.0.data.0.address', 'hery.rabe@cliniquesaintgeorges.mg')
                 ->where('hosting.configured', true)
                 ->where('hosting.server', 'abyssin.test')
-                ->where('hosting.domain', 'cbdc.mg'));
+                ->where('hosting.domain', 'cliniquesaintgeorges.mg'));
     }
 
     public function test_create_makes_the_box_at_the_host_then_activates_it_on_the_site(): void
     {
         Http::fake([
             'https://a.test/api/v1/super-admin/professional-mailboxes/'.self::MAILBOX => Http::response(['data' => $this->mailbox()]),
-            self::HOST.'/execute/Email/add_pop' => Http::response(['status' => 1, 'errors' => null, 'data' => 'hery.rabe+cbdc.mg']),
+            self::HOST.'/execute/Email/add_pop' => Http::response(['status' => 1, 'errors' => null, 'data' => 'hery.rabe+cliniquesaintgeorges.mg']),
             'https://a.test/api/v1/super-admin/professional-mailboxes/'.self::MAILBOX.'/activate' => Http::response(['data' => $this->mailbox('ACTIVE')]),
         ]);
 
         $response = $this->actingAs($this->superAdmin)
             ->postJson('/super-admin/professional-emails/A/'.self::MAILBOX.'/create', ['local_part' => 'hery.rabe'])
             ->assertOk()
-            ->assertJsonPath('address', 'hery.rabe@cbdc.mg')
+            ->assertJsonPath('address', 'hery.rabe@cliniquesaintgeorges.mg')
             ->assertJsonPath('confirmed', true);
 
         $password = $response->json('password');
@@ -92,9 +92,9 @@ class ProfessionalEmailPortalTest extends TestCase
         Http::assertSent(fn (Request $request) => $request->url() === self::HOST.'/execute/Email/add_pop'
             && $request->method() === 'POST'
             && $request->hasHeader('Authorization', 'cpanel flbe4406:SECRET-TOKEN')
-            && $request['email'] === 'hery.rabe' && $request['domain'] === 'cbdc.mg'
+            && $request['email'] === 'hery.rabe' && $request['domain'] === 'cliniquesaintgeorges.mg'
             && $request['password'] === $password && (int) $request['quota'] === 1024);
-        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/activate') && $request['address'] === 'hery.rabe@cbdc.mg');
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/activate') && $request['address'] === 'hery.rabe@cliniquesaintgeorges.mg');
 
         $provision = ProfessionalMailboxProvision::query()->sole();
         $this->assertNotNull($provision->site_confirmed_at);
@@ -124,7 +124,7 @@ class ProfessionalEmailPortalTest extends TestCase
             ->postJson('/super-admin/professional-emails/A/'.self::MAILBOX.'/create', ['local_part' => 'autre.chose'])
             ->assertOk()
             ->assertJsonPath('confirmed', true)
-            ->assertJsonPath('address', 'hery.rabe@cbdc.mg')
+            ->assertJsonPath('address', 'hery.rabe@cliniquesaintgeorges.mg')
             ->assertJsonPath('password', null);
 
         Http::assertSentCount(5); // lecture + création + activation refusée, puis lecture + activation — jamais une seconde création
@@ -175,13 +175,13 @@ class ProfessionalEmailPortalTest extends TestCase
     {
         Http::fake([
             'https://a.test/api/v1/super-admin/professional-mailboxes/'.self::MAILBOX => Http::response(['data' => $this->mailbox()]),
-            self::HOST.'/execute/Email/add_pop' => Http::response(['status' => 0, 'errors' => ['The account hery.rabe@cbdc.mg already exists!']]),
+            self::HOST.'/execute/Email/add_pop' => Http::response(['status' => 0, 'errors' => ['The account hery.rabe@cliniquesaintgeorges.mg already exists!']]),
         ]);
 
         $this->actingAs($this->superAdmin)
             ->postJson('/super-admin/professional-emails/A/'.self::MAILBOX.'/create', ['local_part' => 'hery.rabe'])
             ->assertUnprocessable()
-            ->assertJsonPath('message', 'L’hébergeur a refusé : The account hery.rabe@cbdc.mg already exists!');
+            ->assertJsonPath('message', 'L’hébergeur a refusé : The account hery.rabe@cliniquesaintgeorges.mg already exists!');
 
         Http::assertNotSent(fn (Request $request) => str_ends_with($request->url(), '/activate'));
         $this->assertSame(0, ProfessionalMailboxProvision::query()->count());
@@ -281,7 +281,7 @@ class ProfessionalEmailPortalTest extends TestCase
             ->postJson('/super-admin/professional-emails/A/'.self::MAILBOX.'/create', ['local_part' => 'hery.rabe'])
             ->assertOk()->assertJsonPath('confirmed', true);
         $this->assertSame(1, $this->sentTo('/login/'), 'la création reprend la session préparée');
-        $this->assertSame(1, ProfessionalMailboxProvision::query()->where('address', 'hery.rabe@cbdc.mg')->count());
+        $this->assertSame(1, ProfessionalMailboxProvision::query()->where('address', 'hery.rabe@cliniquesaintgeorges.mg')->count());
     }
 
     public function test_preparing_needs_a_right_that_reaches_the_host_and_does_nothing_with_a_token(): void
@@ -357,7 +357,7 @@ class ProfessionalEmailPortalTest extends TestCase
     public function test_the_connection_check_only_reads_at_the_host(): void
     {
         Http::fake([self::HOST.'/execute/Email/list_pops' => Http::sequence()
-            ->push(['status' => 1, 'data' => [['email' => 'a@cbdc.mg'], ['email' => 'b@cbdc.mg']]])
+            ->push(['status' => 1, 'data' => [['email' => 'a@cliniquesaintgeorges.mg'], ['email' => 'b@cliniquesaintgeorges.mg']]])
             ->push('Unauthorized', 401)]);
 
         $this->actingAs($this->superAdmin)->postJson('/super-admin/professional-emails/check')
@@ -397,7 +397,7 @@ class ProfessionalEmailPortalTest extends TestCase
             ->post('/super-admin/professional-emails/A/'.self::MAILBOX.'/suspend', ['reason' => 'Départ de la clinique'])
             ->assertSessionHasNoErrors();
 
-        Http::assertSent(fn (Request $request) => $request->url() === self::HOST.'/execute/Email/suspend_login' && $request['email'] === 'hery.rabe@cbdc.mg');
+        Http::assertSent(fn (Request $request) => $request->url() === self::HOST.'/execute/Email/suspend_login' && $request['email'] === 'hery.rabe@cliniquesaintgeorges.mg');
         $this->assertNotNull(ProfessionalMailboxProvision::query()->sole()->host_suspended_at);
     }
 
@@ -450,7 +450,7 @@ class ProfessionalEmailPortalTest extends TestCase
         ProfessionalMailboxProvision::query()->create([
             'site_code' => 'A',
             'mailbox_uuid' => self::MAILBOX,
-            'address' => 'hery.rabe@cbdc.mg',
+            'address' => 'hery.rabe@cliniquesaintgeorges.mg',
             'created_by' => $this->superAdmin->id,
             'host_created_at' => now(),
             'site_confirmed_at' => now(),
@@ -463,7 +463,7 @@ class ProfessionalEmailPortalTest extends TestCase
     {
         return [
             'uuid' => self::MAILBOX,
-            'address' => 'hery.rabe@cbdc.mg',
+            'address' => 'hery.rabe@cliniquesaintgeorges.mg',
             'status' => $status,
             'status_label' => $status,
             'open' => true,

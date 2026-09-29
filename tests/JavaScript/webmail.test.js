@@ -44,14 +44,14 @@ test('« Répondre à tous » met les autres en copie, jamais soi-même', () => 
     const message = {
         from: { name: 'Dr Vola', email: 'vola@exemple.mg' },
         reply_to: [],
-        to: [{ name: '', email: 'soa@cbdc.mg' }, { name: 'Labo', email: 'labo@exemple.mg' }],
+        to: [{ name: '', email: 'soa@cliniquesaintgeorges.mg' }, { name: 'Labo', email: 'labo@exemple.mg' }],
         cc: [{ name: '', email: 'vola@exemple.mg' }],
     };
 
-    assert.deepEqual(replyRecipients(message, 'SOA@cbdc.mg'), { to: 'Dr Vola <vola@exemple.mg>', cc: '' });
-    assert.deepEqual(replyRecipients(message, 'soa@cbdc.mg', true), { to: 'Dr Vola <vola@exemple.mg>', cc: 'Labo <labo@exemple.mg>' });
+    assert.deepEqual(replyRecipients(message, 'SOA@cliniquesaintgeorges.mg'), { to: 'Dr Vola <vola@exemple.mg>', cc: '' });
+    assert.deepEqual(replyRecipients(message, 'soa@cliniquesaintgeorges.mg', true), { to: 'Dr Vola <vola@exemple.mg>', cc: 'Labo <labo@exemple.mg>' });
     assert.deepEqual(
-        replyRecipients({ ...message, reply_to: [{ name: '', email: 'secretariat@exemple.mg' }] }, 'soa@cbdc.mg'),
+        replyRecipients({ ...message, reply_to: [{ name: '', email: 'secretariat@exemple.mg' }] }, 'soa@cliniquesaintgeorges.mg'),
         { to: 'secretariat@exemple.mg', cc: '' },
         'l’adresse de réponse l’emporte sur l’expéditeur',
     );
@@ -104,8 +104,8 @@ test('« Messagerie » n’apparaît que pour le titulaire d’une adresse activ
 
 test('the boxes one may open are found by name, address, job or site, accents and case ignored', () => {
     const boxes = [
-        { owner: 'Vola Rabe', address: 'vola.rabe@cbdc.mg', job: 'Sage-femme', site_name: 'Ambondromamy', site_code: 'A' },
-        { owner: 'Hery Andria', address: 'hery@cbdc.mg', job: 'Médecin', site_name: 'Mampikony', site_code: 'M' },
+        { owner: 'Vola Rabe', address: 'vola.rabe@cliniquesaintgeorges.mg', job: 'Sage-femme', site_name: 'Ambondromamy', site_code: 'A' },
+        { owner: 'Hery Andria', address: 'hery@cliniquesaintgeorges.mg', job: 'Médecin', site_name: 'Mampikony', site_code: 'M' },
     ];
 
     assert.deepEqual(filterBoxes(boxes, '').map((box) => box.owner), ['Vola Rabe', 'Hery Andria']);
@@ -116,12 +116,12 @@ test('the boxes one may open are found by name, address, job or site, accents an
 
 test('any address can be typed: « Écrire à … » comes first, colleagues follow', () => {
     const contacts = [
-        { name: 'Vola Rabe', email: 'vola.rabe@cbdc.mg', job: 'Sage-femme' },
-        { name: 'Hery Andria', email: 'hery@cbdc.mg', job: 'Médecin' },
+        { name: 'Vola Rabe', email: 'vola.rabe@cliniquesaintgeorges.mg', job: 'Sage-femme' },
+        { name: 'Hery Andria', email: 'hery@cliniquesaintgeorges.mg', job: 'Médecin' },
     ];
 
     // Un nom : les collègues seulement, rien à « écrire à ».
-    assert.deepEqual(recipientSuggestions(contacts, [], 'vola').map((option) => option.email), ['vola.rabe@cbdc.mg']);
+    assert.deepEqual(recipientSuggestions(contacts, [], 'vola').map((option) => option.email), ['vola.rabe@cliniquesaintgeorges.mg']);
     // Une adresse d'ailleurs : proposée telle quelle, en tête.
     const outside = recipientSuggestions(contacts, [], 'fournisseur@gmail.com');
     assert.equal(outside.length, 1);
@@ -129,7 +129,7 @@ test('any address can be typed: « Écrire à … » comes first, colleagues fol
     assert.equal(outside[0].email, 'fournisseur@gmail.com');
     // Une adresse incomplète n'est pas proposée ; celle d'un collègue ne se double pas.
     assert.deepEqual(recipientSuggestions(contacts, [], 'fournisseur@gm'), []);
-    assert.deepEqual(recipientSuggestions(contacts, [], 'hery@cbdc.mg').map((option) => option.typed ?? false), [false]);
+    assert.deepEqual(recipientSuggestions(contacts, [], 'hery@cliniquesaintgeorges.mg').map((option) => option.typed ?? false), [false]);
     // Déjà ajoutée : plus rien à proposer.
     assert.deepEqual(recipientSuggestions(contacts, [{ email: 'fournisseur@gmail.com' }], 'fournisseur@gmail.com'), []);
     assert.deepEqual(recipientSuggestions(contacts, [], '   '), []);
@@ -306,16 +306,16 @@ test('the filter counters follow an action at once', () => {
 });
 
 test('écrire depuis une fiche : un message déjà adressé, jamais une adresse glissée', () => {
-    assert.equal(composeHref('Emilien TSARAHASINA', 'emilien.tsarahasina@cbdc.mg'),
-        '/messagerie/dossier/reception?ecrire=' + encodeURIComponent('Emilien TSARAHASINA <emilien.tsarahasina@cbdc.mg>'));
+    assert.equal(composeHref('Emilien TSARAHASINA', 'emilien.tsarahasina@cliniquesaintgeorges.mg'),
+        '/messagerie/dossier/reception?ecrire=' + encodeURIComponent('Emilien TSARAHASINA <emilien.tsarahasina@cliniquesaintgeorges.mg>'));
     assert.equal(composeHref('', 'a@b.mg'), '/messagerie/dossier/reception?ecrire=' + encodeURIComponent('a@b.mg'));
     // Un nom ne peut pas fabriquer une seconde adresse.
     assert.equal(composeHref('X <pirate@evil.com>', 'a@b.mg'), '/messagerie/dossier/reception?ecrire=' + encodeURIComponent('X pirate@evil.com <a@b.mg>'));
     assert.equal(composeHref('Sans adresse', ''), null);
     assert.equal(composeHref('Mauvaise', 'pas-une-adresse'), null);
 
-    assert.equal(composeTarget('?ecrire=' + encodeURIComponent('Hery <hery@cbdc.mg>')), 'Hery <hery@cbdc.mg>');
-    assert.equal(composeTarget('?ecrire=hery%40cbdc.mg'), 'hery@cbdc.mg');
+    assert.equal(composeTarget('?ecrire=' + encodeURIComponent('Hery <hery@cliniquesaintgeorges.mg>')), 'Hery <hery@cliniquesaintgeorges.mg>');
+    assert.equal(composeTarget('?ecrire=hery%40cliniquesaintgeorges.mg'), 'hery@cliniquesaintgeorges.mg');
     assert.equal(composeTarget('?ecrire=' + encodeURIComponent('a@b.mg, c@d.mg')), null, 'une seule adresse');
     assert.equal(composeTarget('?ecrire=' + encodeURIComponent('a@b.mg\nBcc: x@y.mg')), null);
     assert.equal(composeTarget('?ecrire=nimporte-quoi'), null);

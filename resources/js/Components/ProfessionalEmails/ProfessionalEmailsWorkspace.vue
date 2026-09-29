@@ -442,7 +442,7 @@ const submitReactivate = () => {
                 <div v-if="! shown.length" class="px-4 py-12 text-center">
                     <MailX class="mx-auto h-8 w-8 text-muted-foreground/60" />
                     <p class="mt-2 text-sm font-semibold text-foreground">Rien dans cette vue</p>
-                    <p class="mt-1 text-xs text-muted-foreground">Les demandes arrivent quand le RH d’un site demande une adresse depuis une fiche employé<template v-if="canCreateDirect"> — ou créez-en une vous-même avec « Nouvelle adresse »</template>.</p>
+                    <p class="mt-1 text-xs text-muted-foreground">Pour un nouvel employé, l’adresse se crée avec son compte dans « Accès du personnel »<template v-if="canCreateDirect"> ; « Adresse seule » en crée une sans compte</template>.</p>
                 </div>
             </div>
         </section>

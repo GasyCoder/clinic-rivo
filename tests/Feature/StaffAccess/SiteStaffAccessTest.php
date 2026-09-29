@@ -45,7 +45,7 @@ class SiteStaffAccessTest extends TestCase
             'rivo.site.code' => 'A',
             'rivo.site.name' => 'Ambondromamy',
             'rivo.site_api.token' => 'clinic-test-token',
-            'rivo.professional_email.domain' => 'cbdc.mg',
+            'rivo.professional_email.domain' => 'cliniquesaintgeorges.mg',
         ]);
         $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class, ProfessionalProfileSeeder::class]);
         $this->hr = User::factory()->create(['role_id' => $this->roleId('ADMINISTRATION')]);
@@ -66,7 +66,7 @@ class SiteStaffAccessTest extends TestCase
             ->assertJsonPath('data.pending.0.suggestion', 'zephyr.andrianina')
             ->assertJsonPath('data.waived.0.uuid', $waived->uuid)
             ->assertJsonPath('data.receivers', 1)
-            ->assertJsonPath('meta.domain', 'cbdc.mg')
+            ->assertJsonPath('meta.domain', 'cliniquesaintgeorges.mg')
             ->assertJsonPath('meta.activation_days', 14);
 
         $this->withHeaders($this->headers([]))->getJson('/api/v1/super-admin/staff-access')->assertForbidden();
@@ -82,7 +82,7 @@ class SiteStaffAccessTest extends TestCase
 
         // Un rôle qui a des profils exige le profil ; une adresse déjà prise est refusée.
         $this->grant($employee, ['dry_run' => true, 'role_id' => $this->roleId('NURSE')])->assertUnprocessable()->assertJsonValidationErrors('professional_profile_id');
-        User::factory()->create(['email' => 'hery.rabe@cbdc.mg']);
+        User::factory()->create(['email' => 'hery.rabe@cliniquesaintgeorges.mg']);
         $this->grant($employee, ['dry_run' => true])->assertUnprocessable()->assertJsonValidationErrors('email');
     }
 
@@ -98,12 +98,12 @@ class SiteStaffAccessTest extends TestCase
 
         $this->grant($employee, ['handover_uuid' => $handover])
             ->assertCreated()
-            ->assertJsonPath('data.user.email', 'hery.rabe@cbdc.mg')
+            ->assertJsonPath('data.user.email', 'hery.rabe@cliniquesaintgeorges.mg')
             ->assertJsonPath('data.handover.status', 'DRAFT')
             ->assertJsonPath('data.handover.items.0.state', 'WAITING')
             ->assertJsonMissingPath('data.handover.items.0.secret');
 
-        $user = User::query()->where('email', 'hery.rabe@cbdc.mg')->sole();
+        $user = User::query()->where('email', 'hery.rabe@cliniquesaintgeorges.mg')->sole();
         $this->assertSame($user->id, $employee->fresh()->user_id);
         $this->assertSame('Hery RABE', $user->name);
         $this->assertNull($user->activated_at);
@@ -119,7 +119,7 @@ class SiteStaffAccessTest extends TestCase
 
         // L'employé n'attend plus ; un second accès est refusé.
         $this->withHeaders($this->headers(['staff_access.view']))->getJson('/api/v1/super-admin/staff-access')->assertJsonCount(0, 'data.pending');
-        $this->grant($employee, ['email' => 'autre@cbdc.mg'])->assertUnprocessable()->assertJsonValidationErrors('employee_uuid');
+        $this->grant($employee, ['email' => 'autre@cliniquesaintgeorges.mg'])->assertUnprocessable()->assertJsonValidationErrors('employee_uuid');
     }
 
     public function test_creating_an_account_needs_the_account_rights_too(): void
@@ -143,7 +143,7 @@ class SiteStaffAccessTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.status', 'WAITING')
             ->assertJsonPath('data.counts.waiting', 1);
-        $this->assertTrue(User::query()->where('email', 'hery.rabe@cbdc.mg')->sole()->activation_open_until->greaterThan(now()->addDays(13)));
+        $this->assertTrue(User::query()->where('email', 'hery.rabe@cliniquesaintgeorges.mg')->sole()->activation_open_until->greaterThan(now()->addDays(13)));
 
         $this->assertSame(1, UserNotification::query()->for($this->hr)->where('type', StaffAccessReady::class)->count());
         $this->assertSame(0, UserNotification::query()->for($reception)->count(), 'seulement les comptes qui annoncent les accès');
@@ -154,7 +154,7 @@ class SiteStaffAccessTest extends TestCase
         // Envoyer deux fois ne notifie pas deux fois ; une remise envoyée ne reçoit plus d'accès.
         $this->withHeaders($this->headers(self::ALL))->postJson("/api/v1/super-admin/staff-access/handovers/{$handover->uuid}/send")->assertOk();
         $this->assertSame(1, UserNotification::query()->for($this->hr)->count());
-        $this->grant($this->employee('RH-009', ['first_name' => 'Soa']), ['handover_uuid' => $handover->uuid, 'email' => 'soa.rabe@cbdc.mg'])
+        $this->grant($this->employee('RH-009', ['first_name' => 'Soa']), ['handover_uuid' => $handover->uuid, 'email' => 'soa.rabe@cliniquesaintgeorges.mg'])
             ->assertUnprocessable()->assertJsonValidationErrors('handover_uuid');
     }
 
@@ -183,7 +183,7 @@ class SiteStaffAccessTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Administration/StaffAccess/Show')
                 ->where('handover.status', 'WAITING')
-                ->where('handover.items.0.login_email', 'hery.rabe@cbdc.mg')
+                ->where('handover.items.0.login_email', 'hery.rabe@cliniquesaintgeorges.mg')
                 ->where('handover.items.0.state', 'WAITING')
                 ->where('loginUrl', route('login'))
                 ->missing('handover.items.0.secret'));
@@ -199,7 +199,7 @@ class SiteStaffAccessTest extends TestCase
             ->where('handovers.data.0.status', 'TO_REOPEN'));
 
         $this->actingAs($this->hr)->post("/administration/staff-access/{$handover->uuid}/items/{$item->uuid}/reopen")->assertRedirect()->assertSessionHasNoErrors();
-        $user = User::query()->where('email', 'hery.rabe@cbdc.mg')->sole();
+        $user = User::query()->where('email', 'hery.rabe@cliniquesaintgeorges.mg')->sole();
         $this->assertTrue($user->awaitsActivation());
         $this->assertTrue(AuditLog::query()->where('action', 'staff_access.activation.reopen')->where('entity_id', $user->id)->exists());
 
@@ -231,7 +231,7 @@ class SiteStaffAccessTest extends TestCase
         $this->travel(15)->days();
         $item = StaffAccessHandoverItem::query()->sole();
         $this->withHeaders($this->headers($relay))->postJson("/api/v1/super-admin/hr/staff-access/{$handover->uuid}/items/{$item->uuid}/reopen")->assertOk();
-        $this->assertTrue(User::query()->where('email', 'hery.rabe@cbdc.mg')->sole()->awaitsActivation());
+        $this->assertTrue(User::query()->where('email', 'hery.rabe@cliniquesaintgeorges.mg')->sole()->awaitsActivation());
     }
 
     public function test_the_hr_list_puts_what_needs_a_gesture_first_and_filters_by_card_and_by_employee(): void
@@ -315,7 +315,7 @@ class SiteStaffAccessTest extends TestCase
             $user = User::factory()->create([
                 'role_id' => $this->roleId('RECEPTION'),
                 'name' => $name,
-                'email' => Str::slug($name, '.').'@cbdc.mg',
+                'email' => Str::slug($name, '.').'@cliniquesaintgeorges.mg',
                 'last_login_at' => null,
             ]);
             $user->forceFill(match ($state) {
@@ -355,8 +355,8 @@ class SiteStaffAccessTest extends TestCase
         return [
             'handover_uuid' => '11111111-2222-4333-8444-555555555555',
             'employee_uuid' => $employee->uuid,
-            'email' => 'hery.rabe@cbdc.mg',
-            'mailbox_address' => 'hery.rabe@cbdc.mg',
+            'email' => 'hery.rabe@cliniquesaintgeorges.mg',
+            'mailbox_address' => 'hery.rabe@cliniquesaintgeorges.mg',
             'role_id' => $this->roleId('RECEPTION'),
         ];
     }

@@ -231,7 +231,7 @@ return [
     'professional_email' => [
         'domain' => env('RIVO_PROFESSIONAL_EMAIL_DOMAIN', ''),
         'hosting' => [
-            // ex. https://abyssin.o2switch.net:2083
+            // ex. https://kitty.o2switch.net:2083
             'url' => env('RIVO_MAIL_HOSTING_URL'),
             'user' => env('RIVO_MAIL_HOSTING_USER'),
             // Un jeton API de préférence ; à défaut (outil absent de l'offre o2switch),

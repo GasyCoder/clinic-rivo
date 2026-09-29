@@ -21,7 +21,7 @@ use Tests\TestCase;
  */
 class KeepAliveTest extends TestCase
 {
-    private const ADDRESS = 'soa.rakoto@cbdc.mg';
+    private const ADDRESS = 'soa.rakoto@cliniquesaintgeorges.mg';
 
     private const PASSWORD = 'secret-boite';
 

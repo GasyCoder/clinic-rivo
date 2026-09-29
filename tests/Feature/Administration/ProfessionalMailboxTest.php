@@ -40,7 +40,7 @@ class ProfessionalMailboxTest extends TestCase
             'rivo.site.code' => 'A',
             'rivo.site.name' => 'Ambondromamy',
             'rivo.site_api.token' => 'clinic-test-token',
-            'rivo.professional_email.domain' => 'cbdc.mg',
+            'rivo.professional_email.domain' => 'cliniquesaintgeorges.mg',
         ]);
         $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
         $this->hr = User::factory()->create(['role_id' => Role::query()->where('code', 'ADMINISTRATION')->value('id')]);
@@ -53,7 +53,7 @@ class ProfessionalMailboxTest extends TestCase
         $this->actingAs($this->hr)->get("/administration/employees/{$employee->uuid}")
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('professionalEmail.domain', 'cbdc.mg')
+                ->where('professionalEmail.domain', 'cliniquesaintgeorges.mg')
                 ->where('professionalEmail.suggestion', 'zephyr.andrianina')
                 ->where('professionalEmail.can_request', true)
                 ->where('professionalEmail.current', null));
@@ -61,7 +61,7 @@ class ProfessionalMailboxTest extends TestCase
 
     public function test_a_homonym_gets_a_numbered_suggestion(): void
     {
-        $this->employee('RH-001', ['email' => 'hery.rabe@cbdc.mg']);
+        $this->employee('RH-001', ['email' => 'hery.rabe@cliniquesaintgeorges.mg']);
         $second = $this->employee('RH-002');
 
         $this->actingAs($this->hr)->get("/administration/employees/{$second->uuid}")
@@ -78,7 +78,7 @@ class ProfessionalMailboxTest extends TestCase
             ->assertSessionHasNoErrors();
 
         $mailbox = ProfessionalMailbox::query()->sole();
-        $this->assertSame('hery.rabe@cbdc.mg', $mailbox->address);
+        $this->assertSame('hery.rabe@cliniquesaintgeorges.mg', $mailbox->address);
         $this->assertSame(ProfessionalMailboxStatus::Requested, $mailbox->status);
         $this->assertSame($this->hr->id, $mailbox->requested_by);
         $this->assertSame('Arrivé lundi', $mailbox->request_note);
@@ -148,19 +148,19 @@ class ProfessionalMailboxTest extends TestCase
         $mailbox = $this->requested();
 
         $this->withHeaders($this->headers(['professional_emails.view', 'professional_emails.create']))
-            ->postJson("/api/v1/super-admin/professional-mailboxes/{$mailbox->uuid}/activate", ['address' => 'hery.rabe2@cbdc.mg'])
+            ->postJson("/api/v1/super-admin/professional-mailboxes/{$mailbox->uuid}/activate", ['address' => 'hery.rabe2@cliniquesaintgeorges.mg'])
             ->assertOk()
             ->assertJsonPath('data.status', 'ACTIVE')
-            ->assertJsonPath('data.address', 'hery.rabe2@cbdc.mg')
+            ->assertJsonPath('data.address', 'hery.rabe2@cliniquesaintgeorges.mg')
             ->assertJsonPath('data.decided_by', 'Direction centrale');
 
-        $this->assertSame('hery.rabe2@cbdc.mg', $mailbox->employee->fresh()->email);
+        $this->assertSame('hery.rabe2@cliniquesaintgeorges.mg', $mailbox->employee->fresh()->email);
         $audit = AuditLog::query()->where('entity_type', $mailbox->getMorphClass())->where('entity_id', $mailbox->id)->latest('id')->firstOrFail();
         $this->assertSame(self::ACTOR_UUID, $audit->external_actor_uuid);
 
         // Rejouée à l'identique (confirmation perdue puis renvoyée) : rien ne change, rien ne casse.
         $this->withHeaders($this->headers(['professional_emails.create']))
-            ->postJson("/api/v1/super-admin/professional-mailboxes/{$mailbox->uuid}/activate", ['address' => 'hery.rabe2@cbdc.mg'])
+            ->postJson("/api/v1/super-admin/professional-mailboxes/{$mailbox->uuid}/activate", ['address' => 'hery.rabe2@cliniquesaintgeorges.mg'])
             ->assertOk();
     }
 
@@ -173,7 +173,7 @@ class ProfessionalMailboxTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('address');
 
         $this->withHeaders($this->headers(['professional_emails.view']))
-            ->postJson("/api/v1/super-admin/professional-mailboxes/{$mailbox->uuid}/activate", ['address' => 'hery.rabe@cbdc.mg'])
+            ->postJson("/api/v1/super-admin/professional-mailboxes/{$mailbox->uuid}/activate", ['address' => 'hery.rabe@cliniquesaintgeorges.mg'])
             ->assertForbidden();
 
         $this->assertSame(ProfessionalMailboxStatus::Requested, $mailbox->fresh()->status);
@@ -199,7 +199,7 @@ class ProfessionalMailboxTest extends TestCase
             ->getJson('/api/v1/super-admin/professional-mailboxes')
             ->assertOk()
             ->assertJsonPath('meta.summary.to_suspend', 1)
-            ->assertJsonPath('meta.domain', 'cbdc.mg');
+            ->assertJsonPath('meta.domain', 'cliniquesaintgeorges.mg');
 
         $this->withHeaders($this->headers(['professional_emails.deactivate']))
             ->postJson("/api/v1/super-admin/professional-mailboxes/{$mailbox->uuid}/suspend", ['reason' => 'Départ de la clinique'])
@@ -281,13 +281,13 @@ class ProfessionalMailboxTest extends TestCase
             ->postJson('/administration/professional-emails/direct', ['employee_uuid' => $employee->uuid, 'local_part' => 'hery.rabe'])
             ->assertOk()
             ->assertJsonPath('confirmed', true)
-            ->assertJsonPath('address', 'hery.rabe@cbdc.mg')
+            ->assertJsonPath('address', 'hery.rabe@cliniquesaintgeorges.mg')
             ->json('password');
 
         $this->assertNotEmpty($password);
         $mailbox = ProfessionalMailbox::query()->sole();
         $this->assertSame(ProfessionalMailboxStatus::Active, $mailbox->status);
-        $this->assertSame('hery.rabe@cbdc.mg', $employee->fresh()->email);
+        $this->assertSame('hery.rabe@cliniquesaintgeorges.mg', $employee->fresh()->email);
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/login/?login_only=1') && $request['pass'] === 'secret-cpanel');
         Http::assertSent(fn ($request) => str_contains($request->url(), '/cpsess0123456789/execute/Email/add_pop') && $request->hasHeader('Cookie', 'cpsession=flbe4406%3aSESSION'));
 
@@ -332,7 +332,7 @@ class ProfessionalMailboxTest extends TestCase
 
         return ProfessionalMailbox::query()->create([
             'employee_id' => $employee->id,
-            'address' => 'hery.'.strtolower(str_replace('-', '', $number)).'@cbdc.mg',
+            'address' => 'hery.'.strtolower(str_replace('-', '', $number)).'@cliniquesaintgeorges.mg',
             'status' => ProfessionalMailboxStatus::Requested,
             'requested_at' => now(),
             'requested_by' => $this->hr->id,

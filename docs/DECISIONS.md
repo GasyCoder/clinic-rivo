@@ -17268,8 +17268,8 @@ RH ne demande plus l'adresse depuis la fiche. « Adresse seule » reste possible
 première connexion, celui qu'il choisit.
 
 Le CDC ne décrit aucune adresse email professionnelle : les règles ci-dessous sont celles du propriétaire.
-L'hébergeur est o2switch (cPanel) ; le domaine de test est `cbdc.mg`, remplacé par le domaine officiel de la
-clinique à son achat — il se règle dans l'environnement, jamais dans le code.
+L'hébergeur est o2switch (cPanel) ; le domaine est `cliniquesaintgeorges.mg`, le domaine officiel de la
+clinique (amendement du 2026-09-29) — il se règle dans l'environnement, jamais dans le code.
 
 ## Les arbitrages
 
@@ -17475,6 +17475,26 @@ assumées : un employé qui n'aura jamais d'adresse pro n'a pas d'email dans RIV
 **ne sont pas effacés** (ADR-010) : ils s'affichent en lecture seule et seront remplacés à l'activation d'une
 adresse pro. Aucune migration, aucune permission nouvelle. Les tests ne lisent plus les accès réels à
 l'hébergeur du poste (`phpunit.xml` les force à vide).
+
+## Amendement du 2026-09-29 — le domaine officiel remplace le domaine de test
+
+Le propriétaire a acquis `cliniquesaintgeorges.mg` et demande de retirer tout ce qui concernait le domaine de
+test. Aucune règle ne change : le domaine vient de `RIVO_PROFESSIONAL_EMAIL_DOMAIN`, lu partout.
+
+```text
+configuration   RIVO_PROFESSIONAL_EMAIL_DOMAIN=cliniquesaintgeorges.mg sur les sites et le portail ;
+                l'hébergeur du nouveau domaine est un autre compte cPanel, dont les accès se posent
+                dans le .env du portail et de chaque site (ADR-202)
+données         arbitrage du propriétaire : les adresses de test ne sont pas renommées, elles sont
+                retirées. Base du site réinitialisée (migrate:fresh --seed, après sauvegarde) ; au
+                portail, les enregistrements de boîtes créées sur le domaine de test sont supprimés.
+                L'audit du portail est conservé (ADR-010) : il garde la trace des boîtes réellement
+                créées chez l'ancien hébergeur, qui n'y sont pas supprimées par RIVO
+code et tests   plus aucune mention du domaine de test ; les tests écrivent @cliniquesaintgeorges.mg
+```
+
+Piège constaté : le portail local tourne avec `php artisan serve --env=admin --no-reload`, qui garde en mémoire
+les valeurs de `.env.admin` lues au démarrage. Changer le domaine exige de redémarrer ce serveur.
 
 ---
 

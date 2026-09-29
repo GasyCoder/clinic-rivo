@@ -337,19 +337,19 @@ class EmployeeManagementTest extends TestCase
         $this->assertNull($employee->email);
 
         // Posée par l'activation de l'adresse professionnelle.
-        $employee->forceFill(['email' => 'soa.rabe@cbdc.mg'])->save();
+        $employee->forceFill(['email' => 'soa.rabe@cliniquesaintgeorges.mg'])->save();
 
         foreach ([[], ['email' => '']] as $extra) {
             $this->actingAs($actor)
                 ->put("/administration/employees/{$employee->uuid}", [...$this->validPayload(), 'first_name' => 'Soavina', ...$extra])
                 ->assertSessionHasNoErrors();
-            $this->assertSame('soa.rabe@cbdc.mg', $employee->fresh()->email, 'modifier la fiche n’efface pas l’adresse professionnelle');
+            $this->assertSame('soa.rabe@cliniquesaintgeorges.mg', $employee->fresh()->email, 'modifier la fiche n’efface pas l’adresse professionnelle');
         }
 
         $this->actingAs($actor)
             ->put("/administration/employees/{$employee->uuid}", [...$this->validPayload(), 'email' => 'autre@gmail.com'])
             ->assertSessionHasErrors('email');
-        $this->assertSame('soa.rabe@cbdc.mg', $employee->fresh()->email);
+        $this->assertSame('soa.rabe@cliniquesaintgeorges.mg', $employee->fresh()->email);
     }
 
     /** @return array<string, mixed> */

@@ -493,6 +493,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Conclusion partielle par ligne ajoutée, annulée, modifiée, supprimée ; « Conclusion de l'analyse » retirée au profit de la conclusion générale (ADR-219)
 - [x] « Réinitialiser la saisie » d'une analyse jamais envoyée, confirmée et tracée (ADR-219)
 - [x] Pied d'une analyse simplifié : un seul bouton « Envoyer au médecin », les autres gestes (renvoyer à refaire, laboratoire extérieur, réinitialiser) dans « Autres actions » avec leur raison quand ils sont indisponibles ; conclusion générale enregistrée d'elle-même (ADR-219, amendement du 2026-09-29)
+- [x] Un intitulé du catalogue (« Soit » dans la NFS) s'affiche en séparateur, sans conclusion partielle ; seuls les vrais groupes en portent une (ADR-219, amendement du 2026-09-29)
 - [x] Nom d'analyse en gras seulement si le catalogue le dit, à l'écran et sur le PDF (ADR-219)
 - [x] « Demandes d'examens » : le laboratoire y a le bouton de sa file (Traiter, Continuer, Reprendre, Envoyer, Voir) (ADR-219)
 - [x] Paillasse : barre glissable entre « Tâche(s) à traiter » et l'analyse, en-tête rangé ; « Demandes d'examens » : un seul statut pour une analyse, le règlement en repère dessous (ADR-219)

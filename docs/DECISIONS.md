@@ -21083,6 +21083,13 @@ conclusion générale  marquée facultative, expliquée (synthèse de toute la d
                      résultats, lue par le médecin) et enregistrée d'elle-même ; « Enregistrer la
                      conclusion » est retiré ; « Envoyer au médecin » la fait partir d'abord
 ```
+
+**Un intitulé n'est pas un groupe.** « Soit », dans la NFS, est une ligne « simple titre » de labo-vuejs
+(`entry_mode = LABEL`, niveau normal) : il sépare la formule leucocytaire en % de ses valeurs absolues. L'écran
+le présentait comme un « Groupe » avec une conclusion partielle, sans objet pour un séparateur. Il est désormais
+servi `is_label` et dessiné comme un intertitre suivi d'un filet, sans conclusion ; le serveur refuse une
+conclusion sur un intitulé (une ancienne peut encore s'effacer). Un vrai groupe (niveau `PARENT`) garde la
+sienne. Le PDF l'imprimait déjà en intertitre.
 ---
 
 # ADR-220 — Demandes d'analyses : archiver, corriger, mettre à la corbeille, une à une ou en lot

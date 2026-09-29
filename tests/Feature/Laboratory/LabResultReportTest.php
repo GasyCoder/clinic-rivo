@@ -85,6 +85,29 @@ class LabResultReportTest extends TestCase
         $this->assertNull(LabAnalysisNote::query()->where('analysis_catalog_id', $rows['hb']->id)->first());
     }
 
+    /**
+     * Un intitulé (« Soit » dans la NFS) sépare deux blocs de lignes : il est servi
+     * comme tel et ne porte pas de conclusion ; un vrai groupe en garde une.
+     */
+    public function test_a_simple_heading_is_a_separator_and_takes_no_conclusion(): void
+    {
+        [$request, $item, $technician, $rows] = $this->workedRequest($this->userWithRole('MEDICINE'));
+        $soit = $this->definition($item->catalogItem, [
+            'parent_id' => $rows['group']->id, 'code' => 'SOIT', 'designation' => 'Soit',
+            'result_type' => 'TEXT', 'entry_mode' => 'LABEL', 'display_order' => 3,
+        ]);
+
+        $this->actingAs($technician)->put("/laboratory/items/{$item->uuid}/results", [
+            'results' => [], 'notes' => [['analysis_uuid' => $soit->uuid, 'note' => 'Valeurs absolues']],
+        ])->assertSessionHasErrors('notes.0.note');
+        $this->assertNull(LabAnalysisNote::query()->where('analysis_catalog_id', $soit->id)->first());
+
+        $this->actingAs($technician)->get("/laboratory/requests/{$request->uuid}")
+            ->assertInertia(fn (\Inertia\Testing\AssertableInertia $page) => $page
+                ->where('items.0.nodes', fn ($nodes) => collect($nodes)->firstWhere('uuid', $soit->uuid)['is_label'] === true
+                    && collect($nodes)->firstWhere('uuid', $rows['group']->uuid)['is_label'] === false));
+    }
+
     public function test_a_note_on_an_analysis_of_another_prestation_is_refused(): void
     {
         [, $item, $technician] = $this->workedRequest($this->userWithRole('MEDICINE'));

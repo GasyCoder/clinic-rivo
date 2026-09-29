@@ -330,9 +330,23 @@ const anteriorityText = (node) => {
         <!-- Les lignes du catalogue : une carte par analyse, un groupe porte ses lignes -->
         <div v-if="item.has_definitions" class="space-y-3 p-3 sm:p-5">
             <template v-for="node in nodes" :key="node.uuid">
-                <!-- Groupe ou intitulé : aucune saisie, sa conclusion partielle -->
+                <!-- Un intitulé (« Soit » dans la NFS) : un séparateur entre deux blocs de
+                     lignes — ni saisie, ni conclusion. -->
+                <div
+                    v-if="node.is_label"
+                    role="separator"
+                    :aria-label="node.designation"
+                    class="flex items-center gap-3 px-1 pt-2"
+                    :style="{ marginInlineStart: `${node.depth * 1.25}rem` }"
+                >
+                    <span :class="cn('shrink-0 text-xs text-muted-foreground', node.is_bold ? 'font-bold text-foreground' : 'font-semibold italic')">{{ node.designation }}</span>
+                    <span class="h-px flex-1 bg-border" aria-hidden="true" />
+                    <span v-if="node.note" class="max-w-[50%] truncate text-xs italic text-muted-foreground" :title="node.note">{{ node.note }}</span>
+                </div>
+
+                <!-- Un groupe : les lignes qu'il réunit suivent, il porte sa conclusion partielle -->
                 <section
-                    v-if="!node.takes_result"
+                    v-else-if="!node.takes_result"
                     class="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3"
                     :style="{ marginInlineStart: `${node.depth * 1.25}rem` }"
                 >

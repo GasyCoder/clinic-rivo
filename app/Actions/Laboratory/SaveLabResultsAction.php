@@ -128,6 +128,11 @@ class SaveLabResultsAction
 
                     continue;
                 }
+                // Un intitulé (« Soit ») n'est qu'un séparateur : aucune conclusion n'y
+                // s'écrit. Une note ancienne peut encore s'effacer (ci-dessus).
+                if (LabEntryMode::for($analysis) === LabEntryMode::Label && $analysis->level !== AnalysisCatalog::CONTAINER_LEVEL) {
+                    throw ValidationException::withMessages(["notes.{$index}.note" => "« {$analysis->designation} » est un intitulé : il ne porte pas de conclusion."]);
+                }
                 if ($existing?->note === $text) {
                     continue;
                 }

@@ -111,6 +111,9 @@ class LabWorkbench
                 'designation' => $result?->designation_snapshot ?? $analysis->designation,
                 'depth' => $row['depth'],
                 'is_group' => $analysis->level === AnalysisCatalog::CONTAINER_LEVEL,
+                // Un simple intitulé (« Soit » dans la NFS) sépare deux blocs de lignes :
+                // ce n'est ni une saisie ni un groupe, il ne porte pas de conclusion.
+                'is_label' => $mode === LabEntryMode::Label && $analysis->level !== AnalysisCatalog::CONTAINER_LEVEL,
                 'is_bold' => (bool) $analysis->is_bold,
                 'entry_mode' => $mode->value,
                 'entry_mode_label' => $mode->label(),

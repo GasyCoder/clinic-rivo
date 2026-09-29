@@ -494,6 +494,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Le médecin relit puis valide le résultat reçu (« Terminé · à valider » → « Validé »), une analyse ou toutes ; un patient externe est validé à l'envoi ; une reprise retire la validation (ADR-216, amendement quater)
 - [x] « Demandes d'examens » : vue « À valider » par défaut quand elle n'est pas vide, statuts « Terminé · à valider » / « Résultats validés », bouton « Vérifier et valider » (ADR-216, amendement quater)
 - [x] Réception « Résultats à remettre » : résultats validés, Tous / Complets / Partiels, compte rendu PDF à imprimer, lien depuis le détail du passage (`laboratory_results.validated_view`) (ADR-216, amendement quater)
+- [x] Feuille des résultats du médecin allégée : état du compte rendu en ligne neutre sous l'en-tête (plus de bandeau coloré), colonne « Analyses » élargie, une analyse par bloc (ADR-216, amendement quater)
 - [ ] Tracer la remise du compte rendu au patient, notifier la Réception d'une validation — à décider (ADR-216, amendement quater)
 - [x] Note par ligne d'analyse (groupes compris), conclusion de chaque analyse et conclusion générale, comme labo-vuejs (ADR-218)
 - [x] Compte rendu de résultats en PDF produit par le serveur : sections par discipline, Résultat · Val. réf. · Antériorité, notes, provisoire ; montré, imprimé et téléchargé depuis la page ; version du médecin limitée à l'envoyé (ADR-218)

@@ -1,10 +1,9 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import { AlertTriangle, ArrowLeft, BadgeCheck, CheckCircle2, Download, ExternalLink, FileText, FlaskConical, Hourglass, Microscope, Printer, RotateCcw, TriangleAlert } from 'lucide-vue-next';
+import { AlertTriangle, ArrowLeft, BadgeCheck, CheckCircle2, Download, ExternalLink, FileText, FlaskConical, Hourglass, Info, Microscope, Printer, RotateCcw } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import SealedLabResult from '@/Components/Laboratory/SealedLabResult.vue';
-import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
@@ -14,7 +13,7 @@ import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
 import { LAB_STATUS_TONES } from '@/utilities/labWorkbench';
-import { approvalBadge, awaitingApproval, approvalSummary } from '@/utilities/labApproval';
+import { approvalBadge, awaitingApproval, approvalSummary, itemApprovalLine } from '@/utilities/labApproval';
 import { labUrl } from '@/utilities/labUrl';
 
 /**
@@ -79,6 +78,18 @@ const submitApprove = () => {
         onSuccess: () => { approving.value = null; },
     });
 };
+// Une analyse se lit d'un coup d'œil : un point de couleur et un mot, jamais une
+// pastille criarde — la couleur ne porte jamais seule le sens.
+const DOT = { success: 'bg-emerald-500', warning: 'bg-amber-500', danger: 'bg-red-500', primary: 'bg-primary' };
+const itemState = (item) => {
+    const badge = approvalBadge(item);
+    const tone = badge ? badge.tone : (item.in_correction ? 'danger' : LAB_STATUS_TONES[item.status]);
+    const label = badge ? badge.label : (item.in_correction ? 'En correction' : item.status_label);
+    // Validée : une seule ligne dit qui et quand (« Validé par Dr … le … »).
+    const line = itemApprovalLine(item, formatDateTime);
+    return { dot: DOT[tone] ?? 'bg-muted-foreground/50', label: line?.tone === 'success' ? line.text : label, title: badge?.title ?? label };
+};
+
 // Le PDF se relit après une validation : il la porte au bas du compte rendu.
 const pdfKey = computed(() => props.items.map((item) => `${item.uuid}:${item.approval?.state ?? ''}`).join('|'));
 
@@ -114,7 +125,8 @@ const print = () => {
 
     <div v-else class="w-full space-y-4">
         <!-- En-tête : qui, quoi, et les gestes du compte rendu -->
-        <Card class="flex flex-wrap items-start justify-between gap-3 p-4">
+        <Card class="overflow-hidden">
+            <div class="flex flex-wrap items-start justify-between gap-3 p-4">
             <div class="flex min-w-0 items-start gap-3">
                 <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><FileText class="h-5 w-5" /></span>
                 <div class="min-w-0">
@@ -135,68 +147,80 @@ const print = () => {
                     <Button as="a" :href="downloadUrl" size="sm"><Download class="h-4 w-4" /> Télécharger le PDF</Button>
                 </template>
             </div>
+            </div>
+
+            <!--
+                L'état du compte rendu : une ligne sobre sous l'en-tête, jamais un bandeau
+                coloré. Amendement ADR-216 quater — la validation du médecin d'abord.
+            -->
+            <div v-if="(physician && awaiting.length) || summary.allApproved || provisional" class="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-2.5" role="status">
+                <p v-if="physician && awaiting.length" class="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+                    <BadgeCheck class="h-4 w-4 shrink-0 text-primary" />
+                    <span><span class="font-medium text-foreground">{{ awaiting.length === 1 ? '1 résultat attend votre validation' : `${awaiting.length} résultats attendent votre validation` }}</span> — relisez le compte rendu ; une fois validé, la Réception peut le remettre au patient.</span>
+                </p>
+                <p v-else-if="summary.allApproved" class="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+                    <CheckCircle2 class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <span><span class="font-medium text-foreground">Résultats validés</span><template v-if="summary.by.length"> par {{ summary.by.join(', ') }}</template><template v-if="summary.at"> le {{ formatDateTime(summary.at) }}</template> — {{ physician ? 'la Réception peut remettre le compte rendu au patient.' : 'la Réception les voit dans « Résultats à remettre ».' }}</span>
+                </p>
+                <p v-else class="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+                    <Info class="h-4 w-4 shrink-0" />
+                    <span><span class="font-medium text-foreground">Document provisoire</span> — au moins une analyse n’est pas encore envoyée au médecin ; le PDF le dit en tête.</span>
+                </p>
+                <template v-if="physician && awaiting.length">
+                    <Button v-if="can.approve" type="button" size="sm" @click="askApprove()"><CheckCircle2 class="h-4 w-4" />{{ awaiting.length === 1 ? 'Valider' : `Tout valider (${awaiting.length})` }}</Button>
+                    <p v-else class="text-xs text-muted-foreground">Valider demande le droit « laboratory_results.approve ».</p>
+                </template>
+            </div>
         </Card>
 
-        <div v-if="provisional" class="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200" role="status">
-            <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
-            <p>Document provisoire : au moins une analyse n’est pas encore envoyée au médecin. Le PDF le dit en tête.</p>
-        </div>
-
-        <!-- Amendement ADR-216 quater — la validation du médecin, avant tout le reste. -->
-        <div v-if="physician && awaiting.length" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30" role="status">
-            <div class="flex min-w-0 items-start gap-3">
-                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"><BadgeCheck class="h-5 w-5" /></span>
-                <div class="min-w-0 text-sm text-amber-950 dark:text-amber-100">
-                    <p class="font-semibold">{{ awaiting.length === 1 ? '1 résultat terminé attend votre validation' : `${awaiting.length} résultats terminés attendent votre validation` }}</p>
-                    <p class="text-amber-900/80 dark:text-amber-200/80">Relisez le compte rendu ci-dessous. Une fois validés, la Réception peut le remettre au patient.</p>
+        <div class="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
+            <!-- Ce que porte le compte rendu : une analyse par bloc, lisible sans se serrer -->
+            <Card class="h-fit overflow-hidden">
+                <div class="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+                    <p class="text-sm font-semibold text-foreground">Analyses du compte rendu</p>
+                    <span v-if="items.length" class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">{{ items.length }}</span>
                 </div>
-            </div>
-            <Button v-if="can.approve" type="button" @click="askApprove()"><CheckCircle2 class="h-4 w-4" />{{ awaiting.length === 1 ? 'Valider' : `Tout valider (${awaiting.length})` }}</Button>
-            <p v-else class="text-xs text-amber-900 dark:text-amber-200">Valider demande le droit « laboratory_results.approve ».</p>
-        </div>
-        <div v-else-if="summary.allApproved" class="flex items-start gap-3 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100" role="status">
-            <CheckCircle2 class="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-300" />
-            <p><span class="font-semibold">Résultats validés</span><template v-if="summary.by.length"> par {{ summary.by.join(', ') }}</template><template v-if="summary.at"> le {{ formatDateTime(summary.at) }}</template>. {{ physician ? 'La Réception peut remettre le compte rendu au patient.' : 'La Réception les voit dans « Résultats à remettre ».' }}</p>
-        </div>
-
-        <div class="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
-            <!-- Ce que porte le compte rendu -->
-            <Card class="h-fit p-3">
-                <p class="px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Analyses du compte rendu</p>
-                <ul v-if="items.length" class="space-y-1">
-                    <li v-for="item in items" :key="item.uuid" class="flex items-start justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50">
-                        <span class="flex min-w-0 items-start gap-2">
-                            <FlaskConical class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <span class="min-w-0 text-foreground">{{ item.name }}</span>
-                        </span>
-                        <span class="flex shrink-0 flex-col items-end gap-1">
-                            <Badge v-if="approvalBadge(item)" :tone="approvalBadge(item).tone" :title="approvalBadge(item).title">{{ approvalBadge(item).label }}</Badge>
-                            <Badge v-else :tone="item.in_correction ? 'danger' : LAB_STATUS_TONES[item.status]">{{ item.in_correction ? 'En correction' : item.status_label }}</Badge>
-                            <Button
-                                v-if="physician && can.approve && item.approval?.state === 'AWAITING'"
-                                type="button"
-                                size="xs"
-                                @click="askApprove(item)"
+                <ul v-if="items.length" class="divide-y divide-border">
+                    <li v-for="item in items" :key="item.uuid" class="flex gap-3 px-4 py-3.5">
+                        <span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><FlaskConical class="h-4 w-4" /></span>
+                        <div class="min-w-0 flex-1 space-y-1.5">
+                            <p class="text-sm font-medium leading-snug text-foreground">{{ item.name }}</p>
+                            <p class="flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground" :title="itemState(item).title">
+                                <span class="mt-[0.4rem] h-1.5 w-1.5 shrink-0 rounded-full" :class="itemState(item).dot" aria-hidden="true" />
+                                {{ itemState(item).label }}
+                            </p>
+                            <div
+                                v-if="physician && ((can.approve && item.approval?.state === 'AWAITING') || (can.return && !item.in_correction && item.status === 'VALIDATED'))"
+                                class="flex flex-wrap items-center gap-1.5 pt-1"
                             >
-                                <CheckCircle2 class="h-3.5 w-3.5" /> Valider
-                            </Button>
-                            <Button
-                                v-if="physician && can.return && !item.in_correction && item.status === 'VALIDATED'"
-                                type="button"
-                                size="xs"
-                                variant="ghost"
-                                class="text-destructive hover:text-destructive"
-                                @click="askRedo(item)"
-                            >
-                                <RotateCcw class="h-3.5 w-3.5" /> Demander à refaire
-                            </Button>
-                        </span>
+                                <Button
+                                    v-if="can.approve && item.approval?.state === 'AWAITING'"
+                                    type="button"
+                                    size="xs"
+                                    variant="outline"
+                                    @click="askApprove(item)"
+                                >
+                                    <CheckCircle2 class="h-3.5 w-3.5 text-primary" /> Valider
+                                </Button>
+                                <Button
+                                    v-if="can.return && !item.in_correction && item.status === 'VALIDATED'"
+                                    type="button"
+                                    size="xs"
+                                    variant="ghost"
+                                    class="text-muted-foreground hover:text-destructive"
+                                    :title="`Demander à refaire « ${item.name} »`"
+                                    @click="askRedo(item)"
+                                >
+                                    <RotateCcw class="h-3.5 w-3.5" /> Demander à refaire
+                                </Button>
+                            </div>
+                        </div>
                     </li>
                 </ul>
-                <p v-else class="px-1 text-sm text-muted-foreground">{{ physician ? 'Aucun résultat envoyé par le laboratoire pour l’instant.' : 'Aucune analyse rendue pour cette demande.' }}</p>
-                <div v-if="physician && pending.length" class="mt-3 border-t border-border px-1 pt-2 text-xs text-muted-foreground">
-                    <p class="flex items-center gap-1 font-semibold"><Hourglass class="h-3 w-3" /> En cours au laboratoire</p>
-                    <p class="mt-1">{{ pending.join(', ') }}</p>
+                <p v-else class="px-4 py-4 text-sm text-muted-foreground">{{ physician ? 'Aucun résultat envoyé par le laboratoire pour l’instant.' : 'Aucune analyse rendue pour cette demande.' }}</p>
+                <div v-if="physician && pending.length" class="border-t border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+                    <p class="flex items-center gap-1.5 font-medium text-foreground"><Hourglass class="h-3.5 w-3.5 text-muted-foreground" /> En cours au laboratoire</p>
+                    <p class="mt-1 leading-relaxed">{{ pending.join(', ') }}</p>
                 </div>
             </Card>
 

@@ -45,3 +45,10 @@ test('le médecin valide depuis sa feuille ; la Réception a son écran', () => 
     const workspaces = fs.readFileSync('resources/js/utilities/clinicWorkspaces.js', 'utf8');
     assert.match(workspaces, /link: '\/reception\/resultats-analyses', permission: 'laboratory_results\.validated_view'/);
 });
+
+test('le compte rendu dit son état sur une ligne sobre, sans bandeau coloré', () => {
+    const print = fs.readFileSync('resources/js/Pages/Laboratory/ResultsPrint.vue', 'utf8');
+    assert.doesNotMatch(print, /bg-(amber|emerald)-50\b/, 'l’état du compte rendu ne doit plus être un bandeau coloré');
+    assert.match(print, /Analyses du compte rendu/);
+    assert.match(print, /lg:grid-cols-\[20rem_minmax\(0,1fr\)\]/);
+});

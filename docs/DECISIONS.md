@@ -20929,6 +20929,12 @@ Réception     /reception/resultats-analyses (menu Réception « Résultats à r
               n'est servie
 ```
 
+**Présentation (même jour).** Sur la feuille des résultats, l'état du compte rendu (à valider, validé, provisoire)
+n'est plus un bandeau ambre ou vert : c'est une ligne neutre au pied de l'en-tête, avec « Tout valider » à droite. La
+colonne « Analyses du compte rendu » s'élargit (20 rem) : une analyse par bloc, son nom en entier, son état en point
+de couleur et en mot (« Validé par … le … » en une seule ligne), puis « Valider » et « Demander à refaire » côte à côte.
+Aucune règle ni route ne change.
+
 **Signalé, non tranché.** Rien ne trace la remise du compte rendu au patient (« remis le … ») : à décider.
 La Réception n'est pas notifiée d'une validation — la liste est le canal. L'imagerie n'a pas d'étape de
 validation : son compte rendu est écrit par le médecin lui-même.

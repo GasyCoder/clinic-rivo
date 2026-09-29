@@ -90,7 +90,7 @@ const delays = computed(() => [
 ]);
 
 const backlog = computed(() => [
-    { key: 'to_receive', label: 'À réceptionner', value: totals.value.backlog_to_receive, href: labUrl('/laboratory?view=to_receive'), icon: Inbox },
+    { key: 'to_receive', label: 'Pas encore commencées', value: totals.value.backlog_to_receive, href: labUrl('/laboratory?view=to_do'), icon: Inbox },
     { key: 'open', label: 'À analyser', value: totals.value.backlog_open, href: labUrl('/laboratory?view=to_do'), icon: Hourglass },
     { key: 'to_validate', label: 'À envoyer', value: totals.value.backlog_to_validate, href: labUrl('/laboratory?view=to_validate'), icon: BadgeCheck },
 ]);

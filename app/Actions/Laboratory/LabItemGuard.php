@@ -3,7 +3,9 @@
 namespace App\Actions\Laboratory;
 
 use App\Enums\LabItemStatus;
+use App\Models\LabRequest;
 use App\Models\LabRequestItem;
+use App\Models\User;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -11,8 +13,9 @@ use Illuminate\Validation\ValidationException;
  * ligne verrouillée : une demande retirée par le médecin ne se travaille plus
  * (ADR-079), et une analyse terminée ou validée ne se modifie plus.
  *
- * ADR-214 — et rien ne se saisit avant la réception de la demande : c'est elle
- * qui contrôle le règlement (CDC §14 : « Payé ? Non → En attente »).
+ * ADR-217 — la première saisie prend la demande en charge si personne ne l'a
+ * encore fait : le technicien n'est jamais arrêté par une étape de réception,
+ * ni par le règlement, qui reste l'affaire de la Caisse.
  */
 final class LabItemGuard
 {
@@ -43,19 +46,23 @@ final class LabItemGuard
         return $locked;
     }
 
-    /** Saisissable, et la demande est passée par la réception du laboratoire. */
-    public static function lockWorkable(LabRequestItem $item): LabRequestItem
+    /** Saisissable ; la demande est prise en charge au passage si elle ne l'est pas encore. */
+    public static function lockWorkable(LabRequestItem $item, User $actor): LabRequestItem
     {
         $locked = self::lockEditable($item);
-        self::ensureReceived($locked);
+        self::ensureTakenUp($locked->labRequest, $actor);
 
         return $locked;
     }
 
-    public static function ensureReceived(LabRequestItem $item, string $key = 'item'): void
+    public static function ensureTakenUp(LabRequest $request, User $actor): void
     {
-        if ($item->labRequest->received_at === null) {
-            throw ValidationException::withMessages([$key => 'Réceptionnez d’abord la demande : c’est la réception qui contrôle le règlement et enregistre les prélèvements.']);
+        if ($request->received_at !== null) {
+            return;
         }
+
+        $lockedRequest = LabRequest::query()->lockForUpdate()->findOrFail($request->getKey());
+        app(ReceiveLabRequestAction::class)->takeUp($lockedRequest, $actor);
+        $request->setRawAttributes($lockedRequest->getAttributes(), true);
     }
 }

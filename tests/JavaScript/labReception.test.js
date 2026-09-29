@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { CODE128_PATTERNS, code128Bars, code128Encodable, code128Modules, code128Values } from '../../resources/js/utilities/code128.js';
 import { criticalFlag, criticalRangesCount, criticalRangesForm, criticalRangesPayload } from '../../resources/js/utilities/criticalRanges.js';
 import { emptySampleLine, paymentBadge, sampleLinesPayload, sampleLinesTubeCount, sampleTubeOf } from '../../resources/js/utilities/labReception.js';
-import { LAB_STATE_LABELS, LAB_VIEWS } from '../../resources/js/utilities/labWorkbench.js';
+import { LAB_ROW_ACTIONS, LAB_STATE_LABELS, LAB_VIEWS, itemProgress, rowAction } from '../../resources/js/utilities/labWorkbench.js';
 
 /** ADR-214 — les règles d'écran de la réception au laboratoire. Le serveur reste juge. */
 
@@ -80,21 +80,38 @@ test('prélèvements : le tube suit le type, une ligne vide ne part pas, la quan
     assert.equal(emptySampleLine(options).sample_type_uuid, '');
 });
 
-test('règlement : aucune somme, seulement l’état — et l’urgence ne dit jamais « à régler »', () => {
+test('règlement : une information, jamais un verrou — aucune somme, rien quand il n’y a rien à dire (ADR-217)', () => {
     assert.equal(paymentBadge(null), null);
-    assert.equal(paymentBadge({ cleared: true, exemption: 'EMERGENCY', exemption_label: 'Urgence' }).label, 'Urgence');
-    assert.equal(paymentBadge({ cleared: true, exemption: null, unbilled_count: 0 }).tone, 'success');
+    assert.equal(paymentBadge({ cleared: true, exemption: 'EMERGENCY', exemption_label: 'Urgence' }), null);
+    assert.equal(paymentBadge({ cleared: true, exemption: 'HOSPITALIZED', exemption_label: 'Hospitalisé' }).label, 'Hospitalisé');
+    assert.equal(paymentBadge({ cleared: true, exemption: null, unbilled_count: 0 }), null);
     assert.equal(paymentBadge({ cleared: true, exemption: null, unbilled_count: 1 }).tone, 'info');
     const due = paymentBadge({ cleared: false, exemption: null, due_count: 2 });
     assert.equal(due.tone, 'warning');
+    assert.match(due.hint, /n’empêche pas/);
     assert.doesNotMatch(JSON.stringify(due), /Ar\b|\d{4,}/, 'aucun montant (ADR-014)');
 });
 
-test('la file commence par la réception, et chaque vue a son libellé', () => {
-    assert.equal(LAB_VIEWS[0].value, 'to_receive');
-    for (const view of LAB_VIEWS.filter((entry) => entry.value !== 'all')) {
+test('la file commence par « À traiter », et chaque vue a son libellé (ADR-217)', () => {
+    assert.equal(LAB_VIEWS[0].value, 'to_do');
+    assert.ok(!LAB_VIEWS.some((view) => view.value === 'to_receive'), 'plus de vue « À réceptionner »');
+    for (const view of LAB_VIEWS.filter((entry) => !['all', 'archived'].includes(entry.value))) {
         assert.ok(LAB_STATE_LABELS[view.value], `libellé d’état manquant pour ${view.value}`);
     }
+});
+
+test('chaque ligne porte son geste : Traiter, Continuer, Reprendre — Voir sans le droit de commencer', () => {
+    assert.equal(rowAction({ action: 'start' }), 'start');
+    assert.equal(rowAction({ action: 'start' }, false), 'open');
+    assert.equal(rowAction({ action: 'continue' }, false), 'continue');
+    assert.equal(rowAction({}), 'open');
+    for (const key of ['start', 'continue', 'redo', 'send', 'open']) assert.ok(LAB_ROW_ACTIONS[key]?.label, key);
+});
+
+test('l’avancement d’une analyse se lit sur ce qui attend un résultat', () => {
+    const item = { nodes: [{ takes_result: true, result: { value: '1' } }, { takes_result: true, result: null }, { takes_result: false, result: null }] };
+    assert.deepEqual(itemProgress(item), { done: 1, total: 2, ratio: 0.5 });
+    assert.deepEqual(itemProgress({}), { done: 0, total: 0, ratio: 0 });
 });
 
 test('les feuilles imprimables du laboratoire n’imposent pas leur format aux autres pages', () => {
@@ -106,11 +123,12 @@ test('les feuilles imprimables du laboratoire n’imposent pas leur format aux a
     }
 });
 
-test('la saisie des résultats attend la réception', () => {
+test('la saisie n’attend plus la réception : la demande se prend en charge à la première saisie (ADR-217)', () => {
     const editor = fs.readFileSync('resources/js/Components/Laboratory/LabItemEditor.vue', 'utf8');
-    assert.match(editor, /received:\s*\{\s*type:\s*Boolean/);
-    assert.match(editor, /props\.received/);
+    assert.doesNotMatch(editor, /props\.received/);
+    assert.doesNotMatch(editor, /Réceptionnez d’abord/);
     const show = fs.readFileSync('resources/js/Pages/Laboratory/Show.vue', 'utf8');
     assert.match(show, /<LabReceptionPanel[\s\S]*v-if="!labRequest\.received/);
-    assert.match(show, /:received="labRequest\.received"/);
+    const panel = fs.readFileSync('resources/js/Components/Laboratory/LabReceptionPanel.vue', 'utf8');
+    assert.doesNotMatch(panel, /:disabled="!payment\.cleared/, 'le règlement ne grise plus rien');
 });

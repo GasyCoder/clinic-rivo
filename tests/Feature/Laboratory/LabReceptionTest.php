@@ -106,9 +106,11 @@ class LabReceptionTest extends TestCase
 
         $this->actingAs($technician)->get('/laboratory')
             ->assertInertia(fn (AssertableInertia $page) => $page
-                ->where('view', 'to_receive')
-                ->where('counts.to_receive', 1)
-                ->where('requests.data.0.state', 'to_receive')
+                ->where('view', 'to_do')
+                ->where('counts.to_do', 1)
+                ->where('canStart', true)
+                ->where('requests.data.0.state', 'to_do')
+                ->where('requests.data.0.action', 'start')
                 ->where('requests.data.0.payment.cleared', true));
 
         $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/receive", [
@@ -133,7 +135,9 @@ class LabReceptionTest extends TestCase
             ->assertSessionHasErrors('request');
 
         $this->actingAs($technician)->get('/laboratory')
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('view', 'to_do')->where('counts.to_receive', 0));
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('view', 'to_do')
+                ->where('requests.data.0.action', 'continue')
+                ->where('requests.data.0.started_by', $technician->name));
 
         $this->actingAs($technician)->get("/laboratory/requests/{$request->uuid}/etiquettes")
             ->assertInertia(fn (AssertableInertia $page) => $page
@@ -142,29 +146,36 @@ class LabReceptionTest extends TestCase
                 ->where('samples.0.tube.code', $tube->code));
     }
 
-    public function test_an_unpaid_analysis_holds_the_sampling_until_the_cash_desk_settles_it(): void
+    /** ADR-217 — le règlement ne retient plus le technicien : il est tracé, et affiché pour information. */
+    public function test_an_unpaid_analysis_no_longer_holds_the_bench(): void
     {
         $technician = $this->userWithRole('LABORATORY');
         [$episode, $orientation] = $this->episodeWithLabOrientation($technician);
         $request = $this->labRequest($episode, $orientation, $technician, received: false);
         $item = $this->requestItem($request, $this->prestation($technician));
         $billable = $this->billable($item, $technician);
+        $this->invoiceFor($billable, $technician, paid: false);
 
-        $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/receive", ['samples' => []])
-            ->assertSessionHasErrors(['request' => 'À régler à la Caisse avant le prélèvement : NFS.']);
-        $this->assertNull($request->fresh()->received_at);
+        $this->actingAs($technician)->get("/laboratory/requests/{$request->uuid}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('payment.cleared', false)
+                ->where('payment.summary', 'À régler à la Caisse : NFS. Le laboratoire peut traiter la demande.')
+                ->where('can.start', true));
 
-        // Facturée mais pas encore payée : toujours à régler.
-        $invoice = $this->invoiceFor($billable, $technician, paid: false);
-        $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/receive", ['samples' => []])
-            ->assertSessionHasErrors('request');
-
-        // Réglée à la Caisse : la demande se reçoit.
-        $invoice->update(['status' => InvoiceStatus::Paid, 'paid_amount' => $invoice->total_amount, 'balance_amount' => '0.00']);
-        $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/receive", ['samples' => []])
+        $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/start")
+            ->assertRedirect("/laboratory/requests/{$request->uuid}")
             ->assertSessionHasNoErrors();
-        $this->assertNotNull($request->fresh()->received_at);
-        $this->assertNull($request->fresh()->payment_exemption);
+
+        $request->refresh();
+        $this->assertNotNull($request->received_at);
+        $this->assertNull($request->payment_exemption);
+        $audit = AuditLog::query()->where('action', 'laboratory.request.receive')->sole();
+        $this->assertSame(['NFS'], $audit->new_values['unpaid']);
+
+        // Traiter une seconde fois ouvre simplement la paillasse, sans redonner de numéro.
+        $number = $request->lab_number;
+        $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/start")->assertRedirect("/laboratory/requests/{$request->uuid}");
+        $this->assertSame($number, $request->fresh()->lab_number);
     }
 
     public function test_an_emergency_and_a_fully_covered_analysis_never_wait_for_payment(): void
@@ -186,19 +197,26 @@ class LabReceptionTest extends TestCase
         $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/receive", ['samples' => []])->assertSessionHasNoErrors();
     }
 
-    public function test_no_result_is_entered_before_the_request_is_received(): void
+    /** ADR-217 — le technicien saisit directement : la première saisie prend la demande en charge. */
+    public function test_the_first_entry_takes_the_request_up(): void
     {
         $technician = $this->userWithRole('LABORATORY');
         [$episode, $orientation] = $this->episodeWithLabOrientation($technician);
         $glycemie = $this->prestation($technician, 'LAB-GLY', 'Glycémie');
         $definition = $this->definition($glycemie, ['code' => 'GLY', 'designation' => 'Glycémie', 'result_type' => 'NUMERIC']);
-        $item = $this->requestItem($this->labRequest($episode, $orientation, $technician, received: false), $glycemie);
+        $request = $this->labRequest($episode, $orientation, $technician, received: false);
+        $item = $this->requestItem($request, $glycemie);
+        $this->billable($item, $technician);
 
         $this->actingAs($technician)->put("/laboratory/items/{$item->uuid}/results", [
             'results' => [['analysis_uuid' => $definition->uuid, 'value' => '1']],
-        ])->assertSessionHasErrors('item');
+        ])->assertSessionHasNoErrors();
 
-        $this->assertSame(0, LabResult::query()->count());
+        $this->assertSame(1, LabResult::query()->count());
+        $request->refresh();
+        $this->assertNotNull($request->received_at);
+        $this->assertNotNull($request->lab_number);
+        $this->assertSame($technician->id, $request->received_by);
     }
 
     public function test_a_rejected_sample_keeps_its_trace_but_loses_its_label(): void
@@ -477,10 +495,11 @@ class LabReceptionTest extends TestCase
                 ->where('labRequest.received', false)
                 ->where('payment.cleared', true)
                 ->where('payment.lines.0.state', 'NOT_BILLED')
-                ->where('can.receive', true));
+                ->where('can.receive', true)
+                ->where('can.start', true));
 
         LabRequest::query()->whereKey($request->id)->update(['received_at' => now(), 'lab_number' => 'A-L26-00042']);
         $this->actingAs($technician)->get("/laboratory/requests/{$request->uuid}")
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('labRequest.received', true)->where('payment', null));
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('labRequest.received', true)->where('payment.cleared', true));
     }
 }

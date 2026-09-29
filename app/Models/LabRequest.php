@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\SoftDeletable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -19,18 +20,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'requested_by', 'notes', 'requested_at',
     'cancelled_at', 'cancelled_by', 'cancel_reason',
     'archived_at', 'archived_by',
+    'lab_archived_at', 'lab_archived_by',
     'lab_number', 'received_at', 'received_by', 'payment_exemption',
     'conclusion', 'conclusion_at', 'conclusion_by',
     'results_recipient_id', 'results_addressed_at', 'results_addressed_by',
 ])]
 class LabRequest extends Model
 {
-    use Auditable, HasUuid;
+    use Auditable, HasUuid, SoftDeletable;
 
     protected function casts(): array
     {
         return [
-            'requested_at' => 'datetime', 'cancelled_at' => 'datetime', 'archived_at' => 'datetime',
+            'requested_at' => 'datetime', 'cancelled_at' => 'datetime', 'archived_at' => 'datetime', 'lab_archived_at' => 'datetime',
             'received_at' => 'datetime', 'conclusion_at' => 'datetime', 'results_addressed_at' => 'datetime',
         ];
     }
@@ -97,6 +99,21 @@ class LabRequest extends Model
     public function isReceived(): bool
     {
         return $this->received_at !== null;
+    }
+
+    /** ADR-220 — rangée par le laboratoire (distinct de `archived_at`, ADR-131, côté médecin). */
+    public function isLabArchived(): bool
+    {
+        return $this->lab_archived_at !== null;
+    }
+
+    /**
+     * ADR-220 — une demande d'analyses est une donnée médicale : elle se met à
+     * la corbeille et se restaure, elle n'est jamais détruite (ADR-010).
+     */
+    public function isForceDeleteProtected(): bool
+    {
+        return true;
     }
 
     /** Display-only, computed from item resolution — never a second persisted flag. */

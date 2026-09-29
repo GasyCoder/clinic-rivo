@@ -30,22 +30,41 @@ class ParaclinicalBillingRelease
 {
     public function __construct(private readonly CancelBillableItemAction $cancelBillableItem) {}
 
-    public function release(LabRequest|ImagingRequest $request, User $actor): void
+    public function release(LabRequest|ImagingRequest $request, User $actor, string $reason = 'Examen complémentaire retiré par le médecin.'): void
     {
         foreach ($request->items()->with('billableItem')->get() as $line) {
-            $billable = $line->billableItem;
-
-            if ($billable?->status !== BillableItemStatus::Pending
-                || $billable->idempotency_key !== self::ownKey($line)) {
-                continue;
-            }
-
-            $this->cancelBillableItem->execute(
-                $billable,
-                'Examen complémentaire retiré par le médecin.',
-                $actor,
-            );
+            $this->releaseLine($line, $actor, $reason);
         }
+    }
+
+    /**
+     * ADR-220 — une seule ligne : l'analyse retirée d'une demande par le
+     * laboratoire. Renvoie vrai quand une facturation encore en attente a été
+     * annulée ; faux quand il n'y avait rien à annuler ici (déjà sur facture,
+     * facturée par la Réception, ou jamais facturée).
+     */
+    public function releaseLine(LabRequestItem|ImagingRequestItem $line, User $actor, string $reason): bool
+    {
+        $billable = $line->relationLoaded('billableItem') ? $line->billableItem : $line->billableItem()->first();
+
+        if ($billable?->status !== BillableItemStatus::Pending || ! self::isOwnKey($line, $billable->idempotency_key)) {
+            return false;
+        }
+
+        $this->cancelBillableItem->execute($billable, $reason, $actor);
+
+        return true;
+    }
+
+    /**
+     * La facturation que la ligne a créée elle-même : sa clé, ou — après une
+     * restauration de la corbeille (ADR-220) — sa clé suivie d'un rang.
+     */
+    public static function isOwnKey(LabRequestItem|ImagingRequestItem $line, ?string $key): bool
+    {
+        $own = self::ownKey($line);
+
+        return $key === $own || ($key !== null && str_starts_with($key, $own.':'));
     }
 
     /** La clé que la demande donne à ce qu'elle facture elle-même (ADR-105). */

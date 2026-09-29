@@ -2,16 +2,26 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Laboratory\ArchiveLabRequestAction;
+use App\Actions\Laboratory\BulkLabRequestAction;
+use App\Actions\Laboratory\EditLabRequestAction;
 use App\Actions\Laboratory\FlagCriticalLabResultAction;
+use App\Actions\Laboratory\LabRequestGuard;
+use App\Actions\Laboratory\ReceiveLabRequestAction;
 use App\Actions\Laboratory\RecordLabResultAction;
+use App\Actions\Laboratory\ResetLabResultsAction;
 use App\Actions\Laboratory\ReturnLabItemAction;
 use App\Actions\Laboratory\SaveLabAntibiogramAction;
 use App\Actions\Laboratory\SaveLabResultsAction;
 use App\Actions\Laboratory\SendLabResultsAction;
+use App\Actions\Laboratory\TrashLabRequestAction;
 use App\Http\Requests\Laboratory\SaveLabAntibiogramRequest;
 use App\Http\Requests\Laboratory\SaveLabResultsRequest;
 use App\Http\Requests\Laboratory\SendLabResultsRequest;
 use App\Http\Requests\RecordLabResultRequest;
+use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
+use App\Models\CatalogItem;
 use App\Models\LabAntibiogram;
 use App\Models\LabRequest;
 use App\Models\LabRequestItem;
@@ -69,30 +79,36 @@ class LaboratoryController extends Controller
 
         $counts = $queue->counts($refine);
         $requested = $request->query('view');
-        $view = in_array($requested, LabQueue::VIEWS, true)
-            ? $requested
-            // Sans vue choisie : la réception d'abord, s'il y a des patients à recevoir.
-            : (($counts['to_receive'] ?? 0) > 0 ? 'to_receive' : 'to_do');
+        // ADR-217 — sans vue choisie, ce qui est à traiter ; une ancienne vue (« to_receive ») y mène aussi.
+        $view = in_array($requested, LabQueue::VIEWS, true) ? $requested : 'to_do';
 
-        $requests = $queue->scope($queue->base(), $view)
+        $requests = $queue->query($view)
             ->tap($refine)
             ->with([
-                'items:id,uuid,lab_request_id,catalog_item_name_snapshot,catalog_item_code_snapshot,status,resulted_at,validated_at,sent_out_at,external_lab_name,billable_item_id',
+                'items:id,uuid,lab_request_id,catalog_item_name_snapshot,catalog_item_code_snapshot,status,resulted_at,validated_at,sent_at,sent_out_at,external_lab_name,billable_item_id',
                 'items.results:id,lab_request_item_id,is_critical,interpretation',
                 'episode:id,uuid,episode_number,patient_id,priority',
                 'episode.patient:id,uuid,patient_number,first_name,last_name,birth_date,declared_age,sex',
                 'requestedBy:id,name',
-                ...($view === 'to_receive' ? LabPaymentClearance::RELATIONS : []),
+                'receivedBy:id,name',
+                ...LabPaymentClearance::RELATIONS,
             ])
             ->withCount(['samples' => fn ($samples) => $samples->whereNull('rejected_at')])
             ->orderByRaw('requested_at IS NULL')
-            ->when(in_array($view, ['validated', 'all'], true), fn ($query) => $query->latest('requested_at'), fn ($query) => $query->oldest('requested_at'))
+            ->when(in_array($view, ['validated', 'all', 'archived'], true), fn ($query) => $query->latest('requested_at'), fn ($query) => $query->oldest('requested_at'))
             ->paginate(20)
             ->withQueryString()
             ->through(fn (LabRequest $labRequest) => [
                 'uuid' => $labRequest->uuid,
                 'lab_number' => $labRequest->lab_number,
                 'state' => LabQueue::stateOf($labRequest),
+                'action' => LabQueue::actionOf($labRequest),
+                // ADR-220 — ce que la sélection peut faire de cette ligne, jugé par le serveur.
+                'archived' => $labRequest->isLabArchived(),
+                'archived_at' => $labRequest->lab_archived_at,
+                'archivable' => ! $labRequest->isLabArchived() && LabRequestGuard::finished($labRequest),
+                'trashable' => ! LabRequestGuard::anySent($labRequest),
+                'started_by' => $labRequest->receivedBy?->name,
                 'origin' => ParaclinicalRequestPresenter::origin($labRequest),
                 'requested_at' => $labRequest->requested_at,
                 'requested_by' => $labRequest->requestedBy?->name,
@@ -100,7 +116,8 @@ class LaboratoryController extends Controller
                 'patient' => LabRequestPresenter::patient($labRequest->episode->patient),
                 'episode_number' => $labRequest->episode->episode_number,
                 'samples_count' => $labRequest->samples_count,
-                'payment' => $view === 'to_receive' ? collect($clearance->for($labRequest))->only(['cleared', 'exemption', 'exemption_label', 'due_count', 'unbilled_count'])->all() : null,
+                // ADR-217 — le règlement se lit sur la ligne, il ne retient plus rien.
+                'payment' => collect($clearance->for($labRequest))->only(['cleared', 'exemption', 'exemption_label', 'due_count', 'unbilled_count'])->all(),
                 'items' => $labRequest->items->map(fn (LabRequestItem $item) => [
                     'uuid' => $item->uuid,
                     'name' => $item->catalog_item_name_snapshot,
@@ -122,6 +139,14 @@ class LaboratoryController extends Controller
             'view' => $view,
             'search' => $search,
             'sentOut' => $sentOut,
+            // ADR-215 — sur le portail, « Traiter » reste un geste du site.
+            'canStart' => ! $request->user() instanceof RemoteSuperAdmin && ReceiveLabRequestAction::canTakeUp($request->user()),
+            // ADR-220 — archiver et mettre à la corbeille se font aussi depuis le portail.
+            'manage' => [
+                'archive' => $request->user()->can(ArchiveLabRequestAction::PERMISSION),
+                'trash' => $request->user()->can(TrashLabRequestAction::PERMISSION),
+                'max' => BulkLabRequestAction::MAX,
+            ],
         ]);
     }
 
@@ -141,9 +166,12 @@ class LaboratoryController extends Controller
             return redirect("/resultats-analyses/{$labRequest->uuid}");
         }
 
-        $items = $labRequest->items->sortBy('id')->map(fn (LabRequestItem $item) => $workbench->present($item))->values();
+        // ADR-220 — une analyse se retire tant qu'elle n'est pas envoyée au médecin.
+        $items = $labRequest->items->sortBy('id')->map(fn (LabRequestItem $item) => [
+            ...$workbench->present($item),
+            'removable' => $item->sent_at === null,
+        ])->values();
         $needsCulture = $items->contains(fn (array $item) => collect($item['nodes'])->contains('entry_mode', 'CULTURE'));
-        $received = $labRequest->received_at !== null;
         // ADR-215 — sur le portail, les gestes cliniques restent au site : ils
         // sont refusés par `rivo.site-only`, et l'écran les montre verrouillés.
         $atSite = ! $user instanceof RemoteSuperAdmin;
@@ -151,13 +179,14 @@ class LaboratoryController extends Controller
         $canSample = $gesture('laboratory_samples.create');
         $canSend = $gesture(SendLabResultsAction::PERMISSION);
         $proposed = $recipients->proposedFor($labRequest);
+        $canEdit = $gesture(EditLabRequestAction::PERMISSION) && ! $labRequest->cancelled_at;
 
         return Inertia::render('Laboratory/Show', [
             'labRequest' => $presenter->header($labRequest),
             'items' => $items,
             'samples' => $presenter->samples($labRequest),
-            // ADR-214 — le contrôle du règlement ne sert qu'avant la réception.
-            'payment' => $received ? null : $clearance->for($labRequest),
+            // ADR-217 — le règlement s'affiche pour information, il ne retient pas la saisie.
+            'payment' => $clearance->for($labRequest),
             'sampleOptions' => ($canSample || $gesture('laboratory_orders.receive')) && ! $labRequest->cancelled_at ? $this->sampleOptions() : null,
             'externalLabs' => $gesture('laboratory_orders.send_out') ? $this->externalLabs() : [],
             'microbiology' => $needsCulture ? $workbench->microbiology() : [],
@@ -172,12 +201,32 @@ class LaboratoryController extends Controller
             ],
             'recipients' => $canSend && ! $labRequest->cancelled_at ? $recipients->options($labRequest) : [],
             'options' => LabEntryOptions::forScreen(),
+            // ADR-220 — les analyses que l'on peut ajouter : celles du laboratoire, pas déjà demandées.
+            'addableAnalyses' => $canEdit && ! $labRequest->isLabArchived()
+                ? CatalogItem::query()
+                    ->where('type', CatalogItemType::Service->value)
+                    ->where('module', CatalogModule::Laboratory->value)
+                    ->whereNotIn('id', $labRequest->items->pluck('catalog_item_id'))
+                    ->orderBy('name')
+                    ->get(['uuid', 'code', 'name'])
+                : [],
+            'manage' => [
+                'archived' => $labRequest->isLabArchived(),
+                'archived_at' => $labRequest->lab_archived_at,
+                'archivable' => ! $labRequest->isLabArchived() && LabRequestGuard::finished($labRequest),
+                'trashable' => ! LabRequestGuard::anySent($labRequest),
+                'edit' => $canEdit,
+                'edit_locked' => ! $atSite && $user->can(EditLabRequestAction::PERMISSION),
+                'archive' => $user->can(ArchiveLabRequestAction::PERMISSION) && ! $labRequest->cancelled_at,
+                'trash' => $user->can(TrashLabRequestAction::PERMISSION) && ! $labRequest->cancelled_at,
+            ],
             'can' => [
                 'enter' => $gesture('laboratory_results.create'),
                 'send' => $canSend,
                 'flag_critical' => $gesture('laboratory_results.flag_critical'),
                 'microbiology' => $user->can('lab_microbiology.view'),
                 'receive' => $gesture('laboratory_orders.receive'),
+                'start' => $atSite && ReceiveLabRequestAction::canTakeUp($user),
                 'sample' => $canSample,
                 'reject_sample' => $gesture('laboratory_samples.update'),
                 'send_out' => $gesture('laboratory_orders.send_out'),
@@ -194,7 +243,7 @@ class LaboratoryController extends Controller
         LabRequestPresenter $presenter,
         LabResultAccess $access,
     ): Response|RedirectResponse {
-        $labRequest->load(['items', 'episode.patient', 'requestedBy:id,name', 'resultsRecipient:id,name']);
+        $labRequest->load(['items.results', 'episode.patient', 'requestedBy:id,name', 'resultsRecipient:id,name']);
 
         if ($access->sealed($labRequest, $request->user())) {
             return redirect("/resultats-analyses/{$labRequest->uuid}");
@@ -205,9 +254,11 @@ class LaboratoryController extends Controller
             'context' => ['mode' => 'lab', 'back_href' => null, 'back_label' => null],
             'sealed' => null,
             'samples' => collect($presenter->samples($labRequest))->whereNull('rejected')->values(),
-            // Seul ce qui est rendu s'imprime ; « non envoyé » reste écrit sur la feuille.
+            // ADR-218 — les analyses du compte rendu PDF : tout ce qui porte un résultat,
+            // envoyé ou non (« provisoire » est alors écrit sur le PDF).
             'items' => $labRequest->items->sortBy('id')
-                ->filter(fn (LabRequestItem $item) => $item->resulted_at !== null)
+                ->filter(fn (LabRequestItem $item) => $item->resulted_at !== null
+                    || $item->results->contains(fn ($result) => ! $result->isBlank()))
                 ->map(fn (LabRequestItem $item) => $workbench->present($item))
                 ->values(),
             'options' => LabEntryOptions::forScreen(),
@@ -219,6 +270,13 @@ class LaboratoryController extends Controller
         $action->execute($labRequestItem, $request->validated(), $request->user());
 
         return back();
+    }
+
+    public function resetResults(Request $request, LabRequestItem $labRequestItem, ResetLabResultsAction $action): RedirectResponse
+    {
+        $action->execute($labRequestItem, $request->user());
+
+        return back()->with('success', 'Saisie réinitialisée : l’analyse repart de zéro.');
     }
 
     public function saveAntibiogram(

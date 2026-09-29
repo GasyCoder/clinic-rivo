@@ -161,4 +161,26 @@ class LabResultsDeliveryTest extends TestCase
                 ->where('requests.0.recipient', $doctor->name)
                 ->where('requests.0.sealed', false));
     }
+
+    /** ADR-219 — dans « Demandes d'examens », le laboratoire a le bouton de sa file. */
+    public function test_the_laboratory_gets_its_queue_gesture_in_the_exam_requests(): void
+    {
+        $doctor = $this->userWithRole('MEDICINE');
+        [$request, $item, $technician] = $this->renderedRequest($doctor);
+
+        $this->actingAs($technician)->get('/medicine/demandes-examens?filter=all')
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('requests.0.bench_url', "/laboratory/requests/{$request->uuid}")
+                ->where('requests.0.bench_action', 'send')
+                ->where('requests.0.lab_state', 'to_validate')
+                ->has('requests.0.payment.cleared'));
+
+        $item->update(['status' => LabItemStatus::Pending, 'resulted_at' => null, 'result_value' => null]);
+        $request->update(['received_at' => null, 'received_by' => null]);
+        $this->actingAs($technician)->get('/medicine/demandes-examens?filter=all')
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('requests.0.bench_action', 'start')->where('requests.0.lab_state', 'to_do'));
+
+        // Le médecin n'a pas de geste de paillasse.
+        $this->actingAs($doctor)->post("/laboratory/requests/{$request->uuid}/send", [])->assertForbidden();
+    }
 }

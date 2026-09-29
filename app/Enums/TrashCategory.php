@@ -13,6 +13,8 @@ enum TrashCategory: string
     case SupplierCatalog = 'SUPPLIER_CATALOG';
     case SupplierInvoice = 'SUPPLIER_INVOICE';
     case PurchaseOrder = 'PURCHASE_ORDER';
+    // ADR-220 — une demande d'analyses saisie à tort, jamais après un envoi au médecin.
+    case LabRequest = 'LAB_REQUEST';
 
     public function label(): string
     {
@@ -26,6 +28,7 @@ enum TrashCategory: string
             self::SupplierCatalog => 'Catalogues fournisseurs',
             self::SupplierInvoice => 'Factures fournisseurs',
             self::PurchaseOrder => 'Commandes fournisseurs (brouillons)',
+            self::LabRequest => 'Demandes d’analyses',
         };
     }
 
@@ -41,6 +44,7 @@ enum TrashCategory: string
             self::SupplierCatalog => 'Catalogue fournisseur',
             self::SupplierInvoice => 'Facture fournisseur',
             self::PurchaseOrder => 'Commande fournisseur',
+            self::LabRequest => 'Demande d’analyses',
         };
     }
 
@@ -56,6 +60,7 @@ enum TrashCategory: string
             self::SupplierCatalog => 'file-text',
             self::SupplierInvoice => 'money',
             self::PurchaseOrder => 'truck',
+            self::LabRequest => 'flask',
         };
     }
 
@@ -71,6 +76,7 @@ enum TrashCategory: string
             self::SupplierCatalog => 'supplier_catalogs.restore',
             self::SupplierInvoice => 'supplier_invoices.restore',
             self::PurchaseOrder => 'purchase_orders.restore',
+            self::LabRequest => 'laboratory_orders.restore',
         };
     }
 

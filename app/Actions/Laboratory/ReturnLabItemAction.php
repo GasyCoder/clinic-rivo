@@ -3,6 +3,7 @@
 namespace App\Actions\Laboratory;
 
 use App\Enums\LabItemStatus;
+use App\Models\LabRequest;
 use App\Models\LabRequestItem;
 use App\Models\User;
 use App\Notifications\LabResultReturned;
@@ -58,6 +59,11 @@ class ReturnLabItemAction
                 'validated_at' => null,
                 'validated_by' => null,
             ]);
+
+            // ADR-220 — une analyse reprise remet sa demande dans le travail en cours :
+            // rangée, elle disparaîtrait de la file avec du travail à faire.
+            LabRequest::query()->whereKey($locked->lab_request_id)->whereNotNull('lab_archived_at')
+                ->update(['lab_archived_at' => null, 'lab_archived_by' => null]);
 
             return [$locked->fresh(), $status === LabItemStatus::Validated];
         });

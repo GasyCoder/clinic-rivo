@@ -81,7 +81,9 @@ test('le résultat de laboratoire n’est pas traité comme du texte enrichi', (
     }
 
     const print = fs.readFileSync('resources/js/Pages/Laboratory/ResultsPrint.vue', 'utf8');
-    assert.match(print, /\{\{ item\.result_value \}\}/);
+    // ADR-218 — le compte rendu est le PDF du serveur : la page ne redessine aucune feuille.
+    assert.match(print, /<iframe/);
+    assert.doesNotMatch(print, /PaperSheet/);
 });
 
 /**

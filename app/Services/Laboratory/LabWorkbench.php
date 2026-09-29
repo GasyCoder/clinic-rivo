@@ -6,9 +6,11 @@ use App\Enums\LabEntryMode;
 use App\Models\AnalysisCatalog;
 use App\Models\LabAntibiogram;
 use App\Models\LabBacteriumFamily;
+use App\Models\LabRequest;
 use App\Models\LabRequestItem;
 use App\Models\LabResult;
 use App\Models\Patient;
+use App\Models\User;
 use App\Support\Laboratory\LabCriticalRange;
 use App\Support\Laboratory\LabReferenceRange;
 use Carbon\CarbonInterface;
@@ -83,15 +85,16 @@ class LabWorkbench
      */
     public function present(LabRequestItem $item): array
     {
-        $item->loadMissing(['results', 'antibiograms.results', 'startedBy:id,name', 'resultedBy:id,name', 'validatedBy:id,name', 'returnedBy:id,name', 'sentOutBy:id,name']);
+        $item->loadMissing(['results', 'notes.writtenBy:id,name', 'antibiograms.results', 'startedBy:id,name', 'resultedBy:id,name', 'validatedBy:id,name', 'returnedBy:id,name', 'sentOutBy:id,name']);
         $patient = $this->patient($item);
         $date = $this->referenceDate($item);
         $definitions = $this->definitions($item);
         $results = $item->results->keyBy('analysis_catalog_id');
+        $notes = $item->notes->keyBy('analysis_catalog_id');
         $anteriority = $this->anteriority($item, $patient, $definitions->pluck('analysis.id')->all());
         $status = $item->currentStatus();
 
-        $nodes = $definitions->map(function (array $row) use ($patient, $date, $results, $anteriority, $item): array {
+        $nodes = $definitions->map(function (array $row) use ($patient, $date, $results, $notes, $anteriority, $item): array {
             /** @var AnalysisCatalog $analysis */
             $analysis = $row['analysis'];
             $mode = LabEntryMode::for($analysis);
@@ -124,6 +127,9 @@ class LabWorkbench
                     ? $item->antibiograms->where('analysis_catalog_id', $analysis->id)->map(fn (LabAntibiogram $antibiogram) => $this->presentAntibiogram($antibiogram))->values()->all()
                     : [],
                 'anteriority' => $anteriority[$analysis->id] ?? null,
+                // ADR-218 — la conclusion partielle de la ligne.
+                'note' => $notes->get($analysis->id)?->note,
+                'note_by' => $notes->get($analysis->id)?->writtenBy?->name,
             ];
         })->values();
 
@@ -136,7 +142,10 @@ class LabWorkbench
             'editable' => $status->editable(),
             'has_definitions' => $nodes->isNotEmpty(),
             'nodes' => $nodes->all(),
-            'conclusion' => $item->conclusion,
+            // ADR-219 — plus de conclusion par analyse ; une conclusion saisie avant reste lisible.
+            'legacy_conclusion' => $item->conclusion,
+            // Une analyse déjà envoyée au médecin ne se remet jamais à zéro.
+            'resettable' => $status->editable() && $item->sent_at === null,
             'result_value' => $item->result_value,
             'result_notes' => $item->result_notes,
             'started_at' => $item->started_at,
@@ -231,14 +240,14 @@ class LabWorkbench
      * @param  array<int, int>  $analysisIds
      * @return array<int, array<string, mixed>>
      */
-    public function anteriority(LabRequestItem $item, Patient $patient, array $analysisIds): array
+    public function anteriority(LabRequestItem $item, Patient $patient, array $analysisIds, ?User $viewer = null): array
     {
         if ($analysisIds === []) {
             return [];
         }
 
-        return LabResult::query()
-            ->select('lab_results.*', 'lab_request_items.resulted_at as item_resulted_at', 'lab_request_items.status as item_status')
+        $previous = LabResult::query()
+            ->select('lab_results.*', 'lab_request_items.resulted_at as item_resulted_at', 'lab_request_items.status as item_status', 'lab_request_items.lab_request_id as item_request_id')
             ->join('lab_request_items', 'lab_request_items.id', '=', 'lab_results.lab_request_item_id')
             ->join('lab_requests', 'lab_requests.id', '=', 'lab_request_items.lab_request_id')
             ->join('episodes', 'episodes.id', '=', 'lab_requests.episode_id')
@@ -246,14 +255,28 @@ class LabWorkbench
             ->where('lab_request_items.id', '!=', $item->getKey())
             ->whereNotNull('lab_request_items.resulted_at')
             ->whereNull('lab_requests.cancelled_at')
+            // ADR-216 / ADR-218 — hors du laboratoire, seule une valeur envoyée sert d'antériorité.
+            ->when($viewer !== null, fn ($query) => $query->whereNotNull('lab_request_items.sent_at'))
             ->whereIn('lab_results.analysis_catalog_id', $analysisIds)
             ->orderByDesc('lab_request_items.resulted_at')
-            ->get()
+            ->get();
+
+        if ($viewer !== null && $previous->isNotEmpty()) {
+            // … et jamais celle d'une demande adressée à un confrère qu'il n'a pas ouverte.
+            $access = app(LabResultAccess::class);
+            $sealed = LabRequest::query()->whereIn('id', $previous->pluck('item_request_id')->unique())->get()
+                ->filter(fn (LabRequest $request) => $access->sealed($request, $viewer))
+                ->pluck('id')->all();
+            $previous = $previous->reject(fn (LabResult $result) => in_array((int) $result->getAttribute('item_request_id'), $sealed, true));
+        }
+
+        return $previous
             ->unique('analysis_catalog_id')
             ->mapWithKeys(fn (LabResult $result) => [$result->analysis_catalog_id => [
                 'value' => $result->value,
                 'selections' => $result->selections ?? [],
                 'unit' => $result->unit_snapshot,
+                'entry_mode' => $result->entry_mode,
                 'interpretation' => $result->interpretation,
                 'range_flag' => $result->range_flag,
                 'resulted_at' => $result->getAttribute('item_resulted_at'),

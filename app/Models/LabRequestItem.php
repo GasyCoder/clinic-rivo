@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\LabItemStatus;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\SoftDeletable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,7 +21,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class LabRequestItem extends Model
 {
-    use Auditable, HasUuid;
+    use Auditable, HasUuid, SoftDeletable;
+
+    /** ADR-220 — une analyse retirée d'une demande garde sa trace : jamais détruite. */
+    public function isForceDeleteProtected(): bool
+    {
+        return true;
+    }
 
     protected function casts(): array
     {
@@ -73,6 +80,12 @@ class LabRequestItem extends Model
     public function results(): HasMany
     {
         return $this->hasMany(LabResult::class);
+    }
+
+    /** ADR-218 — les notes de ses lignes (« Notes : » sous la ligne du compte rendu). */
+    public function notes(): HasMany
+    {
+        return $this->hasMany(LabAnalysisNote::class);
     }
 
     public function antibiograms(): HasMany

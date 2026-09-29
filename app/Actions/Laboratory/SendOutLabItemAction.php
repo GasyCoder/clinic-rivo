@@ -34,7 +34,7 @@ class SendOutLabItemAction
 
         return DB::transaction(function () use ($item, $data, $laboratory, $actor): LabRequestItem {
             $locked = LabItemGuard::lockEditable($item);
-            LabItemGuard::ensureReceived($locked, 'laboratory');
+            LabItemGuard::ensureTakenUp($locked->labRequest, $actor);
 
             if ($locked->sent_out_at !== null) {
                 throw ValidationException::withMessages(['laboratory' => "Cette analyse est déjà confiée à {$locked->external_lab_name}."]);

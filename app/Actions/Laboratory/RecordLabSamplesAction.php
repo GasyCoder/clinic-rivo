@@ -40,9 +40,8 @@ class RecordLabSamplesAction
             if ($locked->cancelled_at !== null) {
                 throw ValidationException::withMessages(['samples' => 'Cette demande a été retirée par le prescripteur : elle ne se prélève plus.']);
             }
-            if ($locked->received_at === null) {
-                throw ValidationException::withMessages(['samples' => 'Réceptionnez d’abord la demande : c’est elle qui contrôle le règlement.']);
-            }
+            // ADR-217 — prélever prend la demande en charge si personne ne l'a encore fait.
+            LabItemGuard::ensureTakenUp($locked, $actor);
 
             return $this->create($locked, $lines, $actor);
         });

@@ -498,6 +498,11 @@ class PermissionSeeder extends Seeder
         // ADR-214 — réception, prélèvements, envoi extérieur, rapports, référentiel des prélèvements.
         'laboratory_orders.receive' => 'Réceptionner une demande d’analyses (contrôle du règlement)',
         'laboratory_orders.send_out' => 'Envoyer une analyse à un laboratoire extérieur',
+        // ADR-220 — ranger, corriger, mettre à la corbeille une demande d'analyses.
+        'laboratory_orders.update' => 'Modifier une demande d’analyses (ajouter ou retirer une analyse, renseignements)',
+        'laboratory_orders.archive' => 'Archiver ou désarchiver une demande d’analyses terminée',
+        'laboratory_orders.delete' => 'Mettre une demande d’analyses à la corbeille (jamais après un envoi)',
+        'laboratory_orders.restore' => 'Restaurer une demande d’analyses depuis la corbeille',
         'laboratory_samples.create' => 'Enregistrer un prélèvement et imprimer ses étiquettes',
         'laboratory_samples.update' => 'Déclarer un prélèvement non conforme',
         'laboratory_reports.view' => 'Voir les rapports du laboratoire',

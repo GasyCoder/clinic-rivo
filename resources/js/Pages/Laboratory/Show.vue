@@ -3,21 +3,23 @@ import { computed, ref, watch } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import LabItemEditor from '@/Components/Laboratory/LabItemEditor.vue';
+import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
 import LabSendDialog from '@/Components/Laboratory/LabSendDialog.vue';
 import LabReceptionPanel from '@/Components/Laboratory/LabReceptionPanel.vue';
 import LabSamplesCard from '@/Components/Laboratory/LabSamplesCard.vue';
+import LabRequestManage from '@/Components/Laboratory/LabRequestManage.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import {
-    ArrowLeft, Ban, Building2, ClipboardCheck, FileSignature, FileText, FlaskConical, History, Microscope, Printer, Send, Siren, Stethoscope, TestTubes,
+    Archive, ArrowLeft, Ban, BadgeCheck, Building2, CheckCheck, ClipboardCheck, ClipboardList, Download, FileSignature, FileText, History, Loader, Microscope, RotateCcw, Send, Siren, Stethoscope, TestTubes, Trash2, Wallet,
 } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import { formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
-import { LAB_STATUS_TONES } from '@/utilities/labWorkbench';
+import { itemProgress, labTaskState } from '@/utilities/labWorkbench';
 import { labUrl } from '@/utilities/labUrl';
 import LabSiteOnlyAction from '@/Components/Laboratory/LabSiteOnlyAction.vue';
 import { sendableItems } from '@/utilities/labSending';
@@ -25,9 +27,13 @@ import { sendableItems } from '@/utilities/labSending';
 defineOptions({ layout: AppLayout });
 
 /**
- * ADR-213 / ADR-214 — une demande d'analyses au laboratoire : la réception
- * (règlement, prélèvements), ses analyses à gauche et la saisie de celle qu'on
- * travaille à droite, puis la conclusion générale.
+ * ADR-213 / ADR-214 — une demande d'analyses au laboratoire : ses analyses à
+ * gauche et la saisie de celle qu'on travaille à droite, puis la conclusion
+ * générale.
+ *
+ * ADR-217 — rien n'attend avant la saisie : ni réception, ni règlement. Une
+ * demande pas encore commencée se « traite » d'un geste, ou se prend en
+ * charge à la première saisie ; le règlement est affiché pour information.
  *
  * ADR-216 — le technicien envoie les résultats au médecin, et cet envoi les
  * valide : il n'y a plus d'étape « biologiste ».
@@ -44,7 +50,14 @@ const props = defineProps({
     can: { type: Object, default: () => ({}) },
     recipient: { type: Object, default: () => ({}) },
     recipients: { type: Array, default: () => [] },
+    manage: { type: Object, default: () => ({}) },
+    addableAnalyses: { type: Array, default: () => [] },
 });
+
+// ADR-220 — gérer la demande : ajouter, retirer, renseigner, archiver, corbeille.
+const manager = ref(null);
+
+const TASK_ICONS = { pending: ClipboardList, progress: Loader, completed: CheckCheck, validated: BadgeCheck, redo: RotateCcw };
 
 const firstToWork = () => (props.items.find((item) => item.editable) ?? props.items.find((item) => item.status === 'COMPLETED') ?? props.items[0])?.uuid ?? null;
 const selected = ref(firstToWork());
@@ -53,11 +66,15 @@ watch(() => props.items.map((item) => item.uuid).join(','), () => {
 });
 const current = computed(() => props.items.find((item) => item.uuid === selected.value) ?? null);
 
-const anyRendered = computed(() => props.items.some((item) => ['COMPLETED', 'VALIDATED'].includes(item.status) || item.result_value));
+// ADR-218 — le compte rendu PDF porte tout ce qui a un résultat, envoyé ou non.
+const anyRendered = computed(() => props.items.some((item) => ['COMPLETED', 'VALIDATED'].includes(item.status) || item.result_value
+    || (item.nodes ?? []).some((node) => node.result)));
 const anySentOut = computed(() => props.items.some((item) => item.sent_out));
 const allValidated = computed(() => props.items.length > 0 && props.items.every((item) => item.status === 'VALIDATED'));
 const toSend = computed(() => sendableItems(props.items).length);
-const canSendHere = computed(() => props.labRequest.received && !props.labRequest.cancelled);
+const canSendHere = computed(() => !props.labRequest.cancelled);
+const doneCount = computed(() => props.items.filter((item) => ['COMPLETED', 'VALIDATED'].includes(item.status)).length);
+const duePayment = computed(() => (props.payment?.lines ?? []).filter((line) => line.blocking));
 
 // ADR-216 — envoyer au médecin. La saisie en cours part d'abord (enregistrement
 // automatique), puis la fenêtre s'ouvre sur l'état relu du serveur.
@@ -73,7 +90,7 @@ const openSend = (uuids = []) => {
 // Conclusion générale (ADR-214), écrite par qui envoie les résultats (ADR-216)
 const conclusionForm = useForm({ conclusion: props.labRequest.conclusion ?? '' });
 watch(() => props.labRequest.conclusion, (value) => { conclusionForm.defaults({ conclusion: value ?? '' }); conclusionForm.reset(); });
-const canConclude = computed(() => props.can.send && props.labRequest.received && !props.labRequest.cancelled && !allValidated.value);
+const canConclude = computed(() => props.can.send && !props.labRequest.cancelled && !allValidated.value);
 const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${props.labRequest.uuid}/conclusion`), { preserveScroll: true });
 </script>
 
@@ -94,8 +111,12 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
                     <FileText class="h-4 w-4" /> Bon d’envoi
                 </Button>
                 <Button v-if="anyRendered" :as="Link" :href="labUrl(`/laboratory/requests/${labRequest.uuid}/impression`)" variant="outline" size="sm">
-                    <Printer class="h-4 w-4" /> Feuille de résultats
+                    <FileText class="h-4 w-4" /> Compte rendu PDF
                 </Button>
+                <Button v-if="anyRendered" as="a" :href="labUrl(`/laboratory/requests/${labRequest.uuid}/resultats.pdf?telecharger=1`)" variant="ghost" size="sm" title="Télécharger le compte rendu PDF" aria-label="Télécharger le compte rendu PDF">
+                    <Download class="h-4 w-4" />
+                </Button>
+                <LabRequestManage ref="manager" :lab-request="labRequest" :items="items" :manage="manage" :addable="addableAnalyses" />
                 <LabSiteOnlyAction v-if="(can.send || can.site_only) && canSendHere && toSend > 0" label="Envoyer au médecin" variant="default">
                     <Button type="button" size="sm" @click="openSend()">
                         <Send class="h-4 w-4" /> Envoyer au médecin<template v-if="toSend > 1"> · {{ toSend }}</template>
@@ -133,14 +154,21 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
                         <dd v-else class="font-semibold text-muted-foreground">Pas encore envoyés</dd>
                     </div>
                     <div>
-                        <dt class="text-muted-foreground">Réception</dt>
+                        <dt class="text-muted-foreground">Prise en charge</dt>
                         <dd v-if="labRequest.received" class="font-semibold text-foreground">{{ formatDateTime(labRequest.received_at) }}<template v-if="labRequest.received_by"> · {{ labRequest.received_by }}</template></dd>
-                        <dd v-else class="font-semibold text-amber-700 dark:text-amber-300">À réceptionner</dd>
+                        <dd v-else class="font-semibold text-muted-foreground">Pas encore commencée</dd>
                     </div>
                 </dl>
             </div>
             <p v-if="labRequest.notes" class="mt-3 rounded-lg bg-muted/40 px-3 py-2 text-sm text-foreground"><span class="font-semibold">Renseignements : </span>{{ labRequest.notes }}</p>
+            <p v-if="labRequest.received && duePayment.length" class="mt-3 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300" :title="payment?.summary">
+                <Wallet class="h-3.5 w-3.5 shrink-0" />À régler à la Caisse : {{ duePayment.map((line) => line.name).join(', ') }} — n’empêche pas l’analyse.
+            </p>
             <p v-if="labRequest.payment_exemption" class="mt-3 flex items-center gap-2 text-xs text-muted-foreground"><ClipboardCheck class="h-3.5 w-3.5" />{{ labRequest.payment_exemption }}</p>
+            <p v-if="manage.archived" class="mt-3 flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground" role="status">
+                <Archive class="h-4 w-4 shrink-0" />
+                Demande archivée<template v-if="manage.archived_at"> le {{ formatDateTime(manage.archived_at) }}</template> : elle n’est plus dans la file. « Gérer » › Désarchiver pour la corriger.
+            </p>
             <p v-if="labRequest.cancelled" class="mt-3 flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
                 <Ban class="mt-0.5 h-4 w-4 shrink-0" />
                 Demande retirée par le prescripteur<template v-if="labRequest.cancel_reason"> : {{ labRequest.cancel_reason }}</template>. Elle ne se travaille plus.
@@ -148,37 +176,78 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
         </Card>
 
         <LabReceptionPanel
-            v-if="!labRequest.received && !labRequest.cancelled && payment"
+            v-if="!labRequest.received && !labRequest.cancelled"
             :lab-request="labRequest"
             :payment="payment"
             :sample-options="sampleOptions"
             :can="can"
         />
 
-        <div class="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
-            <div class="space-y-4 lg:sticky lg:top-20 lg:self-start">
+        <!-- ADR-219 — les tâches et l'analyse ouverte, séparées par une barre que l'on
+             glisse (souris, tactile, clavier ; double-clic pour revenir au réglage).
+             La largeur reste sur le poste, jamais envoyée au serveur. -->
+        <ResizableSplit
+            storage-key="rivo:laboratory:tasks-split"
+            :default-ratio="0.25"
+            :min-ratio="0.17"
+            :max-ratio="0.45"
+            start-label="panneau Tâche(s) à traiter"
+            end-label="panneau de l’analyse ouverte"
+        >
+        <template #start>
+            <div class="space-y-4 lg:sticky lg:top-20">
                 <nav aria-label="Analyses de la demande">
                     <Card class="overflow-hidden">
-                        <p class="border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Analyses demandées · {{ items.length }}</p>
-                        <ul class="max-h-[50vh] divide-y divide-border overflow-y-auto">
-                            <li v-for="item in items" :key="item.uuid">
+                        <div class="flex items-center gap-3 border-b border-border px-4 py-3">
+                            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><ClipboardList class="h-5 w-5" /></span>
+                            <div class="min-w-0">
+                                <p class="text-sm font-bold text-foreground">Tâche(s) à traiter</p>
+                                <p class="text-xs text-muted-foreground">{{ doneCount }}/{{ items.length }} terminée(s)</p>
+                            </div>
+                        </div>
+                        <ul class="max-h-[60vh] space-y-2 overflow-y-auto p-3">
+                            <li v-for="item in items" :key="item.uuid" class="group relative">
                                 <button
                                     type="button"
                                     :aria-current="item.uuid === selected ? 'true' : undefined"
-                                    :class="cn('flex w-full items-start gap-2 px-3 py-2.5 text-left transition-colors hover:bg-muted/40 focus:outline-none focus-visible:bg-muted/60',
-                                        item.uuid === selected && 'bg-primary/5 ring-1 ring-inset ring-primary/30')"
+                                    :class="cn('w-full rounded-xl border p-3 text-left transition-all hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                        labTaskState(item.status).card,
+                                        item.uuid === selected && 'ring-2 ring-primary/60 ring-offset-1 ring-offset-background')"
                                     @click="selected = item.uuid"
                                 >
-                                    <FlaskConical class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                                    <span class="min-w-0 flex-1">
-                                        <span class="block truncate text-sm font-semibold text-foreground">{{ item.name }}</span>
-                                        <span class="mt-1 flex flex-wrap gap-1">
-                                            <Badge :tone="LAB_STATUS_TONES[item.status]">{{ item.status_label }}</Badge>
-                                            <Badge v-if="item.sent_out" tone="info" :title="`Confiée à ${item.sent_out.laboratory}`"><Building2 class="h-3 w-3" /> Extérieur</Badge>
-                                            <Badge v-if="item.critical_count" tone="danger"><Siren class="h-3 w-3" />{{ item.critical_count }}</Badge>
+                                    <span class="flex items-start gap-3">
+                                        <span :class="cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg shadow-sm', labTaskState(item.status).square)" aria-hidden="true">
+                                            <component :is="TASK_ICONS[labTaskState(item.status).icon]" :class="cn('h-4 w-4', item.status === 'IN_PROGRESS' && 'motion-safe:animate-spin [animation-duration:3s]')" />
+                                        </span>
+                                        <span class="min-w-0 flex-1">
+                                            <span class="flex items-center justify-between gap-2">
+                                                <span class="truncate text-sm font-bold text-foreground">{{ item.code || item.name }}</span>
+                                                <Badge :tone="labTaskState(item.status).badge" class="shrink-0">{{ labTaskState(item.status).label }}</Badge>
+                                            </span>
+                                            <span v-if="item.code" class="mt-0.5 block truncate text-xs text-muted-foreground">{{ item.name }}</span>
+                                            <span v-if="itemProgress(item).total" class="mt-2 flex items-center gap-2" :aria-label="`${itemProgress(item).done} résultat(s) saisi(s) sur ${itemProgress(item).total}`">
+                                                <span class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"><span :class="cn('block h-full rounded-full transition-all', labTaskState(item.status).bar)" :style="{ width: `${Math.round(itemProgress(item).ratio * 100)}%` }" /></span>
+                                                <span class="text-[11px] tabular-nums text-muted-foreground">{{ itemProgress(item).done }}/{{ itemProgress(item).total }}</span>
+                                            </span>
+                                            <span v-if="item.sent_out || item.critical_count" class="mt-1.5 flex flex-wrap gap-1">
+                                                <Badge v-if="item.sent_out" tone="info" :title="`Confiée à ${item.sent_out.laboratory}`"><Building2 class="h-3 w-3" /> Extérieur</Badge>
+                                                <Badge v-if="item.critical_count" tone="danger"><Siren class="h-3 w-3" />{{ item.critical_count }} critique(s)</Badge>
+                                            </span>
                                         </span>
                                     </span>
                                 </button>
+                                <Button
+                                    v-if="manager?.canRemove(item)"
+                                    type="button"
+                                    size="icon-xs"
+                                    variant="ghost"
+                                    class="absolute -right-1.5 -top-1.5 h-6 w-6 rounded-full border border-border bg-card text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                                    :title="`Retirer « ${item.name} » de la demande`"
+                                    :aria-label="`Retirer « ${item.name} » de la demande`"
+                                    @click="manager.openRemove(item)"
+                                >
+                                    <Trash2 class="h-3.5 w-3.5" />
+                                </Button>
                             </li>
                         </ul>
                     </Card>
@@ -192,7 +261,9 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
                     :can="can"
                 />
             </div>
+        </template>
 
+        <template #end>
             <div class="space-y-4">
                 <LabItemEditor
                     v-if="current"
@@ -210,7 +281,7 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
                 />
                 <Card v-else class="p-8 text-center text-sm text-muted-foreground">Aucune analyse dans cette demande.</Card>
 
-                <Card v-if="labRequest.received && (canConclude || labRequest.conclusion)" class="p-4">
+                <Card v-if="canConclude || labRequest.conclusion" class="p-4">
                     <div class="mb-2 flex items-center gap-2">
                         <FileSignature class="h-4 w-4 text-primary" />
                         <h2 class="text-sm font-bold text-foreground">Conclusion générale</h2>
@@ -231,7 +302,8 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
                     </template>
                 </Card>
             </div>
-        </div>
+        </template>
+        </ResizableSplit>
     </div>
 
     <LabSendDialog

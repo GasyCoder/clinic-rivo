@@ -1,26 +1,28 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
-import { ArrowLeft } from 'lucide-vue-next';
+import { ArrowLeft, Download, ExternalLink, FileText, FlaskConical, Hourglass, Printer, TriangleAlert } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import PaperSheet from '@/Components/Clinical/PaperSheet.vue';
 import SealedLabResult from '@/Components/Laboratory/SealedLabResult.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
-import { formatDate, formatDateTime } from '@/utilities/date';
+import { formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
-import { INTERPRETATION_LABELS, resultText } from '@/utilities/labWorkbench';
+import { LAB_STATUS_TONES } from '@/utilities/labWorkbench';
 import { labUrl } from '@/utilities/labUrl';
 
 /**
- * ADR-213 / ADR-214 — la feuille de résultats : seules les analyses rendues
- * s'impriment, et une analyse pas encore envoyée le dit sur la feuille. Elle
- * porte le n° de laboratoire, les prélèvements, le laboratoire extérieur qui a
- * réalisé une analyse qui lui a été confiée, et la conclusion générale.
+ * ADR-218 — le compte rendu de résultats d'analyses est un PDF produit par le
+ * serveur, comme le laboratoire de la clinique le remettait (labo-vuejs) :
+ * sections par discipline, Résultat · Val. réf. · Antériorité, notes de chaque
+ * ligne, conclusion de chaque analyse puis conclusion générale. Cette page le
+ * montre, le télécharge et l'imprime ; elle ne redessine pas une seconde
+ * feuille, qui finirait par dire autre chose que le PDF.
  *
- * ADR-216 — la même feuille est la page de lecture du médecin
- * (`context.mode = physician`) : seulement ce qui lui a été envoyé, et, adressée
- * à un confrère, rien avant une confirmation tracée (`sealed`).
+ * ADR-216 — la même page est celle du médecin (`context.mode = physician`) :
+ * son PDF ne porte que ce qui lui a été envoyé, et, adressé à un confrère, rien
+ * n'est servi avant une confirmation tracée (`sealed`).
  */
 defineOptions({ layout: AppLayout });
 
@@ -37,23 +39,33 @@ const props = defineProps({
 const physician = computed(() => props.context?.mode === 'physician');
 const backHref = computed(() => (physician.value ? props.context.back_href : labUrl(`/laboratory/requests/${props.labRequest.uuid}`)));
 const backLabel = computed(() => (physician.value ? props.context.back_label : 'Retour à la saisie'));
-
-const ANTIBIOGRAM_LABELS = { S: 'Sensible', I: 'Intermédiaire', R: 'Résistant' };
 const patient = computed(() => props.labRequest.patient);
-const samplesText = computed(() => props.samples
-    .map((sample) => `${sample.sample_type}${sample.tube ? ` (${sample.tube.code})` : ''} — ${formatDateTime(sample.collected_at)}`)
-    .join(' · '));
-const rows = (item) => (item.nodes ?? []).filter((node) => !node.takes_result || node.result);
-// Un résultat saisi « en un bloc » sur une analyse qui a des sous-analyses n'a
-// aucune valeur par ligne : la feuille montre alors le texte saisi plutôt que
-// des lignes vides.
-const structured = (item) => item.has_definitions && (item.nodes ?? []).some((node) => node.takes_result && node.result);
+
+// Le médecin lit sur sa route (seulement ce qui lui a été envoyé) ; le laboratoire, sur la sienne.
+const pdfUrl = computed(() => (physician.value
+    ? `/resultats-analyses/${props.labRequest.uuid}/pdf`
+    : labUrl(`/laboratory/requests/${props.labRequest.uuid}/resultats.pdf`)));
+const downloadUrl = computed(() => `${pdfUrl.value}?telecharger=1`);
+const provisional = computed(() => !physician.value && props.items.some((item) => item.status !== 'VALIDATED'));
+
+// Imprimer : le PDF affiché dans la page, sans ouvrir d'onglet.
+const frame = ref(null);
+const loaded = ref(false);
+const print = () => {
+    try {
+        frame.value?.contentWindow?.focus();
+        frame.value?.contentWindow?.print();
+    } catch {
+        window.open(pdfUrl.value, '_blank', 'noopener');
+    }
+};
 </script>
 
 <template>
+    <Head :title="`Résultats · ${formatPatientName(patient)}`" />
+
     <!-- ADR-216 — adressés à un confrère : rien n'est servi avant la confirmation. -->
     <div v-if="sealed" class="mx-auto w-full max-w-[52rem] space-y-4">
-        <Head :title="`Résultats · ${formatPatientName(patient)}`" />
         <Button v-if="backHref" :as="Link" :href="backHref" size="sm" variant="ghost"><ArrowLeft class="h-4 w-4" /> {{ backLabel }}</Button>
         <Card class="space-y-4 p-5">
             <div>
@@ -66,133 +78,73 @@ const structured = (item) => item.has_definitions && (item.nodes ?? []).some((no
         </Card>
     </div>
 
-    <PaperSheet
-        v-else
-        :page-title="`Résultats · ${formatPatientName(patient)}`"
-        document-title="Résultats d’analyses de laboratoire"
-        :back-href="backHref"
-        :back-label="backLabel"
-    >
-        <table class="ps-table">
-            <tbody>
-                <tr>
-                    <th class="ps-label ps-label-blue-soft" style="width: 18%">Patient</th>
-                    <td style="width: 32%"><strong>{{ formatPatientName(patient) }}</strong></td>
-                    <th class="ps-label ps-label-blue-soft" style="width: 18%">N° dossier</th>
-                    <td>{{ patient.patient_number }} · {{ labRequest.episode_number }}</td>
-                </tr>
-                <tr>
-                    <th class="ps-label ps-label-blue-soft">Âge / sexe</th>
-                    <td>
-                        <template v-if="patient.birth_date">{{ formatDate(patient.birth_date) }} — </template>
-                        <template v-if="patient.age !== null && patient.age !== undefined">{{ patient.age }} ans</template>
-                        <template v-if="patient.sex"> · {{ patient.sex === 'M' ? 'Masculin' : 'Féminin' }}</template>
-                    </td>
-                    <th class="ps-label ps-label-blue-soft">Demandée le</th>
-                    <td>{{ formatDateTime(labRequest.requested_at) }}<template v-if="labRequest.requested_by"> — {{ labRequest.requested_by }}</template></td>
-                </tr>
-                <tr>
-                    <th class="ps-label ps-label-blue-soft">N° laboratoire</th>
-                    <td><strong>{{ labRequest.lab_number ?? '—' }}</strong></td>
-                    <th class="ps-label ps-label-blue-soft">Reçue le</th>
-                    <td>{{ labRequest.received_at ? formatDateTime(labRequest.received_at) : '—' }}</td>
-                </tr>
-                <tr v-if="samples.length">
-                    <th class="ps-label ps-label-blue-soft">Prélèvements</th>
-                    <td colspan="3">{{ samplesText }}</td>
-                </tr>
-                <tr v-if="labRequest.addressed_at">
-                    <th class="ps-label ps-label-blue-soft">Adressés à</th>
-                    <td colspan="3">
-                        {{ labRequest.recipient ?? 'Aucun médecin (patient externe)' }}
-                        — envoyés le {{ formatDateTime(labRequest.addressed_at) }}<template v-if="labRequest.addressed_by"> par {{ labRequest.addressed_by }}</template>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+    <div v-else class="mx-auto w-full max-w-6xl space-y-4">
+        <!-- En-tête : qui, quoi, et les gestes du compte rendu -->
+        <Card class="flex flex-wrap items-start justify-between gap-3 p-4">
+            <div class="flex min-w-0 items-start gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><FileText class="h-5 w-5" /></span>
+                <div class="min-w-0">
+                    <h1 class="text-lg font-bold text-foreground">Compte rendu d’analyses · {{ formatPatientName(patient) }}</h1>
+                    <p class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                        <span>{{ patient.patient_number }} · passage {{ labRequest.episode_number }}</span>
+                        <span v-if="labRequest.lab_number">· n° <strong class="text-foreground">{{ labRequest.lab_number }}</strong></span>
+                        <span v-if="labRequest.addressed_at">· adressés à {{ labRequest.recipient ?? 'aucun médecin (patient externe)' }}, le {{ formatDateTime(labRequest.addressed_at) }}</span>
+                    </p>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <Button v-if="backHref" :as="Link" :href="backHref" size="sm" variant="ghost"><ArrowLeft class="h-4 w-4" /> {{ backLabel }}</Button>
+                <template v-if="items.length">
+                    <Button type="button" size="sm" variant="outline" :disabled="!loaded" @click="print"><Printer class="h-4 w-4" /> Imprimer</Button>
+                    <Button as="a" :href="pdfUrl" target="_blank" rel="noopener" size="sm" variant="outline"><ExternalLink class="h-4 w-4" /> Ouvrir</Button>
+                    <Button as="a" :href="downloadUrl" size="sm"><Download class="h-4 w-4" /> Télécharger le PDF</Button>
+                </template>
+            </div>
+        </Card>
 
-        <p v-if="!items.length" class="ps-muted" style="margin-top: 16px">{{ physician ? 'Aucun résultat envoyé par le laboratoire pour l’instant.' : 'Aucune analyse rendue pour cette demande.' }}</p>
-        <p v-if="physician && pending.length" class="ps-muted" style="margin-top: 8px">En cours au laboratoire : {{ pending.join(', ') }}.</p>
+        <div v-if="provisional" class="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200" role="status">
+            <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+            <p>Document provisoire : au moins une analyse n’est pas encore envoyée au médecin. Le PDF le dit en tête.</p>
+        </div>
 
-        <section v-for="item in items" :key="item.uuid" style="break-inside: avoid">
-            <table class="ps-table">
-                <thead>
-                    <tr>
-                        <th colspan="4" class="ps-section ps-section-blue">
-                            {{ item.name }}
-                            <template v-if="item.sent_out"> — réalisée par {{ item.sent_out.laboratory }}<template v-if="item.sent_out.reference"> (réf. {{ item.sent_out.reference }})</template></template>
-                        </th>
-                    </tr>
-                    <tr>
-                        <th style="width: 34%; text-align: left">Analyse</th>
-                        <th style="width: 30%; text-align: left">Résultat</th>
-                        <th style="width: 22%; text-align: left">Valeurs de référence</th>
-                        <th style="text-align: left">Interprétation</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <template v-if="structured(item)">
-                        <template v-for="node in rows(item)" :key="node.uuid">
-                            <tr v-if="!node.takes_result">
-                                <td colspan="4" :style="{ paddingLeft: `${8 + node.depth * 14}px`, fontWeight: 700 }">{{ node.designation }}</td>
-                            </tr>
-                            <tr v-else>
-                                <td :style="{ paddingLeft: `${8 + node.depth * 14}px`, fontWeight: node.is_bold ? 700 : 400 }">{{ node.designation }}</td>
-                                <td :style="{ fontWeight: node.result.interpretation === 'PATHOLOGICAL' ? 700 : 400 }">
-                                    {{ resultText(node, options) }}<template v-if="node.unit && node.entry_mode === 'NUMERIC'"> {{ node.unit }}</template>
-                                    <template v-if="node.result.is_critical"> — CRITIQUE<template v-if="node.result.critical_snapshot"> ({{ node.result.critical_snapshot }})</template></template>
-                                </td>
-                                <td>{{ node.reference ?? '' }}</td>
-                                <td>{{ INTERPRETATION_LABELS[node.result.interpretation] ?? '' }}</td>
-                            </tr>
-                            <tr v-for="antibiogram in node.antibiograms" :key="antibiogram.uuid">
-                                <td colspan="4" style="padding: 6px 8px">
-                                    <strong>Antibiogramme — <em>{{ antibiogram.bacterium }}</em></strong>
-                                    <table class="ps-table" style="margin-top: 4px">
-                                        <tbody>
-                                            <tr v-for="line in antibiogram.lines" :key="line.antibiotic_uuid">
-                                                <td style="width: 55%">{{ line.antibiotic }}</td>
-                                                <td style="width: 25%; font-weight: 700">{{ ANTIBIOGRAM_LABELS[line.interpretation] ?? line.interpretation }}</td>
-                                                <td>{{ line.measure !== null && line.measure !== undefined ? `${line.measure} ${line.measure_unit}` : '' }}</td>
-                                            </tr>
-                                            <tr v-if="!antibiogram.lines.length"><td colspan="3" class="ps-muted">Aucun antibiotique testé.</td></tr>
-                                        </tbody>
-                                    </table>
-                                    <p v-if="antibiogram.notes" class="ps-muted" style="margin: 4px 0 0">{{ antibiogram.notes }}</p>
-                                </td>
-                            </tr>
-                        </template>
-                    </template>
-                    <tr v-else>
-                        <td colspan="4" style="white-space: pre-line">{{ item.result_value }}<template v-if="item.result_notes">&#10;{{ item.result_notes }}</template></td>
-                    </tr>
-                    <tr v-if="item.conclusion">
-                        <td colspan="4"><strong>Conclusion : </strong>{{ item.conclusion }}</td>
-                    </tr>
-                    <tr>
-                        <td colspan="4" class="ps-muted">
-                            <template v-if="item.in_correction">
-                                <strong>Repris par le laboratoire pour être refait<template v-if="item.return_reason"> ({{ item.return_reason }})</template> : ne vous fiez pas à cette valeur, un nouvel envoi suivra.</strong>
-                            </template>
-                            <template v-else-if="item.status === 'VALIDATED'">Envoyé au médecin<template v-if="item.validated_by"> par {{ item.validated_by }}</template> le {{ formatDateTime(item.validated_at) }}.</template>
-                            <template v-else><strong>Résultat pas encore envoyé au médecin.</strong></template>
-                            <template v-if="item.resulted_at && !item.in_correction"> Rendu le {{ formatDateTime(item.resulted_at) }}<template v-if="item.resulted_by"> par {{ item.resulted_by }}</template>.</template>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </section>
+        <div class="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
+            <!-- Ce que porte le compte rendu -->
+            <Card class="h-fit p-3">
+                <p class="px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Analyses du compte rendu</p>
+                <ul v-if="items.length" class="space-y-1">
+                    <li v-for="item in items" :key="item.uuid" class="flex items-start justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50">
+                        <span class="flex min-w-0 items-start gap-2">
+                            <FlaskConical class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <span class="min-w-0 text-foreground">{{ item.name }}</span>
+                        </span>
+                        <Badge :tone="item.in_correction ? 'danger' : LAB_STATUS_TONES[item.status]" class="shrink-0">{{ item.in_correction ? 'En correction' : item.status_label }}</Badge>
+                    </li>
+                </ul>
+                <p v-else class="px-1 text-sm text-muted-foreground">{{ physician ? 'Aucun résultat envoyé par le laboratoire pour l’instant.' : 'Aucune analyse rendue pour cette demande.' }}</p>
+                <div v-if="physician && pending.length" class="mt-3 border-t border-border px-1 pt-2 text-xs text-muted-foreground">
+                    <p class="flex items-center gap-1 font-semibold"><Hourglass class="h-3 w-3" /> En cours au laboratoire</p>
+                    <p class="mt-1">{{ pending.join(', ') }}</p>
+                </div>
+            </Card>
 
-        <table v-if="labRequest.conclusion" class="ps-table" style="break-inside: avoid">
-            <tbody>
-                <tr><th class="ps-section ps-section-green">Conclusion générale</th></tr>
-                <tr>
-                    <td style="white-space: pre-line">
-                        {{ labRequest.conclusion }}
-                        <template v-if="labRequest.conclusion_by">&#10;— {{ labRequest.conclusion_by }}, le {{ formatDateTime(labRequest.conclusion_at) }}</template>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-    </PaperSheet>
+            <!-- Le PDF lui-même -->
+            <Card class="overflow-hidden">
+                <iframe
+                    v-if="items.length"
+                    ref="frame"
+                    :src="pdfUrl"
+                    :title="`Compte rendu d’analyses de ${formatPatientName(patient)}`"
+                    class="block h-[78vh] min-h-[32rem] w-full bg-muted"
+                    @load="loaded = true"
+                />
+                <div v-else class="flex h-64 flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
+                    <FileText class="h-8 w-8" />
+                    <p>Le compte rendu s’affichera ici dès qu’un résultat sera {{ physician ? 'envoyé' : 'saisi' }}.</p>
+                </div>
+            </Card>
+        </div>
+        <p v-if="items.length" class="text-xs text-muted-foreground">
+            Le PDF ne s’affiche pas ? <a :href="pdfUrl" target="_blank" rel="noopener" class="font-medium text-primary underline-offset-2 hover:underline">Ouvrez-le dans un onglet</a> ou téléchargez-le.
+        </p>
+    </div>
 </template>

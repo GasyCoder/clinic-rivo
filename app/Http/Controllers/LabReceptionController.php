@@ -32,8 +32,21 @@ class LabReceptionController extends Controller
         $received = $action->execute($labRequest, $request->validated('samples') ?? [], $request->user());
         $count = $received->samples()->count();
 
-        return back()->with('status', "Demande reçue sous le n° {$received->lab_number}"
+        return back()->with('status', "Demande prise en charge sous le n° {$received->lab_number}"
             .($count > 0 ? " — {$count} prélèvement(s) enregistré(s) : imprimez les étiquettes." : '.'));
+    }
+
+    /**
+     * ADR-217 — « Traiter » depuis la file : la demande est prise en charge
+     * (numéro de laboratoire, technicien), quel que soit le règlement, puis la
+     * paillasse s'ouvre. Idempotent : une demande déjà commencée s'ouvre.
+     */
+    public function start(Request $request, LabRequest $labRequest, ReceiveLabRequestAction $action): RedirectResponse
+    {
+        $started = $action->start($labRequest, $request->user());
+
+        return redirect("/laboratory/requests/{$started->uuid}")
+            ->with('status', "Demande {$started->lab_number} prise en charge : saisissez les résultats.");
     }
 
     public function storeSamples(StoreLabSamplesRequest $request, LabRequest $labRequest, RecordLabSamplesAction $action): RedirectResponse

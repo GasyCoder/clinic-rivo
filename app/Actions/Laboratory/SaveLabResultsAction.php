@@ -5,6 +5,7 @@ namespace App\Actions\Laboratory;
 use App\Enums\LabEntryMode;
 use App\Enums\LabItemStatus;
 use App\Models\AnalysisCatalog;
+use App\Models\LabAnalysisNote;
 use App\Models\LabAntibiogram;
 use App\Models\LabBacterium;
 use App\Models\LabRequestItem;
@@ -51,7 +52,7 @@ class SaveLabResultsAction
         }
 
         return DB::transaction(function () use ($item, $payload, $actor): LabRequestItem {
-            $locked = LabItemGuard::lockWorkable($item);
+            $locked = LabItemGuard::lockWorkable($item, $actor);
             $definitions = $this->workbench->definitions($locked)->pluck('analysis')->keyBy('uuid');
             $patient = $this->workbench->patient($locked);
             $date = $this->workbench->referenceDate($locked);
@@ -113,10 +114,30 @@ class SaveLabResultsAction
                 }
             }
 
-            $changes = [];
-            if (array_key_exists('conclusion', $payload)) {
-                $changes['conclusion'] = filled($payload['conclusion']) ? trim((string) $payload['conclusion']) : null;
+            // ADR-218 — la note de chaque ligne, groupes compris ; vidée, elle part.
+            foreach (array_values($payload['notes'] ?? []) as $index => $entry) {
+                $analysis = $definitions->get($entry['analysis_uuid'] ?? '');
+                if ($analysis === null) {
+                    throw ValidationException::withMessages(["notes.{$index}.analysis_uuid" => 'Cette analyse n’appartient pas à la prestation demandée.']);
+                }
+                $text = is_scalar($entry['note'] ?? null) ? trim((string) $entry['note']) : '';
+                $existing = LabAnalysisNote::query()->where('lab_request_item_id', $locked->id)->where('analysis_catalog_id', $analysis->id)->first();
+
+                if ($text === '') {
+                    $existing?->delete();
+
+                    continue;
+                }
+                if ($existing?->note === $text) {
+                    continue;
+                }
+                LabAnalysisNote::query()->updateOrCreate(
+                    ['lab_request_item_id' => $locked->id, 'analysis_catalog_id' => $analysis->id],
+                    ['note' => mb_substr($text, 0, LabAnalysisNote::MAX_LENGTH), 'written_by' => $actor->getKey()],
+                );
             }
+
+            $changes = [];
             if ($locked->started_at === null) {
                 $changes['started_at'] = now();
                 $changes['started_by'] = $actor->getKey();

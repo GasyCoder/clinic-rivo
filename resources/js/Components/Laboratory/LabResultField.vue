@@ -5,9 +5,10 @@ import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
-import { Bug, Plus, X } from 'lucide-vue-next';
+import { ArrowDown, ArrowUp, Bug, CircleCheck, CircleHelp, Plus, Siren, X } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
-import { NUGENT_KEYS, nugentReading, nugentScore } from '@/utilities/labWorkbench';
+import { criticalFlag } from '@/utilities/criticalRanges';
+import { NUGENT_KEYS, numericHint, nugentReading, nugentScore } from '@/utilities/labWorkbench';
 
 /**
  * ADR-213 — la saisie d'une analyse, selon son mode. Le composant écrit dans la
@@ -67,23 +68,53 @@ const removeBacterium = (uuid) => {
 };
 const setOther = (value) => { props.entry.selections = { ...(props.entry.selections ?? {}), other: value ?? '' }; };
 
-const inputClass = 'h-9';
+const inputClass = 'h-10';
+
+// ADR-219 — la valeur se lit pendant qu'on la tape, comme labo-vuejs : la
+// bordure et la ligne dessous disent où elle se place par rapport à la norme.
+const hint = computed(() => (props.node.entry_mode === 'NUMERIC'
+    ? numericHint(props.node.range, props.entry.value, criticalFlag(props.node.critical, props.entry.value) !== null)
+    : null));
+const HINT_ICONS = { normal: CircleCheck, high: ArrowUp, low: ArrowDown, critical: Siren, invalid: CircleHelp };
+
+// Entrée passe à la valeur suivante : une série de résultats se saisit au clavier.
+const nextField = (event) => {
+    const fields = [...document.querySelectorAll('[data-lab-input]:not([disabled])')];
+    const next = fields[fields.indexOf(event.target) + 1];
+    if (next) {
+        next.focus();
+        next.select?.();
+    }
+};
 </script>
 
 <template>
     <div class="min-w-0">
-        <!-- Nombre -->
-        <div v-if="node.entry_mode === 'NUMERIC'" class="flex items-center gap-2">
-            <Input
-                :model-value="entry.value"
-                inputmode="decimal"
-                :class="cn(inputClass, 'w-32 font-semibold tabular-nums')"
-                :disabled="disabled"
-                :aria-label="node.designation"
-                placeholder="Valeur"
-                @update:model-value="setValue"
-            />
-            <span v-if="node.unit" class="text-xs text-muted-foreground">{{ node.unit }}</span>
+        <!-- Nombre : grand champ, unité dans le champ, repère de norme dessous -->
+        <div v-if="node.entry_mode === 'NUMERIC'" class="w-full max-w-md space-y-1.5">
+            <div class="relative">
+                <Input
+                    :model-value="entry.value"
+                    inputmode="decimal"
+                    autocomplete="off"
+                    data-lab-input
+                    :class="cn('h-12 w-full pe-20 text-lg font-bold tabular-nums', hint?.border)"
+                    :disabled="disabled"
+                    :aria-label="node.designation"
+                    :aria-describedby="hint ? `hint-${node.uuid}` : undefined"
+                    :aria-invalid="hint?.key === 'invalid' ? 'true' : undefined"
+                    placeholder="Saisir la valeur"
+                    @update:model-value="setValue"
+                    @keydown.enter.prevent="nextField"
+                />
+                <span
+                    v-if="node.unit"
+                    class="pointer-events-none absolute inset-y-1.5 end-1.5 flex max-w-[5rem] items-center truncate rounded-md bg-muted px-2 text-xs font-semibold text-muted-foreground"
+                >{{ node.unit }}</span>
+            </div>
+            <p v-if="hint" :id="`hint-${node.uuid}`" :class="cn('flex items-center gap-1.5 text-xs font-medium', hint.text)" role="status">
+                <component :is="HINT_ICONS[hint.key]" class="h-3.5 w-3.5 shrink-0" />{{ hint.label }}
+            </p>
         </div>
 
         <!-- Texte libre -->
@@ -93,7 +124,8 @@ const inputClass = 'h-9';
             rows="2"
             :disabled="disabled"
             :aria-label="node.designation"
-            placeholder="Résultat"
+            placeholder="Saisie libre…"
+            class="min-h-[4.5rem] text-base"
             @update:model-value="setValue"
         />
 
@@ -104,7 +136,7 @@ const inputClass = 'h-9';
             :options="choiceOptions"
             :disabled="disabled"
             :aria-label="node.designation"
-            class="w-full sm:w-64"
+            class="w-full max-w-md"
             @update:model-value="setValue"
         />
 
@@ -122,8 +154,8 @@ const inputClass = 'h-9';
         </div>
 
         <!-- Négatif / Positif (± valeur, ± précision) -->
-        <div v-else-if="['NEG_POS', 'NEG_POS_VALUE', 'NEG_POS_CHOICE'].includes(node.entry_mode)" class="flex flex-wrap items-center gap-2">
-            <div class="inline-flex rounded-lg border border-border p-0.5" role="radiogroup" :aria-label="node.designation">
+        <div v-else-if="['NEG_POS', 'NEG_POS_VALUE', 'NEG_POS_CHOICE'].includes(node.entry_mode)" class="flex w-full max-w-xl flex-wrap items-center gap-2">
+            <div class="grid min-w-[14rem] flex-1 grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1" role="radiogroup" :aria-label="node.designation">
                 <button
                     v-for="value in options.negative_positive"
                     :key="value"
@@ -131,7 +163,7 @@ const inputClass = 'h-9';
                     role="radio"
                     :aria-checked="entry.value === value"
                     :disabled="disabled"
-                    :class="cn('rounded-md px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-60',
+                    :class="cn('rounded-md px-3 py-2 text-sm font-semibold transition-colors disabled:opacity-60',
                         entry.value === value ? (value === 'Positif' ? 'bg-destructive text-destructive-foreground' : 'bg-emerald-600 text-white') : 'text-muted-foreground hover:bg-accent')"
                     @click="setValue(entry.value === value ? '' : value)"
                 >{{ value }}</button>
@@ -139,7 +171,7 @@ const inputClass = 'h-9';
             <Input
                 v-if="node.entry_mode === 'NEG_POS_VALUE'"
                 :model-value="entry.selections?.detail ?? ''"
-                :class="cn(inputClass, 'w-44')"
+                :class="cn(inputClass, 'w-full sm:w-52')"
                 :disabled="disabled || !entry.value"
                 placeholder="Valeur (titre, taux…)"
                 @update:model-value="setDetail"
@@ -150,7 +182,7 @@ const inputClass = 'h-9';
                 :options="choiceOptions"
                 :disabled="disabled || !entry.value"
                 placeholder="Précision"
-                class="w-full sm:w-56"
+                class="w-full sm:w-60"
                 @update:model-value="setDetail"
             />
             <span v-if="node.unit" class="text-xs text-muted-foreground">{{ node.unit }}</span>
@@ -163,7 +195,7 @@ const inputClass = 'h-9';
             :options="pairOptions(options.absence_presence)"
             :disabled="disabled"
             :aria-label="node.designation"
-            class="w-full sm:w-48"
+            class="w-full max-w-md"
             @update:model-value="setValue"
         />
 
@@ -196,7 +228,7 @@ const inputClass = 'h-9';
                 :options="cultureOptions"
                 :disabled="disabled"
                 :aria-label="node.designation"
-                class="w-full sm:w-72"
+                class="w-full max-w-md"
                 @update:model-value="setValue"
             />
             <div v-if="entry.value === 'GROWTH'" class="space-y-2 rounded-lg border border-dashed border-border p-3">

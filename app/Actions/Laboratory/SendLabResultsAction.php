@@ -62,9 +62,8 @@ class SendLabResultsAction
             if ($locked->cancelled_at !== null) {
                 throw ValidationException::withMessages(['items' => 'Cette demande a été retirée par le prescripteur : elle ne s’envoie plus.']);
             }
-            if ($locked->received_at === null) {
-                throw ValidationException::withMessages(['items' => 'Réceptionnez d’abord la demande : c’est la réception qui contrôle le règlement et enregistre les prélèvements.']);
-            }
+            // ADR-217 — envoyer prend la demande en charge si personne ne l'a encore fait.
+            LabItemGuard::ensureTakenUp($locked, $actor);
 
             $items = $locked->items()->whereIn('uuid', array_values(array_unique($itemUuids)))->orderBy('id')->get();
 
@@ -153,8 +152,6 @@ class SendLabResultsAction
         if ($status === LabItemStatus::Validated) {
             throw ValidationException::withMessages(['items' => "« {$name} » est déjà envoyée au médecin."]);
         }
-
-        LabItemGuard::ensureReceived($locked, 'items');
 
         // Rendue « en un bloc » (analyse sans définition), ou terminée avant
         // l'ADR-216 : le résultat est déjà composé, il ne reste qu'à l'envoyer.

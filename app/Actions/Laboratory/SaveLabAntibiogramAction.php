@@ -25,8 +25,8 @@ class SaveLabAntibiogramAction
             throw new AuthorizationException('La saisie des résultats demande le droit « laboratory_results.create ».');
         }
 
-        return DB::transaction(function () use ($item, $antibiogram, $lines, $notes): LabAntibiogram {
-            $locked = LabItemGuard::lockWorkable($item);
+        return DB::transaction(function () use ($item, $antibiogram, $lines, $notes, $actor): LabAntibiogram {
+            $locked = LabItemGuard::lockWorkable($item, $actor);
             if ($antibiogram->lab_request_item_id !== $locked->id) {
                 abort(404);
             }

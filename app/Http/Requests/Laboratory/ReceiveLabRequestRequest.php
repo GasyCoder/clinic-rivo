@@ -9,7 +9,7 @@ class ReceiveLabRequestRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return (bool) $this->user()?->can('laboratory_orders.receive');
+        return (bool) $this->user()?->can('take-up-lab-request');
     }
 
     public function rules(): array

@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
-import { Activity, Archive, ArchiveRestore, ChevronDown, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FlaskConical, HeartPulse, History, LayoutList, LoaderCircle, LockKeyhole, PenLine, Pencil, Printer, ScanLine, Search, Send, Stethoscope, Trash2 } from 'lucide-vue-next';
+import { Activity, Archive, ArchiveRestore, ChevronDown, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FlaskConical, HeartPulse, History, LayoutList, LoaderCircle, LockKeyhole, PenLine, Pencil, Printer, ScanLine, Search, Send, Stethoscope, Trash2, Wallet, RotateCcw, SendHorizontal, BadgeCheck, FlaskRound } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
@@ -13,6 +13,9 @@ import ImagingReportDocument from '@/Components/Medicine/ImagingReportDocument.v
 import FormError from '@/Components/UI/FormError.vue';
 import { formatDateTime, formatRelativeTime } from '@/utilities/date';
 import { cn } from '@/lib/cn';
+import { labRowButton } from '@/utilities/labRowActions';
+import { LAB_STATE_LABELS } from '@/utilities/labWorkbench';
+import { paymentBadge } from '@/utilities/labReception';
 
 defineOptions({ layout: AppLayout });
 
@@ -69,6 +72,13 @@ const FILTERS = [
     { key: 'archived', label: 'Archivées', hint: 'Plus anciennes et demandes retirées', icon: Archive, tone: 'neutral' },
 ];
 
+// ADR-219 — l'état d'une demande d'analyses au laboratoire, dans le même dessin que STATUS.
+const LAB_STATE_STYLES = {
+    to_do: { icon: FlaskRound, tone: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300' },
+    to_redo: { icon: RotateCcw, tone: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300' },
+    to_validate: { icon: SendHorizontal, tone: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300' },
+    validated: { icon: BadgeCheck, tone: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300' },
+};
 const STATUS = {
     REQUESTED: { label: 'En attente', icon: Clock, tone: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300' },
     IN_PROGRESS: { label: 'En cours', icon: LoaderCircle, tone: 'border-primary/30 bg-primary/10 text-primary' },
@@ -245,6 +255,13 @@ const submitWithdraw = () => {
         preserveScroll: true,
         onSuccess: closeWithdraw,
     });
+};
+
+// ADR-219 — « Traiter » : la demande est prise en charge, puis la paillasse s'ouvre (le serveur redirige).
+const starting = ref(null);
+const startLab = (request) => {
+    starting.value = request.uuid;
+    router.post(`/laboratory/requests/${request.uuid}/start`, {}, { onFinish: () => { starting.value = null; } });
 };
 </script>
 
@@ -461,10 +478,25 @@ const submitWithdraw = () => {
 
                             <!-- STATUT -->
                             <td class="px-4 py-3">
-                                <span :class="cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-bold', STATUS[request.status].tone)">
+                                <!-- ADR-219 — une analyse dit où en est le laboratoire : un seul statut,
+                                     le règlement en repère discret dessous. -->
+                                <template v-if="request.lab_state && request.bench_url">
+                                    <span :class="cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-bold', LAB_STATE_STYLES[request.lab_state].tone)">
+                                        <component :is="LAB_STATE_STYLES[request.lab_state].icon" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                        {{ LAB_STATE_LABELS[request.lab_state] }}
+                                    </span>
+                                </template>
+                                <span v-else :class="cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-bold', STATUS[request.status].tone)">
                                     <component :is="STATUS[request.status].icon" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                     {{ STATUS[request.status].label }}
                                 </span>
+                                <p
+                                    v-if="paymentBadge(request.payment)"
+                                    :class="cn('mt-1 flex items-center gap-1 text-[11px] font-medium', paymentBadge(request.payment).tone === 'warning' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')"
+                                    :title="paymentBadge(request.payment).hint"
+                                >
+                                    <Wallet class="h-3 w-3 shrink-0" aria-hidden="true" />{{ paymentBadge(request.payment).label }}
+                                </p>
                                 <p v-if="request.archived_at" class="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                                     <Archive class="h-3 w-3" aria-hidden="true" />Archivée le {{ formatDateTime(request.archived_at) }}
                                 </p>
@@ -490,9 +522,33 @@ const submitWithdraw = () => {
                                         <Stethoscope class="h-4 w-4" />
                                     </Button>
 
-                                    <!-- ADR-216 — le laboratoire ouvre la demande à sa paillasse. -->
+                                    <!-- ADR-219 — le laboratoire agit comme dans sa file : Traiter, Continuer, Reprendre, Envoyer, Voir. -->
+                                    <template v-if="request.bench_url && request.bench_action">
+                                        <Button
+                                            v-if="request.bench_action === 'start'"
+                                            type="button"
+                                            size="sm"
+                                            :variant="labRowButton('start').variant"
+                                            :disabled="starting === request.uuid"
+                                            :title="`Prendre en charge et ouvrir la paillasse — ${request.patient.name}`"
+                                            @click="startLab(request)"
+                                        >
+                                            <LoaderCircle v-if="starting === request.uuid" class="h-3.5 w-3.5 animate-spin" />
+                                            <component :is="labRowButton('start').icon" v-else class="h-3.5 w-3.5" />{{ labRowButton('start').label }}
+                                        </Button>
+                                        <Button
+                                            v-else
+                                            :as="Link"
+                                            :href="request.bench_url"
+                                            size="sm"
+                                            :variant="labRowButton(request.bench_action).variant"
+                                            :title="`${labRowButton(request.bench_action).label} à la paillasse — ${request.patient.name}`"
+                                        >
+                                            <component :is="labRowButton(request.bench_action).icon" class="h-3.5 w-3.5" />{{ labRowButton(request.bench_action).label }}
+                                        </Button>
+                                    </template>
                                     <Button
-                                        v-if="request.bench_url"
+                                        v-else-if="request.bench_url"
                                         :as="Link"
                                         :href="request.bench_url"
                                         size="sm"

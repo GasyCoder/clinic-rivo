@@ -19,8 +19,9 @@ class LabResultSummary
 
     public function compose(LabRequestItem $item): string
     {
-        $item->loadMissing(['results', 'antibiograms.results']);
+        $item->loadMissing(['results', 'notes', 'antibiograms.results']);
         $results = $item->results->keyBy('analysis_catalog_id');
+        $notes = $item->notes->keyBy('analysis_catalog_id');
         $lines = [];
 
         foreach ($this->workbench->definitions($item) as $row) {
@@ -29,15 +30,24 @@ class LabResultSummary
             $indent = str_repeat('  ', $row['depth']);
             $mode = LabEntryMode::for($analysis);
 
+            $note = $notes->get($analysis->id)?->note;
+
             if ($result === null) {
                 if (! $mode->takesResult() || $analysis->level === 'PARENT') {
                     $lines[] = $indent.$analysis->designation;
+                }
+                if (filled($note)) {
+                    $lines[] = $indent.'  Notes : '.$note;
                 }
 
                 continue;
             }
 
             $lines[] = $indent.$result->designation_snapshot.' : '.$this->valueText($result);
+            // ADR-218 — la note de la ligne suit sa valeur.
+            if (filled($note)) {
+                $lines[] = $indent.'  Notes : '.$note;
+            }
 
             if ($mode === LabEntryMode::Culture) {
                 foreach ($item->antibiograms->where('analysis_catalog_id', $analysis->id) as $antibiogram) {

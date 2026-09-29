@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Medicine;
 
+use App\Actions\Laboratory\ReceiveLabRequestAction;
 use App\Actions\Medicine\ArchiveParaclinicalRequestAction;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\LabItemStatus;
@@ -9,6 +10,8 @@ use App\Http\Controllers\Controller;
 use App\Models\ImagingRequest;
 use App\Models\LabRequest;
 use App\Models\User;
+use App\Services\Laboratory\LabPaymentClearance;
+use App\Services\Laboratory\LabQueue;
 use App\Services\Laboratory\LabResultAccess;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Medicine\ImagingReportTemplateCatalog;
@@ -210,6 +213,13 @@ class ParaclinicalRequestDirectoryController extends Controller
         $deliveredAt = fn ($item) => $isLab ? ($item->isDelivered() ? $item->resulted_at : null) : $item->resulted_at;
         $viewerId = $viewer?->getKey();
         $atBench = $isLab && (bool) $viewer?->can('laboratory_results.create');
+        // ADR-219 — le geste de la file du laboratoire (Traiter, Continuer…) ; « Traiter »
+        // prend la demande en charge, il demande ce droit-là.
+        $canStart = $isLab && $viewer !== null && ReceiveLabRequestAction::canTakeUp($viewer);
+        // ADR-219 — le règlement se lit comme dans la file du laboratoire (ADR-217) : pour
+        // le laboratoire et qui voit la facturation, jamais un montant.
+        $showPayment = $isLab && ($atBench || (bool) $viewer?->can('billing.view'));
+        $clearance = app(LabPaymentClearance::class);
 
         return $query
             ->with([
@@ -221,6 +231,7 @@ class ParaclinicalRequestDirectoryController extends Controller
                 'items.catalogItem:id,imaging_modality',
                 'requestedBy:id,name',
                 ...($isLab ? ['resultsRecipient:id,name'] : []),
+                ...($showPayment ? LabPaymentClearance::RELATIONS : []),
                 'consultation:id,episode_orientation_id,status,completed_at',
                 'consultation.orientation:id,uuid,status',
                 // ADR-162 — la demande faite depuis le séjour.
@@ -262,6 +273,14 @@ class ParaclinicalRequestDirectoryController extends Controller
                     : null,
                 // Le compte du laboratoire ouvre la demande à la paillasse.
                 'bench_url' => $atBench ? "/laboratory/requests/{$request->uuid}" : null,
+                // ADR-219 — où en est le laboratoire (« À traiter »…) et le règlement, comme dans sa file.
+                'lab_state' => $isLab && $request->cancelled_at === null ? LabQueue::stateOf($request) : null,
+                'payment' => $showPayment && $request->cancelled_at === null
+                    ? collect($clearance->for($request))->only(['cleared', 'exemption', 'exemption_label', 'due_count', 'unbilled_count'])->all()
+                    : null,
+                'bench_action' => $atBench && $request->cancelled_at === null
+                    ? (($action = LabQueue::actionOf($request)) === 'start' && ! $canStart ? 'open' : $action)
+                    : null,
                 'family_label' => $familyLabel,
                 'status' => $request->displayStatus(),
                 'requested_at' => $request->requested_at?->toIso8601String(),

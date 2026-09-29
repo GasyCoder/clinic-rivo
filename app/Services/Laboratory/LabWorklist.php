@@ -40,6 +40,15 @@ class LabWorklist
             ])
             ->get();
 
+        // ADR-220 — une demande dont un résultat est déjà envoyé au médecin (reprise)
+        // ne part pas à la corbeille : la sélection le sait avant le clic.
+        $sentRequestIds = LabRequestItem::query()
+            ->whereIn('lab_request_id', $items->pluck('lab_request_id')->unique())
+            ->whereNotNull('sent_at')
+            ->distinct()
+            ->pluck('lab_request_id')
+            ->flip();
+
         $byItem = $this->disciplines->forCatalogItems($items->pluck('catalog_item_id')->all());
         $codes = $this->analysisCodes($items->pluck('catalog_item_id')->unique()->all());
 
@@ -55,11 +64,12 @@ class LabWorklist
                 'discipline' => $name,
                 'count' => $group->count(),
                 'rows' => $group->groupBy('lab_request_id')
-                    ->map(function (Collection $requestItems) use ($codes): array {
+                    ->map(function (Collection $requestItems) use ($codes, $sentRequestIds): array {
                         $request = $requestItems->first()->labRequest;
 
                         return [
                             'request_uuid' => $request->uuid,
+                            'trashable' => ! $sentRequestIds->has($request->getKey()),
                             'lab_number' => $request->lab_number,
                             'emergency' => $request->episode?->priority === EpisodePriority::Emergency,
                             'received_at' => $request->received_at,

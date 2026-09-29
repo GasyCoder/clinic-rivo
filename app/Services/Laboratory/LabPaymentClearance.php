@@ -12,9 +12,13 @@ use App\Models\LabRequestItem;
 use App\Support\Money;
 
 /**
- * ADR-214 — le contrôle du règlement avant le prélèvement (CDC §14 : « Payé ?
- * Non → En attente »). Le Laboratoire le lit, il n'encaisse jamais (ADR-014) :
- * aucun montant n'est servi, seulement l'état de chaque analyse.
+ * ADR-214 — l'état du règlement d'une demande, analyse par analyse. Le
+ * Laboratoire le lit, il n'encaisse jamais (ADR-014) : aucun montant n'est
+ * servi, seulement l'état de chaque analyse.
+ *
+ * ADR-217 — c'est une information, plus un verrou : le technicien traite la
+ * demande quel que soit le règlement, qui reste à faire à la Caisse. Divergence
+ * signalée avec le CDC §14 (« Payé ? Non → En attente »).
  *
  * Jamais bloqués : une urgence (ADR-021), un patient hospitalisé — sa facture
  * rejoint la sortie (ADR-162) —, une analyse prise en charge à 100 %.
@@ -90,8 +94,8 @@ class LabPaymentClearance
             'unbilled_count' => $lines->where('needs_regularization', true)->count(),
             'summary' => match (true) {
                 $exemption !== null => self::EXEMPTION_LABELS[$exemption],
-                $due->isEmpty() => 'Rien à régler : la demande peut être prélevée.',
-                default => 'À régler à la Caisse avant le prélèvement : '.$due->pluck('name')->join(', ', ' et ').'.',
+                $due->isEmpty() => 'Rien à régler à la Caisse.',
+                default => 'À régler à la Caisse : '.$due->pluck('name')->join(', ', ' et ').'. Le laboratoire peut traiter la demande.',
             },
         ];
     }

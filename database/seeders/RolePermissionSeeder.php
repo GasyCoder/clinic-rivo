@@ -328,6 +328,8 @@ class RolePermissionSeeder extends Seeder
             'lab_microbiology.archive', 'lab_microbiology.restore',
             // ADR-214
             'laboratory_orders.receive', 'laboratory_orders.send_out',
+            // ADR-220 — la corbeille (delete / restore) n'est accordée à aucun rôle d'un site.
+            'laboratory_orders.update', 'laboratory_orders.archive',
             'laboratory_samples.create', 'laboratory_samples.update',
             'laboratory_reports.view', 'laboratory_reports.export',
             'lab_sample_types.view', 'lab_sample_types.create', 'lab_sample_types.update',

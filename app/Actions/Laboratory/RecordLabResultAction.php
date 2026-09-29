@@ -24,7 +24,7 @@ class RecordLabResultAction
                 ]);
             }
 
-            LabItemGuard::ensureReceived($locked, 'result_value');
+            LabItemGuard::ensureTakenUp($locked->labRequest, $actor);
 
             if ($locked->resulted_at !== null) {
                 throw ValidationException::withMessages([

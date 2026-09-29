@@ -20,7 +20,10 @@ class SaveLabResultsRequest extends FormRequest
             'results.*.value' => ['nullable', 'max:2000'],
             'results.*.selections' => ['nullable', 'array', 'max:40'],
             'results.*.interpretation' => ['sometimes', 'nullable', 'in:NORMAL,PATHOLOGICAL'],
-            'conclusion' => ['sometimes', 'nullable', 'string', 'max:3000'],
+            // ADR-218 — la note de chaque ligne (« Notes : » sur le compte rendu).
+            'notes' => ['sometimes', 'array', 'max:300'],
+            'notes.*.analysis_uuid' => ['required', 'uuid'],
+            'notes.*.note' => ['nullable', 'string', 'max:1000'],
         ];
     }
 }

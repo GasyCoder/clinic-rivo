@@ -12,14 +12,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-214 — réceptionner une demande au laboratoire (CDC §14,
- * `laboratory.orders.receive`) : le règlement est contrôlé, la demande reçoit
- * son numéro de laboratoire, et ses prélèvements peuvent être enregistrés dans
- * le même geste.
+ * ADR-214 — la prise en charge d'une demande au laboratoire (CDC §14) : elle
+ * reçoit son numéro de laboratoire, et ses prélèvements peuvent être
+ * enregistrés dans le même geste.
  *
- * Refusée tant qu'une analyse reste à régler à la Caisse, sauf urgence ou
- * patient hospitalisé — l'exception est figée sur la demande et dans l'audit.
- * Le Laboratoire n'encaisse rien : il renvoie à la Caisse (ADR-012, ADR-014).
+ * ADR-217 — le règlement ne retient plus le technicien : « Traiter » prend la
+ * demande en charge quel que soit l'état du paiement, qui reste affiché et
+ * figé dans l'audit. Le Laboratoire n'encaisse toujours rien (ADR-012,
+ * ADR-014) : l'encaissement reste à la Caisse.
  */
 class ReceiveLabRequestAction
 {
@@ -30,12 +30,16 @@ class ReceiveLabRequestAction
         private readonly Auditor $auditor,
     ) {}
 
+    /** Prendre en charge une demande : le droit de réceptionner, ou celui de saisir. */
+    public static function canTakeUp(User $actor): bool
+    {
+        return $actor->can('laboratory_orders.receive') || $actor->can('laboratory_results.create');
+    }
+
     /** @param  array<int, array<string, mixed>>  $samples */
     public function execute(LabRequest $request, array $samples, User $actor): LabRequest
     {
-        if ($actor->cannot('laboratory_orders.receive')) {
-            throw new AuthorizationException('Réceptionner une demande demande le droit « laboratory_orders.receive ».');
-        }
+        $this->authorize($actor);
         if ($samples !== [] && $actor->cannot('laboratory_samples.create')) {
             throw new AuthorizationException('Enregistrer un prélèvement demande le droit « laboratory_samples.create ».');
         }
@@ -44,45 +48,81 @@ class ReceiveLabRequestAction
             $locked = LabRequest::query()->lockForUpdate()->findOrFail($request->getKey());
 
             if ($locked->cancelled_at !== null) {
-                throw ValidationException::withMessages(['request' => 'Cette demande a été retirée par le prescripteur : elle ne se réceptionne plus.']);
+                throw ValidationException::withMessages(['request' => 'Cette demande a été retirée par le prescripteur : elle ne se traite plus.']);
             }
             if ($locked->received_at !== null) {
                 $locked->loadMissing('receivedBy:id,name');
-                throw ValidationException::withMessages(['request' => 'Cette demande est déjà réceptionnée'
+                throw ValidationException::withMessages(['request' => 'Cette demande est déjà prise en charge'
                     .($locked->receivedBy ? " par {$locked->receivedBy->name}" : '')
                     .', le '.$locked->received_at->timezone(config('app.timezone'))->format('d/m/Y à H:i').'.']);
             }
 
-            $clearance = $this->clearance->for($locked);
-            if (! $clearance['cleared']) {
-                throw ValidationException::withMessages(['request' => $clearance['summary']]);
-            }
-
-            $locked->update([
-                'lab_number' => $this->numbers->next(),
-                'received_at' => now(),
-                'received_by' => $actor->getKey(),
-                'payment_exemption' => $clearance['exemption'],
-            ]);
+            $this->takeUp($locked, $actor, 'reception');
 
             if ($samples !== []) {
                 $this->samples->create($locked, $samples, $actor);
             }
 
-            $this->auditor->record(
-                'laboratory.request.receive',
-                $locked,
-                [
-                    'lab_number' => $locked->lab_number,
-                    'payment_exemption' => $clearance['exemption'],
-                    'unbilled' => collect($clearance['lines'])->where('needs_regularization', true)->pluck('name')->values()->all(),
-                    'samples' => count($samples),
-                ],
-                module: 'laboratory',
-                actor: $actor,
-            );
+            return $locked->fresh();
+        });
+    }
+
+    /** « Traiter » depuis la file : idempotent, une demande déjà prise en charge est rendue telle quelle. */
+    public function start(LabRequest $request, User $actor): LabRequest
+    {
+        $this->authorize($actor);
+
+        return DB::transaction(function () use ($request, $actor): LabRequest {
+            $locked = LabRequest::query()->lockForUpdate()->findOrFail($request->getKey());
+            $this->takeUp($locked, $actor, 'start');
 
             return $locked->fresh();
         });
+    }
+
+    /**
+     * Sur une demande déjà verrouillée : lui donne son numéro si personne ne l'a
+     * encore prise en charge. Sans effet sinon. Appelée aussi par la première
+     * saisie d'un résultat — le technicien n'est jamais arrêté par une étape.
+     */
+    public function takeUp(LabRequest $locked, User $actor, string $via = 'entry'): void
+    {
+        if ($locked->cancelled_at !== null) {
+            throw ValidationException::withMessages(['request' => 'Cette demande a été retirée par le prescripteur : elle ne se traite plus.']);
+        }
+        if ($locked->received_at !== null) {
+            return;
+        }
+
+        $clearance = $this->clearance->for($locked);
+
+        $locked->update([
+            'lab_number' => $this->numbers->next(),
+            'received_at' => now(),
+            'received_by' => $actor->getKey(),
+            'payment_exemption' => $clearance['exemption'],
+        ]);
+
+        $this->auditor->record(
+            'laboratory.request.receive',
+            $locked,
+            [
+                'lab_number' => $locked->lab_number,
+                'via' => $via,
+                'payment_exemption' => $clearance['exemption'],
+                // Ce qui restait à régler au moment de la prise en charge : tracé, jamais bloquant.
+                'unpaid' => collect($clearance['lines'])->where('blocking', true)->pluck('name')->values()->all(),
+                'unbilled' => collect($clearance['lines'])->where('needs_regularization', true)->pluck('name')->values()->all(),
+            ],
+            module: 'laboratory',
+            actor: $actor,
+        );
+    }
+
+    private function authorize(User $actor): void
+    {
+        if (! self::canTakeUp($actor)) {
+            throw new AuthorizationException('Prendre en charge une demande demande le droit « laboratory_results.create » ou « laboratory_orders.receive ».');
+        }
     }
 }

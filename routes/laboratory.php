@@ -4,7 +4,9 @@ use App\Http\Controllers\LabBenchController;
 use App\Http\Controllers\LabMicrobiologyController;
 use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LabReceptionController;
+use App\Http\Controllers\LabRequestManagementController;
 use App\Http\Controllers\LabReportController;
+use App\Http\Controllers\LabResultPdfController;
 use App\Http\Controllers\LabSampleTypeController;
 use Illuminate\Support\Facades\Route;
 
@@ -24,15 +26,21 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', [LaboratoryController::class, 'index'])->name('index')->middleware('can:laboratory_results.view');
 Route::get('/requests/{labRequest}', [LaboratoryController::class, 'show'])->name('requests.show')->middleware('can:laboratory_results.view');
+// ADR-218 — le compte rendu en PDF, produit par le serveur.
+Route::get('/requests/{labRequest}/resultats.pdf', [LabResultPdfController::class, 'laboratory'])->name('requests.pdf')->middleware('can:laboratory_results.view');
 Route::get('/requests/{labRequest}/impression', [LaboratoryController::class, 'print'])->name('requests.print')->middleware('can:laboratory_results.view');
 // ADR-216 — envoyer au médecin valide le résultat : il n'y a plus de biologiste distinct.
 Route::post('/requests/{labRequest}/send', [LaboratoryController::class, 'send'])->name('requests.send')->middleware(['can:laboratory_results.validate', 'rivo.site-only:laboratory']);
 Route::put('/items/{labRequestItem}/results', [LaboratoryController::class, 'saveResults'])->name('items.results')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
+// ADR-219 — remettre une saisie à zéro, tant qu'elle n'est pas envoyée au médecin.
+Route::post('/items/{labRequestItem}/reset', [LaboratoryController::class, 'resetResults'])->name('items.reset')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
 Route::put('/items/{labRequestItem}/antibiograms/{labAntibiogram}', [LaboratoryController::class, 'saveAntibiogram'])->name('items.antibiograms.update')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
 Route::post('/items/{labRequestItem}/return', [LaboratoryController::class, 'returnItem'])->name('items.return')->middleware(['can:laboratory_results.view', 'rivo.site-only:laboratory']);
 Route::post('/results/{labResult}/critical', [LaboratoryController::class, 'flagCritical'])->name('results.critical')->middleware(['can:laboratory_results.flag_critical', 'rivo.site-only:laboratory']);
 Route::post('/items/{labRequestItem}/result', [LaboratoryController::class, 'recordResult'])->name('items.result')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
-Route::post('/requests/{labRequest}/receive', [LabReceptionController::class, 'receive'])->name('requests.receive')->middleware(['can:laboratory_orders.receive', 'rivo.site-only:laboratory']);
+Route::post('/requests/{labRequest}/receive', [LabReceptionController::class, 'receive'])->name('requests.receive')->middleware(['can:take-up-lab-request', 'rivo.site-only:laboratory']);
+// ADR-217 — « Traiter » : la demande est prise en charge et la paillasse s'ouvre, sans attendre le règlement.
+Route::post('/requests/{labRequest}/start', [LabReceptionController::class, 'start'])->name('requests.start')->middleware(['can:take-up-lab-request', 'rivo.site-only:laboratory']);
 Route::post('/requests/{labRequest}/samples', [LabReceptionController::class, 'storeSamples'])->name('requests.samples')->middleware(['can:laboratory_samples.create', 'rivo.site-only:laboratory']);
 Route::get('/requests/{labRequest}/etiquettes', [LabReceptionController::class, 'labels'])->name('requests.labels')->middleware('can:laboratory_results.view');
 Route::get('/requests/{labRequest}/bon-envoi', [LabReceptionController::class, 'sendOutSlip'])->name('requests.send-out-slip')->middleware('can:laboratory_results.view');
@@ -40,6 +48,16 @@ Route::put('/requests/{labRequest}/conclusion', [LabReceptionController::class, 
 Route::post('/samples/{labSample}/reject', [LabReceptionController::class, 'rejectSample'])->name('samples.reject')->middleware(['can:laboratory_samples.update', 'rivo.site-only:laboratory']);
 Route::post('/items/{labRequestItem}/send-out', [LabReceptionController::class, 'sendOut'])->name('items.send-out')->middleware(['can:laboratory_orders.send_out', 'rivo.site-only:laboratory']);
 Route::post('/items/{labRequestItem}/send-out/cancel', [LabReceptionController::class, 'cancelSendOut'])->name('items.send-out.cancel')->middleware(['can:laboratory_orders.send_out', 'rivo.site-only:laboratory']);
+// ADR-220 — ranger, corriger, mettre à la corbeille ; une demande ou une sélection.
+// Archiver et mettre à la corbeille se font aussi depuis le portail (aucun geste
+// clinique) ; corriger une demande (analyses, renseignements) reste au site.
+Route::post('/requests/bulk', [LabRequestManagementController::class, 'bulk'])->name('requests.bulk')->middleware('can:laboratory_results.view');
+Route::post('/requests/{labRequest}/archive', [LabRequestManagementController::class, 'archive'])->name('requests.archive')->middleware('can:laboratory_orders.archive');
+Route::post('/requests/{labRequest}/unarchive', [LabRequestManagementController::class, 'unarchive'])->name('requests.unarchive')->middleware('can:laboratory_orders.archive');
+Route::delete('/requests/{labRequest}', [LabRequestManagementController::class, 'trash'])->name('requests.trash')->middleware('can:laboratory_orders.delete');
+Route::put('/requests/{labRequest}/renseignements', [LabRequestManagementController::class, 'updateNotes'])->name('requests.notes')->middleware(['can:laboratory_orders.update', 'rivo.site-only:laboratory']);
+Route::post('/requests/{labRequest}/items', [LabRequestManagementController::class, 'addItems'])->name('requests.items.add')->middleware(['can:laboratory_orders.update', 'rivo.site-only:laboratory']);
+Route::delete('/items/{labRequestItem}', [LabRequestManagementController::class, 'removeItem'])->name('items.remove')->middleware(['can:laboratory_orders.update', 'rivo.site-only:laboratory']);
 Route::get('/paillasse', [LabBenchController::class, 'worklist'])->name('worklist')->middleware('can:laboratory_results.view');
 Route::get('/patients/{patient}/historique', [LabBenchController::class, 'history'])->name('patients.history')->middleware('can:laboratory_results.view');
 Route::get('/rapports', [LabReportController::class, 'index'])->name('reports')->middleware('can:laboratory_reports.view');

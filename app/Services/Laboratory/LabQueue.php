@@ -10,21 +10,32 @@ use Illuminate\Database\Eloquent\Builder;
  * ADR-213 — la file du Laboratoire, par demande. Chaque demande est dans une
  * seule vue, lue sur l'état de ses analyses, par ordre de priorité :
  *
- *   to_receive   pas encore réceptionnée au laboratoire (ADR-214)
+ *   to_do        à traiter : pas encore commencée, ou une analyse en cours (ADR-217)
  *   to_redo      une analyse renvoyée à refaire
- *   to_do        une analyse à analyser ou en cours
  *   to_validate  tout est rendu, une analyse attend d'être envoyée au médecin (ADR-216)
  *   validated    toutes les analyses sont envoyées
  *
  * Une demande retirée par le prescripteur n'y est jamais (ADR-079).
+ *
+ * ADR-220 — une demande rangée par le laboratoire quitte toutes les vues et vit
+ * dans « Archivées » ; une demande mise à la corbeille n'est plus nulle part.
  */
 class LabQueue
 {
-    public const VIEWS = ['to_receive', 'to_do', 'to_redo', 'to_validate', 'validated', 'all'];
+    // ADR-217 — plus de vue « À réceptionner » : une demande non commencée est à traiter.
+    public const VIEWS = ['to_do', 'to_redo', 'to_validate', 'validated', 'all', 'archived'];
 
     public function base(): Builder
     {
-        return LabRequest::query()->whereNull('cancelled_at')->whereHas('items');
+        return LabRequest::query()->whereNull('cancelled_at')->whereNull('lab_archived_at')->whereHas('items');
+    }
+
+    /** ADR-220 — la base d'une vue : « Archivées » a la sienne. */
+    public function query(string $view): Builder
+    {
+        return $view === 'archived'
+            ? LabRequest::query()->whereNull('cancelled_at')->whereNotNull('lab_archived_at')->whereHas('items')
+            : $this->scope($this->base(), $view);
     }
 
     public function scope(Builder $query, string $view): Builder
@@ -32,16 +43,13 @@ class LabQueue
         $open = [LabItemStatus::Pending->value, LabItemStatus::InProgress->value];
         $status = fn (array $values) => fn ($items) => $items->whereIn('status', $values);
 
-        $received = fn (Builder $query) => $query->whereNotNull('received_at');
-
         return match ($view) {
-            'to_receive' => $query->whereNull('received_at'),
-            'to_redo' => $received($query)->whereHas('items', $status([LabItemStatus::ToRedo->value])),
-            'to_do' => $received($query)->whereDoesntHave('items', $status([LabItemStatus::ToRedo->value]))
+            'to_redo' => $query->whereHas('items', $status([LabItemStatus::ToRedo->value])),
+            'to_do' => $query->whereDoesntHave('items', $status([LabItemStatus::ToRedo->value]))
                 ->whereHas('items', $status($open)),
-            'to_validate' => $received($query)->whereDoesntHave('items', $status([...$open, LabItemStatus::ToRedo->value]))
+            'to_validate' => $query->whereDoesntHave('items', $status([...$open, LabItemStatus::ToRedo->value]))
                 ->whereHas('items', $status([LabItemStatus::Completed->value])),
-            'validated' => $received($query)->whereDoesntHave('items', fn ($items) => $items->where('status', '!=', LabItemStatus::Validated->value)),
+            'validated' => $query->whereDoesntHave('items', fn ($items) => $items->where('status', '!=', LabItemStatus::Validated->value)),
             default => $query,
         };
     }
@@ -51,7 +59,7 @@ class LabQueue
     {
         $counts = [];
         foreach (self::VIEWS as $view) {
-            $query = $this->scope($this->base(), $view);
+            $query = $this->query($view);
             if ($refine) {
                 $refine($query);
             }
@@ -75,10 +83,6 @@ class LabQueue
     /** L'état d'une demande dans la file, lu sur ses analyses. */
     public static function stateOf(LabRequest $request): string
     {
-        if ($request->received_at === null) {
-            return 'to_receive';
-        }
-
         $statuses = $request->items->map(fn ($item) => $item->currentStatus());
 
         return match (true) {
@@ -86,6 +90,21 @@ class LabQueue
             $statuses->contains(LabItemStatus::Pending) || $statuses->contains(LabItemStatus::InProgress) => 'to_do',
             $statuses->contains(LabItemStatus::Completed) => 'to_validate',
             default => 'validated',
+        };
+    }
+
+    /**
+     * Ce que le technicien fait de la ligne, comme dans la file de labo-vuejs :
+     * « Traiter » une demande que personne n'a commencée, « Continuer » une
+     * demande en cours, « Reprendre » une analyse à refaire.
+     */
+    public static function actionOf(LabRequest $request): string
+    {
+        return match (self::stateOf($request)) {
+            'to_redo' => 'redo',
+            'to_do' => $request->received_at === null && $request->items->every(fn ($item) => $item->currentStatus() === LabItemStatus::Pending) ? 'start' : 'continue',
+            'to_validate' => 'send',
+            default => 'open',
         };
     }
 }

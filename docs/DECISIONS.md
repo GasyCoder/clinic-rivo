@@ -20517,7 +20517,9 @@ avant analyse
 # ADR-214 — Laboratoire : réception, prélèvements, extérieur, bornes critiques, rapports
 
 **Status:** ACCEPTED (2026-09-28 — demande du propriétaire : « tous les fonctionnalités
-laboratoire » de `GasyCoder/labo-vuejs`, avec quatre arbitrages explicites ci-dessous)
+laboratoire » de `GasyCoder/labo-vuejs`, avec quatre arbitrages explicites ci-dessous) ;
+**le règlement ne retient plus le technicien depuis l'ADR-217** (2026-09-29) : la réception
+devient « Traiter », et rien n'attend avant la saisie
 
 **Complète l'ADR-213** (paillasse) et tranche trois de ses points signalés (prélèvement,
 analyses externes, contrôle du paiement). Le CDC §14 décrit le parcours — demande,
@@ -20813,3 +20815,309 @@ chaque site et sur le portail.
 - La saisie « en un bloc » (analyse sans définition) rend l'analyse « À envoyer » ; elle ne part pas seule.
 - Pas d'envoi au patient (labo-vuejs le fait) : aucun canal n'est défini.
 - Une demande antérieure déjà validée reste lisible sans confirmation : elle n'a pas de destinataire.
+
+---
+
+# ADR-217 — Le technicien traite la demande tout de suite : ni réception préalable, ni règlement qui bloque
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire : « technicien laboratoire :
+saisir des résultats de patient, terminer, envoyer au médecin ; le technicien peut tout faire —
+paillasse, autre… ; dans notre cas le technicien ne peut pas saisir les résultats », avec
+labo-vuejs comme modèle)
+
+**Amende l'ADR-214** (arbitrage « règlement : bloquer, sauf exceptions » et « rien ne se saisit
+avant la réception ») et **diverge du CDC §14** (« Payé ? Non → En attente »). La divergence est
+signalée, jamais masquée (ADR-020).
+
+## Le constat
+
+Une demande non réglée ne pouvait pas être réceptionnée, et une demande non réceptionnée ne
+pouvait pas recevoir de résultat : le bouton « Réceptionner la demande » restait grisé, la
+saisie fermée par « Réceptionnez d'abord la demande ». Le technicien, qui a le tube en main, ne
+pouvait rien faire. Dans labo-vuejs, le technicien clique **Traiter** et saisit ; le paiement ne
+passe jamais par lui.
+
+## La règle
+
+```text
+file         À traiter (pas commencée ou en cours) · À refaire · Terminées (à envoyer) · Envoyées · Toutes
+             plus de vue « À réceptionner » ; `?view=to_receive` mène à « À traiter »
+geste        chaque ligne a son bouton : Traiter (pas commencée) · Continuer (en cours) ·
+             Reprendre (à refaire) · Envoyer (terminée) · Voir ; sur le portail, « Voir »
+Traiter      POST /laboratory/requests/{uuid}/start : numéro de laboratoire, technicien, heure,
+             puis la paillasse s'ouvre ; idempotent (une demande commencée s'ouvre)
+saisie       la première saisie, un prélèvement, un envoi à l'extérieur ou au médecin prennent
+             la demande en charge s'il le faut (`LabItemGuard::ensureTakenUp`) : aucune étape
+             ne retient le technicien
+règlement    affiché pour information (« À régler à la Caisse : NFS — n'empêche pas l'analyse »),
+             tracé dans l'audit de la prise en charge (`unpaid`), jamais bloquant
+prélèvements facultatifs au moment de « Commencer le traitement », ajoutables ensuite
+paillasse    avancement par analyse (x/y résultats saisis, barre) et « N / M terminées »
+```
+
+Droit : prendre en charge demande `laboratory_results.create` **ou** `laboratory_orders.receive`
+(capacité `take-up-lab-request`). Aucune permission nouvelle, aucune migration.
+
+Ce qui ne change pas : le Laboratoire n'encaisse rien et n'affiche aucun montant (ADR-012,
+ADR-014) ; l'envoi au médecin valide le résultat (ADR-216) ; les gestes cliniques restent au
+site (ADR-215) ; urgence et patient hospitalisé gardent leur mention.
+
+## Signalé, non tranché
+
+```text
+règlement   plus rien ne l'exige avant la remise du résultat au patient externe — à décider si
+            la Caisse doit retenir la feuille imprimée d'un patient qui n'a pas réglé
+```
+
+---
+
+# ADR-218 — Note par ligne d'analyse et compte rendu de résultats en PDF
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire : « s'inspirer des logiques de
+labo-vuejs — conclusion partielle de chaque analyse — et surtout le compte rendu des résultats
+d'analyse en PDF », avec le compte rendu PDF de son laboratoire comme modèle) ; **amendée par
+l'ADR-219** (même jour) : la « conclusion de l'analyse » est retirée, la note de ligne devient la
+conclusion partielle.
+
+**Complète les ADR-213, ADR-214 et ADR-216**, **amende l'ADR-070 et l'ADR-118** pour les seuls
+résultats d'analyses : leur compte rendu est un PDF produit par le serveur, comme labo-vuejs le
+produisait. Le CDC §14 cite « impression » sans en fixer la forme.
+
+## Trois niveaux de conclusion, comme labo-vuejs
+
+```text
+note d'une ligne     `lab_analysis_notes` : une note par (analyse demandée, ligne du catalogue),
+                     groupes compris — « Notes : » sous la ligne, sous la dernière ligne d'un groupe
+conclusion partielle `lab_request_items.conclusion` (existante) : « Conclusion — NFS » sous l'analyse ;
+                     l'écran la nomme désormais « Conclusion de l'analyse »
+conclusion générale  `lab_requests.conclusion` (ADR-214), sous tout le compte rendu
+```
+
+La note se saisit à la paillasse (bouton « Note » par ligne, ouverte d'office quand elle existe), part avec
+l'enregistrement automatique (`notes: [{analysis_uuid, note}]`, `SaveLabResultsAction`) : une note vidée est
+effacée, une ligne étrangère à la prestation refusée (`notes.N.analysis_uuid`), 1 000 caractères au plus,
+auteur gardé (`written_by`), audité. Elle suit la saisie : une analyse envoyée ne se modifie plus (ADR-216).
+
+## Le compte rendu PDF
+
+`LabResultReport` compose une seule fois ce que le PDF imprime ; la vue Blade
+(`resources/views/pdf/laboratory/results.blade.php`, dompdf, A4) ne calcule rien :
+
+```text
+en-tête      logo, nom et coordonnées du site, NIF / STAT (ADR-184), couleur du site
+patient      identité, naissance et âge, sexe, dossier, prescription, prescripteur, n° de
+             laboratoire, destinataire, renseignement clinique
+sections     une par discipline du catalogue (HEMATOLOGIE, BIOCHIMIE…), colonnes
+             Résultat · Val. réf. · Antériorité ; lignes indentées selon l'arbre ; une
+             valeur pathologique en gras avec ↑ / ↓ ; « Valeur critique » ; antibiogramme
+             trié R, I, S ; un groupe sans résultat n'est pas imprimé
+antériorité  la dernière valeur de la même ligne chez ce patient, avec sa date
+pied         « Page n / N », patient et dossier sur chaque page, signature du laboratoire
+```
+
+Rien n'est recalculé : valeurs, unités et références sont celles figées à la saisie ; « 9.8 » s'écrit
+« 9,8 ». Le logo est ramené à 600 px et les polices sous-ensemble : environ 100 Ko par compte rendu.
+
+```text
+laboratoire  GET /laboratory/requests/{uuid}/resultats.pdf  (laboratory_results.view)
+             tout ce qui porte un résultat ; « Document provisoire » tant qu'une analyse
+             n'est pas envoyée ; servi aussi au portail par l'API du site (ADR-215)
+médecin      GET /resultats-analyses/{uuid}/pdf  (laboratory_orders.view)
+             seulement ce qui lui a été envoyé (ADR-216) ; une analyse reprise garde la
+             valeur envoyée, marquée « en correction » ; ses antériorités ne reprennent que
+             ce qui a été envoyé, jamais une demande adressée à un confrère non ouverte
+scellé       adressé à un confrère : 403 tant que l'ouverture n'est pas confirmée
+rien         404 plutôt qu'un PDF vide
+```
+
+`?telecharger=1` le donne en pièce jointe (`Resultats-<n° labo>-<patient>.pdf`), sinon il s'affiche. La page
+« Compte rendu » (`Laboratory/ResultsPrint`) montre le PDF dans la page, avec Imprimer, Ouvrir et Télécharger ;
+elle ne redessine plus de feuille HTML, qui finirait par dire autre chose que le PDF. La paillasse porte
+« Compte rendu PDF » et le téléchargement. Dépendance ajoutée : `barryvdh/laravel-dompdf`.
+
+## Signalé, non tranché
+
+```text
+signature   aucune image de signature du biologiste n'est réglée : le PDF laisse la place
+envoi       aucun envoi du PDF au patient (courriel, SMS) : aucun canal défini (ADR-216)
+anciens     un compte rendu d'avant cette décision n'est pas figé : le PDF se compose à la demande
+```
+
+Migration `2026_11_19_090000_create_lab_analysis_notes_table`, à jouer sur chaque site et sur le portail.
+Aucune permission nouvelle.
+
+---
+
+# ADR-219 — La paillasse se lit comme labo-vuejs : cartes par ligne, conclusion partielle, remise à zéro
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire, captures de labo-vuejs à l'appui :
+« mettre à jour l'UI et l'UX avec shadcn », « on peut annuler la conclusion ou note partielle »,
+« un bouton pour réinitialiser toute la saisie », « respecter gras ou non », « supprimer Conclusion de
+l'analyse, redondante avec la conclusion générale »)
+
+**Amende l'ADR-218** (la conclusion par analyse disparaît) et **complète l'ADR-213** (paillasse).
+
+## L'écran
+
+```text
+gauche   « Tâche(s) à traiter · x/N terminée(s) » : une carte par analyse — code, nom, état
+         (À faire, En cours, À envoyer, Envoyée, À refaire) en mot et en couleur, icône, barre
+         d'avancement ; « Extérieur » et « N critique(s) » en pastilles
+droite   l'analyse ouverte : initiales, nom, « x / N résultat(s) attendu(s) » ; puis une carte par
+         ligne du catalogue — mode de saisie (Numérique, Champ libre, Liste…), nom, « Norme : »
+         avec l'unité, antériorité, Résultat (« Observations » pour un champ libre),
+         Interprétation Auto · Normal · Patho, repères et « Critique » ; un groupe est un bandeau
+         en pointillés, ses lignes décalées dessous
+pied     collant : état de l'enregistrement automatique, Laboratoire extérieur, Renvoyer,
+         Enregistrer (tout de suite), Envoyer au médecin
+séparation  une barre verticale glissable entre les tâches et l'analyse (`ResizableSplit`,
+         souris, tactile, clavier, double-clic pour revenir à 25 %, bornes 17 à 45 %) ;
+         largeur gardée sur le poste (`rivo:laboratory:tasks-split`), jamais envoyée
+en-tête  le nom et son état sur une ligne ; dessous, le code, la barre « x / N résultat(s) »,
+         puis pathologiques et critiques en repères écrits
+```
+
+Un résultat numérique se saisit dans un grand champ (pleine largeur de sa colonne, chiffres en gras,
+unité dans le champ) dont la bordure et la ligne dessous disent, pendant la frappe, « Dans la norme »,
+« Au-dessus / En dessous de la norme », « Valeur critique » ou « Saisissez un nombre » (`numericHint`) ;
+Entrée passe à la valeur suivante, et un nombre se relit avec sa virgule (« 4,6 »). Ce repère aide à la
+saisie : l'interprétation reste proposée par le serveur (ADR-213).
+
+shadcn-vue seulement (ADR-099). Règles d'écran dans `utilities/labWorkbench.js` (`LAB_TASK_STATES`,
+`LAB_ENTRY_MODE_LABELS`, `designationWeight`, `analysisInitials`, `hasEntries`), testées.
+
+## Gras selon le catalogue
+
+Un nom d'analyse est en gras **seulement** si `analysis_catalogs.is_bold` est vrai, à l'écran
+(`font-bold` / `font-normal`, plus de demi-gras) comme sur le PDF, groupes compris — le PDF imprimait
+tous les groupes en gras.
+
+## Conclusion partielle
+
+La note de ligne de l'ADR-218 est la conclusion partielle : section « Conclusion (0/1) » sous chaque
+ligne et chaque groupe, « Ajouter une conclusion » → saisie → **Annuler** ou **Valider** ; une
+conclusion enregistrée se **Modifie** ou se **Supprime**. Valider et supprimer l'enregistrent aussitôt
+(même chemin, mêmes règles, même audit qu'à l'ADR-218 : vidée, elle est effacée).
+
+## Plus de conclusion par analyse
+
+`lab_request_items.conclusion` ne s'écrit plus : le champ quitte l'écran, et la saisie l'ignore. La
+conclusion générale (ADR-214) reste seule. La colonne est gardée et rien n'est effacé : une conclusion
+saisie avant cette décision reste lisible à la paillasse et s'imprime comme une note de l'analyse.
+
+## « Demandes d'examens » : le geste de la file du laboratoire
+
+Pour un compte du laboratoire (`laboratory_results.create`), une demande d'analyses porte dans
+`/medicine/demandes-examens` le même bouton que dans sa file (ADR-217) : **Traiter** (prise en charge puis
+paillasse, seulement avec le droit de prendre en charge), **Continuer**, **Reprendre**, **Envoyer**, **Voir**.
+Le serveur le choisit (`bench_action`, par `LabQueue::actionOf`) ; `utilities/labRowActions.js` le dessine,
+pour les deux pages. Un médecin n'a pas ce bouton : il lit les résultats envoyés, comme avant.
+
+Pour le laboratoire, la colonne Statut porte **un seul** statut : où en est le laboratoire (« À traiter »,
+« À refaire », « Terminée · à envoyer », « Envoyée », `lab_state`) à la place de « En attente », puis le
+règlement en repère discret dessous (« À régler à la Caisse », « Hospitalisé », « Non facturée »,
+`payment` de `LabPaymentClearance`), servi seulement au laboratoire et à qui a `billing.view` — jamais un
+montant, et il n'empêche rien (ADR-217). Un médecin garde le statut d'une demande (En attente, Résultat
+disponible…).
+
+## Réinitialiser la saisie
+
+`ResetLabResultsAction` (`POST /laboratory/items/{uuid}/reset`, `laboratory_results.create`, au site
+seulement — `rivo.site-only:laboratory`) efface les résultats, antibiogrammes et conclusions partielles
+d'une analyse, après confirmation qui dit ce qui sera effacé. Une analyse en cours redevient « à faire ».
+
+```text
+refusé   analyse déjà envoyée au médecin (sent_at) : elle a été lue, elle se corrige ligne par
+         ligne après « Renvoyer à refaire » (ADR-216, ADR-010) ; analyse rendue ou envoyée ;
+         demande retirée ; rien à effacer
+tracé    laboratory.results.reset, avec ce qui a été effacé (valeurs, notes, germes)
+écran    bouton seulement si `resettable` (servi par le serveur) et quelque chose est saisi ;
+         une saisie jamais enregistrée se vide sans appel au serveur
+```
+
+Aucune permission nouvelle, aucune migration.
+
+---
+
+# ADR-220 — Demandes d'analyses : archiver, corriger, mettre à la corbeille, une à une ou en lot
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire : « intégrer actions et permissions :
+delete / edit pour les analyses de patients, paillasse, avec sélection multiple, mettre en archive / corbeille » ;
+quatre arbitrages : Modifier = retirer une analyse, renseignements, ajouter une analyse ; la corbeille jamais
+après un envoi au médecin ; archive et corbeille sont deux gestes ; le Laboratoire archive et modifie, la
+corbeille appartient au Super Admin)
+
+**Complète les ADR-213 à 217** et **applique les ADR-009, 010, 061 et 065**. Le CDC §14 ne décrit ni
+archivage ni corbeille d'une demande d'analyses : les règles ci-dessous sont celles du propriétaire.
+
+## Deux gestes distincts
+
+```text
+Archiver            ranger une demande TERMINÉE (toutes ses analyses envoyées au médecin) : elle quitte
+                    la file et vit dans la vue « Archivées ». Réversible, sans motif, aucun effet clinique
+                    ni financier. `lab_requests.lab_archived_at/by`, distinct de `archived_at` (ADR-131),
+                    qui range la demande côté médecin : ranger d'un côté ne range pas de l'autre.
+                    Renvoyer une analyse à refaire désarchive sa demande (du travail revient).
+Mettre à la         une demande saisie à tort (doublon, mauvais patient). Jamais après un envoi au médecin
+corbeille           — il a pu lire le résultat (ADR-010, ADR-216) ; une saisie en cours ne l'empêche pas.
+                    Motif exigé. Soft Delete (ADR-009) : la demande quitte toutes les listes (file, dossiers,
+                    parcours, historique), garde sa trace et se restaure depuis la Corbeille (ADR-061,
+                    ADR-065, catégorie « Demandes d'analyses »). Jamais détruite : suppression définitive
+                    refusée (`isForceDeleteProtected`).
+```
+
+Ce que la demande a elle-même facturé et qui attend encore est annulé (`ParaclinicalBillingRelease`, ADR-105) ;
+ce qui est déjà sur une facture reste à la Caisse, seule à toucher un montant facturé (ADR-012) — la réponse
+et le rapport le comptent. **Restaurer** refacture chaque analyse dont la facturation propre avait été annulée,
+sous la clé de la ligne suivie d'un rang (`lab_request_item:{uuid}:1`), au nom de qui restaure — depuis le
+portail, sans compte local, au nom de qui avait fait la demande ; un échec de facturation ne retient jamais la
+restauration (ADR-103). La restauration est refusée si la même analyse a été redemandée entre-temps pour ce
+passage.
+
+## Corriger une demande (au site seulement)
+
+```text
+Ajouter une analyse       du catalogue LABORATORY, jamais deux fois dans la demande ; facturée comme une
+                          demande du médecin, en reprenant la prestation de la Réception quand elle existe
+                          (ADR-105, ADR-109)
+Retirer une analyse       motif exigé ; jamais après un envoi au médecin ; jamais la dernière (la demande
+                          part alors à la corbeille) ; Soft Delete de la ligne, sa facturation propre en
+                          attente annulée
+Renseignements            le renseignement clinique, repris sur la feuille et le compte rendu ; l'ancienne
+                          valeur reste à l'audit
+```
+
+Une demande archivée se désarchive d'abord pour être corrigée. Une demande retirée par le prescripteur
+(ADR-079) ne se range, ne se corrige ni ne part à la corbeille.
+
+## Sélection multiple
+
+Sur la paillasse (`/laboratory`) et la feuille de paillasse : cases par demande, « tout sélectionner » (50 au
+plus). Paillasse : Archiver, Désarchiver, Corbeille ; feuille de paillasse : imprimer la sélection seulement,
+Corbeille. Chaque bouton compte ce qu'il prendra et dit pourquoi les autres non, avant le clic
+(`utilities/labSelection.js`). `POST /laboratory/requests/bulk` juge **chaque demande séparément** par
+l'action qui la juge seule (`BulkLabRequestAction`) ; une demande refusée n'empêche pas les autres, et le
+rapport (`LabBulkReport`) nomme la raison (même principe que l'ADR-090). Un audit par demande plus une ligne de
+synthèse (`laboratory.requests.bulk_*`).
+
+## Où, et avec quel droit
+
+```text
+laboratory_orders.archive   archiver / désarchiver        LABORATORY            site et portail
+laboratory_orders.update    ajouter, retirer, renseigner  LABORATORY            site seulement (rivo.site-only)
+laboratory_orders.delete    mettre à la corbeille         aucun rôle d'un site  site et portail
+laboratory_orders.restore   restaurer (+ trash.restore)   aucun rôle d'un site  Corbeille du site et du portail
+```
+
+Le Super Admin du portail reçoit tous ces droits (ADR-186) et les accorde nominativement. Migration
+`2026_11_20_090000_add_lab_request_archive_and_trash`, à jouer sur chaque site et sur le portail. Le relais du
+portail transmet désormais aussi le ton du message et le rapport d'un lot (`status_type`, `bulk_report`).
+
+## Signalé, non tranché
+
+```text
+orientation vers le Laboratoire   mettre une demande à la corbeille ne touche pas l'orientation
+                                  Médecine → Laboratoire (comme le retrait par le prescripteur, ADR-079)
+restauration depuis le portail    la facturation revient au nom du prescripteur, faute de compte local
+feuille imprimée partielle        une discipline dont aucune demande n'est cochée garde son en-tête
+```

@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Laboratory\BulkLabRequestAction;
+use App\Actions\Laboratory\TrashLabRequestAction;
 use App\Models\Patient;
 use App\Services\Laboratory\LabPatientHistory;
 use App\Services\Laboratory\LabRequestPresenter;
@@ -25,6 +27,11 @@ class LabBenchController extends Controller
             ...$data,
             'discipline' => $discipline,
             'printedAt' => now(),
+            // ADR-220 — la sélection : imprimer une partie de la feuille, ou mettre à la corbeille.
+            'manage' => [
+                'trash' => $request->user()->can(TrashLabRequestAction::PERMISSION),
+                'max' => BulkLabRequestAction::MAX,
+            ],
         ]);
     }
 

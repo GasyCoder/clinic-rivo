@@ -49,7 +49,7 @@ test('no laboratory screen writes a site path the portal could not follow', () =
 
 test('the clinical gestures are shown locked on the portal, never hidden', () => {
     const locks = {
-        'resources/js/Components/Laboratory/LabReceptionPanel.vue': ['Réceptionner la demande'],
+        'resources/js/Components/Laboratory/LabReceptionPanel.vue': ['Commencer le traitement'],
         'resources/js/Components/Laboratory/LabSamplesCard.vue': ['Ajouter'],
     };
 
@@ -81,7 +81,7 @@ test('the site refuses the clinical gestures to the portal, whatever the screen 
     for (const name of [
         'requests.send', 'items.results', 'items.antibiograms.update', 'items.return',
         'results.critical', 'items.result', 'requests.receive', 'requests.samples',
-        'requests.conclusion', 'samples.reject', 'items.send-out', 'items.send-out.cancel',
+        'requests.conclusion', 'samples.reject', 'items.send-out', 'items.send-out.cancel', 'items.reset',
     ]) {
         assert.match(routes, new RegExp(`->name\\('${name.replaceAll('.', '\\.')}'\\)[^;]*rivo\\.site-only:laboratory`), `${name} doit rester au site`);
     }

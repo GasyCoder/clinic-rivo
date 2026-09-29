@@ -4,6 +4,7 @@ namespace App\Services\Trash;
 
 use App\Services\Settings\AppSettings;
 use App\Actions\Catalog\RestoreCatalogItemAction;
+use App\Actions\Laboratory\RestoreLabRequestAction;
 use App\Actions\Patient\RestorePatientAction;
 use App\Actions\Pharmacy\RestoreMedicineSupplierAction;
 use App\Actions\Pharmacy\RestorePurchaseOrderAction;
@@ -15,6 +16,7 @@ use App\Models\AddressEntry;
 use App\Models\AuditLog;
 use App\Models\CashRegister;
 use App\Models\CatalogItem;
+use App\Models\LabRequest;
 use App\Models\MedicineSupplier;
 use App\Models\MutualOrganization;
 use App\Models\Patient;
@@ -54,6 +56,7 @@ class TrashDirectory
         private readonly RestoreSupplierCatalogAction $restoreCatalog,
         private readonly RestoreSupplierInvoiceAction $restoreInvoice,
         private readonly RestorePurchaseOrderAction $restoreOrder,
+        private readonly RestoreLabRequestAction $restoreLabRequest,
     ) {}
 
     /**
@@ -140,6 +143,7 @@ class TrashDirectory
                     TrashCategory::SupplierCatalog => $this->restoreCatalog->execute($model, $actor),
                     TrashCategory::SupplierInvoice => $this->restoreInvoice->execute($model, $actor),
                     TrashCategory::PurchaseOrder => $this->restoreOrder->execute($model, $actor),
+                    TrashCategory::LabRequest => $this->restoreLabRequest->execute($model, $actor),
                 };
             }
 
@@ -270,6 +274,14 @@ class TrashDirectory
                         ->where('invoice_number', 'like', "%{$search}%"),
                     TrashCategory::PurchaseOrder => $nested
                         ->where('order_number', 'like', "%{$search}%"),
+                    TrashCategory::LabRequest => $nested
+                        ->where('lab_number', 'like', "%{$search}%")
+                        ->orWhereHas('episode', fn (Builder $episode) => $episode
+                            ->where('episode_number', 'like', "%{$search}%")
+                            ->orWhereHas('patient', fn (Builder $patient) => $patient
+                                ->where('last_name', 'like', "%{$search}%")
+                                ->orWhere('first_name', 'like', "%{$search}%")
+                                ->orWhere('patient_number', 'like', "%{$search}%"))),
                 };
             });
         }
@@ -298,6 +310,7 @@ class TrashDirectory
             TrashCategory::SupplierCatalog => SupplierCatalog::query()->with('supplier'),
             TrashCategory::SupplierInvoice => SupplierInvoice::query()->with('supplier'),
             TrashCategory::PurchaseOrder => PurchaseOrder::query()->with('supplier'),
+            TrashCategory::LabRequest => LabRequest::query()->with(['episode.patient:id,first_name,last_name,patient_number', 'items']),
         };
     }
 
@@ -367,6 +380,11 @@ class TrashDirectory
                 'Commande '.$model->order_number,
                 $model->order_number,
                 'Brouillon · '.($model->supplier?->name ?? 'Fournisseur archivé').' · '.app(AppSettings::class)->formatMoney($model->total_amount),
+            ],
+            TrashCategory::LabRequest => [
+                'Analyses de '.trim(mb_strtoupper((string) $model->episode?->patient?->last_name).' '.$model->episode?->patient?->first_name),
+                $model->lab_number ?? $model->episode?->episode_number,
+                $model->items->pluck('catalog_item_name_snapshot')->take(4)->implode(', ').($model->items->count() > 4 ? '…' : ''),
             ],
         };
 
@@ -455,6 +473,8 @@ class TrashDirectory
         $stated = match (true) {
             $category === TrashCategory::SupplierInvoice => ['une facture fournisseur est une pièce comptable'],
             $category === TrashCategory::PurchaseOrder && $model->status !== PurchaseOrderStatus::Draft => ['la commande a été envoyée au fournisseur'],
+            // ADR-220 — une donnée médicale : elle se restaure, jamais détruite (ADR-010).
+            $category === TrashCategory::LabRequest => ['une demande d’analyses est une donnée médicale'],
             default => [],
         };
 

@@ -40,16 +40,19 @@ export const PAYMENT_TONES = {
     CANCELLED: 'neutral',
 };
 
-/** La pastille d'une demande dans la file « À réceptionner ». */
+/**
+ * ADR-217 — la pastille du règlement sur une ligne de la file : une information,
+ * jamais un verrou. Rien n'est affiché quand il n'y a rien à dire.
+ */
 export const paymentBadge = (payment) => {
     if (!payment) return null;
-    if (payment.exemption === 'EMERGENCY') return { label: 'Urgence', tone: 'danger', hint: payment.exemption_label };
     if (payment.exemption === 'HOSPITALIZED') return { label: 'Hospitalisé', tone: 'info', hint: payment.exemption_label };
-    if (payment.cleared) {
-        return payment.unbilled_count
-            ? { label: 'Prête · non facturée', tone: 'info', hint: 'Une analyse n’est pas facturée : la Réception doit régulariser.' }
-            : { label: 'Prête à prélever', tone: 'success', hint: 'Rien à régler.' };
+    if (payment.exemption) return null;
+    if (!payment.cleared) {
+        return { label: 'À régler à la Caisse', tone: 'warning', hint: `${payment.due_count} analyse(s) à régler à la Caisse — cela n’empêche pas de traiter la demande.` };
     }
 
-    return { label: 'Règlement attendu', tone: 'warning', hint: `${payment.due_count} analyse(s) à régler à la Caisse.` };
+    return payment.unbilled_count
+        ? { label: 'Non facturée', tone: 'info', hint: 'Une analyse n’est pas facturée : la Réception doit régulariser.' }
+        : null;
 };

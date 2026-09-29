@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'lab_request_id', 'catalog_item_id', 'billable_item_id', 'catalog_item_code_snapshot', 'catalog_item_name_snapshot',
     'result_value', 'result_notes', 'reference_snapshot', 'resulted_at', 'resulted_by',
-    'status', 'conclusion', 'started_at', 'started_by', 'validated_at', 'validated_by', 'sent_at',
+    'status', 'conclusion', 'started_at', 'started_by', 'validated_at', 'validated_by', 'sent_at', 'approved_at', 'approved_by',
     'returned_at', 'returned_by', 'return_reason',
     'external_lab_name', 'external_reference', 'sent_out_notes', 'sent_out_at', 'sent_out_by',
 ])]
@@ -38,6 +38,7 @@ class LabRequestItem extends Model
             'started_at' => 'datetime',
             'validated_at' => 'datetime',
             'sent_at' => 'datetime',
+            'approved_at' => 'datetime',
             'returned_at' => 'datetime',
             'sent_out_at' => 'datetime',
         ];
@@ -58,6 +59,22 @@ class LabRequestItem extends Model
     public function isDelivered(): bool
     {
         return $this->sent_at !== null;
+    }
+
+    /**
+     * ADR-216, amendement quater — le médecin a relu et validé le résultat reçu.
+     * C'est ce que la Réception attend pour le remettre au patient. Une reprise
+     * pour être refaite retire la validation : la valeur corrigée se revalide.
+     */
+    public function isApproved(): bool
+    {
+        return $this->approved_at !== null && $this->isDelivered() && $this->currentStatus() === LabItemStatus::Validated;
+    }
+
+    /** Envoyé au médecin et pas encore validé par lui : « Terminé · à valider ». */
+    public function awaitsApproval(): bool
+    {
+        return $this->approved_at === null && $this->isDelivered() && $this->currentStatus() === LabItemStatus::Validated;
     }
 
     /** Une saisie a commencé, ou un résultat a été rendu : l'acte a eu lieu (ADR-010, ADR-079). */
@@ -101,6 +118,11 @@ class LabRequestItem extends Model
     public function validatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'validated_by');
+    }
+
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     public function returnedBy(): BelongsTo

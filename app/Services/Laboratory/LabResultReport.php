@@ -31,6 +31,9 @@ use Illuminate\Support\Str;
  * `$viewer` est le médecin qui lit : ses antériorités ne reprennent que ce qui a
  * été envoyé, jamais une demande adressée à un confrère qu'il n'a pas ouverte
  * (ADR-216). Sans lecteur, c'est le laboratoire.
+ *
+ * `$approvedOnly` est la Réception (amendement ADR-216 quater) : seules des
+ * analyses validées par le médecin, et des antériorités validées elles aussi.
  */
 class LabResultReport
 {
@@ -46,7 +49,7 @@ class LabResultReport
      * @param  Collection<int, LabRequestItem>  $items  les analyses à imprimer, déjà choisies
      * @return array<string, mixed>
      */
-    public function compose(LabRequest $request, Collection $items, ?User $viewer = null): array
+    public function compose(LabRequest $request, Collection $items, ?User $viewer = null, bool $approvedOnly = false): array
     {
         $request->loadMissing(['episode.patient', 'requestedBy:id,name', 'conclusionBy:id,name', 'resultsRecipient:id,name', 'recipients:users.id,users.name']);
         $items = $items->sortBy('id')->values();
@@ -59,10 +62,11 @@ class LabResultReport
                 'title' => $label === LabDisciplines::NONE ? 'ANALYSES' : mb_strtoupper($label),
                 'items' => [],
             ];
-            $sections[$label]['items'][] = $this->item($item, $viewer);
+            $sections[$label]['items'][] = $this->item($item, $viewer, $approvedOnly);
         }
 
         $validators = $items->filter(fn (LabRequestItem $item) => $item->validated_at !== null);
+        $approvers = $items->filter(fn (LabRequestItem $item) => $item->isApproved());
         $provisional = $viewer === null && $items->contains(fn (LabRequestItem $item) => $item->currentStatus() !== LabItemStatus::Validated);
 
         return [
@@ -82,6 +86,12 @@ class LabResultReport
             'validation' => [
                 'by' => $validators->map(fn (LabRequestItem $item) => $item->validatedBy?->name)->filter()->unique()->values()->all(),
                 'at' => $this->date($validators->max('validated_at'), true),
+            ],
+            // Amendement ADR-216 quater — la validation du médecin, quand elle est donnée.
+            'approval' => [
+                'by' => $approvers->map(fn (LabRequestItem $item) => $item->approvedBy?->name)->filter()->unique()->values()->all(),
+                'at' => $this->date($approvers->max('approved_at'), true),
+                'awaiting' => $items->filter(fn (LabRequestItem $item) => $item->awaitsApproval())->count(),
             ],
             'provisional' => $provisional,
             'generated_at' => now()->format('d/m/Y H:i'),
@@ -115,9 +125,9 @@ class LabResultReport
     }
 
     /** @return array<string, mixed> */
-    private function item(LabRequestItem $item, ?User $viewer): array
+    private function item(LabRequestItem $item, ?User $viewer, bool $approvedOnly = false): array
     {
-        $item->loadMissing(['results', 'notes', 'antibiograms.results', 'validatedBy:id,name', 'resultedBy:id,name']);
+        $item->loadMissing(['results', 'notes', 'antibiograms.results', 'validatedBy:id,name', 'approvedBy:id,name', 'resultedBy:id,name']);
         $definitions = $this->workbench->definitions($item);
         $results = $item->results->keyBy('analysis_catalog_id');
         $notes = $item->notes->keyBy('analysis_catalog_id');
@@ -125,7 +135,7 @@ class LabResultReport
         $inCorrection = $viewer !== null && $item->currentStatus() !== LabItemStatus::Validated;
         $structured = ! $inCorrection && $definitions->isNotEmpty() && $item->results->contains(fn (LabResult $result) => ! $result->isBlank());
         $anteriority = $structured
-            ? $this->workbench->anteriority($item, $this->workbench->patient($item), $definitions->pluck('analysis.id')->all(), $viewer)
+            ? $this->workbench->anteriority($item, $this->workbench->patient($item), $definitions->pluck('analysis.id')->all(), $viewer, $approvedOnly)
             : [];
 
         $rows = $structured ? $this->rows($item, $definitions, $results, $notes, $anteriority) : [];

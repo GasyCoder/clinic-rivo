@@ -218,6 +218,12 @@
                 @if($report['validation']['by'])
                     Résultats envoyés au médecin par {{ implode(', ', $report['validation']['by']) }}@if($report['validation']['at']) le {{ $report['validation']['at'] }}@endif.<br>
                 @endif
+                @if(! empty($report['approval']['by']))
+                    <span class="strong">Résultats validés par {{ implode(', ', $report['approval']['by']) }}@if($report['approval']['at']) le {{ $report['approval']['at'] }}@endif.</span><br>
+                @endif
+                @if(! empty($report['approval']['awaiting']))
+                    {{ $report['approval']['awaiting'] }} résultat(s) en attente de validation par le médecin.<br>
+                @endif
                 Édité le {{ $report['generated_at'] }}.
             </td>
             <td style="text-align: right">

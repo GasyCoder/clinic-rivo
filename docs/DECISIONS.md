@@ -20751,7 +20751,8 @@ migration après sa création (ADR-086).
 médecins sont déjà biologistes, pas besoin de biologiste spécifique ; le technicien envoie directement
 les résultats au médecin référent du patient ; les autres peuvent voir quand même, avec une fenêtre de
 confirmation » ; trois arbitrages : envoyer = valider, le technicien choisit le destinataire, tout compte
-qui voit les analyses peut ouvrir après confirmation)
+qui voit les analyses peut ouvrir après confirmation) ; **l'envoi ne vaut plus validation depuis
+l'amendement quater** (2026-09-29) : le médecin relit et valide, et la Réception ne voit qu'ensuite
 
 **Amende l'ADR-213** (Terminer puis Valider par le biologiste). Le CDC §14 cite « validation » sans dire
 qui valide ; labo-vuejs distingue un rôle Biologiste, que la clinique n'a pas : la règle est celle du
@@ -20889,6 +20890,48 @@ envoi          recipient_uuids[] (recipient_uuid seul reste accepté) ; chaque d
 lecture        chaque destinataire lit sans confirmation ; les autres voient « adressé à A, B » et
                ouvrent après confirmation tracée ; « Renvoyer à refaire » prévient chacun d'eux
 ```
+
+## Amendement du 2026-09-29 (quater) — le médecin valide le résultat reçu ; la Réception le remet ensuite
+
+Demande du propriétaire : « Lorsque l'analyse est terminée par le technicien, le médecin voit le statut
+Terminé et peut l'ouvrir ; il vérifie ou fait l'aperçu, et s'il est d'accord il clique Valider. L'analyse est
+marquée Validée, et dès lors la Réception voit les résultats ou le compte rendu. » Trois arbitrages : **tout
+compte avec le droit** valide ; un patient externe (« Aucun médecin ») est **validé à l'envoi** ; la
+Réception a une page **« Résultats à remettre »**. Divergence avec la première version de cet ADR
+(« l'envoi les valide ») signalée : l'envoi livre, le médecin valide.
+
+```text
+données       lab_request_items.approved_at / approved_by (migration 2026_11_24_090000) ; un résultat
+              déjà envoyé avant cette décision est réputé validé à la date de son envoi — le compter
+              « à valider » ferait remonter tout l'historique
+parcours      Terminer (technicien) → Envoyer (technicien) → « Terminé · à valider » (médecin) → Valider
+              → « Résultats validés » ; vu à la Réception
+valider       ApproveLabResultsAction, POST /resultats-analyses/{uuid}/valider : une analyse, ou toutes
+              celles qui attendent ; tout ou rien ; refusé pour un résultat adressé à un confrère non
+              ouvert, une demande retirée, une analyse reprise ou déjà validée ; audit
+              laboratory.results.approve
+externe       envoyé à « Aucun médecin » : validé à l'envoi, au nom du technicien
+correction    « Renvoyer à refaire » retire la validation ; le résultat corrigé et renvoyé se revalide
+droits        laboratory_results.approve (MEDICINE) — valider ; laboratory_results.validated_view
+              (RECEPTION) — voir et imprimer les résultats validés ; réglés depuis « Rôles & permissions »
+médecin       feuille des résultats : bandeau « N résultats terminés attendent votre validation »,
+              « Valider » par analyse et « Tout valider », confirmation ; le PDF porte « Résultats
+              validés par … le … »
+Demandes      vue « À valider » (par défaut quand elle n'est pas vide, les autres vues ne la comptent
+d'examens     pas), statut « Terminé · à valider » / « Résultats validés », ligne « Validé par … le … »
+              sous chaque analyse, bouton « Vérifier et valider » (ou « Résultats ») à la place de
+              l'œil nu ; une demande qui attend sa validation ne s'archive pas
+laboratoire   la paillasse dit « Chez le médecin · à valider » ou « Validée par … » sous chaque analyse
+Réception     /reception/resultats-analyses (menu Réception « Résultats à remettre ») : demandes qui
+              portent un résultat validé, Tous / Complets / Partiels, recherche, compte rendu PDF
+              limité aux analyses validées (antériorités validées seulement), à ouvrir, imprimer,
+              télécharger ; le détail du passage liste aussi ces résultats. Aucune valeur non validée
+              n'est servie
+```
+
+**Signalé, non tranché.** Rien ne trace la remise du compte rendu au patient (« remis le … ») : à décider.
+La Réception n'est pas notifiée d'une validation — la liste est le canal. L'imagerie n'a pas d'étape de
+validation : son compte rendu est écrit par le médecin lui-même.
 ---
 
 # ADR-217 — Le technicien traite la demande tout de suite : ni réception préalable, ni règlement qui bloque

@@ -85,7 +85,7 @@ class LabWorkbench
      */
     public function present(LabRequestItem $item): array
     {
-        $item->loadMissing(['results', 'notes.writtenBy:id,name', 'antibiograms.results', 'startedBy:id,name', 'resultedBy:id,name', 'validatedBy:id,name', 'returnedBy:id,name', 'sentOutBy:id,name']);
+        $item->loadMissing(['results', 'notes.writtenBy:id,name', 'antibiograms.results', 'startedBy:id,name', 'resultedBy:id,name', 'validatedBy:id,name', 'approvedBy:id,name', 'returnedBy:id,name', 'sentOutBy:id,name']);
         $patient = $this->patient($item);
         $date = $this->referenceDate($item);
         $definitions = $this->definitions($item);
@@ -157,6 +157,8 @@ class LabWorkbench
             'resulted_by' => $item->resultedBy?->name,
             'validated_at' => $item->validated_at,
             'validated_by' => $item->validatedBy?->name,
+            // Amendement ADR-216 quater — la validation du médecin : « à valider » ou « validé ».
+            'approval' => $this->approval($item),
             'returned_at' => $item->returned_at,
             'returned_by' => $item->returnedBy?->name,
             'return_reason' => $item->return_reason,
@@ -170,6 +172,24 @@ class LabWorkbench
             'critical_count' => $item->results->where('is_critical', true)->count(),
             'pathological_count' => $item->results->where('interpretation', 'PATHOLOGICAL')->count(),
         ];
+    }
+
+    /**
+     * Amendement ADR-216 quater — où en est la validation du médecin, en un mot.
+     *
+     * @return array{state: string, label: string, at: mixed, by: ?string}|null null tant que rien n'est envoyé
+     */
+    public function approval(LabRequestItem $item): ?array
+    {
+        if (! $item->isDelivered()) {
+            return null;
+        }
+
+        return match (true) {
+            $item->isApproved() => ['state' => 'APPROVED', 'label' => 'Validée par le médecin', 'at' => $item->approved_at, 'by' => $item->approvedBy?->name],
+            $item->awaitsApproval() => ['state' => 'AWAITING', 'label' => 'Terminée · à valider par le médecin', 'at' => null, 'by' => null],
+            default => ['state' => 'IN_CORRECTION', 'label' => 'Reprise par le laboratoire', 'at' => null, 'by' => null],
+        };
     }
 
     /** @return array<string, mixed> */
@@ -243,7 +263,7 @@ class LabWorkbench
      * @param  array<int, int>  $analysisIds
      * @return array<int, array<string, mixed>>
      */
-    public function anteriority(LabRequestItem $item, Patient $patient, array $analysisIds, ?User $viewer = null): array
+    public function anteriority(LabRequestItem $item, Patient $patient, array $analysisIds, ?User $viewer = null, bool $approvedOnly = false): array
     {
         if ($analysisIds === []) {
             return [];
@@ -260,6 +280,9 @@ class LabWorkbench
             ->whereNull('lab_requests.cancelled_at')
             // ADR-216 / ADR-218 — hors du laboratoire, seule une valeur envoyée sert d'antériorité.
             ->when($viewer !== null, fn ($query) => $query->whereNotNull('lab_request_items.sent_at'))
+            // Amendement ADR-216 quater — la Réception ne lit que des valeurs validées par le médecin.
+            ->when($approvedOnly, fn ($query) => $query->whereNotNull('lab_request_items.approved_at')
+                ->whereNotNull('lab_request_items.sent_at')->where('lab_request_items.status', 'VALIDATED'))
             ->whereIn('lab_results.analysis_catalog_id', $analysisIds)
             ->orderByDesc('lab_request_items.resulted_at')
             ->get();

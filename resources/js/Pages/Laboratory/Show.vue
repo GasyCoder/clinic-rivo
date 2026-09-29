@@ -250,6 +250,10 @@ const openSend = (uuids = []) => {
                                                 <span class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"><span :class="cn('block h-full rounded-full transition-all', labTaskState(item.status).bar)" :style="{ width: `${Math.round(itemProgress(item).ratio * 100)}%` }" /></span>
                                                 <span class="text-[11px] tabular-nums text-muted-foreground">{{ itemProgress(item).done }}/{{ itemProgress(item).total }}</span>
                                             </span>
+                                            <!-- Amendement ADR-216 quater — ce que le médecin a fait du résultat envoyé. -->
+                                            <span v-if="item.approval && item.approval.state !== 'IN_CORRECTION'" :class="cn('mt-1.5 flex items-center gap-1 text-[11px] font-medium', item.approval.state === 'APPROVED' ? 'text-emerald-700 dark:text-emerald-300' : 'text-sky-700 dark:text-sky-300')">
+                                                <BadgeCheck class="h-3 w-3 shrink-0" aria-hidden="true" />{{ item.approval.state === 'APPROVED' ? `Validée${item.approval.by ? ' par ' + item.approval.by : ''}` : 'Chez le médecin · à valider' }}
+                                            </span>
                                             <span v-if="item.sent_out || item.critical_count" class="mt-1.5 flex flex-wrap gap-1">
                                                 <Badge v-if="item.sent_out" tone="info" :title="`Confiée à ${item.sent_out.laboratory}`"><Building2 class="h-3 w-3" /> Extérieur</Badge>
                                                 <Badge v-if="item.critical_count" tone="danger"><Siren class="h-3 w-3" />{{ item.critical_count }} critique(s)</Badge>

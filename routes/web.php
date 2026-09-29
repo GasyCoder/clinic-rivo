@@ -54,6 +54,7 @@ use App\Http\Controllers\Reception\EpisodeFinancialContextController;
 use App\Http\Controllers\Reception\EpisodeNextStepController;
 use App\Http\Controllers\Reception\EpisodeServiceController;
 use App\Http\Controllers\Reception\EpisodeSettlementController;
+use App\Http\Controllers\Reception\LabResultHandoverController;
 use App\Http\Controllers\Reception\ReceptionEstimateController;
 use App\Http\Controllers\Reception\ReferralController;
 use App\Http\Controllers\Reception\ReferrerLookupController;
@@ -595,6 +596,13 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/reception/recommandations', [ReferralController::class, 'index'])
         ->name('reception.referrals.index')
         ->middleware('can:patient_referrals.view');
+    // ADR-216, amendement quater — les résultats validés par le médecin, à remettre au patient.
+    Route::get('/reception/resultats-analyses', [LabResultHandoverController::class, 'index'])
+        ->name('reception.lab-results.index')
+        ->middleware('can:laboratory_results.validated_view');
+    Route::get('/reception/resultats-analyses/{labRequest}/pdf', [LabResultHandoverController::class, 'pdf'])
+        ->name('reception.lab-results.pdf')
+        ->middleware('can:laboratory_results.validated_view');
     Route::post('/reception/recommandations/{referral}/cadeau', [ReferralController::class, 'gift'])
         ->name('reception.referrals.gift')
         ->middleware('can:patient_referrals.gift');
@@ -836,6 +844,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // confirmée d'un résultat adressé à un confrère.
     Route::get('/resultats-analyses/{labRequest}', [LabResultsController::class, 'show'])->name('lab-results.show')->middleware('can:laboratory_orders.view');
     Route::get('/resultats-analyses/{labRequest}/pdf', [LabResultPdfController::class, 'physician'])->name('lab-results.pdf')->middleware('can:laboratory_orders.view');
+    Route::post('/resultats-analyses/{labRequest}/valider', [LabResultsController::class, 'approve'])->name('lab-results.approve')->middleware('can:laboratory_results.approve');
     Route::post('/resultats-analyses/{labRequest}/ouvrir', [LabResultsController::class, 'open'])->name('lab-results.open')->middleware('can:laboratory_orders.view');
 
     // ADR-113 — Hospitalisation : patients hospitalisés et fiche de régime.

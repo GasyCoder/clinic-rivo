@@ -16,6 +16,7 @@ import {
     CalendarDays,
     CalendarRange,
     ClipboardList,
+    FileCheck2,
     Clock,
     Copy,
     DoorOpen,
@@ -73,6 +74,8 @@ export const CLINIC_WORKSPACES = [
     // (ADR-116).
     // ADR-212 — qui a recommandé la clinique aux nouveaux patients, et le cadeau remis.
     { key: 'referrals', group: 'clinical', text: 'Recommandations', description: 'Qui a recommandé la clinique, et le cadeau remis', icon: Gift, link: '/reception/recommandations', permission: 'patient_referrals.view', tone: 'navy' },
+    // ADR-216, amendement quater — les résultats d'analyses validés par le médecin, à remettre au patient.
+    { key: 'lab-results', group: 'clinical', text: 'Résultats à remettre', description: 'Résultats d’analyses validés par le médecin, et leur compte rendu', icon: FileCheck2, link: '/reception/resultats-analyses', permission: 'laboratory_results.validated_view', tone: 'green' },
     { key: 'visitors', group: 'clinical', text: 'Visiteurs', description: 'Entrées, sorties et pièces jointes des visiteurs', icon: IdCard, link: '/reception/visitors', permission: 'visitors.view', tone: 'navy' },
     { key: 'cash', group: 'clinical', text: 'Caisse', description: 'Factures, règlements, session', icon: Wallet, link: '/cash', activeLinks: ['/cash', '/receipts'], permission: 'cash.view', tone: 'green' },
     { key: 'patients', group: 'clinical', text: 'Patients', description: 'Dossiers et historique des passages', icon: UsersRound, link: '/patients', permission: 'patients.view', tone: 'cyan' },
@@ -233,7 +236,7 @@ export const SIDEBAR_GROUPS = [
         key: 'reception-space',
         text: 'Réception',
         icon: ClipboardList,
-        members: ['reception', 'settlements', 'referrals', 'visitors'],
+        members: ['reception', 'settlements', 'lab-results', 'referrals', 'visitors'],
         labels: { reception: 'Accueil & passages' },
     },
     {

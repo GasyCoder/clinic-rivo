@@ -491,6 +491,8 @@ class PermissionSeeder extends Seeder
         'laboratory_results.validate' => 'Envoyer un résultat d’analyse au médecin (l’envoi le rend définitif)',
         'laboratory_results.flag_critical' => 'Signaler un résultat d’analyse critique',
         'laboratory_results.return' => 'Renvoyer une analyse à refaire (terminée ou déjà envoyée au médecin)',
+        'laboratory_results.approve' => 'Valider un résultat d’analyse reçu (médecin)',
+        'laboratory_results.validated_view' => 'Voir et imprimer les résultats d’analyses validés par le médecin',
         'lab_microbiology.view' => 'Voir le référentiel de microbiologie (familles, bactéries, antibiotiques)',
         'lab_microbiology.create' => 'Ajouter au référentiel de microbiologie',
         'lab_microbiology.update' => 'Modifier le référentiel de microbiologie',

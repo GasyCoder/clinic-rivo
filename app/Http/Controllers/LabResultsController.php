@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Laboratory\ApproveLabResultsAction;
 use App\Actions\Laboratory\ReturnLabItemAction;
 use App\Enums\LabItemStatus;
 use App\Models\LabRequest;
@@ -67,6 +68,8 @@ class LabResultsController extends Controller
             // demander qu'un résultat soit refait, ou ouvrir la demande au laboratoire
             // pour la modifier ou y saisir, quand ces droits lui sont accordés.
             'can' => [
+                // Amendement ADR-216 quater — relire, puis valider ce qui a été reçu.
+                'approve' => $sealed === null && $labRequest->cancelled_at === null && $user->can(ApproveLabResultsAction::PERMISSION),
                 'return' => $sealed === null && $user->can(ReturnLabItemAction::PERMISSION),
                 'bench_url' => $labRequest->cancelled_at === null && $user->can('laboratory_results.view')
                     && ($user->can('laboratory_results.create') || $user->can('laboratory_orders.update'))
@@ -74,6 +77,24 @@ class LabResultsController extends Controller
                 'bench_label' => $user->can('laboratory_results.create') ? 'Saisir au laboratoire' : 'Modifier la demande',
             ],
         ]);
+    }
+
+    /**
+     * Amendement ADR-216 quater — le médecin valide les résultats reçus, une analyse
+     * ou toutes celles qui attendent. La Réception les voit dès lors.
+     */
+    public function approve(Request $request, LabRequest $labRequest, ApproveLabResultsAction $action): RedirectResponse
+    {
+        $data = $request->validate([
+            'items' => ['nullable', 'array', 'max:50'],
+            'items.*' => ['string', 'uuid'],
+        ]);
+        $count = $action->execute($labRequest, $data['items'] ?? [], $request->user());
+
+        return back(fallback: "/resultats-analyses/{$labRequest->uuid}")->with(
+            'status',
+            $count === 1 ? 'Résultat validé : la Réception peut le remettre au patient.' : "{$count} résultats validés : la Réception peut les remettre au patient.",
+        );
     }
 
     /** Ouvrir un résultat adressé à un confrère, après confirmation : tracé, valable pour la session. */
@@ -108,6 +129,7 @@ class LabResultsController extends Controller
             'return_reason' => $item->return_reason,
             'returned_at' => $item->returned_at,
             'returned_by' => $item->returnedBy?->name,
+            'approval' => $workbench->approval($item),
         ];
     }
 

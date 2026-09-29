@@ -111,6 +111,8 @@ class RolePermissionSeeder extends Seeder
         'RECEPTION' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // Amendement ADR-216 quater — les résultats validés par le médecin, à remettre au patient.
+            'laboratory_results.validated_view',
             'reception.view',
             // ADR-192 — la Caisse applique la remise en encaissant.
             'discounts.view', 'discounts.create',
@@ -216,6 +218,8 @@ class RolePermissionSeeder extends Seeder
             'laboratory_orders.create', 'laboratory_orders.view', 'laboratory_results.view',
             // Amendement ADR-216 du 2026-09-29 — le médecin peut demander qu'un résultat reçu soit refait.
             'laboratory_results.return',
+            // Amendement ADR-216 quater — le médecin valide le résultat reçu.
+            'laboratory_results.approve',
             'imaging_orders.create', 'imaging_orders.view', 'imaging_results.create', 'imaging_results.update', 'imaging_templates.create', 'imaging_templates.update', 'imaging_templates.archive',
             'surgery.request', 'hospitalization.request', 'maternity.request',
             'transfer.request', 'pediatrics.request',

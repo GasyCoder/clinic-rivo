@@ -491,6 +491,10 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Le médecin « Demande à refaire » depuis sa feuille de résultats (droit `laboratory_results.return`, MEDICINE par défaut), le technicien est prévenu ; saisie et modification de demande accessibles au médecin qui en reçoit les droits (ADR-216, amendement bis)
 - [x] Compte rendu d'analyses en pleine largeur
 - [x] Résultats adressés à un, plusieurs ou tous les médecins (liste à cocher, « Aucun médecin » exclusif), chacun notifié et lecteur libre (ADR-216, amendement ter)
+- [x] Le médecin relit puis valide le résultat reçu (« Terminé · à valider » → « Validé »), une analyse ou toutes ; un patient externe est validé à l'envoi ; une reprise retire la validation (ADR-216, amendement quater)
+- [x] « Demandes d'examens » : vue « À valider » par défaut quand elle n'est pas vide, statuts « Terminé · à valider » / « Résultats validés », bouton « Vérifier et valider » (ADR-216, amendement quater)
+- [x] Réception « Résultats à remettre » : résultats validés, Tous / Complets / Partiels, compte rendu PDF à imprimer, lien depuis le détail du passage (`laboratory_results.validated_view`) (ADR-216, amendement quater)
+- [ ] Tracer la remise du compte rendu au patient, notifier la Réception d'une validation — à décider (ADR-216, amendement quater)
 - [x] Note par ligne d'analyse (groupes compris), conclusion de chaque analyse et conclusion générale, comme labo-vuejs (ADR-218)
 - [x] Compte rendu de résultats en PDF produit par le serveur : sections par discipline, Résultat · Val. réf. · Antériorité, notes, provisoire ; montré, imprimé et téléchargé depuis la page ; version du médecin limitée à l'envoyé (ADR-218)
 - [x] Paillasse refaite façon labo-vuejs en shadcn : « Tâche(s) à traiter », une carte par ligne (mode, norme, résultat, interprétation), pied collant (ADR-219)

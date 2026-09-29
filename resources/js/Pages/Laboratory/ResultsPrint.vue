@@ -1,18 +1,20 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import { AlertTriangle, ArrowLeft, Download, ExternalLink, FileText, FlaskConical, Hourglass, Microscope, Printer, RotateCcw, TriangleAlert } from 'lucide-vue-next';
+import { AlertTriangle, ArrowLeft, BadgeCheck, CheckCircle2, Download, ExternalLink, FileText, FlaskConical, Hourglass, Microscope, Printer, RotateCcw, TriangleAlert } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import SealedLabResult from '@/Components/Laboratory/SealedLabResult.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
 import { LAB_STATUS_TONES } from '@/utilities/labWorkbench';
+import { approvalBadge, awaitingApproval, approvalSummary } from '@/utilities/labApproval';
 import { labUrl } from '@/utilities/labUrl';
 
 /**
@@ -61,6 +63,24 @@ const submitRedo = () => redoForm.post(labUrl(`/laboratory/items/${redoItem.valu
     preserveScroll: true,
     onSuccess: () => { redoItem.value = null; },
 });
+
+// Amendement ADR-216 quater — le médecin relit le compte rendu, puis valide ce
+// qu'il a reçu : une analyse, ou toutes celles qui attendent. La Réception ne voit
+// un résultat qu'une fois validé.
+const awaiting = computed(() => awaitingApproval(props.items));
+const summary = computed(() => approvalSummary(props.items));
+const approving = ref(null); // [] = toutes celles qui attendent ; [uuid] = une analyse
+const approveForm = useForm({ items: [] });
+const askApprove = (item = null) => { approveForm.clearErrors(); approving.value = item ? [item] : awaiting.value; };
+const submitApprove = () => {
+    approveForm.items = approving.value.length === awaiting.value.length ? [] : approving.value.map((item) => item.uuid);
+    approveForm.post(`/resultats-analyses/${props.labRequest.uuid}/valider`, {
+        preserveScroll: true,
+        onSuccess: () => { approving.value = null; },
+    });
+};
+// Le PDF se relit après une validation : il la porte au bas du compte rendu.
+const pdfKey = computed(() => props.items.map((item) => `${item.uuid}:${item.approval?.state ?? ''}`).join('|'));
 
 // Imprimer : le PDF affiché dans la page, sans ouvrir d'onglet.
 const frame = ref(null);
@@ -122,6 +142,23 @@ const print = () => {
             <p>Document provisoire : au moins une analyse n’est pas encore envoyée au médecin. Le PDF le dit en tête.</p>
         </div>
 
+        <!-- Amendement ADR-216 quater — la validation du médecin, avant tout le reste. -->
+        <div v-if="physician && awaiting.length" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30" role="status">
+            <div class="flex min-w-0 items-start gap-3">
+                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"><BadgeCheck class="h-5 w-5" /></span>
+                <div class="min-w-0 text-sm text-amber-950 dark:text-amber-100">
+                    <p class="font-semibold">{{ awaiting.length === 1 ? '1 résultat terminé attend votre validation' : `${awaiting.length} résultats terminés attendent votre validation` }}</p>
+                    <p class="text-amber-900/80 dark:text-amber-200/80">Relisez le compte rendu ci-dessous. Une fois validés, la Réception peut le remettre au patient.</p>
+                </div>
+            </div>
+            <Button v-if="can.approve" type="button" @click="askApprove()"><CheckCircle2 class="h-4 w-4" />{{ awaiting.length === 1 ? 'Valider' : `Tout valider (${awaiting.length})` }}</Button>
+            <p v-else class="text-xs text-amber-900 dark:text-amber-200">Valider demande le droit « laboratory_results.approve ».</p>
+        </div>
+        <div v-else-if="summary.allApproved" class="flex items-start gap-3 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100" role="status">
+            <CheckCircle2 class="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-300" />
+            <p><span class="font-semibold">Résultats validés</span><template v-if="summary.by.length"> par {{ summary.by.join(', ') }}</template><template v-if="summary.at"> le {{ formatDateTime(summary.at) }}</template>. {{ physician ? 'La Réception peut remettre le compte rendu au patient.' : 'La Réception les voit dans « Résultats à remettre ».' }}</p>
+        </div>
+
         <div class="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
             <!-- Ce que porte le compte rendu -->
             <Card class="h-fit p-3">
@@ -133,7 +170,16 @@ const print = () => {
                             <span class="min-w-0 text-foreground">{{ item.name }}</span>
                         </span>
                         <span class="flex shrink-0 flex-col items-end gap-1">
-                            <Badge :tone="item.in_correction ? 'danger' : LAB_STATUS_TONES[item.status]">{{ item.in_correction ? 'En correction' : item.status_label }}</Badge>
+                            <Badge v-if="approvalBadge(item)" :tone="approvalBadge(item).tone" :title="approvalBadge(item).title">{{ approvalBadge(item).label }}</Badge>
+                            <Badge v-else :tone="item.in_correction ? 'danger' : LAB_STATUS_TONES[item.status]">{{ item.in_correction ? 'En correction' : item.status_label }}</Badge>
+                            <Button
+                                v-if="physician && can.approve && item.approval?.state === 'AWAITING'"
+                                type="button"
+                                size="xs"
+                                @click="askApprove(item)"
+                            >
+                                <CheckCircle2 class="h-3.5 w-3.5" /> Valider
+                            </Button>
                             <Button
                                 v-if="physician && can.return && !item.in_correction && item.status === 'VALIDATED'"
                                 type="button"
@@ -158,6 +204,7 @@ const print = () => {
             <Card class="overflow-hidden">
                 <iframe
                     v-if="items.length"
+                    :key="pdfKey"
                     ref="frame"
                     :src="pdfUrl"
                     :title="`Compte rendu d’analyses de ${formatPatientName(patient)}`"
@@ -187,6 +234,24 @@ const print = () => {
                 </Button>
             </template>
         </Dialog>
+
+        <ConfirmModal
+            :open="approving !== null"
+            :title="approving && approving.length === 1 ? `Valider « ${approving[0].name} »` : `Valider ${approving?.length ?? 0} résultats`"
+            description="Vous avez relu le compte rendu et vous en êtes d’accord. Le résultat est validé à votre nom ; la Réception peut alors le remettre au patient."
+            :confirm-label="approving && approving.length === 1 ? 'Valider le résultat' : 'Tout valider'"
+            tone="success"
+            :icon="BadgeCheck"
+            :processing="approveForm.processing"
+            :dismissible="false"
+            @update:open="(open) => open || approveForm.processing || (approving = null)"
+            @confirm="submitApprove"
+        >
+            <ul v-if="approving" class="space-y-1 text-sm">
+                <li v-for="item in approving" :key="item.uuid" class="flex items-center gap-2 text-foreground"><FlaskConical class="h-3.5 w-3.5 text-muted-foreground" />{{ item.name }}</li>
+            </ul>
+            <p v-if="approveForm.errors.items" class="mt-2 text-sm font-medium text-destructive">{{ approveForm.errors.items }}</p>
+        </ConfirmModal>
 
         <p v-if="items.length" class="text-xs text-muted-foreground">
             Le PDF ne s’affiche pas ? <a :href="pdfUrl" target="_blank" rel="noopener" class="font-medium text-primary underline-offset-2 hover:underline">Ouvrez-le dans un onglet</a> ou téléchargez-le.

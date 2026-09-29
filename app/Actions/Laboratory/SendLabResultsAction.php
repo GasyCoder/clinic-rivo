@@ -27,6 +27,11 @@ use Illuminate\Validation\ValidationException;
  * plusieurs ou toutes les analyses terminées. Tout ou rien : une analyse pas
  * encore terminée n'en laisse partir aucune, et le message la nomme.
  *
+ * Amendement quater — l'envoi n'est plus la fin : le médecin destinataire relit
+ * et valide (`ApproveLabResultsAction`), et c'est seulement alors que la
+ * Réception voit le résultat. Pour un patient externe (« Aucun médecin »),
+ * l'envoi vaut validation.
+ *
  * Envoyée, une analyse ne se modifie plus : une erreur se corrige par « Renvoyer
  * à refaire » avec un motif (`ReturnLabItemAction`), puis un nouvel envoi —
  * jamais par une réécriture (ADR-010).
@@ -56,7 +61,7 @@ class SendLabResultsAction
 
         $recipients = $this->recipients(array_values(array_filter((array) $recipientUuids)), $toNobody);
 
-        $result = DB::transaction(function () use ($request, $itemUuids, $recipients, $actor): array {
+        $result = DB::transaction(function () use ($request, $itemUuids, $recipients, $toNobody, $actor): array {
             $locked = LabRequest::query()->lockForUpdate()->findOrFail($request->getKey());
 
             if ($locked->cancelled_at !== null) {
@@ -75,7 +80,7 @@ class SendLabResultsAction
             $names = [];
 
             foreach ($items as $item) {
-                $corrected = $this->send(LabItemGuard::lock($item), $actor) || $corrected;
+                $corrected = $this->send(LabItemGuard::lock($item), $actor, $toNobody) || $corrected;
                 $names[] = $item->catalog_item_name_snapshot;
             }
 
@@ -168,7 +173,7 @@ class SendLabResultsAction
      *
      * @return bool vrai quand l'analyse avait déjà été rendue puis reprise : c'est une correction
      */
-    private function send(LabRequestItem $locked, User $actor): bool
+    private function send(LabRequestItem $locked, User $actor, bool $toNobody): bool
     {
         $status = $locked->currentStatus();
         $name = $locked->catalog_item_name_snapshot;
@@ -204,6 +209,11 @@ class SendLabResultsAction
             'validated_at' => now(),
             'validated_by' => $actor->getKey(),
             'sent_at' => now(),
+            // Amendement ADR-216 quater — un médecin valide ce qu'il reçoit. Adressé à
+            // personne (patient externe), il n'y a pas de médecin : l'envoi vaut validation.
+            // Une correction renvoyée se revalide : la valeur n'est plus celle qu'il a lue.
+            'approved_at' => $toNobody ? now() : null,
+            'approved_by' => $toNobody ? $actor->getKey() : null,
         ]);
 
         return $locked->returned_at !== null;

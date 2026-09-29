@@ -292,7 +292,8 @@ class LabResultsDeliveryTest extends TestCase
             'items' => [$item->uuid], 'recipient_uuid' => $doctor->uuid,
         ])->assertSessionHasNoErrors();
 
-        $this->actingAs($doctor)->get('/medicine/demandes-examens?filter=recent')
+        // Amendement ADR-216 quater — reçu, il attend la validation du médecin.
+        $this->actingAs($doctor)->get('/medicine/demandes-examens?filter=to_validate')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->whereNot('requests.0.items.0.resulted_at', null)
                 ->where('requests.0.results_url', "/resultats-analyses/{$request->uuid}")

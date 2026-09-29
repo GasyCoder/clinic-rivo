@@ -60,6 +60,9 @@ class ReturnLabItemAction
                 'return_reason' => mb_substr($reason, 0, 1000),
                 'validated_at' => null,
                 'validated_by' => null,
+                // Amendement ADR-216 quater — la valeur corrigée se revalide.
+                'approved_at' => null,
+                'approved_by' => null,
             ]);
 
             // ADR-220 — une analyse reprise remet sa demande dans le travail en cours :

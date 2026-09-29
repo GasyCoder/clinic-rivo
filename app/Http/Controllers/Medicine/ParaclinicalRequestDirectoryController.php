@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Medicine;
 
+use App\Actions\Laboratory\ApproveLabResultsAction;
 use App\Actions\Laboratory\ReceiveLabRequestAction;
 use App\Actions\Medicine\ArchiveParaclinicalRequestAction;
 use App\Enums\EpisodeOrientationStatus;
@@ -13,6 +14,7 @@ use App\Models\User;
 use App\Services\Laboratory\LabPaymentClearance;
 use App\Services\Laboratory\LabQueue;
 use App\Services\Laboratory\LabResultAccess;
+use App\Services\Laboratory\LabWorkbench;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Medicine\ImagingReportTemplateCatalog;
 use App\Support\ImagingReportDocument;
@@ -37,10 +39,9 @@ use Inertia\Response;
  * et les compteurs de cette page sont comptés sur ces mêmes faits, jamais
  * incrémentés côté navigateur.
  *
- * Il n'existe volontairement pas de statut « terminée » distinct de
- * « résultat disponible » : rien n'enregistre qu'un médecin a pris
- * connaissance d'un résultat, et l'inventer ferait afficher une lecture que
- * personne n'a faite.
+ * Amendement ADR-216 quater — un résultat d'analyse reçu attend la validation du
+ * médecin (`approved_at`) : c'est un fait enregistré, pas une lecture supposée,
+ * et il a sa vue « À valider ».
  */
 class ParaclinicalRequestDirectoryController extends Controller
 {
@@ -51,11 +52,13 @@ class ParaclinicalRequestDirectoryController extends Controller
      * devait savoir lequel regarder pour trouver son travail. Les trois
      * groupes répondent à une question chacun :
      *
+     *   to_validate  des résultats d'analyses reçus, à relire et valider
+     *                (amendement ADR-216 quater) — ils passent avant tout le reste
      *   active    ce qui attend encore quelque chose
      *   recent    ce qui vient d'arriver et n'a peut-être pas été lu
      *   archived  ce qui est rangé — rendu il y a longtemps, ou retiré
      */
-    private const FILTERS = ['active', 'recent', 'archived'];
+    private const FILTERS = ['to_validate', 'active', 'recent', 'archived'];
 
     /**
      * La frontière entre « récent » et « archivé ».
@@ -77,11 +80,7 @@ class ParaclinicalRequestDirectoryController extends Controller
 
     public function index(Request $request): Response
     {
-        $filter = in_array($request->query('filter'), self::FILTERS, true)
-            ? (string) $request->query('filter')
-            // « Active » par défaut : c'est le travail en cours, pas
-            // l'historique, que le médecin vient chercher ici.
-            : 'active';
+        $requestedFilter = in_array($request->query('filter'), self::FILTERS, true) ? (string) $request->query('filter') : null;
         $search = trim((string) $request->query('q', ''));
         $type = in_array($request->query('type'), self::TYPES, true) ? (string) $request->query('type') : null;
 
@@ -109,6 +108,10 @@ class ParaclinicalRequestDirectoryController extends Controller
         $counts = collect(self::FILTERS)
             ->mapWithKeys(fn (string $key) => [$key => $rows->filter($byType)->filter($this->group($key))->count()])
             ->all();
+
+        // Par défaut, ce qui attend la validation du médecin quand il y en a ; sinon
+        // « Active » : c'est le travail en cours, pas l'historique, qu'on vient chercher ici.
+        $filter = $requestedFilter ?? ($counts['to_validate'] > 0 ? 'to_validate' : 'active');
 
         $inView = $rows->filter($this->group($filter));
         $typeCounts = ['ALL' => $inView->count()]
@@ -139,7 +142,7 @@ class ParaclinicalRequestDirectoryController extends Controller
             // décident de ce qu'on y voit. Sans elles la liste est vide, et
             // un vide muet se lit « aucune demande » — l'écran doit dire que
             // c'est un droit qui manque, pas du travail terminé.
-            'can' => ['lab' => $canViewLab, 'imaging' => $canViewImaging],
+            'can' => ['lab' => $canViewLab, 'imaging' => $canViewImaging, 'approve' => $request->user()->can(ApproveLabResultsAction::PERMISSION)],
             // ADR-108 — les feuilles de la clinique, servies à l'écran de
             // saisie. Elles n'intéressent que qui peut écrire un compte
             // rendu : les envoyer à un compte qui ne fait que consulter
@@ -183,18 +186,23 @@ class ParaclinicalRequestDirectoryController extends Controller
         $isRecent = fn (array $row): bool => $row['last_resulted_at'] !== null
             && Carbon::parse($row['last_resulted_at'])->greaterThanOrEqualTo($threshold);
 
+        // Amendement ADR-216 quater — un résultat reçu et pas encore validé est du travail
+        // pour le médecin : il passe avant les autres groupes, qui ne le comptent pas.
+        $toValidate = fn (array $row): bool => $row['status'] !== 'CANCELLED' && ($row['approval']['awaiting'] ?? 0) > 0 && ! $row['sealed'];
+
         return match ($filter) {
-            'active' => fn (array $row): bool => in_array($row['status'], ['REQUESTED', 'IN_PROGRESS'], true),
+            'to_validate' => $toValidate,
+            'active' => fn (array $row): bool => ! $toValidate($row) && in_array($row['status'], ['REQUESTED', 'IN_PROGRESS'], true),
             // Une demande rangée à la main (ADR-131) n'est plus « récente »,
             // même rendue hier : c'est le médecin qui l'a décidé.
-            'recent' => fn (array $row): bool => $row['status'] === 'COMPLETED'
+            'recent' => fn (array $row): bool => ! $toValidate($row) && $row['status'] === 'COMPLETED'
                 && $row['archived_at'] === null
                 && $isRecent($row),
             // Tout le reste : les demandes retirées, celles qu'on a rangées, et
             // les résultats rendus il y a plus longtemps. Rien ne disparaît,
             // tout se range.
             default => fn (array $row): bool => $row['status'] === 'CANCELLED'
-                || ($row['status'] === 'COMPLETED' && ($row['archived_at'] !== null || ! $isRecent($row))),
+                || (! $toValidate($row) && $row['status'] === 'COMPLETED' && ($row['archived_at'] !== null || ! $isRecent($row))),
         };
     }
 
@@ -223,6 +231,7 @@ class ParaclinicalRequestDirectoryController extends Controller
         // le laboratoire et qui voit la facturation, jamais un montant.
         $showPayment = $isLab && ($atBench || (bool) $viewer?->can('billing.view'));
         $clearance = app(LabPaymentClearance::class);
+        $canApprove = $isLab && (bool) $viewer?->can(ApproveLabResultsAction::PERMISSION);
 
         return $query
             ->with([
@@ -233,7 +242,7 @@ class ParaclinicalRequestDirectoryController extends Controller
                 // fois, pas une requête par examen.
                 'items.catalogItem:id,imaging_modality',
                 'requestedBy:id,name',
-                ...($isLab ? ['resultsRecipient:id,name', 'recipients:users.id,users.name'] : []),
+                ...($isLab ? ['resultsRecipient:id,name', 'recipients:users.id,users.name', 'items.approvedBy:id,name'] : []),
                 ...($showPayment ? LabPaymentClearance::RELATIONS : []),
                 'consultation:id,episode_orientation_id,status,completed_at',
                 'consultation.orientation:id,uuid,status',
@@ -286,6 +295,15 @@ class ParaclinicalRequestDirectoryController extends Controller
                     : null,
                 'family_label' => $familyLabel,
                 'status' => $request->displayStatus(),
+                // Amendement ADR-216 quater — la validation du médecin, analyse par analyse.
+                'approval' => $isLab ? [
+                    'awaiting' => $request->items->filter(fn ($item) => $item->awaitsApproval())->count(),
+                    'approved' => $request->items->filter(fn ($item) => $item->isApproved())->count(),
+                    'total' => $request->items->count(),
+                ] : null,
+                'can_approve' => $isLab && $canApprove && $request->cancelled_at === null
+                    && ! $labAccess->sealed($request, $viewer)
+                    && $request->items->contains(fn ($item) => $item->awaitsApproval()),
                 'requested_at' => $request->requested_at?->toIso8601String(),
                 'requested_by' => $request->requestedBy?->name,
                 'cancelled_at' => $request->cancelled_at?->toIso8601String(),
@@ -330,6 +348,7 @@ class ParaclinicalRequestDirectoryController extends Controller
                     'report_raw' => $isLab ? null : $item->result_value,
                     'notes_raw' => $isLab ? null : $item->result_notes,
                     'in_correction' => $isLab && $item->isDelivered() && $item->currentStatus() === LabItemStatus::ToRedo,
+                    'approval' => $isLab ? app(LabWorkbench::class)->approval($item) : null,
                     // ADR-108 — la feuille à pré-appliquer à l'ouverture de la saisie.
                     'default_template_key' => $kind === 'imaging' ? $catalog->defaultKeyFor($item) : null,
                     // ADR-130 — une correction se lit : qui, quand.
@@ -412,6 +431,8 @@ class ParaclinicalRequestDirectoryController extends Controller
                 // une demande en attente est du travail, pas de l'archive.
                 'can_archive' => $canArchive
                     && $request->displayStatus() === 'COMPLETED'
+                    // Un résultat qui attend la validation du médecin n'est pas encore lu.
+                    && ! ($isLab && $request->items->contains(fn ($item) => $item->awaitsApproval()))
                     && $request->archived_at === null
                     && $request->items->map($deliveredAt)->filter()->max()?->greaterThanOrEqualTo(now()->subDays(self::RECENT_DAYS)),
                 // Ressortir n'a d'effet visible que si le résultat est récent :

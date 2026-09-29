@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Route;
  * sous `/api/v1/super-admin/site-laboratory` (routes/api.php) : les mêmes
  * contrôleurs et les mêmes droits, où que l'écran soit ouvert (ADR-215).
  *
- * Les gestes cliniques — réceptionner, prélever, saisir, terminer, valider,
+ * Les gestes cliniques — réceptionner, prélever, saisir, envoyer au médecin,
  * renvoyer, signaler un critique, confier à l'extérieur, conclure — portent
  * `rivo.site-only:laboratory` : ils se font au laboratoire du site, par la
  * personne qui a le tube sous les yeux, jamais depuis le portail. Le portail
@@ -25,12 +25,11 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', [LaboratoryController::class, 'index'])->name('index')->middleware('can:laboratory_results.view');
 Route::get('/requests/{labRequest}', [LaboratoryController::class, 'show'])->name('requests.show')->middleware('can:laboratory_results.view');
 Route::get('/requests/{labRequest}/impression', [LaboratoryController::class, 'print'])->name('requests.print')->middleware('can:laboratory_results.view');
-Route::post('/requests/{labRequest}/validate', [LaboratoryController::class, 'validateRequest'])->name('requests.validate')->middleware(['can:laboratory_results.validate', 'rivo.site-only:laboratory']);
+// ADR-216 — envoyer au médecin valide le résultat : il n'y a plus de biologiste distinct.
+Route::post('/requests/{labRequest}/send', [LaboratoryController::class, 'send'])->name('requests.send')->middleware(['can:laboratory_results.validate', 'rivo.site-only:laboratory']);
 Route::put('/items/{labRequestItem}/results', [LaboratoryController::class, 'saveResults'])->name('items.results')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
 Route::put('/items/{labRequestItem}/antibiograms/{labAntibiogram}', [LaboratoryController::class, 'saveAntibiogram'])->name('items.antibiograms.update')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
-Route::post('/items/{labRequestItem}/complete', [LaboratoryController::class, 'complete'])->name('items.complete')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
 Route::post('/items/{labRequestItem}/return', [LaboratoryController::class, 'returnItem'])->name('items.return')->middleware(['can:laboratory_results.view', 'rivo.site-only:laboratory']);
-Route::post('/items/{labRequestItem}/validate', [LaboratoryController::class, 'validateItem'])->name('items.validate')->middleware(['can:laboratory_results.validate', 'rivo.site-only:laboratory']);
 Route::post('/results/{labResult}/critical', [LaboratoryController::class, 'flagCritical'])->name('results.critical')->middleware(['can:laboratory_results.flag_critical', 'rivo.site-only:laboratory']);
 Route::post('/items/{labRequestItem}/result', [LaboratoryController::class, 'recordResult'])->name('items.result')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
 Route::post('/requests/{labRequest}/receive', [LabReceptionController::class, 'receive'])->name('requests.receive')->middleware(['can:laboratory_orders.receive', 'rivo.site-only:laboratory']);

@@ -13,8 +13,8 @@ use Illuminate\Database\Eloquent\Builder;
  *   to_receive   pas encore réceptionnée au laboratoire (ADR-214)
  *   to_redo      une analyse renvoyée à refaire
  *   to_do        une analyse à analyser ou en cours
- *   to_validate  tout est terminé, une analyse attend le biologiste
- *   validated    toutes les analyses sont validées
+ *   to_validate  tout est rendu, une analyse attend d'être envoyée au médecin (ADR-216)
+ *   validated    toutes les analyses sont envoyées
  *
  * Une demande retirée par le prescripteur n'y est jamais (ADR-079).
  */

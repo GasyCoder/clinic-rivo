@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
-import { Activity, Archive, ArchiveRestore, ChevronDown, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FlaskConical, HeartPulse, History, LayoutList, LoaderCircle, PenLine, Pencil, Printer, ScanLine, Search, Stethoscope, Trash2 } from 'lucide-vue-next';
+import { Activity, Archive, ArchiveRestore, ChevronDown, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FlaskConical, HeartPulse, History, LayoutList, LoaderCircle, LockKeyhole, PenLine, Pencil, Printer, ScanLine, Search, Send, Stethoscope, Trash2 } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
@@ -357,8 +357,13 @@ const submitWithdraw = () => {
                                     <li v-for="item in request.items" :key="item.uuid" class="flex items-start justify-between gap-3">
                                         <div class="min-w-0">
                                             <span class="font-semibold text-foreground">{{ item.exam }}</span>
-                                            <p v-if="item.resulted_at" class="text-[11px] text-emerald-700 dark:text-emerald-300">
-                                                Rendu le {{ formatDateTime(item.resulted_at) }}<template v-if="item.resulted_by"> par Dr {{ item.resulted_by }}</template>
+                                            <!-- ADR-216 — une analyse renvoyée à refaire après son
+                                                 envoi : le médecin sait qu'une correction arrive. -->
+                                            <p v-if="item.in_correction" class="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                                                En correction au laboratoire
+                                            </p>
+                                            <p v-else-if="item.resulted_at" class="text-[11px] text-emerald-700 dark:text-emerald-300">
+                                                {{ request.kind === 'lab' ? 'Envoyé le' : 'Rendu le' }} {{ formatDateTime(item.resulted_at) }}<template v-if="item.resulted_by"> par {{ request.kind === 'lab' ? '' : 'Dr ' }}{{ item.resulted_by }}</template>
                                                 <span
                                                     v-if="item.corrected_at"
                                                     class="ms-1.5 inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"
@@ -383,7 +388,23 @@ const submitWithdraw = () => {
                                                 <PenLine class="h-3.5 w-3.5" />Saisir
                                             </Button>
                                             <template v-if="item.resulted_at">
+                                                <!-- ADR-216 — un résultat d'analyse se lit sur sa feuille ;
+                                                     adressé à un confrère, elle demande confirmation. -->
                                                 <Button
+                                                    v-if="request.kind === 'lab'"
+                                                    :as="Link"
+                                                    :href="request.results_url"
+                                                    size="sm"
+                                                    :variant="request.sealed ? 'white-outline' : 'primary'"
+                                                    icon
+                                                    :title="request.sealed ? `Adressé à ${request.recipient ?? 'un confrère'} — ouvrir après confirmation` : `Voir le résultat — ${item.exam}`"
+                                                    :aria-label="request.sealed ? `Adressé à ${request.recipient ?? 'un confrère'} — ouvrir après confirmation` : `Voir le résultat — ${item.exam}`"
+                                                >
+                                                    <LockKeyhole v-if="request.sealed" class="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                                                    <Eye v-else class="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    v-else
                                                     type="button"
                                                     size="sm"
                                                     variant="primary"
@@ -422,6 +443,9 @@ const submitWithdraw = () => {
                                         </div>
                                     </li>
                                 </ul>
+                                <p v-if="request.kind === 'lab' && request.recipient" class="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                                    <Send class="h-3 w-3" aria-hidden="true" />Résultats adressés à {{ request.recipient }}
+                                </p>
                                 <p v-if="request.notes" class="mt-1 line-clamp-1 text-xs text-muted-foreground" :title="request.notes">
                                     {{ request.notes }}
                                 </p>
@@ -464,6 +488,20 @@ const submitWithdraw = () => {
                                         aria-label="Ouvrir la consultation"
                                     >
                                         <Stethoscope class="h-4 w-4" />
+                                    </Button>
+
+                                    <!-- ADR-216 — le laboratoire ouvre la demande à sa paillasse. -->
+                                    <Button
+                                        v-if="request.bench_url"
+                                        :as="Link"
+                                        :href="request.bench_url"
+                                        size="sm"
+                                        variant="white-outline"
+                                        icon
+                                        title="Ouvrir à la paillasse"
+                                        aria-label="Ouvrir à la paillasse"
+                                    >
+                                        <FlaskConical class="h-4 w-4" />
                                     </Button>
 
                                     <!-- ADR-131 — ranger une demande lue ; la

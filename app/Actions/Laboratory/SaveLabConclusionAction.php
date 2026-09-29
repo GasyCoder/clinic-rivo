@@ -10,10 +10,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-214 — la conclusion générale d'une demande, écrite par le biologiste et
- * imprimée sous tous les résultats (la « conclusion générale » du laboratoire de
- * la clinique). Elle se corrige tant qu'une analyse de la demande n'est pas
- * validée ; ensuite la feuille est signée et ne change plus.
+ * ADR-214 — la conclusion générale d'une demande, imprimée sous tous les
+ * résultats (la « conclusion générale » du laboratoire de la clinique). Depuis
+ * l'ADR-216, elle s'écrit par qui envoie les résultats au médecin, et se corrige
+ * tant qu'une analyse de la demande n'est pas envoyée.
  */
 class SaveLabConclusionAction
 {
@@ -30,7 +30,7 @@ class SaveLabConclusionAction
                 throw ValidationException::withMessages(['conclusion' => 'Cette demande a été retirée par le prescripteur.']);
             }
             if ($locked->items->isNotEmpty() && $locked->items->every(fn ($item) => $item->currentStatus() === LabItemStatus::Validated)) {
-                throw ValidationException::withMessages(['conclusion' => 'Toutes les analyses sont validées : la feuille est signée, la conclusion ne se modifie plus.']);
+                throw ValidationException::withMessages(['conclusion' => 'Toutes les analyses sont envoyées au médecin : la conclusion ne se modifie plus.']);
             }
 
             $text = filled($conclusion) ? mb_substr(trim($conclusion), 0, 3000) : null;

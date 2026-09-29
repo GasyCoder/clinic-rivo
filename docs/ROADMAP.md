@@ -476,7 +476,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Historique des résultats d'un patient, demande par demande (ADR-214)
 - [x] Rapports : activité, délais médians, disciplines, origines, en attente ; export Excel audité (ADR-214)
 - [x] Laboratoire d'un site lisible depuis le portail (file, demandes, résultats, paillasse, historique, rapports) et ses référentiels gérés (prélèvements & tubes, microbiologie), par l'API du site ; gestes cliniques refusés au portail et montrés verrouillés (ADR-215)
-- [ ] Biologiste distinct du technicien, microbiologie pour l'Administration — à décider (ADR-213)
+- [x] Plus de biologiste distinct : le technicien envoie les résultats au médecin, l'envoi les valide ; prescripteur proposé, destinataire choisi pour une demande de l'accueil, « Aucun médecin » pour un patient externe ; notification et correction tracées (ADR-216)
+- [x] Le médecin ne voit que les résultats envoyés ; un résultat adressé à un confrère s'ouvre après confirmation, tracée à l'audit (ADR-216)
+- [ ] Microbiologie pour l'Administration — à décider (ADR-213) ; envoi des résultats au patient — aucun canal défini (ADR-216)
 - [ ] Analyse sans tarif (non facturée) qui retient ou non le prélèvement, Maternité sans séjour exemptée ou non, bornes critiques dans l'Excel du catalogue — à décider (ADR-214)
 
 Règle :

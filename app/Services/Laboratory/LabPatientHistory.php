@@ -5,6 +5,7 @@ namespace App\Services\Laboratory;
 use App\Models\LabRequestItem;
 use App\Models\LabResult;
 use App\Models\Patient;
+use App\Models\User;
 use App\Support\Laboratory\LabEntryOptions;
 use Illuminate\Support\Collection;
 
@@ -20,15 +21,26 @@ class LabPatientHistory
     public const MAX_COLUMNS = 12;
 
     /** @return array<string, mixed> */
-    public function for(Patient $patient): array
+    public function for(Patient $patient, ?User $viewer = null): array
     {
         $items = LabRequestItem::query()
             ->whereNotNull('resulted_at')
             ->whereHas('labRequest', fn ($request) => $request->whereNull('cancelled_at')
                 ->whereHas('episode', fn ($episode) => $episode->where('patient_id', $patient->getKey())))
-            ->with(['labRequest:id,uuid,lab_number,requested_at', 'results'])
+            ->with(['labRequest:id,uuid,lab_number,requested_at,requested_by,results_recipient_id', 'results'])
             ->orderByDesc('resulted_at')
             ->get();
+
+        // ADR-216 — hors du laboratoire, seul ce qui a été envoyé se relit, et
+        // un résultat adressé à un confrère s'ouvre d'abord sur sa page.
+        $sealedRequests = 0;
+        if ($viewer !== null && ! $viewer->can('laboratory_results.create')) {
+            $access = app(LabResultAccess::class);
+            $items = $items->filter(fn (LabRequestItem $item) => $item->isDelivered());
+            $sealed = $items->filter(fn (LabRequestItem $item) => $access->sealed($item->labRequest, $viewer));
+            $sealedRequests = $sealed->pluck('lab_request_id')->unique()->count();
+            $items = $items->diffKeys($sealed);
+        }
 
         // Une colonne par demande, la plus récente d'abord.
         $columns = $items->groupBy('lab_request_id')
@@ -92,6 +104,7 @@ class LabPatientHistory
             'columns' => $columns->all(),
             'groups' => $groups,
             'total_requests' => $items->pluck('lab_request_id')->unique()->count(),
+            'sealed_requests' => $sealedRequests,
         ];
     }
 

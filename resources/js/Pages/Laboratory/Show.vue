@@ -1,18 +1,18 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import LabItemEditor from '@/Components/Laboratory/LabItemEditor.vue';
+import LabSendDialog from '@/Components/Laboratory/LabSendDialog.vue';
 import LabReceptionPanel from '@/Components/Laboratory/LabReceptionPanel.vue';
 import LabSamplesCard from '@/Components/Laboratory/LabSamplesCard.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
-import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import {
-    ArrowLeft, BadgeCheck, Ban, Building2, ClipboardCheck, FileSignature, FileText, FlaskConical, History, Microscope, Printer, Siren, TestTubes,
+    ArrowLeft, Ban, Building2, ClipboardCheck, FileSignature, FileText, FlaskConical, History, Microscope, Printer, Send, Siren, Stethoscope, TestTubes,
 } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import { formatDateTime } from '@/utilities/date';
@@ -20,13 +20,17 @@ import { formatPatientName } from '@/utilities/patient';
 import { LAB_STATUS_TONES } from '@/utilities/labWorkbench';
 import { labUrl } from '@/utilities/labUrl';
 import LabSiteOnlyAction from '@/Components/Laboratory/LabSiteOnlyAction.vue';
+import { sendableItems } from '@/utilities/labSending';
 
 defineOptions({ layout: AppLayout });
 
 /**
  * ADR-213 / ADR-214 — une demande d'analyses au laboratoire : la réception
  * (règlement, prélèvements), ses analyses à gauche et la saisie de celle qu'on
- * travaille à droite, puis la conclusion générale du biologiste.
+ * travaille à droite, puis la conclusion générale.
+ *
+ * ADR-216 — le technicien envoie les résultats au médecin, et cet envoi les
+ * valide : il n'y a plus d'étape « biologiste ».
  */
 const props = defineProps({
     labRequest: { type: Object, required: true },
@@ -38,6 +42,8 @@ const props = defineProps({
     microbiology: { type: Array, default: () => [] },
     options: { type: Object, default: () => ({}) },
     can: { type: Object, default: () => ({}) },
+    recipient: { type: Object, default: () => ({}) },
+    recipients: { type: Array, default: () => [] },
 });
 
 const firstToWork = () => (props.items.find((item) => item.editable) ?? props.items.find((item) => item.status === 'COMPLETED') ?? props.items[0])?.uuid ?? null;
@@ -47,25 +53,27 @@ watch(() => props.items.map((item) => item.uuid).join(','), () => {
 });
 const current = computed(() => props.items.find((item) => item.uuid === selected.value) ?? null);
 
-const toValidate = computed(() => props.items.filter((item) => item.status === 'COMPLETED').length);
 const anyRendered = computed(() => props.items.some((item) => ['COMPLETED', 'VALIDATED'].includes(item.status) || item.result_value));
 const anySentOut = computed(() => props.items.some((item) => item.sent_out));
 const allValidated = computed(() => props.items.length > 0 && props.items.every((item) => item.status === 'VALIDATED'));
+const toSend = computed(() => sendableItems(props.items).length);
+const canSendHere = computed(() => props.labRequest.received && !props.labRequest.cancelled);
 
-const confirmValidateAll = ref(false);
-const validatingAll = ref(false);
-const validateAll = () => {
-    validatingAll.value = true;
-    router.post(labUrl(`/laboratory/requests/${props.labRequest.uuid}/validate`), {}, {
-        preserveScroll: true,
-        onFinish: () => { validatingAll.value = false; confirmValidateAll.value = false; },
-    });
+// ADR-216 — envoyer au médecin. La saisie en cours part d'abord (enregistrement
+// automatique), puis la fenêtre s'ouvre sur l'état relu du serveur.
+const editor = ref(null);
+const sendOpen = ref(false);
+const preselected = ref([]);
+const openSend = (uuids = []) => {
+    const open = () => { preselected.value = uuids; sendOpen.value = true; };
+    if (editor.value?.flush) editor.value.flush(open, () => {});
+    else open();
 };
 
-// Conclusion générale du biologiste (ADR-214)
+// Conclusion générale (ADR-214), écrite par qui envoie les résultats (ADR-216)
 const conclusionForm = useForm({ conclusion: props.labRequest.conclusion ?? '' });
 watch(() => props.labRequest.conclusion, (value) => { conclusionForm.defaults({ conclusion: value ?? '' }); conclusionForm.reset(); });
-const canConclude = computed(() => props.can.validate && props.labRequest.received && !props.labRequest.cancelled && !allValidated.value);
+const canConclude = computed(() => props.can.send && props.labRequest.received && !props.labRequest.cancelled && !allValidated.value);
 const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${props.labRequest.uuid}/conclusion`), { preserveScroll: true });
 </script>
 
@@ -88,9 +96,9 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
                 <Button v-if="anyRendered" :as="Link" :href="labUrl(`/laboratory/requests/${labRequest.uuid}/impression`)" variant="outline" size="sm">
                     <Printer class="h-4 w-4" /> Feuille de résultats
                 </Button>
-                <LabSiteOnlyAction v-if="(can.validate || can.site_only) && toValidate > 1 && !labRequest.cancelled" :label="`Valider les ${toValidate} analyses`" variant="success">
-                    <Button type="button" size="sm" variant="success" @click="confirmValidateAll = true">
-                        <BadgeCheck class="h-4 w-4" /> Valider les {{ toValidate }} analyses
+                <LabSiteOnlyAction v-if="(can.send || can.site_only) && canSendHere && toSend > 0" label="Envoyer au médecin" variant="default">
+                    <Button type="button" size="sm" @click="openSend()">
+                        <Send class="h-4 w-4" /> Envoyer au médecin<template v-if="toSend > 1"> · {{ toSend }}</template>
                     </Button>
                 </LabSiteOnlyAction>
             </div>
@@ -113,10 +121,17 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
                         </p>
                     </div>
                 </div>
-                <dl class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
+                <dl class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-5">
                     <div><dt class="text-muted-foreground">Origine</dt><dd class="font-semibold text-foreground">{{ labRequest.origin }}</dd></div>
                     <div><dt class="text-muted-foreground">Demandée le</dt><dd class="font-semibold text-foreground">{{ formatDateTime(labRequest.requested_at) }}</dd></div>
                     <div v-if="labRequest.requested_by"><dt class="text-muted-foreground">Par</dt><dd class="font-semibold text-foreground">{{ labRequest.requested_by }}</dd></div>
+                    <div>
+                        <dt class="text-muted-foreground">Résultats adressés à</dt>
+                        <dd v-if="recipient.addressed" class="flex items-center gap-1 font-semibold text-foreground">
+                            <Stethoscope class="h-3.5 w-3.5 text-primary" aria-hidden="true" />{{ recipient.name ?? 'Aucun médecin (patient externe)' }}
+                        </dd>
+                        <dd v-else class="font-semibold text-muted-foreground">Pas encore envoyés</dd>
+                    </div>
                     <div>
                         <dt class="text-muted-foreground">Réception</dt>
                         <dd v-if="labRequest.received" class="font-semibold text-foreground">{{ formatDateTime(labRequest.received_at) }}<template v-if="labRequest.received_by"> · {{ labRequest.received_by }}</template></dd>
@@ -181,6 +196,7 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
             <div class="space-y-4">
                 <LabItemEditor
                     v-if="current"
+                    ref="editor"
                     :key="current.uuid"
                     :item="current"
                     :options="options"
@@ -190,6 +206,7 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
                     :received="labRequest.received"
                     :request-uuid="labRequest.uuid"
                     :external-labs="externalLabs"
+                    @send="openSend([$event])"
                 />
                 <Card v-else class="p-8 text-center text-sm text-muted-foreground">Aucune analyse dans cette demande.</Card>
 
@@ -197,7 +214,7 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
                     <div class="mb-2 flex items-center gap-2">
                         <FileSignature class="h-4 w-4 text-primary" />
                         <h2 class="text-sm font-bold text-foreground">Conclusion générale</h2>
-                        <span class="text-xs text-muted-foreground">— par le biologiste, imprimée sous tous les résultats</span>
+                        <span class="text-xs text-muted-foreground">— imprimée sous tous les résultats, lue par le médecin</span>
                     </div>
                     <template v-if="canConclude">
                         <FormField :error="conclusionForm.errors.conclusion">
@@ -217,13 +234,13 @@ const saveConclusion = () => conclusionForm.put(labUrl(`/laboratory/requests/${p
         </div>
     </div>
 
-    <ConfirmModal
-        v-model:open="confirmValidateAll"
-        title="Valider toutes les analyses terminées ?"
-        :description="`${toValidate} analyses terminées seront validées. Validées, elles ne se modifient plus.`"
-        confirm-label="Valider"
-        tone="success"
-        :processing="validatingAll"
-        @confirm="validateAll"
+    <LabSendDialog
+        v-if="can.send"
+        v-model:open="sendOpen"
+        :request-uuid="labRequest.uuid"
+        :items="items"
+        :preselected="preselected"
+        :recipient="recipient"
+        :recipients="recipients"
     />
 </template>

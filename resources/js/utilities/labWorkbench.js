@@ -18,15 +18,16 @@ export const LAB_STATUS_TONES = {
 
 export const LAB_VIEWS = [
     { value: 'to_receive', label: 'À réceptionner', hint: 'Règlement et prélèvements', tone: 'primary' },
-    { value: 'to_do', label: 'À faire', hint: 'À analyser ou en cours', tone: 'amber' },
+    { value: 'to_do', label: 'À faire', hint: 'À saisir, puis à envoyer', tone: 'amber' },
     { value: 'to_redo', label: 'À refaire', hint: 'Renvoyées avec un motif', tone: 'red' },
-    { value: 'to_validate', label: 'À valider', hint: 'Terminées, pour le biologiste', tone: 'sky' },
-    { value: 'validated', label: 'Validées', hint: 'Toutes les analyses validées', tone: 'emerald' },
+    // ADR-216 — les clés restent (liens, signets) ; le sens est l'envoi au médecin.
+    { value: 'to_validate', label: 'À envoyer', hint: 'Rendues, pas encore envoyées', tone: 'sky' },
+    { value: 'validated', label: 'Envoyées', hint: 'Toutes envoyées au médecin', tone: 'emerald' },
     { value: 'all', label: 'Toutes', hint: 'Demandes non retirées', tone: 'neutral' },
 ];
 
 /** ADR-214 — l'état d'une demande dans la file, tel que la ligne le dit. */
-export const LAB_STATE_LABELS = { to_receive: 'À réceptionner', to_do: 'À faire', to_redo: 'À refaire', to_validate: 'À valider', validated: 'Validée' };
+export const LAB_STATE_LABELS = { to_receive: 'À réceptionner', to_do: 'À faire', to_redo: 'À refaire', to_validate: 'À envoyer', validated: 'Envoyée' };
 export const LAB_STATE_TONES = { to_receive: 'info', to_do: 'warning', to_redo: 'danger', to_validate: 'primary', validated: 'success' };
 
 export const numericValue = (value) => {

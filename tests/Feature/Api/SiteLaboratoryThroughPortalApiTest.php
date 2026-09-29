@@ -83,7 +83,7 @@ class SiteLaboratoryThroughPortalApiTest extends TestCase
             ->assertJsonPath('component', 'Laboratory/Show')
             ->assertJsonPath('props.can.site_only', true)
             ->assertJsonPath('props.can.enter', false)
-            ->assertJsonPath('props.can.validate', false)
+            ->assertJsonPath('props.can.send', false)
             ->assertJsonPath('props.can.receive', false)
             ->assertJsonPath('props.can.sample', false)
             ->assertJsonPath('props.can.send_out', false)
@@ -91,7 +91,7 @@ class SiteLaboratoryThroughPortalApiTest extends TestCase
             ->assertJsonPath('props.can.microbiology', true);
     }
 
-    /** Réceptionner, saisir, valider : au laboratoire du site, même avec le droit. */
+    /** Réceptionner, saisir, envoyer au médecin : au laboratoire du site, même avec le droit. */
     public function test_clinical_gestures_stay_at_the_site_even_with_the_permission(): void
     {
         $waiting = $this->pendingRequest(received: false);
@@ -110,13 +110,13 @@ class SiteLaboratoryThroughPortalApiTest extends TestCase
             ->putJson("/api/v1/super-admin/site-laboratory/items/{$item->uuid}/results", ['entries' => []])
             ->assertForbidden();
 
+        // ADR-216 — envoyer au médecin (qui valide) reste un geste du site.
         $this->withHeaders($this->writeHeaders(self::ALL))
-            ->postJson("/api/v1/super-admin/site-laboratory/items/{$item->uuid}/validate")
-            ->assertForbidden();
+            ->postJson("/api/v1/super-admin/site-laboratory/requests/{$received->uuid}/send", ['items' => [$item->uuid], 'to_nobody' => true])
+            ->assertForbidden()
+            ->assertJsonPath('message', KeepPhysicalActsAtSite::LABORATORY_MESSAGE);
 
-        $this->withHeaders($this->writeHeaders(self::ALL))
-            ->postJson("/api/v1/super-admin/site-laboratory/requests/{$received->uuid}/validate")
-            ->assertForbidden();
+        $this->assertNull($item->fresh()->sent_at, 'rien n’est envoyé depuis le portail');
     }
 
     public function test_the_same_request_stays_workable_for_the_site_technician(): void

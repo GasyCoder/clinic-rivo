@@ -18,6 +18,7 @@ use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Enums\HospitalStayStatus;
+use App\Enums\LabItemStatus;
 use App\Enums\MedicalDischargeType;
 use App\Enums\PatientAntecedentType;
 use App\Enums\PrescriptionStatus;
@@ -35,6 +36,7 @@ use App\Models\LabRequestItem;
 use App\Models\User;
 use App\Services\Billing\PlannedServiceBilling;
 use App\Services\Care\CareRecordReadModel;
+use App\Services\Laboratory\LabResultAccess;
 use App\Services\Medicine\ClinicalProtocolMatcher;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Medicine\ClinicPracticeAdvisor;
@@ -57,6 +59,7 @@ class MedicineDossierPresenter
         private readonly ClinicalProtocolMatcher $protocols,
         private readonly ClinicPracticeAdvisor $practice,
         private readonly PrescriptionSuggestions $prescriptionSuggestions,
+        private readonly LabResultAccess $labResultAccess,
     ) {}
 
     /** @return array<string, mixed> */
@@ -471,35 +474,45 @@ class MedicineDossierPresenter
                         // Une demande retirée quitte le plan de
                         // soins ; elle reste en base, auditée.
                         ->whereNull('cancelled_at')
-                        ->with(['items.resultedBy:id,name', 'items.catalogItem:id,uuid', 'requestedBy:id,name'])
+                        ->with(['items.resultedBy:id,name', 'items.catalogItem:id,uuid', 'requestedBy:id,name', 'resultsRecipient:id,name'])
                         ->latest('requested_at')
                         ->get()
-                        ->map(fn (LabRequest $labRequest) => [
-                            'uuid' => $labRequest->uuid,
-                            'requested_by' => $labRequest->requestedBy?->name,
-                            'notes' => $labRequest->notes,
-                            'status' => $labRequest->displayStatus(),
-                            'requested_at' => $labRequest->requested_at,
-                            'items' => $labRequest->items->map(fn ($item) => [
-                                'uuid' => $item->uuid,
-                                // L'UUID de la prestation, et non seulement son
-                                // libellé figé : c'est lui que le sélecteur
-                                // compare pour ne pas proposer un examen déjà
-                                // demandé — un libellé se compare mal et un
-                                // instantané peut différer du catalogue actuel.
-                                'catalog_item_uuid' => $item->catalogItem?->uuid,
-                                'name' => $item->catalog_item_name_snapshot,
-                                'code' => $item->catalog_item_code_snapshot,
-                                'result_value' => $item->result_value,
-                                'result_notes' => $item->result_notes,
-                                'resulted_at' => $item->resulted_at,
-                                'resulted_by' => $item->resultedBy?->name,
-                                // ADR-213 — rendu ne veut pas dire validé.
-                                'lab_status' => $item->currentStatus()->value,
-                                'lab_status_label' => $item->currentStatus()->label(),
-                                'validated_at' => $item->validated_at,
-                            ])->values(),
-                        ])->values()
+                        ->map(function (LabRequest $labRequest) use ($user) {
+                            // ADR-216 — seul ce qui a été envoyé se lit ; adressé à
+                            // un confrère, rien ne part avant la confirmation.
+                            $sealed = $this->labResultAccess->sealFor($labRequest, $user);
+
+                            return [
+                                'uuid' => $labRequest->uuid,
+                                'requested_by' => $labRequest->requestedBy?->name,
+                                'notes' => $labRequest->notes,
+                                'status' => $labRequest->displayStatus(),
+                                'requested_at' => $labRequest->requested_at,
+                                'sealed' => $sealed,
+                                'results_url' => $labRequest->items->contains(fn ($item) => $item->isDelivered())
+                                    ? "/resultats-analyses/{$labRequest->uuid}"
+                                    : null,
+                                'items' => $labRequest->items->map(fn ($item) => [
+                                    'uuid' => $item->uuid,
+                                    // L'UUID de la prestation, et non seulement son
+                                    // libellé figé : c'est lui que le sélecteur
+                                    // compare pour ne pas proposer un examen déjà
+                                    // demandé — un libellé se compare mal et un
+                                    // instantané peut différer du catalogue actuel.
+                                    'catalog_item_uuid' => $item->catalogItem?->uuid,
+                                    'name' => $item->catalog_item_name_snapshot,
+                                    'code' => $item->catalog_item_code_snapshot,
+                                    'result_value' => $item->isDelivered() && $sealed === null ? $item->result_value : null,
+                                    'result_notes' => $item->isDelivered() && $sealed === null ? $item->result_notes : null,
+                                    'resulted_at' => $item->isDelivered() ? $item->resulted_at : null,
+                                    'resulted_by' => $item->isDelivered() ? $item->resultedBy?->name : null,
+                                    'lab_status' => $item->currentStatus()->value,
+                                    'lab_status_label' => $item->currentStatus()->label(),
+                                    'sent_at' => $item->sent_at,
+                                    'in_correction' => $item->isDelivered() && $item->currentStatus() === LabItemStatus::ToRedo,
+                                ])->values(),
+                            ];
+                        })->values()
                     : [],
                 'imaging_requests' => $canViewImagingRequests
                     ? ImagingRequest::query()

@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'lab_request_id', 'catalog_item_id', 'billable_item_id', 'catalog_item_code_snapshot', 'catalog_item_name_snapshot',
     'result_value', 'result_notes', 'reference_snapshot', 'resulted_at', 'resulted_by',
-    'status', 'conclusion', 'started_at', 'started_by', 'validated_at', 'validated_by',
+    'status', 'conclusion', 'started_at', 'started_by', 'validated_at', 'validated_by', 'sent_at',
     'returned_at', 'returned_by', 'return_reason',
     'external_lab_name', 'external_reference', 'sent_out_notes', 'sent_out_at', 'sent_out_by',
 ])]
@@ -30,6 +30,7 @@ class LabRequestItem extends Model
             'status' => LabItemStatus::class,
             'started_at' => 'datetime',
             'validated_at' => 'datetime',
+            'sent_at' => 'datetime',
             'returned_at' => 'datetime',
             'sent_out_at' => 'datetime',
         ];
@@ -39,6 +40,17 @@ class LabRequestItem extends Model
     public function currentStatus(): LabItemStatus
     {
         return $this->status instanceof LabItemStatus ? $this->status : LabItemStatus::Pending;
+    }
+
+    /**
+     * ADR-216 — le résultat a-t-il été envoyé au prescripteur ? C'est ce que
+     * lisent ses écrans : une saisie en cours, ou un résultat rendu mais pas
+     * encore envoyé, reste au laboratoire. Une reprise ne l'efface pas — le
+     * médecin a pu lire la valeur, qui reste marquée « en correction ».
+     */
+    public function isDelivered(): bool
+    {
+        return $this->sent_at !== null;
     }
 
     /** Une saisie a commencé, ou un résultat a été rendu : l'acte a eu lieu (ADR-010, ADR-079). */

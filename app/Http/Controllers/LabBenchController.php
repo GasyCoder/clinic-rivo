@@ -28,11 +28,11 @@ class LabBenchController extends Controller
         ]);
     }
 
-    public function history(Patient $patient, LabPatientHistory $history): Response
+    public function history(Request $request, Patient $patient, LabPatientHistory $history): Response
     {
         return Inertia::render('Laboratory/PatientHistory', [
             'patient' => LabRequestPresenter::patient($patient),
-            ...$history->for($patient),
+            ...$history->for($patient, $request->user()),
         ]);
     }
 }

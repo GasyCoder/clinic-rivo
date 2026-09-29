@@ -1,4 +1,4 @@
-import { Bell, KeyRound, PartyPopper, UserCheck, UserPlus } from 'lucide-vue-next';
+import { Bell, FlaskConical, KeyRound, PartyPopper, UserCheck, UserPlus } from 'lucide-vue-next';
 
 /**
  * ADR-197 — ce que la cloche et la page « Notifications » partagent : l'icône
@@ -6,7 +6,7 @@ import { Bell, KeyRound, PartyPopper, UserCheck, UserPlus } from 'lucide-vue-nex
  */
 
 /** Le serveur nomme l'icône ; l'écran ne choisit jamais l'illustration d'une notification. */
-export const NOTIFICATION_ICONS = { 'user-plus': UserPlus, 'user-check': UserCheck, 'key-round': KeyRound, 'party-popper': PartyPopper, bell: Bell };
+export const NOTIFICATION_ICONS = { 'user-plus': UserPlus, 'user-check': UserCheck, 'key-round': KeyRound, 'party-popper': PartyPopper, 'flask-conical': FlaskConical, bell: Bell };
 
 export const notificationIcon = (name) => NOTIFICATION_ICONS[name] ?? Bell;
 

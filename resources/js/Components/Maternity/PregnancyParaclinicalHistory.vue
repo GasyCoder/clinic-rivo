@@ -1,5 +1,7 @@
 <script setup>
-import { CircleCheck, CircleDashed, FlaskConical, Hourglass, Printer, ScanLine, Undo2 } from 'lucide-vue-next';
+import { Link } from '@inertiajs/vue3';
+import { CircleCheck, CircleDashed, FileText, FlaskConical, Hourglass, Printer, ScanLine, Undo2 } from 'lucide-vue-next';
+import SealedLabResult from '@/Components/Laboratory/SealedLabResult.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import { formatDate, formatDateTime } from '@/utilities/date';
@@ -54,6 +56,9 @@ const STATUS = {
                             <span class="text-muted-foreground">{{ entry.origin }}</span>
                             <span v-if="entry.resulted_at" class="text-muted-foreground">· rendu le {{ formatDateTime(entry.resulted_at) }}</span>
                             <span v-if="entry.result" class="w-full truncate text-muted-foreground" :title="entry.result">Résultat : {{ entry.result }}</span>
+                            <!-- ADR-216 — adressés à un confrère : ouverts après confirmation. -->
+                            <SealedLabResult v-else-if="entry.sealed" :seal="entry.sealed" compact class="w-full" />
+                            <Button v-if="entry.results_url" :as="Link" :href="entry.results_url" size="icon-xs" variant="ghost" class="ms-auto" :aria-label="`Feuille de résultats — ${entry.exam}`" title="Feuille de résultats"><FileText class="h-3.5 w-3.5" /></Button>
                             <Button v-if="entry.print_url" as="a" :href="entry.print_url" size="icon-xs" variant="ghost" class="ms-auto" :aria-label="`Compte rendu — ${entry.exam}`" title="Compte rendu"><Printer class="h-3.5 w-3.5" /></Button>
                         </li>
                     </ul>

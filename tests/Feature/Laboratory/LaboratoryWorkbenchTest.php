@@ -13,7 +13,7 @@ use Inertia\Testing\AssertableInertia;
 use Tests\Feature\Laboratory\Concerns\BuildsLabBench;
 use Tests\TestCase;
 
-/** ADR-213 — la paillasse : saisie, terminer, valider, renvoyer, microbiologie. */
+/** ADR-213/216 — la paillasse : saisie, envoi au médecin (qui valide), renvoyer, microbiologie. */
 class LaboratoryWorkbenchTest extends TestCase
 {
     use BuildsLabBench, RefreshDatabase;
@@ -61,35 +61,41 @@ class LaboratoryWorkbenchTest extends TestCase
         $this->assertSame(0, LabResult::query()->count());
     }
 
-    public function test_complete_then_validate_renders_the_result_to_prescribers(): void
+    public function test_sending_renders_and_validates_the_result_for_the_prescriber(): void
     {
         $technician = $this->userWithRole('LABORATORY');
+        $doctor = $this->userWithRole('MEDICINE');
         [$episode, $orientation] = $this->episodeWithLabOrientation($technician);
         $glycemie = $this->prestation($technician, 'LAB-GLY', 'Glycémie');
         $definition = $this->definition($glycemie, ['code' => 'GLY', 'designation' => 'Glycémie', 'result_type' => 'NUMERIC', 'unit' => 'g/L']);
-        $item = $this->requestItem($this->labRequest($episode, $orientation, $technician), $glycemie);
+        $request = $this->labRequest($episode, $orientation, $doctor);
+        $item = $this->requestItem($request, $glycemie);
+        $send = fn () => $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", [
+            'items' => [$item->uuid], 'recipient_uuid' => $doctor->uuid,
+        ]);
 
-        // Rien de saisi : rien à rendre.
-        $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/complete")->assertSessionHasErrors('item');
+        // Rien de saisi : rien à envoyer.
+        $send()->assertSessionHasErrors('items');
 
         $this->actingAs($technician)->put("/laboratory/items/{$item->uuid}/results", [
             'results' => [['analysis_uuid' => $definition->uuid, 'value' => '0.95']],
         ]);
-        $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/complete")->assertSessionHasNoErrors();
+        $send()->assertSessionHasNoErrors();
 
         $item->refresh();
-        $this->assertSame(LabItemStatus::Completed, $item->currentStatus());
+        // ADR-216 — envoyer valide : il n'y a plus de biologiste distinct.
+        $this->assertSame(LabItemStatus::Validated, $item->currentStatus());
         $this->assertNotNull($item->resulted_at);
+        $this->assertNotNull($item->sent_at);
+        $this->assertSame($technician->id, $item->validated_by);
         $this->assertStringContainsString('0.95', (string) $item->result_value);
+        $this->assertSame($doctor->id, $request->fresh()->results_recipient_id);
 
-        // Terminée : la saisie est fermée.
+        // Envoyée : la saisie est fermée, et on n'envoie pas deux fois.
         $this->actingAs($technician)->put("/laboratory/items/{$item->uuid}/results", [
             'results' => [['analysis_uuid' => $definition->uuid, 'value' => '2']],
         ])->assertSessionHasErrors('item');
-
-        $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/validate")->assertSessionHasNoErrors();
-        $this->assertSame(LabItemStatus::Validated, $item->fresh()->currentStatus());
-        $this->assertSame($technician->id, $item->fresh()->validated_by);
+        $send()->assertSessionHasErrors('items');
     }
 
     public function test_a_completed_analysis_goes_back_to_the_bench_with_a_reason(): void
@@ -107,16 +113,19 @@ class LaboratoryWorkbenchTest extends TestCase
         $this->assertSame(LabItemStatus::ToRedo, $item->fresh()->currentStatus());
     }
 
-    public function test_validation_needs_its_own_permission(): void
+    public function test_sending_needs_its_own_permission(): void
     {
         $technician = $this->userWithRole('LABORATORY');
         [$episode, $orientation] = $this->episodeWithLabOrientation($technician);
         $nfs = $this->prestation($technician);
-        $item = $this->requestItem($this->labRequest($episode, $orientation, $technician), $nfs, [
+        $request = $this->labRequest($episode, $orientation, $technician);
+        $item = $this->requestItem($request, $nfs, [
             'status' => LabItemStatus::Completed, 'resulted_at' => now(), 'result_value' => 'Normal',
         ]);
 
-        $this->actingAs($this->userWithRole('MEDICINE'))->post("/laboratory/items/{$item->uuid}/validate")->assertForbidden();
+        $this->actingAs($this->userWithRole('MEDICINE'))->post("/laboratory/requests/{$request->uuid}/send", [
+            'items' => [$item->uuid], 'to_nobody' => true,
+        ])->assertForbidden();
         $this->assertSame(LabItemStatus::Completed, $item->fresh()->currentStatus());
     }
 
@@ -139,7 +148,9 @@ class LaboratoryWorkbenchTest extends TestCase
         [$episode, $orientation] = $this->episodeWithLabOrientation($technician);
         $ecbu = $this->prestation($technician, 'LAB-ECBU', 'ECBU');
         $culture = $this->definition($ecbu, ['code' => 'CULT', 'designation' => 'Culture', 'entry_mode' => 'CULTURE']);
-        $item = $this->requestItem($this->labRequest($episode, $orientation, $technician), $ecbu);
+        $request = $this->labRequest($episode, $orientation, $technician);
+        $item = $this->requestItem($request, $ecbu);
+        $send = fn () => $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", ['items' => [$item->uuid], 'to_nobody' => true]);
 
         $family = LabBacteriumFamily::query()->create(['name' => 'Entérobactéries', 'is_active' => true]);
         $germ = LabBacterium::query()->create(['family_id' => $family->id, 'name' => 'Escherichia coli', 'is_active' => true]);
@@ -149,7 +160,7 @@ class LaboratoryWorkbenchTest extends TestCase
         $this->actingAs($technician)->put("/laboratory/items/{$item->uuid}/results", [
             'results' => [['analysis_uuid' => $culture->uuid, 'value' => 'GROWTH', 'selections' => ['bacteria' => []]]],
         ])->assertSessionHasNoErrors();
-        $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/complete")->assertSessionHasErrors('item');
+        $send()->assertSessionHasErrors('items');
 
         $this->actingAs($technician)->put("/laboratory/items/{$item->uuid}/results", [
             'results' => [['analysis_uuid' => $culture->uuid, 'value' => 'GROWTH', 'selections' => ['bacteria' => [$germ->uuid]]]],
@@ -164,7 +175,7 @@ class LaboratoryWorkbenchTest extends TestCase
         ])->assertSessionHasNoErrors();
         $this->assertSame('R', $antibiogram->results()->sole()->interpretation);
 
-        $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/complete")->assertSessionHasNoErrors();
+        $send()->assertSessionHasNoErrors();
         $this->assertStringContainsString('Escherichia coli', (string) $item->fresh()->result_value);
     }
 
@@ -220,7 +231,7 @@ class LaboratoryWorkbenchTest extends TestCase
                 ->count('items', 1)
                 ->where('items.0.nodes.0.entry_mode', 'NUMERIC')
                 ->where('can.enter', true)
-                ->where('can.validate', true));
+                ->where('can.send', true));
 
         $this->actingAs($technician)->get("/laboratory/requests/{$request->uuid}/impression")
             ->assertInertia(fn (AssertableInertia $page) => $page->component('Laboratory/ResultsPrint', false));

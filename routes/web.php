@@ -29,6 +29,7 @@ use App\Http\Controllers\HospitalizationController;
 use App\Http\Controllers\HospitalStayOrderController;
 use App\Http\Controllers\HospitalStaySelectionController;
 use App\Http\Controllers\InvoiceDiscountController;
+use App\Http\Controllers\LabResultsController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
 use App\Http\Controllers\MaternityNewbornController;
@@ -830,6 +831,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // précise : `laboratory_orders.view` suffit à entrer, et chaque famille
     // est ensuite filtrée par son propre droit dans le contrôleur.
     Route::get('/medicine/demandes-examens', [ParaclinicalRequestDirectoryController::class, 'index'])->name('medicine.paraclinical-requests.index')->middleware('can:paraclinical_requests.view');
+    // ADR-216 — les résultats d'analyses envoyés au médecin, et l'ouverture
+    // confirmée d'un résultat adressé à un confrère.
+    Route::get('/resultats-analyses/{labRequest}', [LabResultsController::class, 'show'])->name('lab-results.show')->middleware('can:laboratory_orders.view');
+    Route::post('/resultats-analyses/{labRequest}/ouvrir', [LabResultsController::class, 'open'])->name('lab-results.open')->middleware('can:laboratory_orders.view');
 
     // ADR-113 — Hospitalisation : patients hospitalisés et fiche de régime.
     Route::get('/hospitalisation', [HospitalizationController::class, 'index'])->name('hospitalization.index')->middleware('can:hospitalization.view');

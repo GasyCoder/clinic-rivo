@@ -293,7 +293,7 @@ class MaternityEncounterWorkflowTest extends TestCase
         $this->assertNotNull(MaternityRecord::query()->sole()->completed_at);
 
         // Le résultat rendu plus tard par le Laboratoire se lit dans le suivi — la Maternité n'en garde aucune copie.
-        LabRequest::query()->sole()->items->sole()->forceFill(['result_value' => '0,92 g/L', 'resulted_at' => now()])->save();
+        LabRequest::query()->sole()->items->sole()->forceFill(['result_value' => '0,92 g/L', 'resulted_at' => now(), 'sent_at' => now()])->save();
         $this->actingAs($midwife)->get("/maternity/orientations/{$orientation->uuid}")
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('paraclinicalHistory.counts.pending', 0)

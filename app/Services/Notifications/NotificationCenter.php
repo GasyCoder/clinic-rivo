@@ -4,6 +4,8 @@ namespace App\Services\Notifications;
 
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Notifications\LabResultReturned;
+use App\Notifications\LabResultsAddressed;
 use App\Notifications\NewEmployeesAwaitingAccess;
 use App\Notifications\StaffAccessActivated;
 use App\Notifications\StaffAccessReady;
@@ -38,6 +40,11 @@ final class NotificationCenter
         'account' => [
             'label' => 'Mon compte',
             'types' => [WelcomeToPlatform::class],
+        ],
+        // ADR-216 — les résultats d'analyses envoyés par le laboratoire.
+        'laboratory' => [
+            'label' => 'Résultats d’analyses',
+            'types' => [LabResultsAddressed::class, LabResultReturned::class],
         ],
     ];
 

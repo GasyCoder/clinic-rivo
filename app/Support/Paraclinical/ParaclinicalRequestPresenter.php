@@ -4,10 +4,13 @@ namespace App\Support\Paraclinical;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\LabItemStatus;
 use App\Models\CatalogItem;
 use App\Models\ImagingRequest;
 use App\Models\LabRequest;
 use App\Models\LabRequestItem;
+use App\Models\User;
+use App\Services\Laboratory\LabResultAccess;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Medicine\ImagingReportTemplateCatalog;
 use App\Support\ImagingReportDocument;
@@ -25,6 +28,7 @@ final class ParaclinicalRequestPresenter
     public function __construct(
         private readonly ClinicalRichTextSanitizer $richText,
         private readonly ImagingReportTemplateCatalog $templates,
+        private readonly LabResultAccess $labAccess,
     ) {}
 
     /** Retirable tant qu'aucun résultat n'est saisi (ADR-079, ADR-163). */
@@ -58,10 +62,16 @@ final class ParaclinicalRequestPresenter
     }
 
     /** @return array<string, mixed> */
-    public function lab(LabRequest $request, bool $canCancel): array
+    public function lab(LabRequest $request, bool $canCancel, ?User $viewer = null): array
     {
+        // ADR-216 — seul ce qui a été envoyé se lit ; adressé à un confrère, les
+        // valeurs ne partent qu'après confirmation.
+        $sealed = $this->labAccess->sealFor($request, $viewer);
+
         return [
             'uuid' => $request->uuid,
+            'sealed' => $sealed,
+            'results_url' => $request->items->contains(fn ($item) => $item->isDelivered()) ? "/resultats-analyses/{$request->uuid}" : null,
             'status' => $request->displayStatus(),
             'requested_at' => $request->requested_at,
             'requested_by' => $request->requestedBy?->name,
@@ -72,12 +82,12 @@ final class ParaclinicalRequestPresenter
             'items' => $request->items->map(fn ($item): array => [
                 'uuid' => $item->uuid,
                 'exam' => $item->catalog_item_name_snapshot,
-                'resulted_at' => $item->resulted_at,
-                'result' => $item->result_value,
-                // ADR-213 — un résultat rendu n'est pas forcément validé par le biologiste.
+                'resulted_at' => $item->isDelivered() ? $item->resulted_at : null,
+                'result' => $item->isDelivered() && $sealed === null ? $item->result_value : null,
                 'lab_status' => $item->currentStatus()->value,
                 'lab_status_label' => $item->currentStatus()->label(),
-                'validated_at' => $item->validated_at,
+                'sent_at' => $item->sent_at,
+                'in_correction' => $item->isDelivered() && $item->currentStatus() === LabItemStatus::ToRedo,
             ])->values()->all(),
         ];
     }
@@ -118,7 +128,7 @@ final class ParaclinicalRequestPresenter
         'episode.patient.addressEntry:id,label',
     ];
 
-    public const LAB_RELATIONS = ['items', 'requestedBy:id,name'];
+    public const LAB_RELATIONS = ['items', 'requestedBy:id,name', 'resultsRecipient:id,name'];
 
     /**
      * Le catalogue d'un service demandeur : ce qui se demande, jamais un prix.

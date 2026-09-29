@@ -69,7 +69,7 @@ const hours = (value) => {
 const kpis = computed(() => [
     { key: 'requests', label: 'Demandes', value: totals.value.requests, hint: `${number(totals.value.requested_items)} analyse(s) demandée(s)`, icon: TestTubes, tone: 'primary' },
     { key: 'resulted', label: 'Analyses rendues', value: totals.value.resulted, hint: `${number(totals.value.received)} demande(s) reçue(s)`, icon: FlaskConical, tone: 'sky' },
-    { key: 'validated', label: 'Validées', value: totals.value.validated, hint: 'par le biologiste', icon: BadgeCheck, tone: 'emerald' },
+    { key: 'validated', label: 'Envoyées', value: totals.value.validated, hint: 'au médecin', icon: BadgeCheck, tone: 'emerald' },
     { key: 'critical', label: 'Résultats critiques', value: totals.value.critical, hint: `${number(totals.value.pathological)} pathologique(s)`, icon: AlertTriangle, tone: 'red' },
     { key: 'returned', label: 'Renvoyées à refaire', value: totals.value.returned, hint: 'avec un motif', icon: RotateCcw, tone: 'amber' },
     { key: 'sent_out', label: 'Confiées à l’extérieur', value: totals.value.sent_out, hint: 'laboratoires partenaires', icon: Building2, tone: 'neutral' },
@@ -86,13 +86,13 @@ const KPI_TONES = {
 const delays = computed(() => [
     { key: 'request_to_result', label: 'Demande → résultat', data: props.report.delays?.request_to_result },
     { key: 'reception_to_result', label: 'Réception → résultat', data: props.report.delays?.reception_to_result },
-    { key: 'result_to_validation', label: 'Résultat → validation', data: props.report.delays?.result_to_validation },
+    { key: 'result_to_validation', label: 'Résultat → envoi', data: props.report.delays?.result_to_validation },
 ]);
 
 const backlog = computed(() => [
     { key: 'to_receive', label: 'À réceptionner', value: totals.value.backlog_to_receive, href: labUrl('/laboratory?view=to_receive'), icon: Inbox },
     { key: 'open', label: 'À analyser', value: totals.value.backlog_open, href: labUrl('/laboratory?view=to_do'), icon: Hourglass },
-    { key: 'to_validate', label: 'À valider', value: totals.value.backlog_to_validate, href: labUrl('/laboratory?view=to_validate'), icon: BadgeCheck },
+    { key: 'to_validate', label: 'À envoyer', value: totals.value.backlog_to_validate, href: labUrl('/laboratory?view=to_validate'), icon: BadgeCheck },
 ]);
 
 const periodLabel = computed(() => `Du ${formatDate(props.report.period.from)} au ${formatDate(props.report.period.to)} · ${props.report.period.days} jour(s)`);
@@ -145,7 +145,7 @@ const periodLabel = computed(() => `Du ${formatDate(props.report.period.from)} a
         </div>
 
         <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-            <ActivityTrendChart :trend="report.trend" title="Activité par jour" description="Analyses demandées, rendues et validées, jour par jour." empty-title="Aucune activité sur la période" empty-description="La courbe apparaîtra dès la première analyse demandée." />
+            <ActivityTrendChart :trend="report.trend" title="Activité par jour" description="Analyses demandées, rendues et envoyées, jour par jour." empty-title="Aucune activité sur la période" empty-description="La courbe apparaîtra dès la première analyse demandée." />
 
             <div class="space-y-4">
                 <Card class="p-4">

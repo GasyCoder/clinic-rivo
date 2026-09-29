@@ -5,21 +5,22 @@ namespace App\Actions\Laboratory;
 use App\Enums\LabItemStatus;
 use App\Models\LabRequestItem;
 use App\Models\User;
+use App\Notifications\LabResultReturned;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-213 — renvoyer une analyse à refaire, avec un motif.
+ * ADR-213 / ADR-216 — renvoyer une analyse à refaire, avec un motif.
  *
- *   terminée → à refaire   le biologiste (`laboratory_results.validate`), ou le
- *                          technicien qui reprend sa propre saisie avant la
- *                          validation (`laboratory_results.create`)
- *   validée  → à refaire   le biologiste seul : c'est revenir sur une validation
+ *   rendue, pas envoyée → à refaire   qui saisit (`laboratory_results.create`) ou
+ *                                      qui envoie (`laboratory_results.validate`)
+ *   envoyée → à refaire                qui envoie seul : c'est revenir sur un
+ *                                      résultat que le médecin a pu lire
  *
- * Le résultat rendu reste lisible jusqu'à ce que l'analyse soit terminée à
- * nouveau — il a pu être lu, et le retirer ferait croire qu'il n'a jamais
- * existé. L'état « À refaire » le dit partout. L'audit garde l'ancien état.
+ * Le résultat rendu reste lisible jusqu'au prochain envoi — il a pu être lu, et
+ * le retirer ferait croire qu'il n'a jamais existé. L'état « À refaire » le dit
+ * partout, et le médecin destinataire en est prévenu. L'audit garde l'ancien état.
  */
 class ReturnLabItemAction
 {
@@ -30,7 +31,7 @@ class ReturnLabItemAction
             throw ValidationException::withMessages(['reason' => 'Indiquez pourquoi l’analyse est à refaire.']);
         }
 
-        return DB::transaction(function () use ($item, $reason, $actor): LabRequestItem {
+        [$returned, $wasSent] = DB::transaction(function () use ($item, $reason, $actor): array {
             $locked = LabItemGuard::lock($item);
             $status = $locked->currentStatus();
 
@@ -41,11 +42,11 @@ class ReturnLabItemAction
             };
 
             if ($allowed === null) {
-                throw ValidationException::withMessages(['reason' => 'Seule une analyse terminée ou validée se renvoie à refaire.']);
+                throw ValidationException::withMessages(['reason' => 'Seule une analyse rendue ou envoyée se renvoie à refaire.']);
             }
             if (! $allowed) {
                 throw new AuthorizationException($status === LabItemStatus::Validated
-                    ? 'Revenir sur une analyse validée demande le droit « laboratory_results.validate ».'
+                    ? 'Revenir sur une analyse envoyée au médecin demande le droit « laboratory_results.validate ».'
                     : 'Reprendre cette analyse demande le droit « laboratory_results.create ».');
             }
 
@@ -58,7 +59,22 @@ class ReturnLabItemAction
                 'validated_by' => null,
             ]);
 
-            return $locked->fresh();
+            return [$locked->fresh(), $status === LabItemStatus::Validated];
         });
+
+        // ADR-216 — le médecin qui a reçu ce résultat doit savoir qu'il est repris.
+        $request = $returned->labRequest()->with(['resultsRecipient', 'episode.patient'])->first();
+        $recipient = $request?->resultsRecipient;
+
+        if ($wasSent && $recipient !== null && (int) $recipient->getKey() !== (int) $actor->getKey()) {
+            $recipient->notify(new LabResultReturned(
+                request: $request,
+                analysis: $returned->catalog_item_name_snapshot,
+                reason: mb_substr($reason, 0, 200),
+                by: $actor->name,
+            ));
+        }
+
+        return $returned;
     }
 }

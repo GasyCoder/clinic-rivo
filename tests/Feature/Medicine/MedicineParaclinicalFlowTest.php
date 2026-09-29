@@ -86,7 +86,8 @@ class MedicineParaclinicalFlowTest extends TestCase
         $this->assertSame($episode->id, $labOrientation->episode_id);
     }
 
-    public function test_a_lab_result_becomes_visible_to_medicine_once_entered(): void
+    /** ADR-216 — une analyse saisie reste au laboratoire tant qu'elle n'est pas envoyée au médecin. */
+    public function test_a_lab_result_becomes_visible_to_medicine_once_sent(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->normalMedicineConsultation($doctor);
@@ -103,6 +104,15 @@ class MedicineParaclinicalFlowTest extends TestCase
         ])->assertRedirect();
 
         $this->assertNotNull($item->fresh()->resulted_at);
+
+        // Rendue, pas encore envoyée : le médecin ne la voit pas.
+        $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/paraclinique")
+            ->assertInertia(fn ($page) => $page->where('consultation.lab_requests.0.status', 'REQUESTED'));
+
+        $this->actingAs($labTech)->post("/laboratory/requests/{$item->labRequest->uuid}/send", [
+            'items' => [$item->uuid], 'recipient_uuid' => $doctor->uuid,
+        ])->assertSessionHasNoErrors();
 
         $this->actingAs($doctor)
             ->get("/medicine/orientations/{$orientation->uuid}/paraclinique")
@@ -259,7 +269,7 @@ class MedicineParaclinicalFlowTest extends TestCase
     private function labTechnician(): User
     {
         $role = Role::query()->firstOrCreate(['code' => 'LABORATORY'], ['name' => 'Laboratoire']);
-        foreach (['laboratory_results.create', 'laboratory_results.view', 'laboratory_orders.receive'] as $name) {
+        foreach (['laboratory_results.create', 'laboratory_results.view', 'laboratory_results.validate', 'laboratory_orders.receive'] as $name) {
             $permission = Permission::query()->firstOrCreate(['name' => $name]);
             $role->permissions()->syncWithoutDetaching([$permission->id]);
         }

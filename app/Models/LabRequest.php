@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'archived_at', 'archived_by',
     'lab_number', 'received_at', 'received_by', 'payment_exemption',
     'conclusion', 'conclusion_at', 'conclusion_by',
+    'results_recipient_id', 'results_addressed_at', 'results_addressed_by',
 ])]
 class LabRequest extends Model
 {
@@ -30,7 +31,7 @@ class LabRequest extends Model
     {
         return [
             'requested_at' => 'datetime', 'cancelled_at' => 'datetime', 'archived_at' => 'datetime',
-            'received_at' => 'datetime', 'conclusion_at' => 'datetime',
+            'received_at' => 'datetime', 'conclusion_at' => 'datetime', 'results_addressed_at' => 'datetime',
         ];
     }
 
@@ -68,6 +69,23 @@ class LabRequest extends Model
     public function receivedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'received_by');
+    }
+
+    /** ADR-216 — le médecin à qui le technicien a envoyé les résultats ; vide = personne. */
+    public function resultsRecipient(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'results_recipient_id');
+    }
+
+    public function resultsAddressedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'results_addressed_by');
+    }
+
+    /** ADR-216 — les résultats ont-ils déjà été envoyés au moins une fois ? */
+    public function resultsAddressed(): bool
+    {
+        return $this->results_addressed_at !== null;
     }
 
     public function conclusionBy(): BelongsTo
@@ -109,11 +127,13 @@ class LabRequest extends Model
 
         $items = $this->relationLoaded('items') ? $this->items : $this->items()->get();
 
-        if ($items->isEmpty() || $items->every(fn (LabRequestItem $item) => $item->resulted_at === null)) {
+        // ADR-216 — l'état lu par le prescripteur : ce qui lui a été envoyé,
+        // pas ce que le laboratoire a saisi ou rendu sans l'envoyer encore.
+        if ($items->isEmpty() || $items->every(fn (LabRequestItem $item) => ! $item->isDelivered())) {
             return 'REQUESTED';
         }
 
-        return $items->every(fn (LabRequestItem $item) => $item->resulted_at !== null)
+        return $items->every(fn (LabRequestItem $item) => $item->isDelivered())
             ? 'COMPLETED'
             : 'IN_PROGRESS';
     }

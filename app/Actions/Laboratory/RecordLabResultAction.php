@@ -45,7 +45,7 @@ class RecordLabResultAction
                 ),
                 'resulted_at' => now(),
                 'resulted_by' => $actor->getKey(),
-                // ADR-213 — rendu en une fois, il attend la validation comme les autres.
+                // ADR-213 / ADR-216 — rendu en une fois, il attend d'être envoyé au médecin.
                 'status' => LabItemStatus::Completed,
                 'started_at' => $locked->started_at ?? now(),
                 'started_by' => $locked->started_by ?? $actor->getKey(),

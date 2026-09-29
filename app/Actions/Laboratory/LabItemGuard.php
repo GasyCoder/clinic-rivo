@@ -35,8 +35,8 @@ final class LabItemGuard
 
         if (! $status->editable()) {
             throw ValidationException::withMessages(['item' => match ($status) {
-                LabItemStatus::Validated => 'Cette analyse est validée : elle ne se modifie plus. Le biologiste peut la renvoyer à refaire, avec un motif.',
-                default => 'Cette analyse est terminée et attend la validation. Reprenez-la d’abord pour la modifier.',
+                LabItemStatus::Validated => 'Cette analyse est envoyée au médecin : elle ne se modifie plus. Renvoyez-la à refaire, avec un motif.',
+                default => 'Ce résultat est rendu et attend d’être envoyé. Reprenez-le d’abord pour le modifier.',
             }]);
         }
 

@@ -4,9 +4,11 @@ namespace App\Services\Maternity;
 
 use App\Models\ImagingRequest;
 use App\Models\LabRequest;
+use App\Models\LabRequestItem;
 use App\Models\MaternityRecord;
 use App\Models\Pregnancy;
 use App\Models\User;
+use App\Services\Laboratory\LabResultAccess;
 use App\Support\Paraclinical\ParaclinicalRequestPresenter;
 use Illuminate\Support\Collection;
 
@@ -26,7 +28,10 @@ use Illuminate\Support\Collection;
  */
 final class PregnancyParaclinicalHistory
 {
-    public function __construct(private readonly PregnancyDatingService $dating) {}
+    public function __construct(
+        private readonly PregnancyDatingService $dating,
+        private readonly LabResultAccess $labAccess,
+    ) {}
 
     /**
      * @return array{groups: list<array<string, mixed>>, restricted: array{lab: bool, imaging: bool}, counts: array{lab: int, imaging: int, pending: int}}
@@ -39,7 +44,7 @@ final class PregnancyParaclinicalHistory
         $records = $pregnancy->maternityRecords
             ->sortBy(fn (MaternityRecord $record) => $record->episode?->started_at?->getTimestamp() ?? $record->created_at?->getTimestamp() ?? 0)
             ->values();
-        $entries = $this->entries($records->pluck('episode_id')->filter()->all(), $canLab, $canImaging);
+        $entries = $this->entries($records->pluck('episode_id')->filter()->all(), $canLab, $canImaging, $viewer);
 
         $groups = $records->map(function (MaternityRecord $record) use ($entries, $current, $pregnancy): array {
             $at = $record->episode?->started_at ?? $record->created_at;
@@ -78,14 +83,14 @@ final class PregnancyParaclinicalHistory
      * @param  list<int>  $episodeIds
      * @return Collection<int, Collection<int, array<string, mixed>>>
      */
-    private function entries(array $episodeIds, bool $canLab, bool $canImaging): Collection
+    private function entries(array $episodeIds, bool $canLab, bool $canImaging, User $viewer): Collection
     {
         if ($episodeIds === []) {
             return collect();
         }
 
         $lab = $canLab
-            ? LabRequest::query()->whereIn('episode_id', $episodeIds)->with(['items', 'requestedBy:id,name'])->get()
+            ? LabRequest::query()->whereIn('episode_id', $episodeIds)->with(['items', 'requestedBy:id,name', 'resultsRecipient:id,name'])->get()
             : collect();
         $imaging = $canImaging
             ? ImagingRequest::query()->whereIn('episode_id', $episodeIds)->with(['items', 'requestedBy:id,name'])->get()
@@ -100,19 +105,28 @@ final class PregnancyParaclinicalHistory
                 'item_uuid' => $item->uuid,
                 'exam' => $item->catalog_item_name_snapshot,
                 'code' => $item->catalog_item_code_snapshot,
-                'status' => $pair[0]->cancelled_at !== null ? 'CANCELLED' : ($item->resulted_at !== null ? 'DONE' : 'REQUESTED'),
+                // ADR-216 — une analyse n'est « faite » pour la sage-femme qu'une fois envoyée.
+                'status' => $pair[0]->cancelled_at !== null ? 'CANCELLED' : (self::delivered($item) ? 'DONE' : 'REQUESTED'),
                 'requested_at' => $pair[0]->requested_at,
                 'requested_by' => $pair[0]->requestedBy?->name,
-                'resulted_at' => $item->resulted_at,
+                'resulted_at' => self::delivered($item) ? $item->resulted_at : null,
                 'origin' => ParaclinicalRequestPresenter::origin($pair[0]),
                 // Le résultat d'une analyse est lu tel que le Laboratoire l'a
                 // écrit ; celui de l'imagerie se relit sur son compte rendu.
-                'result' => $pair[1] === 'LAB' ? $item->result_value : null,
+                'result' => $pair[1] === 'LAB' && self::delivered($item) && ! $this->labAccess->sealed($pair[0], $viewer) ? $item->result_value : null,
+                'sealed' => $pair[1] === 'LAB' && self::delivered($item) ? $this->labAccess->sealFor($pair[0], $viewer) : null,
+                'results_url' => $pair[1] === 'LAB' && self::delivered($item) ? "/resultats-analyses/{$pair[0]->uuid}" : null,
                 'print_url' => $pair[1] === 'IMAGING' && $item->resulted_at !== null
                     ? "/medicine/imaging-requests/{$item->uuid}/compte-rendu"
                     : null,
             ]))
             ->sortBy(fn (array $entry) => $entry['requested_at']?->getTimestamp() ?? 0)
             ->groupBy('episode_id');
+    }
+
+    /** Une analyse ne compte que envoyée ; un compte rendu d'imagerie, dès qu'il est écrit. */
+    private static function delivered(mixed $item): bool
+    {
+        return $item instanceof LabRequestItem ? $item->isDelivered() : $item->resulted_at !== null;
     }
 }

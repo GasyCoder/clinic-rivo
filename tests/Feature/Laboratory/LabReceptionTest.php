@@ -367,9 +367,10 @@ class LabReceptionTest extends TestCase
         $definition = $this->definition($glycemie, ['code' => 'GLY', 'designation' => 'Glycémie', 'result_type' => 'NUMERIC', 'unit' => 'g/L']);
 
         foreach (['0.95', '1.40'] as $value) {
-            $item = $this->requestItem($this->labRequest($episode, $orientation, $technician), $glycemie);
+            $request = $this->labRequest($episode, $orientation, $technician);
+            $item = $this->requestItem($request, $glycemie);
             $this->actingAs($technician)->put("/laboratory/items/{$item->uuid}/results", ['results' => [['analysis_uuid' => $definition->uuid, 'value' => $value]]]);
-            $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/complete")->assertSessionHasNoErrors();
+            $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", ['items' => [$item->uuid], 'to_nobody' => true])->assertSessionHasNoErrors();
         }
 
         $this->actingAs($technician)->get("/laboratory/patients/{$episode->patient->uuid}/historique")

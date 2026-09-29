@@ -63,12 +63,11 @@ test('the clinical gestures are shown locked on the portal, never hidden', () =>
     }
 
     const show = read('resources/js/Pages/Laboratory/Show.vue');
-    assert.match(show, /<LabSiteOnlyAction v-if="[^"]*" :label="`Valider les \$\{toValidate\} analyses`"/, 'valider toute la demande est verrouillé');
+    assert.match(show, /<LabSiteOnlyAction v-if="[^"]*" label="Envoyer au médecin"/, 'envoyer au médecin est verrouillé');
 
     const editor = read('resources/js/Components/Laboratory/LabItemEditor.vue');
     assert.match(editor, /can\.site_only/, 'la saisie dit pourquoi elle est en lecture seule sur le portail');
-    assert.match(editor, /label: 'Valider'/);
-    assert.match(editor, /label: 'Terminer l’analyse'/);
+    assert.match(editor, /label: 'Envoyer au médecin'/);
 
     const lock = read('resources/js/Components/Laboratory/LabSiteOnlyAction.vue');
     assert.match(lock, /<slot v-if="! onPortal" \/>/, 'sur le site, le bouton est rendu tel quel');
@@ -80,8 +79,8 @@ test('the site refuses the clinical gestures to the portal, whatever the screen 
     const routes = read('routes/laboratory.php');
 
     for (const name of [
-        'requests.validate', 'items.results', 'items.antibiograms.update', 'items.complete', 'items.return',
-        'items.validate', 'results.critical', 'items.result', 'requests.receive', 'requests.samples',
+        'requests.send', 'items.results', 'items.antibiograms.update', 'items.return',
+        'results.critical', 'items.result', 'requests.receive', 'requests.samples',
         'requests.conclusion', 'samples.reject', 'items.send-out', 'items.send-out.cancel',
     ]) {
         assert.match(routes, new RegExp(`->name\\('${name.replaceAll('.', '\\.')}'\\)[^;]*rivo\\.site-only:laboratory`), `${name} doit rester au site`);

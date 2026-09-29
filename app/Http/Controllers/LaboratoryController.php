@@ -2,15 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Actions\Laboratory\CompleteLabItemAction;
 use App\Actions\Laboratory\FlagCriticalLabResultAction;
 use App\Actions\Laboratory\RecordLabResultAction;
 use App\Actions\Laboratory\ReturnLabItemAction;
 use App\Actions\Laboratory\SaveLabAntibiogramAction;
 use App\Actions\Laboratory\SaveLabResultsAction;
-use App\Actions\Laboratory\ValidateLabItemAction;
+use App\Actions\Laboratory\SendLabResultsAction;
 use App\Http\Requests\Laboratory\SaveLabAntibiogramRequest;
 use App\Http\Requests\Laboratory\SaveLabResultsRequest;
+use App\Http\Requests\Laboratory\SendLabResultsRequest;
 use App\Http\Requests\RecordLabResultRequest;
 use App\Models\LabAntibiogram;
 use App\Models\LabRequest;
@@ -23,6 +23,8 @@ use App\Models\RemoteSuperAdmin;
 use App\Services\Laboratory\LabPaymentClearance;
 use App\Services\Laboratory\LabQueue;
 use App\Services\Laboratory\LabRequestPresenter;
+use App\Services\Laboratory\LabResultAccess;
+use App\Services\Laboratory\LabResultRecipients;
 use App\Services\Laboratory\LabWorkbench;
 use App\Support\Laboratory\LabEntryOptions;
 use App\Support\Paraclinical\ParaclinicalRequestPresenter;
@@ -33,8 +35,12 @@ use Inertia\Response;
 
 /**
  * ADR-213 — la paillasse : la file par demande, l'espace de saisie d'une
- * demande, les gestes du technicien (enregistrer, terminer) et du biologiste
- * (valider, renvoyer), la feuille de résultats imprimée.
+ * demande, les gestes du technicien, la feuille de résultats imprimée.
+ *
+ * ADR-216 — il n'y a plus de biologiste distinct : le technicien saisit puis
+ * envoie les résultats au médecin, et cet envoi les valide. Un médecin qui ouvre
+ * la paillasse ou la feuille d'une demande adressée à un confrère passe par la
+ * page des résultats, qui demande confirmation (`LabResultAccess`).
  *
  * Le Laboratoire n'encaisse rien (ADR-012, ADR-014) : aucun montant n'est servi.
  */
@@ -125,9 +131,16 @@ class LaboratoryController extends Controller
         LabWorkbench $workbench,
         LabRequestPresenter $presenter,
         LabPaymentClearance $clearance,
-    ): Response {
-        $labRequest->load(['items', 'episode.patient', 'requestedBy:id,name']);
+        LabResultAccess $access,
+        LabResultRecipients $recipients,
+    ): Response|RedirectResponse {
+        $labRequest->load(['items', 'episode.patient', 'requestedBy:id,uuid,name', 'resultsRecipient:id,uuid,name', 'resultsAddressedBy:id,name']);
         $user = $request->user();
+
+        if ($access->sealed($labRequest, $user)) {
+            return redirect("/resultats-analyses/{$labRequest->uuid}");
+        }
+
         $items = $labRequest->items->sortBy('id')->map(fn (LabRequestItem $item) => $workbench->present($item))->values();
         $needsCulture = $items->contains(fn (array $item) => collect($item['nodes'])->contains('entry_mode', 'CULTURE'));
         $received = $labRequest->received_at !== null;
@@ -136,6 +149,8 @@ class LaboratoryController extends Controller
         $atSite = ! $user instanceof RemoteSuperAdmin;
         $gesture = fn (string $permission): bool => $atSite && $user->can($permission);
         $canSample = $gesture('laboratory_samples.create');
+        $canSend = $gesture(SendLabResultsAction::PERMISSION);
+        $proposed = $recipients->proposedFor($labRequest);
 
         return Inertia::render('Laboratory/Show', [
             'labRequest' => $presenter->header($labRequest),
@@ -146,10 +161,20 @@ class LaboratoryController extends Controller
             'sampleOptions' => ($canSample || $gesture('laboratory_orders.receive')) && ! $labRequest->cancelled_at ? $this->sampleOptions() : null,
             'externalLabs' => $gesture('laboratory_orders.send_out') ? $this->externalLabs() : [],
             'microbiology' => $needsCulture ? $workbench->microbiology() : [],
+            // ADR-216 — à qui partent les résultats : déjà adressés, ou proposé d'office.
+            'recipient' => [
+                'addressed' => $labRequest->resultsAddressed(),
+                'uuid' => $labRequest->resultsRecipient?->uuid,
+                'name' => $labRequest->resultsRecipient?->name,
+                'addressed_at' => $labRequest->results_addressed_at,
+                'addressed_by' => $labRequest->resultsAddressedBy?->name,
+                'proposed_uuid' => $proposed?->uuid,
+            ],
+            'recipients' => $canSend && ! $labRequest->cancelled_at ? $recipients->options($labRequest) : [],
             'options' => LabEntryOptions::forScreen(),
             'can' => [
                 'enter' => $gesture('laboratory_results.create'),
-                'validate' => $gesture('laboratory_results.validate'),
+                'send' => $canSend,
                 'flag_critical' => $gesture('laboratory_results.flag_critical'),
                 'microbiology' => $user->can('lab_microbiology.view'),
                 'receive' => $gesture('laboratory_orders.receive'),
@@ -162,14 +187,25 @@ class LaboratoryController extends Controller
         ]);
     }
 
-    public function print(LabRequest $labRequest, LabWorkbench $workbench, LabRequestPresenter $presenter): Response
-    {
-        $labRequest->load(['items', 'episode.patient', 'requestedBy:id,name']);
+    public function print(
+        Request $request,
+        LabRequest $labRequest,
+        LabWorkbench $workbench,
+        LabRequestPresenter $presenter,
+        LabResultAccess $access,
+    ): Response|RedirectResponse {
+        $labRequest->load(['items', 'episode.patient', 'requestedBy:id,name', 'resultsRecipient:id,name']);
+
+        if ($access->sealed($labRequest, $request->user())) {
+            return redirect("/resultats-analyses/{$labRequest->uuid}");
+        }
 
         return Inertia::render('Laboratory/ResultsPrint', [
             'labRequest' => $presenter->header($labRequest),
+            'context' => ['mode' => 'lab', 'back_href' => null, 'back_label' => null],
+            'sealed' => null,
             'samples' => collect($presenter->samples($labRequest))->whereNull('rejected')->values(),
-            // Seul ce qui est rendu s'imprime ; « non validé » reste écrit sur la feuille.
+            // Seul ce qui est rendu s'imprime ; « non envoyé » reste écrit sur la feuille.
             'items' => $labRequest->items->sortBy('id')
                 ->filter(fn (LabRequestItem $item) => $item->resulted_at !== null)
                 ->map(fn (LabRequestItem $item) => $workbench->present($item))
@@ -196,13 +232,6 @@ class LaboratoryController extends Controller
         return back();
     }
 
-    public function complete(Request $request, LabRequestItem $labRequestItem, CompleteLabItemAction $action): RedirectResponse
-    {
-        $item = $action->execute($labRequestItem, $request->user());
-
-        return back()->with('status', "« {$item->catalog_item_name_snapshot} » terminée : elle attend la validation du biologiste.");
-    }
-
     public function returnItem(Request $request, LabRequestItem $labRequestItem, ReturnLabItemAction $action): RedirectResponse
     {
         $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']], [
@@ -214,18 +243,22 @@ class LaboratoryController extends Controller
         return back()->with('status', "« {$item->catalog_item_name_snapshot} » renvoyée à refaire.");
     }
 
-    public function validateItem(Request $request, LabRequestItem $labRequestItem, ValidateLabItemAction $action): RedirectResponse
+    /** ADR-216 — envoyer au médecin : le résultat devient définitif. */
+    public function send(SendLabResultsRequest $request, LabRequest $labRequest, SendLabResultsAction $action): RedirectResponse
     {
-        $item = $action->execute($labRequestItem, $request->user());
+        $sent = $action->execute(
+            $labRequest,
+            $request->validated('items'),
+            $request->validated('recipient_uuid'),
+            (bool) $request->validated('to_nobody', false),
+            $request->user(),
+        );
 
-        return back()->with('status', "« {$item->catalog_item_name_snapshot} » validée.");
-    }
+        $what = $sent['count'] === 1 ? 'Une analyse envoyée' : "{$sent['count']} analyses envoyées";
 
-    public function validateRequest(Request $request, LabRequest $labRequest, ValidateLabItemAction $action): RedirectResponse
-    {
-        $count = $action->executeForRequest($labRequest, $request->user());
-
-        return back()->with('status', $count === 1 ? 'Une analyse validée.' : "{$count} analyses validées.");
+        return back()->with('status', $sent['recipient']
+            ? "{$what} à {$sent['recipient']->name} : le résultat est définitif."
+            : "{$what}, sans médecin destinataire (patient externe) : le résultat est définitif.");
     }
 
     public function flagCritical(Request $request, LabResult $labResult, FlagCriticalLabResultAction $action): RedirectResponse
@@ -248,7 +281,7 @@ class LaboratoryController extends Controller
             $request->user(),
         );
 
-        return back()->with('status', 'Résultat enregistré : il attend la validation du biologiste.');
+        return back()->with('status', 'Résultat enregistré : envoyez-le au médecin pour le rendre définitif.');
     }
 
     /** Le code d'un tube ou un numéro de laboratoire, exactement : l'UUID de sa demande. */

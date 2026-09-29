@@ -6,7 +6,7 @@ import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
-import { ArrowDown, ArrowLeft, ArrowUp, History, Search, Siren } from 'lucide-vue-next';
+import { ArrowDown, ArrowLeft, ArrowUp, History, LockKeyhole, Search, Siren } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import { formatDate } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
@@ -18,13 +18,16 @@ defineOptions({ layout: AppLayout });
  * ADR-214 — l'historique des résultats d'un patient : chaque analyse et ses
  * valeurs d'une demande à l'autre, la plus récente à gauche. Rien n'est
  * recalculé : valeurs, unités et références sont celles figées à la saisie.
- * Une valeur non validée le dit ; une valeur critique se voit.
+ * Une valeur non envoyée au médecin le dit ; une valeur critique se voit.
+ * ADR-216 — les résultats adressés à un confrère ne sont pas servis : la page
+ * dit combien il en manque, ils s'ouvrent depuis leur feuille, après confirmation.
  */
 const props = defineProps({
     patient: { type: Object, required: true },
     columns: { type: Array, default: () => [] },
     groups: { type: Array, default: () => [] },
     total_requests: { type: Number, default: 0 },
+    sealed_requests: { type: Number, default: 0 },
 });
 
 const query = ref('');
@@ -73,9 +76,14 @@ const identity = computed(() => [
         <div class="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <span class="inline-flex items-center gap-1"><Siren class="h-3.5 w-3.5 text-destructive" /> <strong class="text-destructive">Gras rouge</strong> : critique</span>
             <span><strong class="text-amber-700 dark:text-amber-300">Orange</strong> : pathologique</span>
-            <span><em>Italique</em> : non validé par le biologiste</span>
+            <span><em>Italique</em> : pas encore envoyé au médecin</span>
             <span class="inline-flex items-center gap-0.5"><ArrowUp class="h-3 w-3" /><ArrowDown class="h-3 w-3" /> au-dessus / au-dessous de la référence</span>
         </div>
+
+        <p v-if="sealed_requests" class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+            <LockKeyhole class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {{ sealed_requests }} demande(s) adressée(s) à un confrère ne figure(nt) pas ici : elles s’ouvrent depuis leur feuille de résultats, après confirmation.
+        </p>
 
         <Card v-if="!groups.length" class="p-10 text-center">
             <History class="mx-auto h-8 w-8 text-muted-foreground/60" />
@@ -105,7 +113,7 @@ const identity = computed(() => [
                                     {{ row.designation }}<span v-if="row.unit" class="text-xs text-muted-foreground"> ({{ row.unit }})</span>
                                 </td>
                                 <td class="px-3 py-1.5 text-xs text-muted-foreground">{{ row.reference ?? '' }}</td>
-                                <td v-for="column in columns" :key="column.request_uuid" :class="cellClass(row.values[column.request_uuid])" :title="row.values[column.request_uuid] && !row.values[column.request_uuid].validated ? 'Non validé' : undefined">
+                                <td v-for="column in columns" :key="column.request_uuid" :class="cellClass(row.values[column.request_uuid])" :title="row.values[column.request_uuid] && !row.values[column.request_uuid].validated ? 'Pas encore envoyé au médecin' : undefined">
                                     <template v-if="row.values[column.request_uuid]">
                                         <span class="inline-flex items-center gap-0.5">
                                             {{ row.values[column.request_uuid].text }}

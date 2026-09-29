@@ -68,8 +68,8 @@ const emptyText = computed(() => ({
     to_receive: 'Aucune demande à réceptionner.',
     to_do: 'Aucune analyse à faire : la paillasse est à jour.',
     to_redo: 'Aucune analyse renvoyée à refaire.',
-    to_validate: 'Aucune analyse n’attend la validation du biologiste.',
-    validated: 'Aucune demande entièrement validée pour l’instant.',
+    to_validate: 'Aucun résultat rendu n’attend d’être envoyé.',
+    validated: 'Aucune demande entièrement envoyée au médecin pour l’instant.',
     all: 'Aucune demande d’analyses.',
 }[props.view] ?? 'Aucune demande.'));
 </script>
@@ -83,11 +83,11 @@ const emptyText = computed(() => ({
                 <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><TestTubes class="h-6 w-6" /></span>
                 <div>
                     <h1 class="font-heading text-2xl font-bold -tracking-snug text-foreground">Laboratoire</h1>
-                    <p class="mt-1 text-sm text-muted-foreground">Analyses demandées — saisie des résultats, puis validation par le biologiste.</p>
+                    <p class="mt-1 text-sm text-muted-foreground">Analyses demandées — saisie des résultats, puis envoi au médecin.</p>
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <Badge variant="outline"><CalendarCheck class="h-3.5 w-3.5" /> {{ counts.validated_today ?? 0 }} validée(s) aujourd’hui</Badge>
+                <Badge variant="outline"><CalendarCheck class="h-3.5 w-3.5" /> {{ counts.validated_today ?? 0 }} envoyée(s) aujourd’hui</Badge>
                 <Button :as="Link" :href="labUrl('/laboratory/paillasse')" variant="outline" size="sm">
                     <ClipboardList class="h-4 w-4" /> Feuille de paillasse
                 </Button>

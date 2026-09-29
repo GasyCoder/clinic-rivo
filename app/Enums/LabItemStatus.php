@@ -3,14 +3,19 @@
 namespace App\Enums;
 
 /**
- * Où en est une analyse demandée, à la paillasse puis chez le biologiste
- * (ADR-213, CDC §14 : prélèvement → analyse → résultat → validation).
+ * Où en est une analyse demandée à la paillasse (ADR-213, CDC §14 :
+ * prélèvement → analyse → résultat → validation).
+ *
+ * ADR-216 — il n'y a plus de biologiste distinct : le technicien envoie le
+ * résultat au médecin, et cet envoi le valide. Les valeurs en base ne changent
+ * pas, seul leur sens est dit autrement.
  *
  *   PENDING      rien n'est encore saisi
- *   IN_PROGRESS  des résultats sont saisis, l'analyse n'est pas terminée
- *   COMPLETED    le technicien l'a terminée — elle attend la validation
- *   VALIDATED    le biologiste l'a validée : elle ne se modifie plus
- *   TO_REDO      renvoyée au technicien, avec le motif du biologiste
+ *   IN_PROGRESS  des résultats sont saisis, pas encore envoyés
+ *   COMPLETED    rendu mais pas encore envoyé : résultat saisi « en un bloc »,
+ *                ou analyse terminée avant l'ADR-216
+ *   VALIDATED    envoyé au médecin : définitif, il ne se modifie plus
+ *   TO_REDO      renvoyée à refaire, avec un motif
  */
 enum LabItemStatus: string
 {
@@ -25,8 +30,8 @@ enum LabItemStatus: string
         return match ($this) {
             self::Pending => 'À analyser',
             self::InProgress => 'En cours',
-            self::Completed => 'À valider',
-            self::Validated => 'Validée',
+            self::Completed => 'À envoyer',
+            self::Validated => 'Envoyée',
             self::ToRedo => 'À refaire',
         };
     }

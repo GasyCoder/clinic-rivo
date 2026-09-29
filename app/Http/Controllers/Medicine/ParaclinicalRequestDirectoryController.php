@@ -4,12 +4,16 @@ namespace App\Http\Controllers\Medicine;
 
 use App\Actions\Medicine\ArchiveParaclinicalRequestAction;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\LabItemStatus;
 use App\Http\Controllers\Controller;
 use App\Models\ImagingRequest;
 use App\Models\LabRequest;
+use App\Models\User;
+use App\Services\Laboratory\LabResultAccess;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Medicine\ImagingReportTemplateCatalog;
 use App\Support\ImagingReportDocument;
+use App\Support\Paraclinical\ParaclinicalRequestPresenter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -92,8 +96,8 @@ class ParaclinicalRequestDirectoryController extends Controller
         $canWithdraw = $request->user()->can('consultations.update');
 
         $rows = collect()
-            ->concat($canViewLab ? $this->rows(LabRequest::query(), 'lab', 'Laboratoire', false, $canWithdraw, false, $canArchive) : [])
-            ->concat($canViewImaging ? $this->rows(ImagingRequest::query(), 'imaging', 'Imagerie', $canRecordImaging, $canWithdraw, $canCorrectImaging, $canArchive) : []);
+            ->concat($canViewLab ? $this->rows(LabRequest::query(), 'lab', 'Laboratoire', false, $canWithdraw, false, $canArchive, $request->user()) : [])
+            ->concat($canViewImaging ? $this->rows(ImagingRequest::query(), 'imaging', 'Imagerie', $canRecordImaging, $canWithdraw, $canCorrectImaging, $canArchive, $request->user()) : []);
 
         $byType = fn (array $row): bool => $type === null || in_array($type, $row['families'], true);
 
@@ -195,10 +199,17 @@ class ParaclinicalRequestDirectoryController extends Controller
      * @param  Builder<LabRequest|ImagingRequest>  $query
      * @return Collection<int, array<string, mixed>>
      */
-    private function rows($query, string $kind, string $familyLabel, bool $canRecord = false, bool $canWithdraw = false, bool $canCorrect = false, bool $canArchive = false): Collection
+    private function rows($query, string $kind, string $familyLabel, bool $canRecord = false, bool $canWithdraw = false, bool $canCorrect = false, bool $canArchive = false, ?User $viewer = null): Collection
     {
         $richText = app(ClinicalRichTextSanitizer::class);
         $catalog = app(ImagingReportTemplateCatalog::class);
+        $labAccess = app(LabResultAccess::class);
+        $isLab = $kind === 'lab';
+        // ADR-216 — pour le prescripteur, une analyse n'est rendue qu'une fois
+        // envoyée par le laboratoire ; un compte rendu d'imagerie, dès qu'il est écrit.
+        $deliveredAt = fn ($item) => $isLab ? ($item->isDelivered() ? $item->resulted_at : null) : $item->resulted_at;
+        $viewerId = $viewer?->getKey();
+        $atBench = $isLab && (bool) $viewer?->can('laboratory_results.create');
 
         return $query
             ->with([
@@ -209,6 +220,7 @@ class ParaclinicalRequestDirectoryController extends Controller
                 // fois, pas une requête par examen.
                 'items.catalogItem:id,imaging_modality',
                 'requestedBy:id,name',
+                ...($isLab ? ['resultsRecipient:id,name'] : []),
                 'consultation:id,episode_orientation_id,status,completed_at',
                 'consultation.orientation:id,uuid,status',
                 // ADR-162 — la demande faite depuis le séjour.
@@ -233,11 +245,23 @@ class ParaclinicalRequestDirectoryController extends Controller
             // Une demande orpheline de son passage ou de son patient ne
             // décrit plus rien d'exploitable : on l'écarte de l'écran
             // plutôt que d'y afficher des tirets.
+            // ADR-216 — une analyse de l'accueil entre dans la liste du médecin
+            // à qui le laboratoire l'a adressée, et du laboratoire lui-même.
             ->filter(fn ($request) => $request->episode?->patient !== null
-                && ($request->consultation !== null || $request->hospitalStay !== null || $request->maternityRecord !== null))
+                && ($request->consultation !== null || $request->hospitalStay !== null || $request->maternityRecord !== null
+                    || ($isLab && ($atBench || ($viewerId !== null && (int) $request->results_recipient_id === (int) $viewerId)))))
             ->map(fn ($request) => [
                 'uuid' => $request->uuid,
                 'kind' => $kind,
+                'origin' => ParaclinicalRequestPresenter::origin($request),
+                // ADR-216 — à qui le laboratoire a envoyé les résultats, et où les lire.
+                'recipient' => $isLab ? $request->resultsRecipient?->name : null,
+                'sealed' => $isLab && $labAccess->sealed($request, $viewer),
+                'results_url' => $isLab && $request->items->contains(fn ($item) => $item->isDelivered())
+                    ? "/resultats-analyses/{$request->uuid}"
+                    : null,
+                // Le compte du laboratoire ouvre la demande à la paillasse.
+                'bench_url' => $atBench ? "/laboratory/requests/{$request->uuid}" : null,
                 'family_label' => $familyLabel,
                 'status' => $request->displayStatus(),
                 'requested_at' => $request->requested_at?->toIso8601String(),
@@ -273,14 +297,17 @@ class ParaclinicalRequestDirectoryController extends Controller
                     // route lie et le seul exposé (ADR-005).
                     'uuid' => $item->uuid,
                     'exam' => $item->catalog_item_name_snapshot,
-                    'resulted_at' => $item->resulted_at?->toIso8601String(),
-                    'resulted_by' => $item->resultedBy?->name,
-                    'report' => $richText->toSafeHtml($item->result_value),
+                    'resulted_at' => $deliveredAt($item)?->toIso8601String(),
+                    'resulted_by' => $deliveredAt($item) ? $item->resultedBy?->name : null,
+                    // Un résultat d'analyse se lit sur sa page (ADR-216), jamais ici :
+                    // seul le compte rendu d'imagerie est servi dans la liste.
+                    'report' => $isLab ? null : $richText->toSafeHtml($item->result_value),
                     // Le texte tel qu'il est stocké, pour rouvrir l'éditeur : déjà
                     // assaini à l'écriture, et distinct de `report`, qui est le
                     // rendu destiné à l'affichage.
-                    'report_raw' => $item->result_value,
-                    'notes_raw' => $item->result_notes,
+                    'report_raw' => $isLab ? null : $item->result_value,
+                    'notes_raw' => $isLab ? null : $item->result_notes,
+                    'in_correction' => $isLab && $item->isDelivered() && $item->currentStatus() === LabItemStatus::ToRedo,
                     // ADR-108 — la feuille à pré-appliquer à l'ouverture de la saisie.
                     'default_template_key' => $kind === 'imaging' ? $catalog->defaultKeyFor($item) : null,
                     // ADR-130 — une correction se lit : qui, quand.
@@ -326,27 +353,29 @@ class ParaclinicalRequestDirectoryController extends Controller
                 // Le dernier résultat rendu : c'est lui qui décide si la
                 // demande est récente ou rangée.
                 'last_resulted_at' => $request->items
-                    ->pluck('resulted_at')
+                    ->map($deliveredAt)
                     ->filter()
                     ->max()?->toIso8601String(),
                 'results' => $request->items
-                    ->filter(fn ($item) => $item->resulted_at !== null)
+                    ->filter(fn ($item) => $deliveredAt($item) !== null)
                     ->map(fn ($item) => [
                         'exam' => $item->catalog_item_name_snapshot,
-                        'resulted_at' => $item->resulted_at?->toIso8601String(),
+                        'resulted_at' => $deliveredAt($item)?->toIso8601String(),
                     ])
                     ->values()
                     ->all(),
                 // Reprendre, jamais rouvrir une seconde consultation : le
                 // lien ramène sur celle qui a émis la demande.
                 // ADR-162 — une demande du séjour ramène au séjour.
+                // Proposé seulement à qui peut l'ouvrir : un lien vers un refus
+                // vaut moins qu'une absence de lien (ADR-146).
                 'consultation_url' => match (true) {
-                    $request->hospitalStay !== null => "/hospitalisation/{$request->hospitalStay->uuid}",
+                    $request->hospitalStay !== null => $viewer?->can('hospitalization.view') ? "/hospitalisation/{$request->hospitalStay->uuid}" : null,
                     // ADR-204 — une demande de la Maternité ramène à son dossier Maternité.
-                    $request->maternityRecord !== null => $request->maternityRecord->orientation
+                    $request->maternityRecord !== null => $request->maternityRecord->orientation && $viewer?->can('maternity.view')
                         ? "/maternity/orientations/{$request->maternityRecord->orientation->uuid}"
                         : null,
-                    default => $request->consultation?->orientation
+                    default => $request->consultation?->orientation && $viewer?->can('consultations.view')
                         ? "/medicine/orientations/{$request->consultation->orientation->uuid}/paraclinique"
                         : null,
                 },
@@ -362,19 +391,19 @@ class ParaclinicalRequestDirectoryController extends Controller
                 'can_archive' => $canArchive
                     && $request->displayStatus() === 'COMPLETED'
                     && $request->archived_at === null
-                    && $request->items->pluck('resulted_at')->filter()->max()?->greaterThanOrEqualTo(now()->subDays(self::RECENT_DAYS)),
+                    && $request->items->map($deliveredAt)->filter()->max()?->greaterThanOrEqualTo(now()->subDays(self::RECENT_DAYS)),
                 // Ressortir n'a d'effet visible que si le résultat est récent :
                 // un résultat ancien retourne aussitôt en archive tout seul.
                 'can_unarchive' => $canArchive
                     && $request->archived_at !== null
-                    && $request->items->pluck('resulted_at')->filter()->max()?->greaterThanOrEqualTo(now()->subDays(self::RECENT_DAYS)),
+                    && $request->items->map($deliveredAt)->filter()->max()?->greaterThanOrEqualTo(now()->subDays(self::RECENT_DAYS)),
                 // Une demande du séjour se retire depuis le séjour.
                 'can_withdraw' => $canWithdraw
                     && $request->consultation !== null
                     && $request->cancelled_at === null
                     && $request->consultation->isEditable()
                     && $request->consultation->orientation?->status === EpisodeOrientationStatus::InProgress
-                    && $request->items->every(fn ($item) => $item->resulted_at === null),
+                    && ParaclinicalRequestPresenter::withdrawable($request),
             ]);
     }
 }

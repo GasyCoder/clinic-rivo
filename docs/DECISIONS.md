@@ -20385,7 +20385,9 @@ dossier existant      une recommandation oubliée à la première venue ne se ra
 fonctionnalités de son application laboratoire `GasyCoder/labo-vuejs` — résultats,
 analyses, germes, bactéries, antibiogrammes — avec leur UI et UX) ; **complétée par
 l'ADR-214** (même jour) : réception et règlement, prélèvements, laboratoires extérieurs,
-bornes critiques, rapports — trois des points « signalés » ci-dessous y sont tranchés.
+bornes critiques, rapports — trois des points « signalés » ci-dessous y sont tranchés ;
+**amendée par l'ADR-216** (2026-09-29) : « Terminer » puis « Valider » deviennent un seul geste,
+« Envoyer au médecin », et il n'y a plus de biologiste distinct.
 
 **Complète l'ADR-063** (catalogue des analyses) et **l'ADR-068** (demandes d'analyses).
 Le CDC décrit le Laboratoire (demande, prélèvement, analyse, saisie, validation, résultat
@@ -20738,3 +20740,76 @@ migration après sa création (ADR-086).
 - Le middleware `rivo.hr-screens` sert désormais les RH, la Pharmacie, les Partenaires et le Laboratoire : son
   nom ne dit plus tout ce qu'il fait (déjà signalé, ADR-189).
 - La réserve de l'ADR-186 sur la taille de l'en-tête des droits transmis vaut ici aussi.
+
+---
+
+# ADR-216 — Le technicien envoie les résultats au médecin ; l'envoi les valide
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire : « pour la clinique RIVO les
+médecins sont déjà biologistes, pas besoin de biologiste spécifique ; le technicien envoie directement
+les résultats au médecin référent du patient ; les autres peuvent voir quand même, avec une fenêtre de
+confirmation » ; trois arbitrages : envoyer = valider, le technicien choisit le destinataire, tout compte
+qui voit les analyses peut ouvrir après confirmation)
+
+**Amende l'ADR-213** (Terminer puis Valider par le biologiste). Le CDC §14 cite « validation » sans dire
+qui valide ; labo-vuejs distingue un rôle Biologiste, que la clinique n'a pas : la règle est celle du
+propriétaire.
+
+## Un seul geste : « Envoyer au médecin »
+
+`SendLabResultsAction` (`POST /laboratory/requests/{uuid}/send`, droit `laboratory_results.validate`,
+site seulement — `rivo.site-only:laboratory`) remplace « Terminer » et « Valider » (actions, routes et
+boutons retirés) :
+
+```text
+choisir      les analyses à envoyer (une, plusieurs, ou toute la demande)
+contrôler    rien de saisi, culture positive sans germe, Nugent incomplet → refus nommé, rien ne part
+rendre       résultat composé, référence figée, resulted_at / validated_at / sent_at posés
+adresser     la demande garde son destinataire (results_recipient_id, results_addressed_at/by)
+tracer       audit laboratory.results.send ; notification au médecin (cloche, catégorie Laboratoire)
+```
+
+Tout ou rien. Envoyée, une analyse ne se modifie plus : une erreur se corrige par « Renvoyer à refaire »
+avec un motif, puis un nouvel envoi — le médecin est prévenu dans les deux cas (`LabResultReturned`,
+puis « Résultat corrigé »). `laboratory_results.validate` garde son nom (ADR-101), son libellé devient
+« Envoyer un résultat d'analyse au médecin ». Libellés : « À envoyer » (rendue, pas envoyée), « Envoyée ».
+
+## Le destinataire
+
+```text
+proposé      le prescripteur, s'il peut recevoir (LabResultRecipients::proposedFor)
+recevable    un compte actif qui peut prescrire ET lire des analyses (laboratory_orders.create +
+             laboratory_orders.view, socle + ALLOW − DENY) — jamais un nom de rôle (ADR-152)
+de l'accueil la réceptionniste ne prescrit pas : rien n'est proposé, le technicien choisit un médecin
+             ou « Aucun médecin — patient externe » (to_nobody), décision toujours explicite
+```
+
+## Le médecin ne voit que ce qui lui a été envoyé
+
+`lab_request_items.sent_at` (jamais effacé par une reprise, `isDelivered()`) décide de ce que lisent la
+consultation, le séjour, la Maternité, « Demandes d'examens », l'historique de grossesse et la conduite à
+tenir préremplie. Une analyse rendue mais pas encore envoyée reste au laboratoire ; une analyse reprise
+montre la valeur envoyée, marquée « En correction ». Une analyse demandée à l'accueil entre dans
+« Demandes d'examens » du médecin à qui elle est adressée. Les résultats se lisent sur
+`/resultats-analyses/{uuid}` (`laboratory_orders.view`), la feuille du laboratoire réduite à ce qui est envoyé.
+
+## Les autres voient, après confirmation
+
+`LabResultAccess` : lisent librement le destinataire, le prescripteur, le laboratoire
+(`laboratory_results.create`) et tout le monde pour une demande adressée à personne. Pour les autres, le
+serveur **ne sert aucune valeur** (feuille, paillasse, historique, dossiers) : l'écran dit « adressé à Dr … »
+(`SealedLabResult`), et « Ouvrir » demande confirmation. L'ouverture
+(`POST /resultats-analyses/{uuid}/ouvrir`) est auditée (`laboratory.results.open`) et vaut pour la session.
+
+## Reprise
+
+Migration `2026_11_18_090000` : colonnes nullables ; `sent_at` repris de `validated_at` pour les analyses
+déjà validées. Une analyse seulement « terminée » avant cette décision attend son envoi. Les demandes
+antérieures ne sont adressées à personne : elles se lisent comme avant, sans confirmation. À jouer sur
+chaque site et sur le portail.
+
+## Signalé, non tranché
+
+- La saisie « en un bloc » (analyse sans définition) rend l'analyse « À envoyer » ; elle ne part pas seule.
+- Pas d'envoi au patient (labo-vuejs le fait) : aucun canal n'est défini.
+- Une demande antérieure déjà validée reste lisible sans confirmation : elle n'a pas de destinataire.

@@ -204,7 +204,7 @@ class LabReports
             'series' => [
                 $series('requested', 'Analyses demandées', 'navy', $requestDates),
                 $series('resulted', 'Rendues', 'cyan', $resulted->map(fn ($item) => $day($item->resulted_at))),
-                $series('validated', 'Validées', 'green', $validated->map(fn ($item) => $day($item->validated_at))),
+                $series('validated', 'Envoyées', 'green', $validated->map(fn ($item) => $day($item->validated_at))),
             ],
         ];
     }

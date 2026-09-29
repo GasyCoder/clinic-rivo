@@ -23,9 +23,9 @@ use Illuminate\Validation\ValidationException;
  * ADR-213 — enregistrer la saisie de la paillasse pour une analyse demandée.
  *
  * Appelée par l'enregistrement automatique : la saisie reste ouverte tant que
- * l'analyse n'est pas terminée. Une valeur vidée retire sa ligne (c'est un
+ * l'analyse n'est pas envoyée. Une valeur vidée retire sa ligne (c'est un
  * brouillon, pas un résultat rendu). Rien n'est rendu aux prescripteurs ici :
- * seul « Terminer » le fait (`CompleteLabItemAction`).
+ * seul l'envoi au médecin le fait (`SendLabResultsAction`, ADR-216).
  *
  * L'interprétation (normal / pathologique) est celle que le technicien choisit ;
  * s'il n'en a pas choisi, elle est proposée depuis la référence (hors bornes →

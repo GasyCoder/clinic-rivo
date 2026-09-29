@@ -254,6 +254,10 @@ class MedicineWizardRenderingTest extends TestCase
         $this->actingAs($labTech)->post("/laboratory/items/{$item->uuid}/result", [
             'result_value' => 'Hb 13.2 g/dL',
         ]);
+        // ADR-216 — le résultat attendu arrive au médecin quand le laboratoire l'envoie.
+        $this->actingAs($labTech)->post("/laboratory/requests/{$item->labRequest->uuid}/send", [
+            'items' => [$item->uuid], 'recipient_uuid' => $doctor->uuid,
+        ])->assertSessionHasNoErrors();
 
         $this->actingAs($doctor)
             ->get("/medicine/orientations/{$orientation->uuid}/cloture")
@@ -291,6 +295,10 @@ class MedicineWizardRenderingTest extends TestCase
         $this->actingAs($labTech)->post("/laboratory/items/{$item->uuid}/result", [
             'result_value' => 'Hb 13.2 g/dL',
         ]);
+        // ADR-216 — le résultat attendu arrive au médecin quand le laboratoire l'envoie.
+        $this->actingAs($labTech)->post("/laboratory/requests/{$item->labRequest->uuid}/send", [
+            'items' => [$item->uuid], 'recipient_uuid' => $doctor->uuid,
+        ])->assertSessionHasNoErrors();
 
         $this->actingAs($doctor)
             ->get('/medicine?view=in_progress')
@@ -365,7 +373,7 @@ class MedicineWizardRenderingTest extends TestCase
     private function labTechnician(): User
     {
         $role = Role::query()->firstOrCreate(['code' => 'LABORATORY'], ['name' => 'Laboratoire']);
-        foreach (['laboratory_results.create', 'laboratory_results.view', 'laboratory_orders.receive'] as $name) {
+        foreach (['laboratory_results.create', 'laboratory_results.view', 'laboratory_results.validate', 'laboratory_orders.receive'] as $name) {
             $permission = Permission::query()->firstOrCreate(['name' => $name]);
             $role->permissions()->syncWithoutDetaching([$permission->id]);
         }

@@ -7,13 +7,12 @@ import LabResultField from '@/Components/Laboratory/LabResultField.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
-import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import {
-    AlertTriangle, BadgeCheck, Building2, CheckCheck, ClipboardCheck, FileText, History, Lock, RotateCcw, Send, Siren, TriangleAlert, Undo2,
+    AlertTriangle, BadgeCheck, Building2, CheckCheck, ClipboardCheck, FileText, History, Lock, RotateCcw, Send, SendHorizontal, Siren, TriangleAlert, Undo2,
 } from 'lucide-vue-next';
 import { criticalFlag } from '@/utilities/criticalRanges';
 import { cn } from '@/lib/cn';
@@ -28,8 +27,12 @@ import {
 
 /**
  * ADR-213 — la saisie d'une analyse demandée : une ligne par analyse du
- * catalogue de la prestation, enregistrée d'elle-même. « Terminer » la rend
- * aux prescripteurs ; le biologiste la valide ou la renvoie avec un motif.
+ * catalogue de la prestation, enregistrée d'elle-même.
+ *
+ * ADR-216 — « Envoyer au médecin » la rend au prescripteur et la valide en un
+ * geste : il n'y a plus de biologiste distinct. La fenêtre d'envoi appartient à
+ * la page (elle peut envoyer plusieurs analyses) ; l'éditeur lui passe la main
+ * une fois sa saisie enregistrée.
  */
 const props = defineProps({
     item: { type: Object, required: true },
@@ -42,6 +45,7 @@ const props = defineProps({
     requestUuid: { type: String, default: '' },
     externalLabs: { type: Array, default: () => [] },
 });
+const emit = defineEmits(['send']);
 
 const page = usePage();
 const writable = computed(() => props.item.editable && props.can.enter && !props.cancelled && props.received);
@@ -102,8 +106,7 @@ const cancelSendOut = () => {
 // montrés verrouillés plutôt que masqués (ADR-158).
 const portalGestures = computed(() => {
     if (!props.can.site_only || props.cancelled || !props.received) return [];
-    if (props.item.status === 'COMPLETED') return [{ label: 'Valider', variant: 'success' }];
-    if (props.item.editable && props.item.has_definitions) return [{ label: 'Terminer l’analyse', variant: 'default' }];
+    if (props.item.status === 'COMPLETED' || (props.item.editable && props.item.has_definitions)) return [{ label: 'Envoyer au médecin', variant: 'default' }];
 
     return [];
 });
@@ -118,25 +121,16 @@ const toggleCritical = (node) => {
     router.post(labUrl(`/laboratory/results/${node.result.uuid}/critical`), { critical: !node.result.is_critical }, { preserveScroll: true, preserveState: true });
 };
 
-// Terminer
-const completing = ref(false);
-const confirmComplete = ref(false);
-const complete = () => {
-    completing.value = true;
-    autosave.flush(() => {
-        router.post(labUrl(`/laboratory/items/${props.item.uuid}/complete`), {}, {
-            preserveScroll: true,
-            onFinish: () => { completing.value = false; confirmComplete.value = false; },
-        });
-    }, () => { completing.value = false; confirmComplete.value = false; });
+// ADR-216 — envoyer au médecin : la saisie en cours part d'abord, puis la page
+// ouvre sa fenêtre d'envoi sur ce qui est réellement enregistré.
+const preparing = ref(false);
+const canSend = computed(() => props.can.send && !props.cancelled && props.received
+    && (props.item.status === 'COMPLETED' || (props.item.editable && props.item.has_definitions)));
+const send = () => {
+    preparing.value = true;
+    autosave.flush(() => { preparing.value = false; emit('send', props.item.uuid); }, () => { preparing.value = false; });
 };
-
-// Valider
-const validating = ref(false);
-const validate = () => {
-    validating.value = true;
-    router.post(labUrl(`/laboratory/items/${props.item.uuid}/validate`), {}, { preserveScroll: true, onFinish: () => { validating.value = false; } });
-};
+defineExpose({ flush: (done, onError) => autosave.flush(done, onError) });
 
 // Renvoyer
 const returnOpen = ref(false);
@@ -146,8 +140,8 @@ const sendBack = () => returnForm.post(labUrl(`/laboratory/items/${props.item.uu
     onSuccess: () => { returnOpen.value = false; returnForm.reset(); },
 });
 const canReturn = computed(() => !props.cancelled && (
-    (props.item.status === 'COMPLETED' && (props.can.validate || props.can.enter))
-    || (props.item.status === 'VALIDATED' && props.can.validate)));
+    (props.item.status === 'COMPLETED' && (props.can.send || props.can.enter))
+    || (props.item.status === 'VALIDATED' && props.can.send)));
 
 // Résultat en une fois (analyse sans définition au catalogue)
 const legacy = useForm({ result_value: '', result_notes: '' });
@@ -157,7 +151,7 @@ const anteriorityText = (node) => {
     const previous = node.anteriority;
     if (!previous) return null;
     const value = resultText({ ...node, result: { value: previous.value, selections: previous.selections } }, props.options);
-    return `${value}${previous.unit ? ` ${previous.unit}` : ''} — ${formatDateTime(previous.resulted_at)}${previous.validated ? '' : ' (non validé)'}`;
+    return `${value}${previous.unit ? ` ${previous.unit}` : ''} — ${formatDateTime(previous.resulted_at)}${previous.validated ? '' : ' (non envoyé)'}`;
 };
 </script>
 
@@ -186,7 +180,7 @@ const anteriorityText = (node) => {
             <p class="flex gap-2">
                 <Building2 class="mt-0.5 h-4 w-4 shrink-0" />
                 <span>Confiée à <strong>{{ item.sent_out.laboratory }}</strong><template v-if="item.sent_out.at"> le {{ formatDateTime(item.sent_out.at) }}</template><template v-if="item.sent_out.by"> par {{ item.sent_out.by }}</template><template v-if="item.sent_out.reference"> · réf. {{ item.sent_out.reference }}</template>.
-                    Saisissez ici le résultat reçu : le biologiste valide la transcription.</span>
+                    Saisissez ici le résultat reçu, puis envoyez-le au médecin.</span>
             </p>
             <span class="flex gap-1">
                 <Button v-if="requestUuid" :as="Link" :href="labUrl(`/laboratory/requests/${requestUuid}/bon-envoi`)" size="xs" variant="outline"><FileText class="h-3.5 w-3.5" /> Bon d’envoi</Button>
@@ -201,11 +195,11 @@ const anteriorityText = (node) => {
         </div>
         <div v-else-if="item.status === 'COMPLETED'" class="flex gap-2 border-b border-border bg-primary/5 px-4 py-2.5 text-sm text-foreground">
             <CheckCheck class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-            <p>Terminée<template v-if="item.resulted_by"> par {{ item.resulted_by }}</template><template v-if="item.resulted_at">, {{ formatDateTime(item.resulted_at) }}</template> — elle attend la validation du biologiste.</p>
+            <p>Résultat rendu<template v-if="item.resulted_by"> par {{ item.resulted_by }}</template><template v-if="item.resulted_at">, {{ formatDateTime(item.resulted_at) }}</template> — il n’est pas encore envoyé au médecin.</p>
         </div>
         <div v-else-if="item.status === 'VALIDATED'" class="flex gap-2 border-b border-border bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
             <BadgeCheck class="mt-0.5 h-4 w-4 shrink-0" />
-            <p>Validée<template v-if="item.validated_by"> par {{ item.validated_by }}</template><template v-if="item.validated_at">, {{ formatDateTime(item.validated_at) }}</template>. Elle ne se modifie plus.</p>
+            <p>Envoyée au médecin<template v-if="item.validated_by"> par {{ item.validated_by }}</template><template v-if="item.validated_at">, {{ formatDateTime(item.validated_at) }}</template>. Elle ne se modifie plus ; une erreur se corrige par « Renvoyer à refaire ».</p>
         </div>
         <div v-if="!writable && item.editable && !cancelled && !can.enter" class="flex gap-2 border-b border-border px-4 py-2.5 text-xs text-muted-foreground">
             <Lock class="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -333,7 +327,7 @@ const anteriorityText = (node) => {
                     <Textarea v-model="legacy.result_notes" rows="2" />
                 </FormField>
                 <p v-if="legacy.errors.item" class="text-sm text-destructive">{{ legacy.errors.item }}</p>
-                <Button type="submit" :disabled="legacy.processing || !legacy.result_value.trim()"><CheckCheck class="h-4 w-4" /> Rendre le résultat</Button>
+                <Button type="submit" :disabled="legacy.processing || !legacy.result_value.trim()"><CheckCheck class="h-4 w-4" /> Enregistrer le résultat</Button>
             </form>
             <p v-else class="text-sm text-muted-foreground">Aucun résultat saisi.</p>
         </div>
@@ -346,30 +340,19 @@ const anteriorityText = (node) => {
         </div>
 
         <!-- Gestes -->
-        <footer v-if="!cancelled && (writable && item.has_definitions || (item.status === 'COMPLETED' && can.validate) || canReturn || canSendOut || portalGestures.length)" class="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-muted/30 px-4 py-3">
+        <footer v-if="!cancelled && (canSend || canReturn || canSendOut || portalGestures.length)" class="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-muted/30 px-4 py-3">
             <Button v-if="canSendOut" type="button" variant="ghost" class="me-auto" @click="openSendOut">
                 <Send class="h-4 w-4" /> Envoyer à un laboratoire extérieur
             </Button>
             <Button v-if="canReturn" type="button" variant="outline" @click="returnOpen = true">
-                <RotateCcw class="h-4 w-4" /> {{ item.status === 'VALIDATED' ? 'Rouvrir (à refaire)' : 'Renvoyer à refaire' }}
+                <RotateCcw class="h-4 w-4" /> {{ item.status === 'VALIDATED' ? 'Reprendre (à refaire)' : 'Renvoyer à refaire' }}
             </Button>
-            <Button v-if="item.status === 'COMPLETED' && can.validate" type="button" variant="success" :disabled="validating" @click="validate">
-                <BadgeCheck class="h-4 w-4" /> Valider
-            </Button>
-            <Button v-if="writable && item.has_definitions" type="button" :disabled="completing || filled === 0" @click="confirmComplete = true">
-                <CheckCheck class="h-4 w-4" /> Terminer l’analyse
+            <Button v-if="canSend" type="button" :disabled="preparing || (item.status !== 'COMPLETED' && filled === 0)" @click="send">
+                <SendHorizontal class="h-4 w-4" /> Envoyer au médecin
             </Button>
             <LabSiteOnlyAction v-for="gesture in portalGestures" :key="gesture.label" :label="gesture.label" :variant="gesture.variant" />
         </footer>
 
-        <ConfirmModal
-            v-model:open="confirmComplete"
-            title="Terminer l’analyse ?"
-            :description="`« ${item.name} » sera rendue aux prescripteurs et attendra la validation du biologiste. La saisie se ferme.`"
-            confirm-label="Terminer"
-            :processing="completing"
-            @confirm="complete"
-        />
 
         <Dialog v-model:open="sendOutOpen" title="Envoyer à un laboratoire extérieur" :description="`« ${item.name} » sera réalisée ailleurs ; son résultat se transcrit ici à réception, puis se valide.`" :dismissible="false">
             <div class="space-y-4">
@@ -390,7 +373,7 @@ const anteriorityText = (node) => {
             </template>
         </Dialog>
 
-        <Dialog v-model:open="returnOpen" title="Renvoyer à refaire" :description="`« ${item.name} » repasse à la paillasse avec votre motif.`" :dismissible="false">
+        <Dialog v-model:open="returnOpen" title="Renvoyer à refaire" :description="item.status === 'VALIDATED' ? `« ${item.name} » repasse à la paillasse avec votre motif. Le médecin destinataire est prévenu que ce résultat est repris.` : `« ${item.name} » repasse à la paillasse avec votre motif.`" :dismissible="false">
             <FormField label="Motif" :error="returnForm.errors.reason" required>
                 <Textarea v-model="returnForm.reason" rows="3" placeholder="Ex. valeur incohérente, prélèvement hémolysé…" />
             </FormField>

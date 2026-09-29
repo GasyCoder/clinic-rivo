@@ -70,7 +70,7 @@ const otherSites = computed(() => (context.value?.sites ?? []).filter((site) => 
 
         <p class="flex items-start gap-2 px-1 text-xs text-muted-foreground">
             <Hand class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>Réceptionner, prélever, saisir, terminer, valider, renvoyer, signaler un critique, confier à l’extérieur et conclure se font au laboratoire du site, par la personne qui a le prélèvement sous les yeux : ces boutons sont montrés verrouillés ici.</span>
+            <span>Réceptionner, prélever, saisir, envoyer au médecin, renvoyer à refaire, signaler un critique, confier à l’extérieur et conclure se font au laboratoire du site, par la personne qui a le prélèvement sous les yeux : ces boutons sont montrés verrouillés ici.</span>
         </p>
     </nav>
 </template>

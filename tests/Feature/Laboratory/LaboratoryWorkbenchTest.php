@@ -8,6 +8,7 @@ use App\Models\LabAntibiotic;
 use App\Models\LabBacterium;
 use App\Models\LabBacteriumFamily;
 use App\Models\LabResult;
+use App\Models\Permission;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia;
 use Tests\Feature\Laboratory\Concerns\BuildsLabBench;
@@ -110,6 +111,50 @@ class LaboratoryWorkbenchTest extends TestCase
         $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/return", ['reason' => ''])->assertSessionHasErrors('reason');
         $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/return", ['reason' => 'Prélèvement hémolysé'])->assertSessionHasNoErrors();
 
+        $this->assertSame(LabItemStatus::ToRedo, $item->fresh()->currentStatus());
+    }
+
+    /**
+     * Amendement ADR-216 du 2026-09-29 — « Renvoyer à refaire » a son propre droit,
+     * réglé depuis le portail : sans lui, le serveur refuse et l'écran le dit.
+     */
+    public function test_sending_back_needs_its_own_permission_even_for_the_technician(): void
+    {
+        $technician = $this->userWithRole('LABORATORY');
+        [$episode, $orientation] = $this->episodeWithLabOrientation($technician);
+        $nfs = $this->prestation($technician);
+        $request = $this->labRequest($episode, $orientation, $technician);
+        $item = $this->requestItem($request, $nfs, [
+            'status' => LabItemStatus::Validated, 'resulted_at' => now(), 'sent_at' => now(),
+            'validated_at' => now(), 'result_value' => 'Normal',
+        ]);
+
+        $this->assertTrue($technician->can('laboratory_results.return'), 'Le socle LABORATORY porte le droit.');
+        $this->actingAs($technician)->get("/laboratory/requests/{$request->uuid}")
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('can.return', true));
+
+        $technician->permissions()->syncWithoutDetaching([
+            Permission::query()->where('name', 'laboratory_results.return')->value('id') => ['effect' => 'deny'],
+        ]);
+        $technician = $technician->fresh();
+
+        $this->actingAs($technician)->get("/laboratory/requests/{$request->uuid}")
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('can.return', false));
+        // Saisir et envoyer ne suffisent plus : le droit se règle seul.
+        $this->assertTrue($technician->can('laboratory_results.create'));
+        $this->assertTrue($technician->can('laboratory_results.validate'));
+        $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/return", ['reason' => 'Valeur à contrôler'])
+            ->assertForbidden();
+        $this->assertSame(LabItemStatus::Validated, $item->fresh()->currentStatus());
+
+        // Accordé seul, à un compte qui ne saisit pas, il suffit à reprendre l'analyse.
+        $doctor = $this->userWithRole('MEDICINE');
+        $doctor->permissions()->syncWithoutDetaching([
+            Permission::query()->where('name', 'laboratory_results.view')->value('id') => ['effect' => 'allow'],
+            Permission::query()->where('name', 'laboratory_results.return')->value('id') => ['effect' => 'allow'],
+        ]);
+        $this->actingAs($doctor->fresh())->post("/laboratory/items/{$item->uuid}/return", ['reason' => 'Valeur à contrôler'])
+            ->assertSessionHasNoErrors();
         $this->assertSame(LabItemStatus::ToRedo, $item->fresh()->currentStatus());
     }
 

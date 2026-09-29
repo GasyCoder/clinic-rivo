@@ -20816,6 +20816,30 @@ chaque site et sur le portail.
 - Pas d'envoi au patient (labo-vuejs le fait) : aucun canal n'est défini.
 - Une demande antérieure déjà validée reste lisible sans confirmation : elle n'a pas de destinataire.
 
+
+## Amendement du 2026-09-29 — « Renvoyer à refaire » a son propre droit
+
+Question du propriétaire : le bouton existe-t-il côté technicien, et se règle-t-il depuis le portail ? Il
+existait (« Renvoyer à refaire » / « Reprendre (à refaire) », au pied d'une analyse terminée ou envoyée), mais
+**sans droit propre** : il suivait `laboratory_results.create` pour une analyse terminée et
+`laboratory_results.validate` pour une analyse envoyée — impossible à accorder ou retirer seul, et masqué sans
+explication quand le droit manquait.
+
+```text
+droit        laboratory_results.return — « Renvoyer une analyse à refaire (terminée ou déjà envoyée
+             au médecin) », réglé dans « Rôles & permissions » › Résultats d'analyses
+serveur      route `can:laboratory_results.return` et ReturnLabItemAction::PERMISSION revérifié ; saisir
+             ou envoyer ne suffisent plus ; les règles d'état (terminée ou envoyée, motif, médecin
+             prévenu) ne changent pas
+écran        `can.return` servi par le serveur ; sans lui le bouton reste visible, verrouillé, avec le
+             droit à demander (ADR-158) ; sur le portail, verrouillé : c'est un geste du site (ADR-215)
+reprise      migration 2026_11_21_090000 : accordé aux rôles qui détenaient `.create` ou `.validate`, et
+             aux comptes qui les avaient en ALLOW ; un DENY n'est pas recopié. Le Super Admin le reçoit
+             à la migration du portail (ADR-186)
+```
+
+Conséquence signalée : un rôle dont le socle porte `laboratory_results.create` par décision du portail (NURSE
+sur un site local) garde le droit de renvoyer, comme avant ; le retirer est une décision du portail.
 ---
 
 # ADR-217 — Le technicien traite la demande tout de suite : ni réception préalable, ni règlement qui bloque

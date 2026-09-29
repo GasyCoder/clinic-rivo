@@ -223,6 +223,9 @@ class LaboratoryController extends Controller
             'can' => [
                 'enter' => $gesture('laboratory_results.create'),
                 'send' => $canSend,
+                // Amendement du 2026-09-29 — « Renvoyer à refaire » a son droit propre ;
+                // sans lui, le bouton reste visible et verrouillé, avec le droit à demander.
+                'return' => $gesture(ReturnLabItemAction::PERMISSION),
                 'flag_critical' => $gesture('laboratory_results.flag_critical'),
                 'microbiology' => $user->can('lab_microbiology.view'),
                 'receive' => $gesture('laboratory_orders.receive'),

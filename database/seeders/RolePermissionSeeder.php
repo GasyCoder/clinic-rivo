@@ -323,7 +323,7 @@ class RolePermissionSeeder extends Seeder
             'webmail.view',
             'paraclinical_requests.view',
             'laboratory_orders.view', 'laboratory_results.view', 'laboratory_results.create',
-            'laboratory_results.validate', 'laboratory_results.flag_critical',
+            'laboratory_results.validate', 'laboratory_results.flag_critical', 'laboratory_results.return',
             'lab_microbiology.view', 'lab_microbiology.create', 'lab_microbiology.update',
             'lab_microbiology.archive', 'lab_microbiology.restore',
             // ADR-214

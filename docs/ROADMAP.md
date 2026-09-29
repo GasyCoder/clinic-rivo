@@ -486,6 +486,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Laboratoire d'un site lisible depuis le portail (file, demandes, résultats, paillasse, historique, rapports) et ses référentiels gérés (prélèvements & tubes, microbiologie), par l'API du site ; gestes cliniques refusés au portail et montrés verrouillés (ADR-215)
 - [x] Plus de biologiste distinct : le technicien envoie les résultats au médecin, l'envoi les valide ; prescripteur proposé, destinataire choisi pour une demande de l'accueil, « Aucun médecin » pour un patient externe ; notification et correction tracées (ADR-216)
 - [x] Le médecin ne voit que les résultats envoyés ; un résultat adressé à un confrère s'ouvre après confirmation, tracée à l'audit (ADR-216)
+- [x] « Renvoyer à refaire » gouverné par son propre droit `laboratory_results.return`, réglable depuis « Rôles & permissions » ; bouton verrouillé avec le droit à demander ; accès existant repris par migration (ADR-216, amendement du 2026-09-29)
 - [x] Note par ligne d'analyse (groupes compris), conclusion de chaque analyse et conclusion générale, comme labo-vuejs (ADR-218)
 - [x] Compte rendu de résultats en PDF produit par le serveur : sections par discipline, Résultat · Val. réf. · Antériorité, notes, provisoire ; montré, imprimé et téléchargé depuis la page ; version du médecin limitée à l'envoyé (ADR-218)
 - [x] Paillasse refaite façon labo-vuejs en shadcn : « Tâche(s) à traiter », une carte par ligne (mode, norme, résultat, interprétation), pied collant (ADR-219)

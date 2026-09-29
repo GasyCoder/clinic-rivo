@@ -14,10 +14,9 @@ use Illuminate\Validation\ValidationException;
 /**
  * ADR-213 / ADR-216 — renvoyer une analyse à refaire, avec un motif.
  *
- *   rendue, pas envoyée → à refaire   qui saisit (`laboratory_results.create`) ou
- *                                      qui envoie (`laboratory_results.validate`)
- *   envoyée → à refaire                qui envoie seul : c'est revenir sur un
- *                                      résultat que le médecin a pu lire
+ * Une analyse rendue ou déjà envoyée au médecin se reprend avec un seul droit,
+ * `laboratory_results.return`, que le Super Administrateur accorde ou retire
+ * depuis « Rôles & permissions » (amendement du 2026-09-29).
  *
  * Le résultat rendu reste lisible jusqu'au prochain envoi — il a pu être lu, et
  * le retirer ferait croire qu'il n'a jamais existé. L'état « À refaire » le dit
@@ -25,6 +24,8 @@ use Illuminate\Validation\ValidationException;
  */
 class ReturnLabItemAction
 {
+    public const PERMISSION = 'laboratory_results.return';
+
     public function execute(LabRequestItem $item, string $reason, User $actor): LabRequestItem
     {
         $reason = trim($reason);
@@ -36,19 +37,13 @@ class ReturnLabItemAction
             $locked = LabItemGuard::lock($item);
             $status = $locked->currentStatus();
 
-            $allowed = match ($status) {
-                LabItemStatus::Completed => $actor->can('laboratory_results.validate') || $actor->can('laboratory_results.create'),
-                LabItemStatus::Validated => $actor->can('laboratory_results.validate'),
-                default => null,
-            };
-
-            if ($allowed === null) {
+            if (! in_array($status, [LabItemStatus::Completed, LabItemStatus::Validated], true)) {
                 throw ValidationException::withMessages(['reason' => 'Seule une analyse rendue ou envoyée se renvoie à refaire.']);
             }
-            if (! $allowed) {
-                throw new AuthorizationException($status === LabItemStatus::Validated
-                    ? 'Revenir sur une analyse envoyée au médecin demande le droit « laboratory_results.validate ».'
-                    : 'Reprendre cette analyse demande le droit « laboratory_results.create ».');
+            // ADR-216, amendement du 2026-09-29 — un droit propre, réglé depuis le
+            // portail : il ne se déduit plus de la saisie ni de l'envoi.
+            if (! $actor->can(self::PERMISSION)) {
+                throw new AuthorizationException('Renvoyer une analyse à refaire demande le droit « '.self::PERMISSION.' ».');
             }
 
             $locked->update([

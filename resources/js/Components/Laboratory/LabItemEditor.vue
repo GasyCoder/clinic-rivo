@@ -185,9 +185,14 @@ const sendBack = () => returnForm.post(labUrl(`/laboratory/items/${props.item.uu
     preserveScroll: true,
     onSuccess: () => { returnOpen.value = false; returnForm.reset(); },
 });
-const canReturn = computed(() => !props.cancelled && (
-    (props.item.status === 'COMPLETED' && (props.can.send || props.can.enter))
-    || (props.item.status === 'VALIDATED' && props.can.send)));
+// Amendement ADR-216 du 2026-09-29 — un droit propre (`laboratory_results.return`),
+// réglé depuis le portail. Sans lui, le bouton reste visible et verrouillé (ADR-158).
+const returnable = computed(() => !props.cancelled && ['COMPLETED', 'VALIDATED'].includes(props.item.status));
+const canReturn = computed(() => returnable.value && Boolean(props.can.return));
+const returnLocked = computed(() => returnable.value && !props.can.return);
+const returnLockedReason = computed(() => (props.can.site_only
+    ? 'Renvoyer à refaire se fait au site, par la personne qui a le prélèvement.'
+    : 'Renvoyer à refaire demande le droit « laboratory_results.return », à demander à un administrateur.'));
 
 // Résultat en une fois (analyse sans définition au catalogue)
 const legacy = useForm({ result_value: '', result_notes: '' });
@@ -450,7 +455,7 @@ const anteriorityText = (node) => {
 
         <!-- Gestes : l'état de l'enregistrement à gauche, les actions à droite -->
         <footer
-            v-if="!cancelled && (writable || canSend || canReturn || canSendOut || portalGestures.length)"
+            v-if="!cancelled && (writable || canSend || canReturn || returnLocked || canSendOut || portalGestures.length)"
             class="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80"
         >
             <div class="me-auto flex flex-wrap items-center gap-2">
@@ -462,6 +467,11 @@ const anteriorityText = (node) => {
             <Button v-if="canReturn" type="button" size="sm" variant="outline" @click="returnOpen = true">
                 <RotateCcw class="h-4 w-4" /> {{ item.status === 'VALIDATED' ? 'Reprendre (à refaire)' : 'Renvoyer à refaire' }}
             </Button>
+            <span v-else-if="returnLocked" class="inline-flex" :title="returnLockedReason">
+                <Button type="button" size="sm" variant="outline" disabled :aria-label="`Renvoyer à refaire — ${returnLockedReason}`">
+                    <Lock class="h-4 w-4" /> {{ item.status === 'VALIDATED' ? 'Reprendre (à refaire)' : 'Renvoyer à refaire' }}
+                </Button>
+            </span>
             <Button v-if="writable && item.has_definitions" type="button" size="sm" variant="outline" :disabled="autosave.saving.value || !form.isDirty" @click="saveNow">
                 <Save class="h-4 w-4" /> Enregistrer
             </Button>

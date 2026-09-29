@@ -7,6 +7,7 @@ use App\Models\CashMovement;
 use App\Models\CashRegister;
 use App\Models\CashSession;
 use App\Support\Money;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
 class CashRegisterProfileService
@@ -34,14 +35,22 @@ class CashRegisterProfileService
             : collect();
         $allMovements = CashMovement::query()
             ->whereHas('cashSession', fn ($query) => $query->where('cash_register_id', $register->getKey()))
-            ->get(['direction', 'amount', 'affects_cash_balance']);
+            ->with('method:id,name')
+            ->get(['id', 'payment_method_id', 'direction', 'amount', 'affects_cash_balance', 'occurred_at']);
 
-        $register->loadCount('sessions');
+        $register->loadCount('sessions')->loadMissing('assignedUser:id,uuid,name,active,deactivated_at');
 
         return [
             'register' => [
                 'uuid' => $register->uuid,
                 'name' => $register->name,
+                'color' => $register->color,
+                'opening_fund_amount' => $register->opening_fund_amount,
+                'assigned_user' => $register->assignedUser ? [
+                    'uuid' => $register->assignedUser->uuid,
+                    'name' => $register->assignedUser->name,
+                    'active' => $register->assignedUser->isActive(),
+                ] : null,
                 'active' => (bool) $register->active,
                 'archived' => $register->trashed(),
                 'sessions_count' => (int) $register->sessions_count,
@@ -69,6 +78,57 @@ class CashRegisterProfileService
                     ->count(),
                 ...$this->movementTotals($allMovements),
             ],
+            'analytics' => $this->analytics($allMovements),
+        ];
+    }
+
+    /** @param Collection<int, CashMovement> $movements
+     * @return array<string, mixed>
+     */
+    private function analytics(Collection $movements): array
+    {
+        $start = CarbonImmutable::today()->subDays(29);
+        $dates = collect(range(0, 29))->map(fn (int $offset) => $start->addDays($offset)->toDateString());
+        $recent = $movements->filter(fn (CashMovement $movement) => $movement->occurred_at?->greaterThanOrEqualTo($start));
+
+        $amountFor = function (string $date, string $direction) use ($recent): float {
+            $minor = $recent
+                ->filter(fn (CashMovement $movement) => $movement->direction === $direction
+                    && $movement->occurred_at?->toDateString() === $date)
+                ->sum(fn (CashMovement $movement) => Money::toMinor($movement->amount));
+
+            return $minor / 100;
+        };
+
+        $incoming = $dates->map(fn (string $date) => $amountFor($date, 'IN'))->all();
+        $outgoing = $dates->map(fn (string $date) => $amountFor($date, 'OUT'))->all();
+
+        $byMethod = $recent
+            ->where('direction', 'IN')
+            ->groupBy(fn (CashMovement $movement) => $movement->payment_method_id ?: 'other')
+            ->map(function (Collection $rows, int|string $key): array {
+                $first = $rows->first();
+
+                return [
+                    'key' => (string) $key,
+                    'label' => $first?->method?->name ?? 'Autre mouvement',
+                    'value' => $rows->sum(fn (CashMovement $movement) => Money::toMinor($movement->amount)) / 100,
+                ];
+            })
+            ->sortByDesc('value')
+            ->values()
+            ->all();
+
+        return [
+            'period_days' => 30,
+            'trend' => [
+                'dates' => $dates->all(),
+                'series' => [
+                    ['key' => 'incoming', 'label' => 'Entrées', 'tone' => 'green', 'values' => $incoming, 'total' => array_sum($incoming)],
+                    ['key' => 'outgoing', 'label' => 'Sorties / annulations', 'tone' => 'yellow', 'values' => $outgoing, 'total' => array_sum($outgoing)],
+                ],
+            ],
+            'payment_methods' => $byMethod,
         ];
     }
 

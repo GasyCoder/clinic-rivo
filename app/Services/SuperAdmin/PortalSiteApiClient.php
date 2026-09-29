@@ -256,9 +256,9 @@ class PortalSiteApiClient
     }
 
     /** @return array<string, mixed> */
-    public function createCashRegister(string $siteCode, string $name, User $actor): array
+    public function createCashRegister(string $siteCode, array $data, User $actor): array
     {
-        return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers', ['name' => $name], $actor);
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers', $data, $actor);
     }
 
     /** @return array<string, mixed> */
@@ -268,9 +268,9 @@ class PortalSiteApiClient
     }
 
     /** @return array<string, mixed> */
-    public function updateCashRegister(string $siteCode, string $uuid, string $name, User $actor): array
+    public function updateCashRegister(string $siteCode, string $uuid, array $data, User $actor): array
     {
-        return $this->request($this->site($siteCode), 'PUT', 'super-admin/cash-registers/'.$uuid, ['name' => $name], $actor);
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/cash-registers/'.$uuid, $data, $actor);
     }
 
     /** @return array<string, mixed> */

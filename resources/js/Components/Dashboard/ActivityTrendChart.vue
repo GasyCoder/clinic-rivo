@@ -17,6 +17,9 @@ const props = defineProps({
     /** Ce que dit un graphique vide ; par défaut, celui de la vue d'ensemble (sept jours). */
     emptyTitle: { type: String, default: 'Aucune activité sur les 7 derniers jours' },
     emptyDescription: { type: String, default: 'La courbe apparaîtra dès le premier passage, patient ou encaissement enregistré.' },
+    format: { type: Function, default: (value) => new Intl.NumberFormat('fr-FR').format(value) },
+    axisFormat: { type: Function, default: null },
+    unitDescription: { type: String, default: 'patients ou enregistrements autorisés' },
 });
 
 const chart = {
@@ -206,7 +209,7 @@ const color = (tone) => colors[tone] ?? colors.navy;
                 >
                     <span class="h-2 w-2 rounded-full" :style="{ backgroundColor: hidden.has(item.key) ? '#cbd5e1' : color(item.tone) }"></span>
                     {{ item.label }}
-                    <strong class="font-heading tabular-nums text-foreground">{{ item.total }}</strong>
+                    <strong class="font-heading tabular-nums text-foreground">{{ format(item.total) }}</strong>
                 </Button>
                 <span v-if="hasActivity && allSeries.length > 1" class="ms-auto hidden text-[11px] text-muted-foreground lg:inline">Cliquez une activité pour la masquer</span>
             </div>
@@ -221,7 +224,7 @@ const color = (tone) => colors[tone] ?? colors.navy;
                     aria-labelledby="activity-chart-title activity-chart-description"
                 >
                     <title id="activity-chart-title">{{ viewMode === 'bars' ? 'Histogramme' : 'Courbes' }} de l’activité : {{ title }}</title>
-                    <desc id="activity-chart-description">Chaque série présente le nombre quotidien de patients ou d’enregistrements autorisés.</desc>
+                    <desc id="activity-chart-description">Chaque série présente la valeur quotidienne : {{ unitDescription }}.</desc>
 
                     <g v-for="tick in yTicks" :key="`tick-${tick}`">
                         <line
@@ -238,7 +241,7 @@ const color = (tone) => colors[tone] ?? colors.navy;
                             :y="yPosition(tick) + 4"
                             text-anchor="end"
                             class="fill-muted-foreground text-[11px]"
-                        >{{ tick }}</text>
+                        >{{ axisFormat ? axisFormat(tick) : format(tick) }}</text>
                     </g>
 
                     <g v-for="(label, index) in dateLabels" :key="dates[index]">
@@ -264,7 +267,7 @@ const color = (tone) => colors[tone] ?? colors.navy;
                                 rx="2.5"
                                 class="opacity-90 transition-opacity hover:opacity-100"
                             >
-                                <title>{{ item.label }} · {{ dateLabels[dateIndex] }} : {{ value }}</title>
+                                <title>{{ item.label }} · {{ dateLabels[dateIndex] }} : {{ format(value) }}</title>
                             </rect>
                         </template>
                     </g>
@@ -290,7 +293,7 @@ const color = (tone) => colors[tone] ?? colors.navy;
                             stroke-width="2"
                             vector-effect="non-scaling-stroke"
                         >
-                            <title>{{ item.label }} · {{ dateLabels[index] }} : {{ value }}</title>
+                            <title>{{ item.label }} · {{ dateLabels[index] }} : {{ format(value) }}</title>
                         </circle>
                     </g>
                 </svg>

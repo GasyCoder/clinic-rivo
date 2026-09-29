@@ -1,29 +1,168 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import {
+    Archive, ArrowDown, ArrowUp, Check, CircleDollarSign, Eye, GripVertical,
+    LayoutGrid, List, Pencil, Plus, RotateCcw, Search, Server, ToggleLeft,
+    ToggleRight, UserRound, WalletCards,
+} from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
-import { Archive, Check, Eye, LayoutGrid, Pencil, Plus, RotateCcw, Search, Server, ToggleLeft, ToggleRight, Wallet, X } from 'lucide-vue-next';
+import Card from '@/Components/Shadcn/Card.vue';
+import Checkbox from '@/Components/Shadcn/Checkbox.vue';
+import Dialog from '@/Components/Shadcn/Dialog.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Select from '@/Components/Shadcn/Select.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { usePermissions } from '@/composables/usePermissions';
+import { formatMoney } from '@/utilities/money';
+import { mergeVisibleCardOrder, moveCard, normalizeCardOrder } from '@/utilities/sortableCards';
 
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({ sites: Array, filters: Object });
 const { can } = usePermissions();
-const selectedSiteCode = ref(props.sites.find((site) => site.ok)?.site.code ?? props.sites[0]?.site.code);
+const selectedSiteCode = ref(props.sites.find((site) => site.ok)?.site.code ?? props.sites[0]?.site.code ?? '');
 const showCreate = ref(false);
+const filterStatus = ref(props.filters.status ?? 'ACTIVE');
 const editing = ref(null);
 const archiving = ref(null);
 const configuringMethods = ref(null);
-const createForm = useForm({ site_code: selectedSiteCode.value, name: '' });
-const editForm = useForm({ name: '' });
+const viewMode = ref('grid');
+const registerOrders = ref({});
+const draggingUuid = ref(null);
+const movedUuid = ref(null);
+
+const VIEW_STORAGE_KEY = 'rivo.super-admin.cash-registers.view';
+const orderStorageKey = (siteCode) => `rivo.super-admin.cash-registers.order.${siteCode}`;
+
+const COLORS = ['#2563EB', '#0F766E', '#16A34A', '#D97706', '#DC2626', '#7C3AED', '#DB2777', '#475569'];
+const blankRegister = () => ({ name: '', color: COLORS[0], opening_fund_amount: '0', assigned_user_uuid: '' });
+const createForm = useForm({ site_code: selectedSiteCode.value, ...blankRegister() });
+const editForm = useForm(blankRegister());
 const archiveForm = useForm({ reason: '' });
 const methodsForm = useForm({ payment_method_uuids: [] });
 
 const selectedSite = computed(() => props.sites.find((site) => site.site.code === selectedSiteCode.value));
 const registers = computed(() => selectedSite.value?.data ?? []);
-// Tenders of the target site itself — the portal never assumes a list.
+const orderedRegisters = computed(() => {
+    const identifiers = registers.value.map((register) => register.uuid);
+    const order = normalizeCardOrder(registerOrders.value[selectedSiteCode.value], identifiers);
+
+    return order.map((uuid) => registers.value.find((register) => register.uuid === uuid)).filter(Boolean);
+});
 const siteMethods = computed(() => selectedSite.value?.meta?.payment_methods ?? []);
+const eligibleUsers = computed(() => selectedSite.value?.meta?.eligible_users ?? []);
+const userOptions = computed(() => [
+    { value: '', label: 'Sans titulaire — toute personne autorisée' },
+    ...eligibleUsers.value.map((user) => ({ value: user.uuid, label: user.name })),
+]);
+const editUserOptions = computed(() => {
+    const options = [...userOptions.value];
+    const holder = editing.value?.assigned_user;
+
+    if (holder && !options.some((option) => option.value === holder.uuid)) {
+        options.push({ value: holder.uuid, label: `${holder.name} — compte actuellement indisponible` });
+    }
+
+    return options;
+});
+const siteOptions = computed(() => props.sites.map((site) => ({
+    value: site.site.code,
+    label: site.ok ? site.site.name : `${site.site.name} — indisponible`,
+    disabled: !site.ok,
+})));
+const statusOptions = [
+    { value: 'ACTIVE', label: 'Caisses actives' },
+    { value: 'ARCHIVED', label: 'Caisses archivées' },
+    { value: 'ALL', label: 'Toutes les caisses' },
+];
+
+onMounted(() => {
+    try {
+        viewMode.value = localStorage.getItem(VIEW_STORAGE_KEY) === 'list' ? 'list' : 'grid';
+        registerOrders.value = Object.fromEntries(props.sites.map((site) => {
+            try {
+                return [site.site.code, JSON.parse(localStorage.getItem(orderStorageKey(site.site.code)))];
+            } catch {
+                return [site.site.code, []];
+            }
+        }));
+    } catch {
+        // Private browsing or disabled storage: controls still work for this visit.
+    }
+});
+
+const setViewMode = (mode) => {
+    viewMode.value = mode === 'list' ? 'list' : 'grid';
+    try { localStorage.setItem(VIEW_STORAGE_KEY, viewMode.value); } catch { /* preference remains in memory */ }
+};
+
+const persistOrder = () => {
+    try {
+        localStorage.setItem(orderStorageKey(selectedSiteCode.value), JSON.stringify(registerOrders.value[selectedSiteCode.value] ?? []));
+    } catch { /* preference remains in memory */ }
+};
+
+const applyVisibleOrder = (visibleOrder, persist = false) => {
+    registerOrders.value = {
+        ...registerOrders.value,
+        [selectedSiteCode.value]: mergeVisibleCardOrder(
+            registerOrders.value[selectedSiteCode.value],
+            visibleOrder,
+        ),
+    };
+
+    if (persist) persistOrder();
+};
+
+const moveRegister = (register, delta) => {
+    const current = orderedRegisters.value.map((item) => item.uuid);
+    const next = moveCard(current, register.uuid, current.indexOf(register.uuid) + delta);
+
+    if (next.join() === current.join()) return;
+
+    applyVisibleOrder(next, true);
+    movedUuid.value = register.uuid;
+    window.setTimeout(() => {
+        if (movedUuid.value === register.uuid) movedUuid.value = null;
+    }, 800);
+};
+
+const onDragStart = (event, register) => {
+    draggingUuid.value = register.uuid;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', register.uuid);
+};
+
+const onDragOver = (event, target) => {
+    if (!draggingUuid.value || draggingUuid.value === target.uuid) return;
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const current = orderedRegisters.value.map((register) => register.uuid);
+    applyVisibleOrder(moveCard(current, draggingUuid.value, current.indexOf(target.uuid)));
+};
+
+const onDragEnd = () => {
+    if (!draggingUuid.value) return;
+
+    movedUuid.value = draggingUuid.value;
+    draggingUuid.value = null;
+    persistOrder();
+    window.setTimeout(() => { movedUuid.value = null; }, 800);
+};
+
+const resetOrder = () => {
+    registerOrders.value = { ...registerOrders.value, [selectedSiteCode.value]: [] };
+    try { localStorage.removeItem(orderStorageKey(selectedSiteCode.value)); } catch { /* already reset in memory */ }
+};
+
+const isCustomOrder = computed(() => orderedRegisters.value
+    .some((register, index) => register.uuid !== registers.value[index]?.uuid));
+const registerPosition = (register) => orderedRegisters.value.findIndex((item) => item.uuid === register.uuid);
 
 const selectSite = (code) => {
     selectedSiteCode.value = code;
@@ -33,47 +172,55 @@ const selectSite = (code) => {
     configuringMethods.value = null;
 };
 
+const setCreateOpen = (open) => {
+    showCreate.value = open;
+    if (open) {
+        createForm.clearErrors();
+        Object.assign(createForm, { site_code: selectedSiteCode.value, ...blankRegister() });
+    }
+};
+
+const submitCreate = () => createForm.post('/super-admin/cash-registers', {
+    preserveScroll: true,
+    onSuccess: () => { showCreate.value = false; },
+});
+
+const startEdit = (register) => {
+    editForm.clearErrors();
+    Object.assign(editForm, {
+        name: register.name,
+        color: register.color ?? COLORS[0],
+        opening_fund_amount: register.opening_fund_amount ?? '',
+        assigned_user_uuid: register.assigned_user?.uuid ?? '',
+    });
+    editing.value = register;
+};
+
+const submitEdit = () => editForm.put(`/super-admin/cash-registers/${selectedSiteCode.value}/${editing.value.uuid}`, {
+    preserveScroll: true,
+    onSuccess: () => { editing.value = null; },
+});
+
 const openMethods = (register) => {
-    editing.value = null;
     methodsForm.clearErrors();
     methodsForm.payment_method_uuids = (register.accepted_payment_methods ?? []).map((method) => method.uuid);
     configuringMethods.value = register;
 };
-
-const toggleMethod = (uuid) => {
-    const selected = methodsForm.payment_method_uuids;
-    methodsForm.payment_method_uuids = selected.includes(uuid)
-        ? selected.filter((value) => value !== uuid)
-        : [...selected, uuid];
+const toggleMethod = (uuid, checked) => {
+    methodsForm.payment_method_uuids = checked
+        ? [...new Set([...methodsForm.payment_method_uuids, uuid])]
+        : methodsForm.payment_method_uuids.filter((value) => value !== uuid);
 };
-
 const submitMethods = () => methodsForm.put(
     `/super-admin/cash-registers/${selectedSiteCode.value}/${configuringMethods.value.uuid}/payment-methods`,
     { preserveScroll: true, onSuccess: () => { configuringMethods.value = null; } },
 );
 
-const applyFilters = (event) => {
-    const form = new FormData(event.currentTarget);
-    router.get('/super-admin/cash-registers', { search: form.get('search'), status: form.get('status') }, { preserveState: true, replace: true });
+const openArchive = (register) => {
+    archiving.value = register;
+    archiveForm.reset();
+    archiveForm.clearErrors();
 };
-
-const submitCreate = () => createForm.post('/super-admin/cash-registers', {
-    preserveScroll: true,
-    onSuccess: () => { createForm.reset('name'); showCreate.value = false; },
-});
-
-const startEdit = (register) => {
-    editing.value = register;
-    editForm.name = register.name;
-    editForm.clearErrors();
-};
-
-const submitEdit = () => editForm.put(`/super-admin/cash-registers/${selectedSiteCode.value}/${editing.value.uuid}`, {
-    preserveScroll: true,
-    onSuccess: () => { editing.value = null; editForm.reset(); },
-});
-
-const openArchive = (register) => { archiving.value = register; archiveForm.reset(); archiveForm.clearErrors(); };
 const submitArchive = () => archiveForm.delete(`/super-admin/cash-registers/${selectedSiteCode.value}/${archiving.value.uuid}`, {
     preserveScroll: true,
     onSuccess: () => { archiving.value = null; archiveForm.reset(); },
@@ -84,165 +231,185 @@ const toggleActive = (register) => router.post(
     {},
     { preserveScroll: true },
 );
+const applyFilters = (event) => {
+    const data = new FormData(event.currentTarget);
+    router.get('/super-admin/cash-registers', { search: data.get('search'), status: filterStatus.value }, { preserveState: true, replace: true });
+};
+
+const acceptedMethodsLabel = (register) => register.accepted_payment_methods?.length
+    ? register.accepted_payment_methods.map((method) => method.name).join(', ')
+    : 'Tous les modes actifs';
 </script>
 
 <template>
     <Head title="Caisses" />
 
-    <div class="w-full space-y-5">
-        <header class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div class="flex items-start gap-3">
-                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground dark:text-muted-foreground"><Wallet class="h-5 w-5" /></span>
+    <div class="mx-auto w-full max-w-[1540px] space-y-5">
+        <header class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div class="flex items-start gap-3.5">
+                <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15"><WalletCards class="h-5 w-5" /></span>
                 <div>
-                    <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Super Administration</p>
-                    <h1 class="mt-0.5 font-heading text-2xl font-bold text-foreground">Caisses nommées</h1>
-                    <p class="mt-1 text-sm text-muted-foreground">Chaque caisse nommée tient sa propre session, indépendamment des autres, et n’accepte que les modes de paiement qui lui sont affectés.</p>
+                    <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">Super Administration</p>
+                    <h1 class="mt-1 font-heading text-2xl font-bold tracking-tight text-foreground">Postes de caisse</h1>
+                    <p class="mt-1 max-w-3xl text-sm text-muted-foreground">Attribuez chaque caisse, fixez son fond initial et suivez son activité sans quitter le portail central.</p>
                 </div>
             </div>
-            <Button v-if="can('cash_registers.create')" size="rg" type="button" :disabled="!selectedSite?.ok" :title="selectedSite?.ok ? 'Ajouter une caisse' : 'Configurez et connectez l’API du site pour ajouter une caisse'" @click="showCreate = !showCreate"><component class="h-4.5 w-4.5" :is="showCreate ? X : Plus" />{{ showCreate ? 'Fermer' : 'Nouvelle caisse' }}</Button>
+            <Button v-if="can('cash_registers.create')" type="button" :disabled="!selectedSite?.ok" @click="setCreateOpen(true)"><Plus class="h-4 w-4" />Nouvelle caisse</Button>
         </header>
 
-        <form v-if="showCreate" class="rounded-lg border border-border bg-card p-5" @submit.prevent="submitCreate">
-            <div class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_auto] lg:items-end">
-                <div>
-                    <label class="mb-1.5 block text-sm font-medium text-foreground">Site <span class="text-red-500">*</span></label>
-                    <select v-model="createForm.site_code" class="h-10 w-full rounded border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary">
-                        <option v-for="site in sites" :key="site.site.code" :value="site.site.code" :disabled="!site.ok">{{ site.site.name }}{{ site.ok ? '' : ' — indisponible' }}</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="mb-1.5 block text-sm font-medium text-foreground">Nom de la caisse <span class="text-red-500">*</span></label>
-                    <input v-model="createForm.name" class="h-10 w-full rounded border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/25" placeholder="Ex. Caisse 2">
-                    <p v-if="createForm.errors.name" class="mt-1 text-xs text-red-600">{{ createForm.errors.name }}</p>
-                    <p v-if="createForm.errors.site_code" class="mt-1 text-xs text-red-600">{{ createForm.errors.site_code }}</p>
-                </div>
-                <Button size="rg" :disabled="createForm.processing"><Check class="h-4.5 w-4.5" />Enregistrer</Button>
-            </div>
-        </form>
-
-        <section class="overflow-hidden rounded-lg border border-border bg-card">
+        <Card class="overflow-hidden">
             <div class="flex flex-col gap-3 border-b border-border px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
-                <div class="inline-flex max-w-full gap-1 overflow-x-auto rounded bg-muted p-1">
-                    <button v-for="site in sites" :key="site.site.code" type="button" :class="['inline-flex shrink-0 items-center gap-2 rounded px-3 py-2 text-xs font-bold', selectedSiteCode === site.site.code ? 'bg-card text-foreground shadow-sm ' : 'text-muted-foreground']" @click="selectSite(site.site.code)">
-                        <span :class="['h-1.5 w-1.5 rounded-full', site.ok ? 'bg-emerald-500' : site.status === 'OFFLINE' || site.status === 'ERROR' ? 'bg-red-500' : 'bg-muted-foreground/40']" />{{ site.site.name }}<span v-if="site.ok" class="rounded bg-muted px-1.5 py-0.5 text-[10px]">{{ site.meta?.summary?.displayed ?? 0 }}</span>
+                <div class="inline-flex max-w-full gap-1 overflow-x-auto rounded-lg bg-muted p-1">
+                    <button v-for="site in sites" :key="site.site.code" type="button" :class="['inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-xs font-bold transition-colors', selectedSiteCode === site.site.code ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground']" @click="selectSite(site.site.code)">
+                        <span :class="['h-2 w-2 rounded-full', site.ok ? 'bg-emerald-500' : 'bg-red-500']" />
+                        {{ site.site.name }}
+                        <Badge v-if="site.ok" variant="outline" class="px-1.5 py-0 text-[10px]">{{ site.meta?.summary?.displayed ?? 0 }}</Badge>
                     </button>
                 </div>
-                <form class="flex flex-col gap-2 sm:flex-row" @submit.prevent="applyFilters">
-                    <label class="relative block sm:w-64"><Search class="pointer-events-none absolute inset-y-0 start-3 my-auto text-muted-foreground h-4.5 w-4.5" /><input name="search" :value="filters.search" type="search" class="h-9 w-full rounded border border-border bg-card ps-10 pe-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/25" placeholder="Rechercher une caisse"></label>
-                    <select name="status" :value="filters.status" class="h-9 rounded border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary"><option value="ACTIVE">Actives</option><option value="ARCHIVED">Archivées</option><option value="ALL">Toutes</option></select>
-                    <Button size="sm" variant="white-outline">Filtrer</Button>
+                <form class="grid gap-2 sm:grid-cols-[minmax(220px,320px)_190px_auto]" @submit.prevent="applyFilters">
+                    <label class="relative"><Search class="pointer-events-none absolute inset-y-0 start-3 my-auto h-4 w-4 text-muted-foreground" /><Input name="search" :model-value="filters.search ?? ''" type="search" class="ps-9" placeholder="Rechercher une caisse" /></label>
+                    <Select v-model="filterStatus" :options="statusOptions" />
+                    <Button variant="outline" type="submit">Filtrer</Button>
                 </form>
             </div>
 
-            <div v-if="!selectedSite?.ok" class="flex min-h-56 flex-col items-center justify-center px-6 py-10 text-center">
-                <span class="flex h-11 w-11 items-center justify-center rounded bg-muted text-muted-foreground"><Server class="h-5 w-5" /></span>
-                <h2 class="mt-3 text-sm font-bold text-foreground">Référentiel indisponible pour {{ selectedSite?.site.name }}</h2>
+            <div v-if="selectedSite?.ok && registers.length" class="flex flex-wrap items-center gap-3 border-b border-border bg-muted/10 px-4 py-2.5">
+                <p class="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
+                    <GripVertical class="h-4 w-4 shrink-0" />
+                    <span><strong class="font-semibold text-foreground">{{ registers.length }} caisse{{ registers.length > 1 ? 's' : '' }}</strong><template v-if="registers.length > 1"> · Glissez la poignée ou utilisez les flèches pour modifier l’ordre.</template></span>
+                </p>
+                <Button v-if="isCustomOrder" type="button" size="sm" variant="ghost" title="Rétablir l’ordre reçu du site" @click="resetOrder"><RotateCcw class="h-3.5 w-3.5" />Réinitialiser l’ordre</Button>
+                <div class="inline-flex shrink-0 rounded-lg bg-muted p-1" role="group" aria-label="Mode d’affichage des caisses">
+                    <button type="button" :aria-pressed="viewMode === 'grid'" :class="['inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-bold transition-colors', viewMode === 'grid' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground']" @click="setViewMode('grid')"><LayoutGrid class="h-4 w-4" />Grille</button>
+                    <button type="button" :aria-pressed="viewMode === 'list'" :class="['inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-bold transition-colors', viewMode === 'list' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground']" @click="setViewMode('list')"><List class="h-4 w-4" />Liste</button>
+                </div>
+            </div>
+
+            <div v-if="!selectedSite?.ok" class="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
+                <span class="grid h-12 w-12 place-items-center rounded-xl bg-muted text-muted-foreground"><Server class="h-5 w-5" /></span>
+                <h2 class="mt-3 text-sm font-bold text-foreground">{{ selectedSite?.site.name }} est indisponible</h2>
                 <p class="mt-1 max-w-lg text-xs leading-5 text-muted-foreground">{{ selectedSite?.message }}</p>
             </div>
 
-            <div v-else>
-                <div class="grid grid-cols-[minmax(0,1fr)_140px_100px_224px] border-b border-border bg-muted px-5 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    <span>Caisse et session</span><span>Référentiel</span><span class="text-end">Historique</span><span class="text-end">Actions</span>
-                </div>
-                <div v-for="register in registers" :key="register.uuid" class="grid grid-cols-[minmax(0,1fr)_140px_100px_224px] items-center border-b border-border px-5 py-3 last:border-0">
-                    <div v-if="editing?.uuid === register.uuid" class="me-4">
-                        <input v-model="editForm.name" class="h-9 w-full rounded border border-primary bg-card px-3 text-sm text-foreground outline-none ring-2 ring-ring/25">
-                        <p v-if="editForm.errors.name" class="mt-1 text-xs text-red-600">{{ editForm.errors.name }}</p>
+            <div v-else-if="registers.length" :class="['grid bg-muted/15 p-4', viewMode === 'grid' ? 'gap-4 md:grid-cols-2 2xl:grid-cols-3' : 'gap-2']">
+                <article
+                    v-for="register in orderedRegisters"
+                    :key="register.uuid"
+                    :class="[
+                        'group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition',
+                        viewMode === 'grid' ? 'hover:-translate-y-0.5 hover:shadow-md' : 'lg:grid lg:grid-cols-[minmax(0,1fr)_auto] hover:border-primary/30',
+                        draggingUuid === register.uuid ? 'scale-[0.99] opacity-45' : '',
+                        movedUuid === register.uuid ? 'ring-2 ring-primary/35' : '',
+                    ]"
+                    @dragover="onDragOver($event, register)"
+                    @drop.prevent
+                >
+                    <div class="absolute inset-x-0 top-0 h-1.5" :style="{ backgroundColor: register.color ?? COLORS[0] }" />
+                    <div :class="[viewMode === 'grid' ? 'flex-1 p-5 pt-6' : 'grid gap-4 p-4 pt-5 lg:grid-cols-[minmax(240px,0.9fr)_minmax(460px,1.6fr)] lg:items-center']">
+                        <div class="flex items-start justify-between gap-4">
+                            <div class="min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <Link :href="`/super-admin/cash-registers/${selectedSiteCode}/${register.uuid}`" class="truncate font-heading text-base font-bold text-foreground hover:text-primary">{{ register.name }}</Link>
+                                    <Badge v-if="register.archived" variant="outline">Archivée</Badge>
+                                    <Badge v-else-if="register.active" variant="success">Active</Badge>
+                                    <Badge v-else variant="warning">Inactive</Badge>
+                                </div>
+                                <p v-if="register.session" class="mt-2 text-xs font-medium text-foreground">{{ register.session.status === 'LOCKED' ? 'Session verrouillée' : 'Session ouverte' }} · {{ register.session.session_number }}</p>
+                                <p v-else class="mt-2 text-xs text-muted-foreground">Aucune session active</p>
+                                <p v-if="register.session" class="mt-1 text-[11px] text-muted-foreground">Ouverte par <strong class="text-foreground">{{ register.session.opened_by }}</strong></p>
+                                <p v-if="register.archived && register.archive_reason" class="mt-2 line-clamp-2 text-xs text-muted-foreground">{{ register.archive_reason }}</p>
+                            </div>
+                            <div class="flex shrink-0 items-center gap-0.5">
+                                <Button icon size="xs" variant="ghost" :disabled="registerPosition(register) === 0" :title="`Déplacer ${register.name} avant`" :aria-label="`Déplacer ${register.name} avant`" @click="moveRegister(register, -1)"><ArrowUp class="h-3.5 w-3.5" /></Button>
+                                <span
+                                    class="grid h-8 w-8 cursor-grab place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing"
+                                    draggable="true"
+                                    :title="`Déplacer ${register.name}`"
+                                    @dragstart="onDragStart($event, register)"
+                                    @dragend="onDragEnd"
+                                ><GripVertical class="h-4 w-4" /></span>
+                                <Button icon size="xs" variant="ghost" :disabled="registerPosition(register) === orderedRegisters.length - 1" :title="`Déplacer ${register.name} après`" :aria-label="`Déplacer ${register.name} après`" @click="moveRegister(register, 1)"><ArrowDown class="h-3.5 w-3.5" /></Button>
+                                <span class="ms-1 grid h-9 w-9 place-items-center rounded-xl bg-muted" :style="{ color: register.color ?? COLORS[0] }"><WalletCards class="h-4 w-4" /></span>
+                            </div>
+                        </div>
+
+                        <dl :class="['grid text-xs', viewMode === 'grid' ? 'mt-5 grid-cols-2 gap-3' : 'gap-2 sm:grid-cols-3']">
+                            <div class="rounded-lg bg-muted/60 p-3"><dt class="flex items-center gap-1.5 text-muted-foreground"><UserRound class="h-3.5 w-3.5" />Titulaire</dt><dd class="mt-1 truncate font-bold text-foreground">{{ register.assigned_user?.name ?? 'Non attribuée' }}</dd></div>
+                            <div class="rounded-lg bg-muted/60 p-3"><dt class="flex items-center gap-1.5 text-muted-foreground"><CircleDollarSign class="h-3.5 w-3.5" />Fond fixé</dt><dd class="mt-1 font-bold text-foreground">{{ register.opening_fund_amount === null ? 'Libre' : formatMoney(register.opening_fund_amount) }}</dd></div>
+                            <div :class="['rounded-lg bg-muted/60 p-3', viewMode === 'grid' ? 'col-span-2' : '']"><dt class="flex items-center gap-1.5 text-muted-foreground"><LayoutGrid class="h-3.5 w-3.5" />Modes acceptés</dt><dd class="mt-1 truncate font-bold text-foreground">{{ acceptedMethodsLabel(register) }}</dd></div>
+                        </dl>
                     </div>
-                    <div v-else>
-                        <Link :href="`/super-admin/cash-registers/${selectedSiteCode}/${register.uuid}`" class="font-bold text-foreground hover:text-primary dark:hover:text-primary">{{ register.name }}</Link>
-                        <p v-if="register.session" :class="['mt-1 border-s-2 ps-2 text-[11px] font-medium', register.session.status === 'LOCKED' ? 'border-amber-500 text-amber-700 dark:text-amber-300' : 'border-emerald-500 text-emerald-700 dark:text-emerald-300']">
-                            {{ register.session.status === 'LOCKED' ? 'Session verrouillée' : 'Session ouverte' }} · {{ register.session.session_number }} · {{ register.session.opened_by }}
-                        </p>
-                        <p v-else-if="!register.archived" class="mt-1 text-[11px] text-muted-foreground">Aucune session active</p>
-                        <p v-if="register.archived" class="mt-0.5 text-[11px] text-muted-foreground">{{ register.archive_reason }}</p>
-                        <p v-if="!register.archived" class="mt-1.5 flex flex-wrap items-center gap-1 text-[11px]">
-                            <span class="text-muted-foreground">Modes acceptés :</span>
-                            <template v-if="register.accepted_payment_methods?.length">
-                                <span v-for="method in register.accepted_payment_methods" :key="method.uuid" class="rounded bg-muted px-1.5 py-0.5 font-medium text-muted-foreground">{{ method.name }}</span>
+
+                    <footer :class="['flex items-center justify-between border-t border-border bg-muted/20 px-4 py-3', viewMode === 'list' ? 'lg:flex-col lg:justify-center lg:border-s lg:border-t-0' : '']">
+                        <span class="text-xs text-muted-foreground">{{ register.sessions_count }} session{{ register.sessions_count > 1 ? 's' : '' }}</span>
+                        <div class="flex items-center gap-1">
+                            <Button :as="Link" :href="`/super-admin/cash-registers/${selectedSiteCode}/${register.uuid}`" icon size="sm" variant="ghost" title="Voir les détails"><Eye class="h-4 w-4" /></Button>
+                            <template v-if="!register.archived">
+                                <Button v-if="can('cash_registers.update')" icon size="sm" variant="ghost" title="Modifier la caisse" @click="startEdit(register)"><Pencil class="h-4 w-4" /></Button>
+                                <Button v-if="can('cash_registers.update')" icon size="sm" variant="ghost" title="Configurer les modes de paiement" @click="openMethods(register)"><LayoutGrid class="h-4 w-4" /></Button>
+                                <Button v-if="register.active ? can('cash_registers.deactivate') : can('cash_registers.activate')" icon size="sm" variant="ghost" :title="register.active ? 'Désactiver' : 'Activer'" @click="toggleActive(register)"><component :is="register.active ? ToggleLeft : ToggleRight" class="h-4 w-4" /></Button>
+                                <Button v-if="can('cash_registers.archive')" icon size="sm" variant="ghost" class="text-destructive" title="Archiver" @click="openArchive(register)"><Archive class="h-4 w-4" /></Button>
                             </template>
-                            <span v-else class="font-medium text-muted-foreground">tous les modes actifs du site</span>
-                            <button v-if="can('cash_registers.update')" type="button" class="font-bold text-primary hover:text-primary" @click="openMethods(register)">Configurer</button>
-                        </p>
-                    </div>
-                    <span>
-                        <span v-if="register.archived" class="inline-flex rounded border border-border bg-muted px-2 py-1 text-[11px] font-bold text-muted-foreground dark:text-muted-foreground">Archivée</span>
-                        <span v-else-if="register.active" class="inline-flex rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">Active</span>
-                        <span v-else class="inline-flex rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">Inactive</span>
-                    </span>
-                    <span class="text-end text-sm text-muted-foreground">{{ register.sessions_count }}</span>
-                    <div class="flex justify-end gap-2">
-                        <template v-if="editing?.uuid === register.uuid">
-                            <button type="button" class="flex h-8 w-8 items-center justify-center rounded border border-primary/30 text-primary" title="Enregistrer" :disabled="editForm.processing" @click="submitEdit"><Check class="h-4 w-4" /></button>
-                            <button type="button" class="flex h-8 w-8 items-center justify-center rounded border border-border text-muted-foreground" title="Annuler" @click="editing = null"><X class="h-4 w-4" /></button>
-                        </template>
-                        <template v-else-if="!register.archived">
-                            <Button :as="Link" :href="`/super-admin/cash-registers/${selectedSiteCode}/${register.uuid}`" icon size="rg" variant="white-outline" title="Voir la fiche de supervision" aria-label="Voir la fiche de supervision"><Eye class="h-4 w-4" /></Button>
-                            <button v-if="can('cash_registers.update')" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-border text-muted-foreground hover:text-primary" title="Renommer" @click="startEdit(register)"><Pencil class="h-4 w-4" /></button>
-                            <button v-if="can('cash_registers.update')" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-border text-muted-foreground hover:text-primary" title="Modes de paiement acceptés" aria-label="Modes de paiement acceptés" @click="openMethods(register)"><LayoutGrid class="h-4 w-4" /></button>
-                            <button
-                                v-if="register.active ? can('cash_registers.deactivate') : can('cash_registers.activate')"
-                                type="button"
-                                :class="['flex h-8 w-8 items-center justify-center rounded border', register.active ? 'border-amber-200 text-amber-600 hover:bg-amber-50 dark:border-amber-900' : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-900']"
-                                :title="register.active ? 'Désactiver' : 'Activer'"
-                                @click="toggleActive(register)"
-                            ><component :is="register.active ? ToggleLeft : ToggleRight" /></button>
-                            <button v-if="can('cash_registers.archive')" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-red-200 text-red-500 hover:bg-red-50 dark:border-red-900" title="Archiver" @click="openArchive(register)"><Archive class="h-4 w-4" /></button>
-                        </template>
-                        <button v-else-if="can('cash_registers.restore')" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-border text-muted-foreground hover:text-primary" title="Restaurer" @click="restore(register)"><RotateCcw class="h-4 w-4" /></button>
-                    </div>
-                </div>
-                <div v-if="!registers.length" class="px-5 py-12 text-center"><Wallet class="text-muted-foreground h-6 w-6" /><p class="mt-2 text-sm text-muted-foreground">Aucune caisse ne correspond à ces filtres.</p></div>
+                            <Button v-else-if="can('cash_registers.restore')" icon size="sm" variant="ghost" title="Restaurer" @click="restore(register)"><RotateCcw class="h-4 w-4" /></Button>
+                        </div>
+                    </footer>
+                </article>
             </div>
-        </section>
 
-        <div v-if="configuringMethods" class="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true">
-            <form class="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-card shadow-xl" @submit.prevent="submitMethods">
-                <header class="flex items-start gap-3 border-b border-border px-5 py-4">
-                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-primary/10 text-primary"><LayoutGrid class="h-4.5 w-4.5" /></span>
-                    <div>
-                        <h2 class="text-base font-bold text-foreground">Modes acceptés par « {{ configuringMethods.name }} »</h2>
-                        <p class="mt-1 text-xs leading-5 text-muted-foreground">Site {{ selectedSite.site.name }}. Un encaissement avec un mode non coché sera refusé par le site, pas seulement masqué.</p>
+            <div v-else class="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
+                <span class="grid h-12 w-12 place-items-center rounded-xl bg-muted text-muted-foreground"><WalletCards class="h-5 w-5" /></span>
+                <h2 class="mt-3 text-sm font-bold text-foreground">Aucune caisse trouvée</h2>
+                <p class="mt-1 text-xs text-muted-foreground">Modifiez les filtres ou créez le premier poste de ce site.</p>
+            </div>
+        </Card>
+
+        <Dialog :open="showCreate" title="Créer une caisse" :description="`Le poste sera créé sur ${selectedSite?.site.name ?? 'le site choisi'} et protégé par les règles du site.`" size="lg" :dismissible="!createForm.processing" @update:open="setCreateOpen">
+            <template #icon><span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Plus class="h-5 w-5" /></span></template>
+            <form id="cash-register-create" class="grid gap-4 sm:grid-cols-2" @submit.prevent="submitCreate">
+                <FormField label="Site" required :error="createForm.errors.site_code"><Select v-model="createForm.site_code" :options="siteOptions" class="w-full" /></FormField>
+                <FormField label="Nom de la caisse" required :error="createForm.errors.name"><Input v-model="createForm.name" placeholder="Ex. Caisse principale" autofocus /></FormField>
+                <FormField label="Titulaire Réception / Caisse" hint="(facultatif)" :error="createForm.errors.assigned_user_uuid" class="sm:col-span-2"><Select v-model="createForm.assigned_user_uuid" :options="userOptions" class="w-full" /><p class="mt-1.5 text-xs leading-5 text-muted-foreground">Une caisse attribuée ne peut être ouverte par aucun autre compte Réception.</p></FormField>
+                <FormField label="Fond de caisse fixé" required :error="createForm.errors.opening_fund_amount"><Input v-model="createForm.opening_fund_amount" type="number" min="0" step="0.01" /><p class="mt-1.5 text-xs text-muted-foreground">Ce montant sera repris automatiquement à chaque ouverture.</p></FormField>
+                <FormField label="Couleur" required :error="createForm.errors.color">
+                    <div class="flex h-[var(--control-h)] items-center gap-2 rounded-lg border border-input bg-card px-2 shadow-sm">
+                        <button v-for="color in COLORS" :key="color" type="button" :class="['h-6 w-6 rounded-full ring-offset-2 ring-offset-card transition', createForm.color === color ? 'ring-2 ring-primary' : 'hover:scale-110']" :style="{ backgroundColor: color }" :aria-label="`Choisir ${color}`" @click="createForm.color = color" />
+                        <input v-model="createForm.color" type="color" class="ms-auto h-7 w-9 cursor-pointer rounded border-0 bg-transparent p-0" aria-label="Couleur personnalisée">
                     </div>
-                </header>
-                <div class="max-h-80 space-y-2 overflow-y-auto p-5">
-                    <label
-                        v-for="method in siteMethods"
-                        :key="method.uuid"
-                        :class="['flex cursor-pointer items-center gap-3 rounded border px-3 py-2.5 transition', methodsForm.payment_method_uuids.includes(method.uuid) ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted ']"
-                    >
-                        <input type="checkbox" class="rounded border-input text-primary focus:ring-ring" :checked="methodsForm.payment_method_uuids.includes(method.uuid)" @change="toggleMethod(method.uuid)">
-                        <span class="min-w-0 flex-1">
-                            <span class="block text-sm font-bold text-foreground">{{ method.name }}</span>
-                            <span class="text-[11px] text-muted-foreground">{{ method.category_label }} · {{ method.code }}</span>
-                        </span>
-                    </label>
-                    <p v-if="!siteMethods.length" class="py-6 text-center text-sm text-muted-foreground">Aucun mode de paiement actif sur ce site.</p>
-                    <p v-if="methodsForm.errors.payment_method_uuids" class="text-xs text-red-600">{{ methodsForm.errors.payment_method_uuids }}</p>
-                    <p class="rounded bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">Ne rien cocher revient à tout accepter : la caisse propose alors chaque mode actif du site.</p>
-                </div>
-                <footer class="flex justify-end gap-3 border-t border-border px-5 py-4">
-                    <Button size="rg" variant="white-outline" type="button" @click="configuringMethods = null">Annuler</Button>
-                    <Button size="rg" :disabled="methodsForm.processing"><Check class="h-4 w-4" />Enregistrer</Button>
-                </footer>
+                </FormField>
             </form>
-        </div>
+            <template #footer><Button variant="outline" type="button" :disabled="createForm.processing" @click="showCreate = false">Annuler</Button><Button form="cash-register-create" type="submit" :disabled="createForm.processing"><Check class="h-4 w-4" />{{ createForm.processing ? 'Création…' : 'Créer la caisse' }}</Button></template>
+        </Dialog>
 
-        <div v-if="archiving" class="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true">
-            <form class="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-xl" @submit.prevent="submitArchive">
-                <div class="flex items-start gap-3">
-                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-red-50 text-red-600 dark:bg-red-950/30"><Archive class="h-4.5 w-4.5" /></span>
-                    <div><h2 class="text-base font-bold text-foreground">Archiver « {{ archiving.name }} » ?</h2><p class="mt-1 text-sm text-muted-foreground">Elle ne sera plus proposée à l’ouverture de caisse. Son historique de sessions reste consultable.</p></div>
-                </div>
-                <label class="mb-1.5 mt-5 block text-sm font-medium text-foreground">Motif <span class="text-red-500">*</span></label>
-                <textarea v-model="archiveForm.reason" rows="3" class="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary" placeholder="Pourquoi cette caisse doit-elle être archivée ?"></textarea>
-                <p v-if="archiveForm.errors.reason" class="mt-1 text-xs text-red-600">{{ archiveForm.errors.reason }}</p>
-                <p v-if="archiveForm.errors.register" class="mt-1 text-xs text-red-600">{{ archiveForm.errors.register }}</p>
-                <div class="mt-5 flex justify-end gap-3">
-                    <Button size="rg" variant="white-outline" type="button" @click="archiving = null">Annuler</Button>
-                    <Button size="rg" variant="danger" :disabled="archiveForm.processing"><Archive class="h-4.5 w-4.5" />Archiver</Button>
-                </div>
+        <Dialog :open="Boolean(editing)" title="Modifier la caisse" description="Le changement de titulaire est refusé tant qu’une session reste ouverte." size="lg" :dismissible="!editForm.processing" @update:open="(open) => { if (!open) editing = null; }">
+            <template #icon><span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Pencil class="h-5 w-5" /></span></template>
+            <form v-if="editing" id="cash-register-edit" class="grid gap-4 sm:grid-cols-2" @submit.prevent="submitEdit">
+                <FormField label="Nom de la caisse" required :error="editForm.errors.name" class="sm:col-span-2"><Input v-model="editForm.name" /></FormField>
+                <FormField label="Titulaire Réception / Caisse" hint="(facultatif)" :error="editForm.errors.assigned_user_uuid" class="sm:col-span-2"><Select v-model="editForm.assigned_user_uuid" :options="editUserOptions" class="w-full" /></FormField>
+                <FormField label="Fond de caisse fixé" required :error="editForm.errors.opening_fund_amount"><Input v-model="editForm.opening_fund_amount" type="number" min="0" step="0.01" /></FormField>
+                <FormField label="Couleur" required :error="editForm.errors.color">
+                    <div class="flex h-[var(--control-h)] items-center gap-2 rounded-lg border border-input bg-card px-2 shadow-sm"><button v-for="color in COLORS" :key="color" type="button" :class="['h-6 w-6 rounded-full ring-offset-2 ring-offset-card', editForm.color === color ? 'ring-2 ring-primary' : '']" :style="{ backgroundColor: color }" @click="editForm.color = color" /><input v-model="editForm.color" type="color" class="ms-auto h-7 w-9 cursor-pointer border-0 bg-transparent p-0"></div>
+                </FormField>
             </form>
-        </div>
+            <template #footer><Button variant="outline" type="button" :disabled="editForm.processing" @click="editing = null">Annuler</Button><Button form="cash-register-edit" type="submit" :disabled="editForm.processing"><Check class="h-4 w-4" />Enregistrer</Button></template>
+        </Dialog>
+
+        <Dialog :open="Boolean(configuringMethods)" :title="`Modes acceptés par ${configuringMethods?.name ?? ''}`" description="Sans sélection, la caisse accepte tous les modes actifs du site." :dismissible="!methodsForm.processing" @update:open="(open) => { if (!open) configuringMethods = null; }">
+            <template #icon><span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><LayoutGrid class="h-5 w-5" /></span></template>
+            <form v-if="configuringMethods" id="cash-register-methods" class="space-y-2" @submit.prevent="submitMethods">
+                <label v-for="method in siteMethods" :key="method.uuid" class="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-3 hover:bg-muted/50">
+                    <Checkbox :model-value="methodsForm.payment_method_uuids.includes(method.uuid)" @update:model-value="toggleMethod(method.uuid, $event)" />
+                    <span class="min-w-0 flex-1"><span class="block text-sm font-bold text-foreground">{{ method.name }}</span><span class="text-xs text-muted-foreground">{{ method.category_label }} · {{ method.code }}</span></span>
+                </label>
+                <p v-if="!siteMethods.length" class="py-8 text-center text-sm text-muted-foreground">Aucun mode de paiement actif sur ce site.</p>
+                <p v-if="methodsForm.errors.payment_method_uuids" class="text-xs text-destructive">{{ methodsForm.errors.payment_method_uuids }}</p>
+            </form>
+            <template #footer><Button variant="outline" type="button" @click="configuringMethods = null">Annuler</Button><Button form="cash-register-methods" type="submit" :disabled="methodsForm.processing"><Check class="h-4 w-4" />Enregistrer</Button></template>
+        </Dialog>
+
+        <Dialog :open="Boolean(archiving)" :title="`Archiver ${archiving?.name ?? ''} ?`" description="La caisse disparaîtra des postes disponibles, mais ses sessions et mouvements resteront consultables." :dismissible="!archiveForm.processing" @update:open="(open) => { if (!open) archiving = null; }">
+            <template #icon><span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-destructive/10 text-destructive"><Archive class="h-5 w-5" /></span></template>
+            <form v-if="archiving" id="cash-register-archive" @submit.prevent="submitArchive"><FormField label="Motif d’archivage" required :error="archiveForm.errors.reason"><Textarea v-model="archiveForm.reason" rows="4" placeholder="Précisez pourquoi cette caisse n’est plus utilisée." /></FormField></form>
+            <template #footer><Button variant="outline" type="button" @click="archiving = null">Annuler</Button><Button form="cash-register-archive" variant="danger" type="submit" :disabled="archiveForm.processing"><Archive class="h-4 w-4" />Archiver</Button></template>
+        </Dialog>
     </div>
 </template>

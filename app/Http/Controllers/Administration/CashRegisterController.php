@@ -41,7 +41,7 @@ class CashRegisterController extends Controller
 
     public function store(StoreCashRegisterRequest $request, CashRegisterManager $manager): RedirectResponse
     {
-        $register = $manager->create($request->validated('name'));
+        $register = $manager->create($request->validated());
 
         return back()->with('status', "Caisse « {$register->name} » créée.");
     }
@@ -51,7 +51,7 @@ class CashRegisterController extends Controller
         CashRegister $cashRegister,
         CashRegisterManager $manager,
     ): RedirectResponse {
-        $manager->update($cashRegister, $request->validated('name'));
+        $manager->update($cashRegister, $request->validated());
 
         return back()->with('status', "Caisse « {$cashRegister->name} » mise à jour.");
     }

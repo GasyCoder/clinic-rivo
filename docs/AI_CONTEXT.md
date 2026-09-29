@@ -137,6 +137,14 @@ admin.rivo.mg
 
 Le Super Admin n'accède jamais directement aux bases de données locales.
 
+Les postes de caisse nommés sont propres à chaque site et servis au portail
+uniquement par API (ADR-058 à ADR-060, ADR-224). Une caisse peut être attribuée
+à un compte actif `RECEPTION` détenant `cash.open` : seul ce titulaire peut
+l'ouvrir. Une réattribution attend la clôture de la session active. La couleur
+est un repère visuel ; le fond fixe, lorsqu'il est renseigné, est imposé par le
+backend à chaque ouverture. Les graphiques de supervision sont calculés dans
+la base du site puis transmis au portail.
+
 ## Référentiels, tarifs et stocks
 
 Les prestations, produits stockables et équipements durables sont des domaines

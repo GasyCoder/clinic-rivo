@@ -2,9 +2,16 @@
 import { computed, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import ActivityTrendChart from '@/Components/Dashboard/ActivityTrendChart.vue';
+import DonutChart from '@/Components/Charts/DonutChart.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
+import Dialog from '@/Components/Shadcn/Dialog.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import { ArrowLeft, Check, Download, Lock, LockOpen } from 'lucide-vue-next';
+import { ArrowLeft, Check, Download, Lock, LockOpen, PieChart, UserRound, WalletCards } from 'lucide-vue-next';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
@@ -24,6 +31,8 @@ const activeSession = computed(() => props.profile?.active_session ?? null);
 const focusSession = computed(() => props.profile?.focus_session ?? null);
 const sessionIsLocked = computed(() => activeSession.value?.status === 'LOCKED');
 const expectedCash = computed(() => activeSession.value?.totals?.expected_cash ?? '0.00');
+const analytics = computed(() => props.profile?.analytics ?? { trend: { dates: [], series: [] }, payment_methods: [] });
+const compactMoney = (value) => `${new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 }).format(value)} Ar`;
 
 const lockForm = useForm({ reason: '' });
 const unlockForm = useForm({ reason: '' });
@@ -99,6 +108,7 @@ const submitClose = () => closeForm.post(`${endpoint.value}/close`, { preserveSc
         </section>
 
         <template v-else-if="profile">
+            <div class="h-1.5 w-full rounded-full" :style="{ backgroundColor: profile.register.color }" aria-hidden="true" />
             <section class="overflow-hidden border border-border bg-card shadow-sm">
                 <div class="grid lg:grid-cols-[minmax(0,1fr)_310px]">
                     <div class="border-b border-border p-5 lg:border-b-0 lg:border-e">
@@ -146,9 +156,34 @@ const submitClose = () => closeForm.post(`${endpoint.value}/close`, { preserveSc
                             <div class="flex justify-between gap-3 py-2.5"><dt class="text-muted-foreground">Code du site</dt><dd class="font-bold text-muted-foreground">{{ targetSite.code }}</dd></div>
                             <div class="flex justify-between gap-3 py-2.5"><dt class="text-muted-foreground">Référentiel</dt><dd class="font-bold text-muted-foreground">{{ profile.register.active ? 'Actif' : 'Inactif' }}</dd></div>
                             <div class="flex justify-between gap-3 py-2.5"><dt class="text-muted-foreground">Mouvements cumulés</dt><dd class="font-bold text-muted-foreground">{{ formatMoney(profile.lifetime.net_total) }}</dd></div>
+                            <div class="flex justify-between gap-3 py-2.5"><dt class="flex items-center gap-1.5 text-muted-foreground"><UserRound class="h-3.5 w-3.5" />Titulaire</dt><dd class="text-end font-bold text-foreground">{{ profile.register.assigned_user?.name ?? 'Tous les caissiers autorisés' }}</dd></div>
+                            <div class="flex justify-between gap-3 py-2.5"><dt class="flex items-center gap-1.5 text-muted-foreground"><WalletCards class="h-3.5 w-3.5" />Fond fixé</dt><dd class="font-bold text-foreground">{{ profile.register.opening_fund_amount === null ? 'Libre à l’ouverture' : formatMoney(profile.register.opening_fund_amount) }}</dd></div>
                         </dl>
                     </aside>
                 </div>
+            </section>
+
+            <section class="grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.8fr)]">
+                <ActivityTrendChart
+                    :trend="analytics.trend"
+                    :format="formatMoney"
+                    :axis-format="compactMoney"
+                    title="Flux de la caisse sur 30 jours"
+                    description="Entrées et sorties enregistrées par jour. Basculez entre histogramme et courbes."
+                    unit-description="montants en Ariary"
+                    empty-title="Aucun mouvement sur les 30 derniers jours"
+                    empty-description="Le graphique apparaîtra dès le premier mouvement de cette caisse."
+                    compact
+                />
+                <Card class="overflow-hidden">
+                    <header class="border-b border-border px-5 py-4">
+                        <h2 class="flex items-center gap-2 font-heading text-base font-bold text-foreground"><PieChart class="h-4.5 w-4.5 text-primary" />Répartition des entrées</h2>
+                        <p class="mt-0.5 text-xs text-muted-foreground">Montants encaissés par mode de paiement sur les 30 derniers jours.</p>
+                    </header>
+                    <div class="p-5">
+                        <DonutChart :segments="analytics.payment_methods" :format="formatMoney" unit="encaissé" compact-center />
+                    </div>
+                </Card>
             </section>
 
             <section class="overflow-hidden border border-border bg-card shadow-sm">
@@ -203,27 +238,25 @@ const submitClose = () => closeForm.post(`${endpoint.value}/close`, { preserveSc
             </section>
         </template>
 
-        <div v-if="dialog && activeSession" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" @click.self="closeDialog">
-            <form v-if="dialog === 'lock'" class="w-full max-w-lg overflow-hidden border border-border bg-card shadow-xl" @submit.prevent="submitLock">
-                <header class="border-b border-border px-5 py-4"><h2 class="font-heading text-lg font-bold text-foreground">Verrouiller {{ activeSession.session_number }}</h2><p class="mt-1 text-sm text-muted-foreground">Les paiements seront suspendus, mais la session restera ouverte et conservera ses montants.</p></header>
-                <div class="p-5"><label for="lock_reason" class="mb-1.5 block text-sm font-bold text-foreground">Motif du verrouillage <span class="font-normal text-muted-foreground">(pré-rempli, modifiable)</span></label><textarea id="lock_reason" v-model="lockForm.reason" rows="4" required class="w-full border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/25" placeholder="Incident, contrôle ou mesure de sécurité…"></textarea><FormError v-if="lockForm.errors.reason">{{ lockForm.errors.reason }}</FormError><FormError v-if="lockForm.errors.cash_session">{{ lockForm.errors.cash_session }}</FormError></div>
-                <footer class="flex justify-end gap-2 border-t border-border px-5 py-4"><Button size="rg" variant="white-outline" type="button" @click="closeDialog">Annuler</Button><Button size="rg" variant="warning" :disabled="lockForm.processing"><Lock class="h-4 w-4" />Confirmer le verrouillage</Button></footer>
-            </form>
+        <Dialog :open="dialog === 'lock' && Boolean(activeSession)" :title="`Verrouiller ${activeSession?.session_number ?? ''}`" description="Les paiements seront suspendus, mais la session et ses montants seront conservés." :dismissible="!lockForm.processing" @update:open="(open) => { if (!open) closeDialog(); }">
+            <template #icon><span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"><Lock class="h-5 w-5" /></span></template>
+            <form id="cash-lock" @submit.prevent="submitLock"><FormField label="Motif du verrouillage" hint="(pré-rempli, modifiable)" required :error="lockForm.errors.reason"><Textarea v-model="lockForm.reason" rows="4" placeholder="Incident, contrôle ou mesure de sécurité…" /></FormField><FormError v-if="lockForm.errors.cash_session">{{ lockForm.errors.cash_session }}</FormError></form>
+            <template #footer><Button variant="outline" type="button" @click="closeDialog">Annuler</Button><Button form="cash-lock" variant="warning" type="submit" :disabled="lockForm.processing"><Lock class="h-4 w-4" />Confirmer le verrouillage</Button></template>
+        </Dialog>
 
-            <form v-else-if="dialog === 'unlock'" class="w-full max-w-lg overflow-hidden border border-border bg-card shadow-xl" @submit.prevent="submitUnlock">
-                <header class="border-b border-border px-5 py-4"><h2 class="font-heading text-lg font-bold text-foreground">Déverrouiller {{ activeSession.session_number }}</h2><p class="mt-1 text-sm text-muted-foreground">La même session reprendra et les encaissements redeviendront possibles.</p></header>
-                <div class="p-5"><label for="unlock_reason" class="mb-1.5 block text-sm font-bold text-foreground">Motif de la reprise <span class="font-normal text-muted-foreground">(pré-rempli, modifiable)</span></label><textarea id="unlock_reason" v-model="unlockForm.reason" rows="4" required class="w-full border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/25" placeholder="Contrôle terminé, reprise autorisée…"></textarea><FormError v-if="unlockForm.errors.reason">{{ unlockForm.errors.reason }}</FormError><FormError v-if="unlockForm.errors.cash_session">{{ unlockForm.errors.cash_session }}</FormError></div>
-                <footer class="flex justify-end gap-2 border-t border-border px-5 py-4"><Button size="rg" variant="white-outline" type="button" @click="closeDialog">Annuler</Button><Button size="rg" variant="primary" :disabled="unlockForm.processing"><LockOpen class="h-4 w-4" />Autoriser la reprise</Button></footer>
-            </form>
+        <Dialog :open="dialog === 'unlock' && Boolean(activeSession)" :title="`Déverrouiller ${activeSession?.session_number ?? ''}`" description="La même session reprendra et les encaissements redeviendront possibles." :dismissible="!unlockForm.processing" @update:open="(open) => { if (!open) closeDialog(); }">
+            <template #icon><span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><LockOpen class="h-5 w-5" /></span></template>
+            <form id="cash-unlock" @submit.prevent="submitUnlock"><FormField label="Motif de la reprise" hint="(pré-rempli, modifiable)" required :error="unlockForm.errors.reason"><Textarea v-model="unlockForm.reason" rows="4" placeholder="Contrôle terminé, reprise autorisée…" /></FormField><FormError v-if="unlockForm.errors.cash_session">{{ unlockForm.errors.cash_session }}</FormError></form>
+            <template #footer><Button variant="outline" type="button" @click="closeDialog">Annuler</Button><Button form="cash-unlock" type="submit" :disabled="unlockForm.processing"><LockOpen class="h-4 w-4" />Autoriser la reprise</Button></template>
+        </Dialog>
 
-            <form v-else class="w-full max-w-xl overflow-hidden border border-border bg-card shadow-xl" @submit.prevent="submitClose">
-                <header class="border-b border-border px-5 py-4"><h2 class="font-heading text-lg font-bold text-foreground">Clôturer définitivement {{ activeSession.session_number }}</h2><p class="mt-1 text-sm text-muted-foreground">Cette action libère la caisse. Le montant attendu sera recalculé par le site au moment de la clôture.</p></header>
-                <div class="grid gap-4 p-5 sm:grid-cols-2">
-                    <div><p class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Espèces attendues actuellement</p><p class="mt-1 text-lg font-bold text-foreground">{{ formatMoney(expectedCash) }}</p><label for="closing_amount" class="mb-1.5 mt-4 block text-sm font-bold text-foreground">Espèces réellement comptées <span class="text-red-500">*</span></label><input id="closing_amount" v-model="closeForm.actual_closing_amount" type="number" min="0" step="0.01" required class="h-11 w-full border border-border bg-card px-3 text-sm font-bold outline-none focus:border-primary focus:ring-2 focus:ring-ring/25"><FormError v-if="closeForm.errors.actual_closing_amount">{{ closeForm.errors.actual_closing_amount }}</FormError><p v-if="closeVariance !== null" :class="['mt-2 text-xs font-bold', closeVariance === 0 ? 'text-emerald-700' : 'text-amber-700']">Écart prévisionnel : {{ closeVariance > 0 ? '+' : '' }}{{ formatMoney(closeVariance) }}</p></div>
-                    <div><label for="closing_reason" class="mb-1.5 block text-sm font-bold text-foreground">Motif de clôture centrale <span class="font-normal text-muted-foreground">(pré-rempli, modifiable)</span></label><textarea id="closing_reason" v-model="closeForm.reason" rows="7" required class="w-full border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/25" placeholder="Précisez la raison et tout incident constaté…"></textarea><FormError v-if="closeForm.errors.reason">{{ closeForm.errors.reason }}</FormError><FormError v-if="closeForm.errors.cash_session">{{ closeForm.errors.cash_session }}</FormError></div>
-                </div>
-                <footer class="flex justify-end gap-2 border-t border-border px-5 py-4"><Button size="rg" variant="white-outline" type="button" @click="closeDialog">Annuler</Button><Button size="rg" variant="danger" :disabled="closeForm.processing"><Check class="h-4 w-4" />Clôturer la session</Button></footer>
+        <Dialog :open="dialog === 'close' && Boolean(activeSession)" :title="`Clôturer définitivement ${activeSession?.session_number ?? ''}`" description="Cette action libère la caisse après comptage ; le site recalculera lui-même le montant attendu." size="lg" :dismissible="!closeForm.processing" @update:open="(open) => { if (!open) closeDialog(); }">
+            <template #icon><span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-destructive/10 text-destructive"><Check class="h-5 w-5" /></span></template>
+            <form id="cash-close" class="grid gap-5 sm:grid-cols-2" @submit.prevent="submitClose">
+                <div><p class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Espèces attendues actuellement</p><p class="mb-4 mt-1 font-heading text-xl font-bold text-foreground">{{ formatMoney(expectedCash) }}</p><FormField label="Espèces réellement comptées" required :error="closeForm.errors.actual_closing_amount"><Input v-model="closeForm.actual_closing_amount" type="number" min="0" step="0.01" class="font-bold" /><p v-if="closeVariance !== null" :class="['mt-2 text-xs font-bold', closeVariance === 0 ? 'text-emerald-700' : 'text-amber-700']">Écart prévisionnel : {{ closeVariance > 0 ? '+' : '' }}{{ formatMoney(closeVariance) }}</p></FormField></div>
+                <div><FormField label="Motif de clôture centrale" hint="(pré-rempli, modifiable)" required :error="closeForm.errors.reason"><Textarea v-model="closeForm.reason" rows="7" placeholder="Précisez la raison et tout incident constaté…" /></FormField><FormError v-if="closeForm.errors.cash_session">{{ closeForm.errors.cash_session }}</FormError></div>
             </form>
-        </div>
+            <template #footer><Button variant="outline" type="button" @click="closeDialog">Annuler</Button><Button form="cash-close" variant="danger" type="submit" :disabled="closeForm.processing"><Check class="h-4 w-4" />Clôturer la session</Button></template>
+        </Dialog>
     </div>
 </template>

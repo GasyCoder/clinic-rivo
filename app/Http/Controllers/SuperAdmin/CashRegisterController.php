@@ -33,11 +33,14 @@ class CashRegisterController extends Controller
     {
         $validated = $request->validate([
             'site_code' => $this->siteCodeRules(),
-            'name' => ['required', 'string', 'max:255'],
+            ...$this->registerRules(),
         ]);
 
+        $siteCode = $validated['site_code'];
+        unset($validated['site_code']);
+
         return $this->respond(
-            $client->createCashRegister($validated['site_code'], $validated['name'], $request->user()),
+            $client->createCashRegister($siteCode, $validated, $request->user()),
             'Caisse ajoutée au référentiel du site.',
         );
     }
@@ -122,10 +125,10 @@ class CashRegisterController extends Controller
 
     public function update(Request $request, string $site, string $cashRegister, PortalSiteApiClient $client): RedirectResponse
     {
-        $validated = $request->validate(['name' => ['required', 'string', 'max:255']]);
+        $validated = $request->validate($this->registerRules());
 
         return $this->respond(
-            $client->updateCashRegister($site, $cashRegister, $validated['name'], $request->user()),
+            $client->updateCashRegister($site, $cashRegister, $validated, $request->user()),
             'Caisse mise à jour.',
         );
     }
@@ -232,6 +235,17 @@ class CashRegisterController extends Controller
     private function siteCodeRules(): array
     {
         return ['required', Rule::in(collect(config('rivo.clinics', []))->pluck('code')->all())];
+    }
+
+    /** @return array<string, array<int, string>> */
+    private function registerRules(): array
+    {
+        return [
+            'name' => ['required', 'string', 'max:255'],
+            'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'opening_fund_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99', 'decimal:0,2'],
+            'assigned_user_uuid' => ['nullable', 'uuid'],
+        ];
     }
 
     /** @param array<string, mixed> $result */

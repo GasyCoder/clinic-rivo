@@ -21677,3 +21677,36 @@ couleur des critiques      toujours rouge : la rendre réglable brouillerait le 
 logo non enregistré        l'aperçu ne montre un nouveau logo qu'une fois enregistré
 rendu                      vérifié par les tests (PDF de chaque modèle) et le build, pas dans un navigateur
 ```
+
+---
+
+# ADR-224 — Une caisse peut être attribuée à un caissier et porter son fond fixe
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire)
+
+Cette décision complète les ADR-058 à ADR-060. Un poste nommé peut être sans
+titulaire, ou attribué à un compte local actif dont le rôle est `RECEPTION` et
+qui détient effectivement `cash.open`. Lorsqu'il est attribué, seul ce compte
+peut ouvrir une nouvelle session sur ce poste. Le contrôle est exécuté dans
+`OpenCashSessionAction`, jamais seulement dans Vue. Une caisse sans titulaire
+reste ouvrable par tout compte autorisé, comme auparavant.
+
+Le titulaire ne peut pas être remplacé tant qu'une session est ouverte : la
+clôture avec comptage reste la seule façon de mettre fin à la garde en cours
+(ADR-060). Une désactivation ou une perte ultérieure du rôle/droit rend le
+poste indisponible jusqu'à sa réattribution ; elle ne transfère jamais la
+garde automatiquement.
+
+Chaque caisse porte aussi :
+
+```text
+color                 couleur hexadécimale de repérage, sans sens comptable
+opening_fund_amount   fond initial fixe, facultatif pour les anciennes caisses
+```
+
+Quand le fond est fixé, le serveur l'applique à l'ouverture même si un client
+envoie une autre valeur. Quand il est vide, la saisie manuelle historique reste
+possible. La fiche centrale présente sur trente jours les entrées/sorties en
+histogramme ou courbes et la répartition des entrées par mode de paiement. Ces
+données sont calculées par l'API du site ; le portail n'accède à aucune base
+opérationnelle.

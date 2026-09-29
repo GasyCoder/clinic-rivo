@@ -173,4 +173,77 @@ class CashRegisterManagementTest extends TestCase
 
         $this->assertTrue($register->fresh()->active);
     }
+
+    public function test_an_assigned_register_only_opens_for_its_reception_cashier_and_uses_its_fixed_fund(): void
+    {
+        $admin = $this->user('ADMINISTRATION');
+        $cashier = $this->user('RECEPTION');
+        $colleague = $this->user('RECEPTION');
+
+        $this->actingAs($admin)->post('/administration/cash-registers', [
+            'name' => 'Caisse bleue',
+            'color' => '#2563EB',
+            'opening_fund_amount' => '25000.00',
+            'assigned_user_uuid' => $cashier->uuid,
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $register = CashRegister::query()->sole();
+        $this->assertSame($cashier->id, $register->assigned_user_id);
+        $this->assertSame('#2563EB', $register->color);
+        $this->assertSame('25000.00', $register->opening_fund_amount);
+
+        $this->actingAs($colleague)->get('/cash')
+            ->assertInertia(fn ($page) => $page
+                ->where('registers.0.color', '#2563EB')
+                ->where('registers.0.opening_fund_amount', '25000.00')
+                ->where('registers.0.is_assigned_to_me', false)
+                ->where('registers.0.assigned_user_name', $cashier->name));
+
+        $this->actingAs($colleague)->get("/cash/{$register->uuid}")
+            ->assertRedirect('/cash')
+            ->assertSessionHas('status_type', 'warning');
+
+        $this->actingAs($colleague)->post('/cash/open', [
+            'opening_amount' => '1000.00',
+            'cash_register_uuid' => $register->uuid,
+        ])->assertSessionHasErrors('cash_register_uuid');
+
+        $this->actingAs($cashier)->get('/cash')
+            ->assertInertia(fn ($page) => $page
+                ->where('registers.0.is_assigned_to_me', true)
+                ->where('registers.0.assigned_user_name', $cashier->name));
+
+        $this->actingAs($cashier)->post('/cash/open', [
+            // The configured amount is authoritative, even if a stale or
+            // forged client sends another value.
+            'opening_amount' => '1000.00',
+            'cash_register_uuid' => $register->uuid,
+        ])->assertRedirect("/cash/{$register->uuid}")->assertSessionHasNoErrors();
+
+        $this->assertSame('25000.00', $register->sessions()->sole()->opening_amount);
+
+        $this->actingAs($admin)->put("/administration/cash-registers/{$register->uuid}", [
+            'name' => 'Caisse bleue',
+            'color' => '#0F766E',
+            'opening_fund_amount' => '30000.00',
+            'assigned_user_uuid' => $colleague->uuid,
+        ])->assertSessionHasErrors('assigned_user_uuid');
+
+        $this->assertSame($cashier->id, $register->fresh()->assigned_user_id);
+    }
+
+    public function test_a_register_rejects_a_holder_outside_reception_cash(): void
+    {
+        $admin = $this->user('ADMINISTRATION');
+        $laboratory = $this->user('LABORATORY');
+
+        $this->actingAs($admin)->post('/administration/cash-registers', [
+            'name' => 'Caisse laboratoire',
+            'color' => '#7C3AED',
+            'opening_fund_amount' => '0',
+            'assigned_user_uuid' => $laboratory->uuid,
+        ])->assertSessionHasErrors('assigned_user_uuid');
+
+        $this->assertDatabaseCount('cash_registers', 0);
+    }
 }

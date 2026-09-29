@@ -6,6 +6,7 @@ use App\Models\CashRegister;
 use App\Models\PaymentMethod;
 use App\Models\User;
 use App\Services\Audit\Auditor;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -13,13 +14,14 @@ class CashRegisterManager
 {
     public function __construct(private readonly Auditor $auditor) {}
 
-    public function create(string $name): CashRegister
+    /** @param array{name: string, color?: ?string, opening_fund_amount?: mixed, assigned_user_uuid?: ?string} $data */
+    public function create(array $data): CashRegister
     {
-        $name = $this->validatedName($name);
+        $attributes = $this->validatedAttributes($data);
 
-        return DB::transaction(function () use ($name): CashRegister {
+        return DB::transaction(function () use ($attributes): CashRegister {
             $existing = CashRegister::withTrashed()
-                ->where('normalized_name', CashRegister::normalize($name))
+                ->where('normalized_name', CashRegister::normalize($attributes['name']))
                 ->lockForUpdate()
                 ->first();
 
@@ -35,20 +37,18 @@ class CashRegisterManager
                 ]);
             }
 
-            return CashRegister::query()->create([
-                'name' => $name,
-                'active' => true,
-            ]);
+            return CashRegister::query()->create([...$attributes, 'active' => true]);
         });
     }
 
-    public function update(CashRegister $register, string $name): CashRegister
+    /** @param array{name: string, color?: ?string, opening_fund_amount?: mixed, assigned_user_uuid?: ?string} $data */
+    public function update(CashRegister $register, array $data): CashRegister
     {
-        $name = $this->validatedName($name);
+        $attributes = $this->validatedAttributes($data, $register);
 
-        return DB::transaction(function () use ($register, $name): CashRegister {
+        return DB::transaction(function () use ($register, $attributes): CashRegister {
             $duplicate = CashRegister::withTrashed()
-                ->where('normalized_name', CashRegister::normalize($name))
+                ->where('normalized_name', CashRegister::normalize($attributes['name']))
                 ->whereKeyNot($register->getKey())
                 ->lockForUpdate()
                 ->first();
@@ -61,7 +61,16 @@ class CashRegisterManager
                 ]);
             }
 
-            $register->update(['name' => $name]);
+            $register = CashRegister::query()->whereKey($register->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($register->assigned_user_id !== $attributes['assigned_user_id']
+                && $register->sessions()->whereNull('closed_at')->exists()) {
+                throw ValidationException::withMessages([
+                    'assigned_user_uuid' => 'Clôturez la session active avant de changer le titulaire de cette caisse.',
+                ]);
+            }
+
+            $register->update($attributes);
 
             return $register->refresh();
         });
@@ -190,9 +199,12 @@ class CashRegisterManager
         return $register->refresh();
     }
 
-    private function validatedName(string $name): string
+    /** @param array{name: string, color?: ?string, opening_fund_amount?: mixed, assigned_user_uuid?: ?string} $data
+     * @return array{name: string, color: string, opening_fund_amount: ?string, assigned_user_id: ?int}
+     */
+    private function validatedAttributes(array $data, ?CashRegister $existing = null): array
     {
-        $name = str($name)->squish()->toString();
+        $name = str($data['name'])->squish()->toString();
 
         if ($name === '' || mb_strlen($name) > 255) {
             throw ValidationException::withMessages([
@@ -200,6 +212,46 @@ class CashRegisterManager
             ]);
         }
 
-        return $name;
+        $color = strtoupper((string) ($data['color'] ?? $existing?->color ?? '#2563EB'));
+
+        if (! preg_match('/^#[0-9A-F]{6}$/', $color)) {
+            throw ValidationException::withMessages([
+                'color' => 'Choisissez une couleur au format hexadécimal (#RRGGBB).',
+            ]);
+        }
+
+        $openingFund = array_key_exists('opening_fund_amount', $data)
+            ? ($data['opening_fund_amount'] !== null && $data['opening_fund_amount'] !== ''
+                ? Money::fromMinor(Money::toMinor((string) $data['opening_fund_amount']))
+                : null)
+            : $existing?->opening_fund_amount;
+        $assignedUserId = array_key_exists('assigned_user_uuid', $data)
+            ? null
+            : $existing?->assigned_user_id;
+
+        if (array_key_exists('assigned_user_uuid', $data) && filled($data['assigned_user_uuid'])) {
+            $user = User::query()
+                ->with('role:id,code')
+                ->where('uuid', $data['assigned_user_uuid'])
+                ->first();
+
+            $keepsExistingHolder = $user && $existing?->assigned_user_id === $user->id;
+
+            if (! $keepsExistingHolder
+                && (! $user || ! $user->isActive() || ! $user->hasRole('RECEPTION') || ! $user->hasPermissionTo('cash.open'))) {
+                throw ValidationException::withMessages([
+                    'assigned_user_uuid' => 'Le titulaire doit être un compte actif Réception / Caisse autorisé à ouvrir la caisse.',
+                ]);
+            }
+
+            $assignedUserId = $user->id;
+        }
+
+        return [
+            'name' => $name,
+            'color' => $color,
+            'opening_fund_amount' => $openingFund,
+            'assigned_user_id' => $assignedUserId,
+        ];
     }
 }

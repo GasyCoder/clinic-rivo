@@ -119,7 +119,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Rattachement d'un nouvel acte à une facture du même passage non encore encaissée (DRAFT/VALIDATED, paid_amount = 0)
 - [ ] Factures
 - [ ] Facture lignes
-- [ ] Caisse unique
+- [x] Postes de caisse nommés et concurrents, supervisés par site via API (ADR-058 à ADR-060)
+- [x] Attribution facultative à un compte Réception/Caisse, couleur, fond initial fixe et graphiques de détail (ADR-224)
 - [ ] Paiements
 - [ ] Paiements partiels
 - [x] Sorties & règlements : file des passages en attente de règlement, contrôle du compte (§33.2) et sortie administrative payé comptant / dette validée / évadé (ADR-090)
@@ -134,9 +135,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Coupon archivé jamais utilisé supprimable définitivement (corbeille, confirmation, audit, code libéré) ; un coupon qui a servi reste archivé, la corbeille le dit (ADR-192, amendement du 2026-09-25)
 - [ ] Remise appliquée d'office à la création de la facture, remise libre du caissier avec validation hiérarchique, total des remises dans les rapports — à décider (ADR-192)
 - [ ] Reçus
-- [ ] Ouverture caisse
-- [ ] Clôture caisse
-- [ ] Rapport caisse
+- [x] Ouverture caisse avec contrôle du titulaire et du fond configuré
+- [x] Clôture caisse locale ou centrale avec comptage et écart tracé
+- [x] Rapport caisse : historique, exports Excel, histogramme/courbes et diagramme par mode de paiement
 
 ---
 

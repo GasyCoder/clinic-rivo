@@ -15,6 +15,7 @@ use App\Models\Medicine;
 use App\Models\MedicineLot;
 use App\Models\MutualOrganization;
 use App\Models\PaymentMethod;
+use App\Models\Permission;
 use App\Models\PharmacyStockMovement;
 use App\Models\Role;
 use App\Models\User;
@@ -625,6 +626,40 @@ class SuperAdminSiteApiTest extends TestCase
             'entity_uuid' => $uuid,
             'external_actor_uuid' => $actorUuid,
         ]);
+    }
+
+    public function test_cash_register_api_exposes_only_eligible_reception_cashiers_and_saves_the_assignment(): void
+    {
+        $reception = Role::query()->create(['code' => 'RECEPTION', 'name' => 'Réception / Caisse']);
+        $cashOpen = Permission::query()->create(['name' => 'cash.open', 'label' => 'Ouvrir la caisse']);
+        $reception->permissions()->attach($cashOpen);
+        $cashier = User::factory()->create(['role_id' => $reception->id, 'name' => 'Fara Caissière']);
+        User::factory()->create(['role_id' => $reception->id, 'name' => 'Compte désactivé', 'active' => false]);
+
+        $created = $this->withHeaders($this->headers((string) Str::uuid(), (string) Str::uuid(), ['cash_registers.create']))
+            ->postJson('/api/v1/super-admin/cash-registers', [
+                'name' => 'Caisse accueil',
+                'color' => '#0F766E',
+                'opening_fund_amount' => '40000.00',
+                'assigned_user_uuid' => $cashier->uuid,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.color', '#0F766E')
+            ->assertJsonPath('data.opening_fund_amount', '40000.00')
+            ->assertJsonPath('data.assigned_user.uuid', $cashier->uuid);
+
+        $this->assertDatabaseHas('cash_registers', [
+            'uuid' => $created->json('data.uuid'),
+            'assigned_user_id' => $cashier->id,
+            'opening_fund_amount' => '40000.00',
+        ]);
+
+        $this->withHeaders($this->headers(null, null, ['cash_registers.view']))
+            ->getJson('/api/v1/super-admin/cash-registers')
+            ->assertOk()
+            ->assertJsonCount(1, 'meta.eligible_users')
+            ->assertJsonPath('meta.eligible_users.0.uuid', $cashier->uuid)
+            ->assertJsonPath('data.0.assigned_user.name', 'Fara Caissière');
     }
 
     public function test_a_super_admin_holding_the_whole_catalogue_keeps_its_last_permissions(): void

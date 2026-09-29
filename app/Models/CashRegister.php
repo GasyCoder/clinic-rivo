@@ -7,12 +7,13 @@ use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\SoftDeletable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
 
-#[Fillable(['name', 'active'])]
+#[Fillable(['name', 'color', 'opening_fund_amount', 'assigned_user_id', 'active'])]
 class CashRegister extends Model
 {
     use Auditable, HasUuid, SoftDeletable;
@@ -34,7 +35,18 @@ class CashRegister extends Model
     {
         return [
             'active' => 'boolean',
+            'opening_fund_amount' => 'decimal:2',
         ];
+    }
+
+    public function assignedUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_user_id');
+    }
+
+    public function isAssignedTo(User $user): bool
+    {
+        return $this->assigned_user_id === null || $this->assigned_user_id === $user->getKey();
     }
 
     public function sessions(): HasMany

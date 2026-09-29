@@ -53,7 +53,7 @@ export const rowAction = (request, canStart = true) => (request?.action === 'sta
 export const LAB_TASK_STATES = {
     PENDING: { label: 'À faire', icon: 'pending', badge: 'neutral', card: 'border-border bg-muted/30', square: 'bg-muted-foreground/25 text-background', bar: 'bg-muted-foreground/40' },
     IN_PROGRESS: { label: 'En cours', icon: 'progress', badge: 'warning', card: 'border-orange-200 bg-orange-50/70 dark:border-orange-900/60 dark:bg-orange-950/20', square: 'bg-orange-500 text-white', bar: 'bg-orange-500' },
-    COMPLETED: { label: 'À envoyer', icon: 'completed', badge: 'primary', card: 'border-sky-200 bg-sky-50/70 dark:border-sky-900/60 dark:bg-sky-950/20', square: 'bg-sky-600 text-white', bar: 'bg-sky-600' },
+    COMPLETED: { label: 'Terminée', icon: 'completed', badge: 'primary', card: 'border-sky-200 bg-sky-50/70 dark:border-sky-900/60 dark:bg-sky-950/20', square: 'bg-sky-600 text-white', bar: 'bg-sky-600' },
     VALIDATED: { label: 'Envoyée', icon: 'validated', badge: 'success', card: 'border-emerald-200 bg-emerald-50/70 dark:border-emerald-900/60 dark:bg-emerald-950/20', square: 'bg-emerald-600 text-white', bar: 'bg-emerald-600' },
     TO_REDO: { label: 'À refaire', icon: 'redo', badge: 'danger', card: 'border-red-200 bg-red-50/70 dark:border-red-900/60 dark:bg-red-950/20', square: 'bg-red-600 text-white', bar: 'bg-red-600' },
 };

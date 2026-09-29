@@ -14,7 +14,7 @@ import FormField from '@/Components/Shadcn/FormField.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import {
-    AlertTriangle, BadgeCheck, Building2, CheckCheck, ClipboardList, Eraser, FileText, ChevronDown, History, Lock, MoreHorizontal, NotebookPen, RotateCcw, SendHorizontal, Siren, TriangleAlert, Undo2,
+    AlertTriangle, BadgeCheck, Building2, CheckCheck, ClipboardList, Eraser, FileText, ChevronDown, History, Lock, MoreHorizontal, NotebookPen, PencilLine, RotateCcw, Siren, TriangleAlert, Undo2,
 } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import { useAutosave } from '@/composables/useAutosave';
@@ -51,7 +51,7 @@ const props = defineProps({
     requestUuid: { type: String, default: '' },
     externalLabs: { type: Array, default: () => [] },
 });
-const emit = defineEmits(['send']);
+const emit = defineEmits(['completed']);
 
 const page = usePage();
 const writable = computed(() => props.item.editable && props.can.enter && !props.cancelled);
@@ -150,7 +150,7 @@ const cancelSendOut = () => {
 // montrés verrouillés plutôt que masqués (ADR-158).
 const portalGestures = computed(() => {
     if (!props.can.site_only || props.cancelled) return [];
-    if (props.item.status === 'COMPLETED' || (props.item.editable && props.item.has_definitions)) return [{ label: 'Envoyer au médecin', variant: 'default' }];
+    if (props.item.editable && props.item.has_definitions) return [{ label: 'Terminer l’analyse', variant: 'default' }];
 
     return [];
 });
@@ -164,14 +164,18 @@ const toggleCritical = (node) => {
     router.post(labUrl(`/laboratory/results/${node.result.uuid}/critical`), { critical: !node.result.is_critical }, { preserveScroll: true, preserveState: true });
 };
 
-// ADR-216 — envoyer au médecin : la saisie en cours part d'abord, puis la page
-// ouvre sa fenêtre d'envoi sur ce qui est réellement enregistré.
-const preparing = ref(false);
-const canSend = computed(() => props.can.send && !props.cancelled
-    && (props.item.status === 'COMPLETED' || (props.item.editable && props.item.has_definitions)));
-const send = () => {
-    preparing.value = true;
-    autosave.flush(() => { preparing.value = false; emit('send', props.item.uuid); }, () => { preparing.value = false; });
+// Amendement ADR-216 du 2026-09-29 — « Terminer l'analyse » au pied de la saisie :
+// la saisie en cours part d'abord, puis l'analyse est rendue et la liste des tâches
+// la marque « Terminée ». L'envoi au médecin se fait en haut de la page.
+const completing = ref(false);
+const canComplete = computed(() => writable.value && props.item.has_definitions);
+const complete = () => {
+    completing.value = true;
+    autosave.flush(() => router.post(labUrl(`/laboratory/items/${props.item.uuid}/complete`), {}, {
+        preserveScroll: true,
+        onSuccess: () => emit('completed', props.item.uuid),
+        onFinish: () => { completing.value = false; },
+    }), () => { completing.value = false; });
 };
 defineExpose({ flush: (done, onError) => autosave.flush(done, onError) });
 
@@ -184,7 +188,7 @@ const sendBack = () => returnForm.post(labUrl(`/laboratory/items/${props.item.uu
 });
 // Amendement ADR-216 du 2026-09-29 — un droit propre (`laboratory_results.return`),
 // réglé depuis le portail.
-const returnable = computed(() => !props.cancelled && ['COMPLETED', 'VALIDATED'].includes(props.item.status));
+const returnable = computed(() => !props.cancelled && props.item.status === 'VALIDATED');
 const canReturn = computed(() => returnable.value && Boolean(props.can.return));
 
 // Les gestes secondaires tiennent dans un menu : chacun dit ce qu'il fait et, quand
@@ -193,7 +197,9 @@ const canReturn = computed(() => returnable.value && Boolean(props.can.return));
 const SITE_ONLY = 'Ce geste se fait au site, par la personne qui a le prélèvement.';
 const returnReason = computed(() => {
     if (props.can.site_only) return SITE_ONLY;
-    if (!returnable.value) return 'Possible une fois l’analyse terminée ou envoyée au médecin : avant, corrigez simplement la saisie.';
+    if (!returnable.value) return props.item.status === 'COMPLETED'
+        ? 'Elle n’est pas encore envoyée : utilisez « Rouvrir la saisie », sans motif.'
+        : 'Possible une fois l’analyse envoyée au médecin : avant, corrigez simplement la saisie.';
     if (!props.can.return) return 'Demande le droit « laboratory_results.return », à obtenir d’un administrateur.';
 
     return null;
@@ -214,14 +220,25 @@ const resetReason = computed(() => {
 
     return null;
 });
+const reopenReason = computed(() => {
+    if (props.can.site_only) return SITE_ONLY;
+    if (!props.can.enter) return 'Demande le droit « laboratory_results.create ».';
+
+    return null;
+});
 const moreActions = computed(() => [
+    ...(props.item.status === 'COMPLETED' && !props.cancelled ? [{
+        key: 'reopen',
+        icon: PencilLine,
+        label: 'Rouvrir la saisie',
+        description: reopenReason.value ?? 'Corriger une analyse terminée avant son envoi au médecin ; aucun motif n’est demandé.',
+        disabled: reopenReason.value !== null,
+    }] : []),
     {
         key: 'return',
         icon: RotateCcw,
         label: props.item.status === 'VALIDATED' ? 'Reprendre (à refaire)' : 'Renvoyer à refaire',
-        description: returnReason.value ?? (props.item.status === 'VALIDATED'
-            ? 'Rouvre un résultat déjà envoyé, avec un motif ; le médecin est prévenu.'
-            : 'Rouvre un résultat terminé pour le corriger, avec un motif.'),
+        description: returnReason.value ?? 'Rouvre un résultat déjà envoyé, avec un motif ; le médecin est prévenu.',
         disabled: returnReason.value !== null,
     },
     {
@@ -241,7 +258,13 @@ const moreActions = computed(() => [
         separatorBefore: true,
     },
 ]);
+const reopening = ref(false);
+const reopen = () => {
+    reopening.value = true;
+    router.post(labUrl(`/laboratory/items/${props.item.uuid}/reopen`), {}, { preserveScroll: true, onFinish: () => { reopening.value = false; } });
+};
 const onMoreAction = (key) => {
+    if (key === 'reopen') reopen();
     if (key === 'return') returnOpen.value = true;
     if (key === 'send-out') openSendOut();
     if (key === 'reset') resetOpen.value = true;
@@ -312,7 +335,7 @@ const anteriorityText = (node) => {
         </div>
         <div v-else-if="item.status === 'COMPLETED'" class="flex gap-2 border-b border-border bg-primary/5 px-4 py-2.5 text-sm text-foreground">
             <CheckCheck class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-            <p>Résultat rendu<template v-if="item.resulted_by"> par {{ item.resulted_by }}</template><template v-if="item.resulted_at">, {{ formatDateTime(item.resulted_at) }}</template> — il n’est pas encore envoyé au médecin.</p>
+            <p>Terminée<template v-if="item.resulted_by"> par {{ item.resulted_by }}</template><template v-if="item.resulted_at">, {{ formatDateTime(item.resulted_at) }}</template> — pas encore envoyée au médecin : elle partira avec « Envoyer au médecin », en haut de la page.</p>
         </div>
         <div v-else-if="item.status === 'VALIDATED'" class="flex gap-2 border-b border-border bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
             <BadgeCheck class="mt-0.5 h-4 w-4 shrink-0" />
@@ -524,8 +547,11 @@ const anteriorityText = (node) => {
         >
             <div class="me-auto flex min-w-0 flex-col gap-0.5">
                 <ClinicalSaveStatus v-if="writable && item.has_definitions" :saving="autosave.saving.value" :saved-at="autosave.savedAt.value" :dirty="form.isDirty" :failed="autosave.failed.value" retryable @retry="autosave.retry" />
-                <p v-if="canSend || portalGestures.length" class="hidden text-xs text-muted-foreground sm:block">
-                    La saisie s’enregistre seule. « Envoyer au médecin » valide le résultat et le lui transmet.
+                <p v-if="canComplete || portalGestures.length" class="hidden text-xs text-muted-foreground sm:block">
+                    La saisie s’enregistre seule. « Terminer » marque l’analyse terminée ; l’envoi au médecin se fait en haut de la page.
+                </p>
+                <p v-else-if="item.status === 'COMPLETED'" class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <CheckCheck class="h-3.5 w-3.5 text-primary" /> Terminée — elle partira avec « Envoyer au médecin », en haut de la page.
                 </p>
             </div>
             <DropdownMenu :items="moreActions" label="Autres actions" @select="onMoreAction">
@@ -535,8 +561,8 @@ const anteriorityText = (node) => {
                     </Button>
                 </template>
             </DropdownMenu>
-            <Button v-if="canSend" type="button" size="sm" :disabled="preparing || (item.status !== 'COMPLETED' && filled === 0)" :title="filled === 0 && item.status !== 'COMPLETED' ? 'Saisissez au moins un résultat.' : 'Valide le résultat et le transmet au médecin ; il ne se modifie plus ensuite.'" @click="send">
-                <SendHorizontal class="h-4 w-4" /> Envoyer au médecin
+            <Button v-if="canComplete" type="button" size="sm" :disabled="completing || filled === 0" :title="filled === 0 ? 'Saisissez au moins un résultat.' : 'Marque l’analyse terminée ; elle pourra ensuite partir au médecin.'" @click="complete">
+                <CheckCheck class="h-4 w-4" /> Terminer l’analyse
             </Button>
             <LabSiteOnlyAction v-for="gesture in portalGestures" :key="gesture.label" :label="gesture.label" :variant="gesture.variant" />
         </footer>

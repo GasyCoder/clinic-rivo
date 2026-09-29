@@ -67,7 +67,7 @@ test('the clinical gestures are shown locked on the portal, never hidden', () =>
 
     const editor = read('resources/js/Components/Laboratory/LabItemEditor.vue');
     assert.match(editor, /can\.site_only/, 'la saisie dit pourquoi elle est en lecture seule sur le portail');
-    assert.match(editor, /label: 'Envoyer au médecin'/);
+    assert.match(editor, /label: 'Terminer l’analyse'/);
 
     const lock = read('resources/js/Components/Laboratory/LabSiteOnlyAction.vue');
     assert.match(lock, /<slot v-if="! onPortal" \/>/, 'sur le site, le bouton est rendu tel quel');

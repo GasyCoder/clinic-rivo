@@ -10,6 +10,8 @@ use App\Actions\Laboratory\LabRequestGuard;
 use App\Actions\Laboratory\ReceiveLabRequestAction;
 use App\Actions\Laboratory\RecordLabResultAction;
 use App\Actions\Laboratory\ResetLabResultsAction;
+use App\Actions\Laboratory\CompleteLabItemAction;
+use App\Actions\Laboratory\ReopenLabItemAction;
 use App\Actions\Laboratory\ReturnLabItemAction;
 use App\Actions\Laboratory\SaveLabAntibiogramAction;
 use App\Actions\Laboratory\SaveLabResultsAction;
@@ -291,6 +293,21 @@ class LaboratoryController extends Controller
         $action->execute($labRequestItem, $labAntibiogram, $request->validated('lines') ?? [], $request->validated('notes'), $request->user());
 
         return back();
+    }
+
+    /** Amendement ADR-216 du 2026-09-29 — terminer une analyse : elle attend ensuite son envoi. */
+    public function completeItem(Request $request, LabRequestItem $labRequestItem, CompleteLabItemAction $action): RedirectResponse
+    {
+        $item = $action->execute($labRequestItem, $request->user());
+
+        return back()->with('status', "« {$item->catalog_item_name_snapshot} » terminée : elle peut partir au médecin.");
+    }
+
+    public function reopenItem(Request $request, LabRequestItem $labRequestItem, ReopenLabItemAction $action): RedirectResponse
+    {
+        $item = $action->execute($labRequestItem, $request->user());
+
+        return back()->with('status', "Saisie de « {$item->catalog_item_name_snapshot} » rouverte.");
     }
 
     public function returnItem(Request $request, LabRequestItem $labRequestItem, ReturnLabItemAction $action): RedirectResponse

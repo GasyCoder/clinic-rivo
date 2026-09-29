@@ -214,6 +214,8 @@ class RolePermissionSeeder extends Seeder
             // reserved to SURGERY; laboratory_results.create to LABORATORY).
             'paraclinical_requests.view', 'paraclinical_requests.archive',
             'laboratory_orders.create', 'laboratory_orders.view', 'laboratory_results.view',
+            // Amendement ADR-216 du 2026-09-29 — le médecin peut demander qu'un résultat reçu soit refait.
+            'laboratory_results.return',
             'imaging_orders.create', 'imaging_orders.view', 'imaging_results.create', 'imaging_results.update', 'imaging_templates.create', 'imaging_templates.update', 'imaging_templates.archive',
             'surgery.request', 'hospitalization.request', 'maternity.request',
             'transfer.request', 'pediatrics.request',

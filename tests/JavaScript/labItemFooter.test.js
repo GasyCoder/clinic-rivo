@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 /**
- * Paillasse — un seul bouton principal par analyse (« Envoyer au médecin »),
+ * Paillasse — un seul bouton principal par analyse (« Terminer l'analyse » ; l'envoi
+ * au médecin est en haut de la page, pour une, plusieurs ou toutes les analyses),
  * les gestes secondaires dans « Autres actions », chacun avec ce qu'il fait ou
  * pourquoi il est indisponible ; la conclusion générale s'enregistre d'elle-même.
  */
@@ -24,9 +25,17 @@ test('les gestes secondaires d’une analyse sont dans un seul menu, jamais masq
     assert.doesNotMatch(editor, /@click="resetOpen = true"/);
 });
 
-test('« Renvoyer à refaire » dit quand il devient possible', () => {
-    assert.match(editor, /Possible une fois l’analyse terminée ou envoyée au médecin/);
+test('« Renvoyer à refaire » dit quand il devient possible ; une analyse terminée se rouvre', () => {
+    assert.match(editor, /Possible une fois l’analyse envoyée au médecin/);
     assert.match(editor, /laboratory_results\.return/);
+    assert.ok(editor.includes("key: 'reopen'"), 'Rouvrir la saisie manque au menu');
+});
+
+test('le pied termine l’analyse ; l’envoi est en haut, toutes les terminées par défaut', () => {
+    assert.match(editor, /Terminer l’analyse/);
+    assert.match(editor, /\/complete`/);
+    assert.doesNotMatch(editor, /Envoyer au médecin\s*<\/Button>/);
+    assert.match(page, /@completed="selectNextToWork"/);
 });
 
 test('la conclusion générale s’enregistre d’elle-même, sans bouton à part', () => {

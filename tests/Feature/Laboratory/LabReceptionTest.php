@@ -388,6 +388,7 @@ class LabReceptionTest extends TestCase
             $request = $this->labRequest($episode, $orientation, $technician);
             $item = $this->requestItem($request, $glycemie);
             $this->actingAs($technician)->put("/laboratory/items/{$item->uuid}/results", ['results' => [['analysis_uuid' => $definition->uuid, 'value' => $value]]]);
+            $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/complete")->assertSessionHasNoErrors();
             $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", ['items' => [$item->uuid], 'to_nobody' => true])->assertSessionHasNoErrors();
         }
 

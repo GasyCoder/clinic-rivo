@@ -6,7 +6,9 @@ use App\Enums\LabItemStatus;
 use App\Models\LabRequest;
 use App\Models\LabRequestItem;
 use App\Models\User;
+use App\Notifications\LabRedoRequested;
 use App\Notifications\LabResultReturned;
+use App\Services\Laboratory\LabResultAccess;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -33,7 +35,7 @@ class ReturnLabItemAction
             throw ValidationException::withMessages(['reason' => 'Indiquez pourquoi l’analyse est à refaire.']);
         }
 
-        [$returned, $wasSent] = DB::transaction(function () use ($item, $reason, $actor): array {
+        [$returned, $wasSent, $sender] = DB::transaction(function () use ($item, $reason, $actor): array {
             $locked = LabItemGuard::lock($item);
             $status = $locked->currentStatus();
 
@@ -45,6 +47,11 @@ class ReturnLabItemAction
             if (! $actor->can(self::PERMISSION)) {
                 throw new AuthorizationException('Renvoyer une analyse à refaire demande le droit « '.self::PERMISSION.' ».');
             }
+            // Un résultat adressé à un confrère ne se reprend pas sans l'avoir ouvert (ADR-216).
+            if (app(LabResultAccess::class)->sealed($locked->labRequest, $actor)) {
+                throw new AuthorizationException('Ce résultat est adressé à un confrère : ouvrez-le d’abord.');
+            }
+            $sender = $locked->validated_by;
 
             $locked->update([
                 'status' => LabItemStatus::ToRedo,
@@ -60,7 +67,7 @@ class ReturnLabItemAction
             LabRequest::query()->whereKey($locked->lab_request_id)->whereNotNull('lab_archived_at')
                 ->update(['lab_archived_at' => null, 'lab_archived_by' => null]);
 
-            return [$locked->fresh(), $status === LabItemStatus::Validated];
+            return [$locked->fresh(), $status === LabItemStatus::Validated, $sender];
         });
 
         // ADR-216 — le médecin qui a reçu ce résultat doit savoir qu'il est repris.
@@ -69,6 +76,18 @@ class ReturnLabItemAction
 
         if ($wasSent && $recipient !== null && (int) $recipient->getKey() !== (int) $actor->getKey()) {
             $recipient->notify(new LabResultReturned(
+                request: $request,
+                analysis: $returned->catalog_item_name_snapshot,
+                reason: mb_substr($reason, 0, 200),
+                by: $actor->name,
+            ));
+        }
+
+        // Amendement du 2026-09-29 — un médecin peut aussi demander qu'un résultat
+        // soit refait : le technicien qui l'avait envoyé est prévenu.
+        $senderUser = $wasSent && $sender !== null && (int) $sender !== (int) $actor->getKey() ? User::query()->find($sender) : null;
+        if ($senderUser !== null && $request !== null) {
+            $senderUser->notify(new LabRedoRequested(
                 request: $request,
                 analysis: $returned->catalog_item_name_snapshot,
                 reason: mb_substr($reason, 0, 200),

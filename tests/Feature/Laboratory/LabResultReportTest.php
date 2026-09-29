@@ -176,6 +176,7 @@ class LabResultReportTest extends TestCase
         // Rien d'envoyé : rien à lire.
         $this->actingAs($doctor)->get("/resultats-analyses/{$request->uuid}/pdf")->assertNotFound();
 
+        $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/complete")->assertSessionHasNoErrors();
         $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", [
             'items' => [$item->uuid], 'recipient_uuid' => $doctor->uuid,
         ])->assertSessionHasNoErrors();
@@ -200,6 +201,7 @@ class LabResultReportTest extends TestCase
         $this->actingAs($technician)->put("/laboratory/items/{$old->uuid}/results", [
             'results' => [['analysis_uuid' => $rows['hb']->uuid, 'value' => '11,4']],
         ])->assertSessionHasNoErrors();
+        $this->actingAs($technician)->post("/laboratory/items/{$old->uuid}/complete")->assertSessionHasNoErrors();
         $this->actingAs($technician)->post("/laboratory/requests/{$first->uuid}/send", [
             'items' => [$old->uuid], 'recipient_uuid' => $doctor->uuid,
         ])->assertSessionHasNoErrors();
@@ -261,6 +263,7 @@ class LabResultReportTest extends TestCase
     {
         $doctor = $this->userWithRole('MEDICINE');
         [$request, $item, $technician] = $this->workedRequest($doctor);
+        $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/complete")->assertSessionHasNoErrors();
         $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", [
             'items' => [$item->uuid], 'recipient_uuid' => $doctor->uuid,
         ])->assertSessionHasNoErrors();

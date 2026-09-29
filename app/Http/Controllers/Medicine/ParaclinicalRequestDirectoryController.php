@@ -213,6 +213,9 @@ class ParaclinicalRequestDirectoryController extends Controller
         $deliveredAt = fn ($item) => $isLab ? ($item->isDelivered() ? $item->resulted_at : null) : $item->resulted_at;
         $viewerId = $viewer?->getKey();
         $atBench = $isLab && (bool) $viewer?->can('laboratory_results.create');
+        // Amendement ADR-216 du 2026-09-29 — un médecin à qui l'on accorde de modifier une
+        // demande d'analyses l'ouvre au laboratoire, sans le geste de paillasse.
+        $canManage = $isLab && ! $atBench && (bool) $viewer?->can('laboratory_orders.update') && (bool) $viewer?->can('laboratory_results.view');
         // ADR-219 — le geste de la file du laboratoire (Traiter, Continuer…) ; « Traiter »
         // prend la demande en charge, il demande ce droit-là.
         $canStart = $isLab && $viewer !== null && ReceiveLabRequestAction::canTakeUp($viewer);
@@ -278,8 +281,8 @@ class ParaclinicalRequestDirectoryController extends Controller
                 'payment' => $showPayment && $request->cancelled_at === null
                     ? collect($clearance->for($request))->only(['cleared', 'exemption', 'exemption_label', 'due_count', 'unbilled_count'])->all()
                     : null,
-                'bench_action' => $atBench && $request->cancelled_at === null
-                    ? (($action = LabQueue::actionOf($request)) === 'start' && ! $canStart ? 'open' : $action)
+                'bench_action' => $request->cancelled_at === null
+                    ? ($atBench ? (($action = LabQueue::actionOf($request)) === 'start' && ! $canStart ? 'open' : $action) : ($canManage ? 'open' : null))
                     : null,
                 'family_label' => $familyLabel,
                 'status' => $request->displayStatus(),

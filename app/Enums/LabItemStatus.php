@@ -30,7 +30,7 @@ enum LabItemStatus: string
         return match ($this) {
             self::Pending => 'À analyser',
             self::InProgress => 'En cours',
-            self::Completed => 'À envoyer',
+            self::Completed => 'Terminée',
             self::Validated => 'Envoyée',
             self::ToRedo => 'À refaire',
         };

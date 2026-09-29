@@ -2,7 +2,6 @@
 
 namespace App\Actions\Laboratory;
 
-use App\Enums\LabEntryMode;
 use App\Enums\LabItemStatus;
 use App\Models\LabRequest;
 use App\Models\LabRequestItem;
@@ -13,7 +12,6 @@ use App\Services\Laboratory\AnalysisReferenceResolver;
 use App\Services\Laboratory\LabResultRecipients;
 use App\Services\Laboratory\LabResultSummary;
 use App\Services\Laboratory\LabWorkbench;
-use App\Support\Laboratory\LabEntryOptions;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -21,12 +19,12 @@ use Illuminate\Validation\ValidationException;
 /**
  * ADR-216 — le technicien envoie les résultats au médecin, et cet envoi les
  * valide : il n'y a plus de biologiste distinct (les médecins de la clinique le
- * sont). Remplace « Terminer » puis « Valider » de l'ADR-213.
+ * sont).
  *
- * Un seul geste, tout ou rien : chaque analyse choisie est rendue (résultat
- * composé, référence figée) puis marquée envoyée ; la demande garde à qui ses
- * résultats sont adressés. Une analyse refusée — rien de saisi, germe non
- * nommé, Nugent incomplet — n'en laisse partir aucune, et le message la nomme.
+ * Amendement du 2026-09-29 — « Terminer » (`CompleteLabItemAction`) rend chaque
+ * analyse au pied de sa saisie ; l'envoi, en haut de la page, fait partir une,
+ * plusieurs ou toutes les analyses terminées. Tout ou rien : une analyse pas
+ * encore terminée n'en laisse partir aucune, et le message la nomme.
  *
  * Envoyée, une analyse ne se modifie plus : une erreur se corrige par « Renvoyer
  * à refaire » avec un motif (`ReturnLabItemAction`), puis un nouvel envoi —
@@ -153,46 +151,29 @@ class SendLabResultsAction
             throw ValidationException::withMessages(['items' => "« {$name} » est déjà envoyée au médecin."]);
         }
 
-        // Rendue « en un bloc » (analyse sans définition), ou terminée avant
-        // l'ADR-216 : le résultat est déjà composé, il ne reste qu'à l'envoyer.
-        if ($status === LabItemStatus::Completed) {
-            $locked->update([
-                'status' => LabItemStatus::Validated,
-                'validated_at' => now(),
-                'validated_by' => $actor->getKey(),
-                'sent_at' => now(),
-            ]);
-
-            return $locked->returned_at !== null;
+        // Amendement du 2026-09-29 — l'envoi ne part que d'une analyse terminée :
+        // « Tout envoyer », coché par défaut, ne fait jamais partir une saisie à moitié faite.
+        if ($status !== LabItemStatus::Completed) {
+            throw ValidationException::withMessages(['items' => "« {$name} » n’est pas encore terminée : terminez-la d’abord, au pied de sa saisie."]);
         }
 
+        // Une analyse reprise après un envoi a gardé, jusqu'ici, la valeur que le
+        // médecin avait lue (« Terminer » ne la réécrit pas) : elle se recompose à
+        // l'envoi. Rendue « en un bloc » (sans définition), elle garde son texte.
         $locked->load(['results', 'antibiograms.results']);
-        $filled = $locked->results->reject->isBlank();
-
-        if ($filled->isEmpty()) {
-            throw ValidationException::withMessages(['items' => "« {$name} » : aucun résultat n’est saisi, il n’y a rien à envoyer."]);
-        }
-
-        foreach ($filled as $result) {
-            if ($result->entry_mode === LabEntryMode::Culture->value
-                && $result->value === LabEntryOptions::CULTURE_GROWTH
-                && empty($result->selections['bacteria'] ?? [])) {
-                throw ValidationException::withMessages(['items' => "« {$name} » — {$result->designation_snapshot} : nommez au moins un germe identifié."]);
-            }
-            if ($result->entry_mode === LabEntryMode::Nugent->value && $result->value === null) {
-                throw ValidationException::withMessages(['items' => "« {$name} » — {$result->designation_snapshot} : les trois sous-scores de Nugent sont nécessaires."]);
-            }
-        }
+        $structured = $locked->isDelivered() && $locked->results->reject->isBlank()->isNotEmpty();
 
         $locked->update([
-            'result_value' => $this->summary->compose($locked),
-            'reference_snapshot' => $this->references->snapshot(
-                $locked->catalogItem()->firstOrFail(),
-                $this->workbench->patient($locked),
-                $this->workbench->referenceDate($locked),
-            ),
-            'resulted_at' => now(),
-            'resulted_by' => $actor->getKey(),
+            ...($structured ? [
+                'result_value' => $this->summary->compose($locked),
+                'reference_snapshot' => $this->references->snapshot(
+                    $locked->catalogItem()->firstOrFail(),
+                    $this->workbench->patient($locked),
+                    $this->workbench->referenceDate($locked),
+                ),
+                'resulted_at' => now(),
+                'resulted_by' => $actor->getKey(),
+            ] : []),
             'status' => LabItemStatus::Validated,
             'validated_at' => now(),
             'validated_by' => $actor->getKey(),

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Laboratory\ReturnLabItemAction;
 use App\Enums\LabItemStatus;
 use App\Models\LabRequest;
 use App\Models\LabRequestItem;
@@ -62,6 +63,16 @@ class LabResultsController extends Controller
             'pending' => $labRequest->items->reject(fn (LabRequestItem $item) => $item->isDelivered())
                 ->pluck('catalog_item_name_snapshot')->values(),
             'options' => LabEntryOptions::forScreen(),
+            // Amendement ADR-216 du 2026-09-29 — ce que le médecin peut faire, droit par droit :
+            // demander qu'un résultat soit refait, ou ouvrir la demande au laboratoire
+            // pour la modifier ou y saisir, quand ces droits lui sont accordés.
+            'can' => [
+                'return' => $sealed === null && $user->can(ReturnLabItemAction::PERMISSION),
+                'bench_url' => $labRequest->cancelled_at === null && $user->can('laboratory_results.view')
+                    && ($user->can('laboratory_results.create') || $user->can('laboratory_orders.update'))
+                    ? "/laboratory/requests/{$labRequest->uuid}" : null,
+                'bench_label' => $user->can('laboratory_results.create') ? 'Saisir au laboratoire' : 'Modifier la demande',
+            ],
         ]);
     }
 

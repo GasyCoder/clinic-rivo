@@ -115,6 +115,11 @@ class SiteLaboratoryThroughPortalApiTest extends TestCase
             ->postJson("/api/v1/super-admin/site-laboratory/requests/{$received->uuid}/send", ['items' => [$item->uuid], 'to_nobody' => true])
             ->assertForbidden()
             ->assertJsonPath('message', KeepPhysicalActsAtSite::LABORATORY_MESSAGE);
+        // « Terminer » l'analyse aussi (amendement ADR-216 du 2026-09-29).
+        $this->withHeaders($this->writeHeaders(self::ALL))
+            ->postJson("/api/v1/super-admin/site-laboratory/items/{$item->uuid}/complete")
+            ->assertForbidden()
+            ->assertJsonPath('message', KeepPhysicalActsAtSite::LABORATORY_MESSAGE);
 
         $this->assertNull($item->fresh()->sent_at, 'rien n’est envoyé depuis le portail');
     }

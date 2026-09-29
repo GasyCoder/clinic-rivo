@@ -23,15 +23,17 @@ export function sendabilityOf(item) {
         return { sendable: false, correction: false, note: `Déjà envoyée${item.validated_at ? ` le ${formatDateTime(item.validated_at)}` : ''}.` };
     }
     if (item.status === 'COMPLETED') {
-        return { sendable: true, correction, note: 'Résultat rendu, prêt à partir.' };
+        return { sendable: true, correction, note: 'Terminée, prête à partir.' };
     }
 
+    // Amendement ADR-216 du 2026-09-29 — seule une analyse terminée part : « Terminer » est
+    // au pied de sa saisie.
     const saved = savedResults(item);
     if (saved === 0) {
         return { sendable: false, correction, note: item.has_definitions ? 'Aucun résultat saisi.' : 'Enregistrez d’abord le résultat.' };
     }
 
-    return { sendable: true, correction, note: `${saved} résultat${saved > 1 ? 's' : ''} saisi${saved > 1 ? 's' : ''}.` };
+    return { sendable: false, correction, note: `${saved} résultat${saved > 1 ? 's' : ''} saisi${saved > 1 ? 's' : ''} — pas encore terminée : terminez-la d’abord.` };
 }
 
 export const sendableItems = (items) => (items ?? []).filter((item) => sendabilityOf(item).sendable);

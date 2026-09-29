@@ -35,6 +35,9 @@ Route::put('/items/{labRequestItem}/results', [LaboratoryController::class, 'sav
 // ADR-219 — remettre une saisie à zéro, tant qu'elle n'est pas envoyée au médecin.
 Route::post('/items/{labRequestItem}/reset', [LaboratoryController::class, 'resetResults'])->name('items.reset')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
 Route::put('/items/{labRequestItem}/antibiograms/{labAntibiogram}', [LaboratoryController::class, 'saveAntibiogram'])->name('items.antibiograms.update')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
+// ADR-216, amendement du 2026-09-29 — « Terminer » au pied de la saisie ; rouvrir une analyse terminée non envoyée.
+Route::post('/items/{labRequestItem}/complete', [LaboratoryController::class, 'completeItem'])->name('items.complete')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
+Route::post('/items/{labRequestItem}/reopen', [LaboratoryController::class, 'reopenItem'])->name('items.reopen')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);
 Route::post('/items/{labRequestItem}/return', [LaboratoryController::class, 'returnItem'])->name('items.return')->middleware(['can:laboratory_results.return', 'rivo.site-only:laboratory']);
 Route::post('/results/{labResult}/critical', [LaboratoryController::class, 'flagCritical'])->name('results.critical')->middleware(['can:laboratory_results.flag_critical', 'rivo.site-only:laboratory']);
 Route::post('/items/{labRequestItem}/result', [LaboratoryController::class, 'recordResult'])->name('items.result')->middleware(['can:laboratory_results.create', 'rivo.site-only:laboratory']);

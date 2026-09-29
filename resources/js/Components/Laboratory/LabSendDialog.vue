@@ -44,6 +44,12 @@ watch(() => props.open, (open) => {
     target.value = defaultRecipient(props.recipient, props.recipients);
 }, { immediate: true });
 
+// Par défaut, toutes les analyses terminées partent ; on peut n'en envoyer qu'une partie.
+const sendableUuids = computed(() => rows.value.filter((row) => row.sendable).map((row) => row.item.uuid));
+const allChosen = computed(() => sendableUuids.value.length > 0 && sendableUuids.value.every((uuid) => chosen.value.includes(uuid)));
+const toggleAll = () => { chosen.value = allChosen.value ? [] : [...sendableUuids.value]; };
+const waiting = computed(() => rows.value.filter((row) => !row.sendable && row.item.status !== 'VALIDATED').length);
+
 const toggle = (uuid, on) => {
     chosen.value = on ? [...new Set([...chosen.value, uuid])] : chosen.value.filter((value) => value !== uuid);
 };
@@ -94,7 +100,19 @@ const submit = () => {
             </FormField>
 
             <fieldset>
-                <legend class="mb-2 text-sm font-medium text-foreground">Analyses à envoyer</legend>
+                <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <legend class="text-sm font-medium text-foreground">
+                        Analyses à envoyer
+                        <span class="font-normal text-muted-foreground">— {{ chosen.length }} sur {{ sendableUuids.length }} terminée{{ sendableUuids.length > 1 ? 's' : '' }}</span>
+                    </legend>
+                    <Button v-if="sendableUuids.length > 1" type="button" size="xs" variant="ghost" @click="toggleAll">
+                        {{ allChosen ? 'Tout décocher' : 'Tout cocher' }}
+                    </Button>
+                </div>
+                <p class="mb-2 text-xs text-muted-foreground">
+                    Par défaut, toutes les analyses terminées partent ensemble ; décochez celles qui doivent attendre.
+                    <template v-if="waiting"> {{ waiting }} analyse{{ waiting > 1 ? 's ne sont' : ' n’est' }} pas encore terminée{{ waiting > 1 ? 's' : '' }} : elle{{ waiting > 1 ? 's partiront' : ' partira' }} plus tard.</template>
+                </p>
                 <ul class="divide-y divide-border rounded-lg border border-border">
                     <li v-for="row in rows" :key="row.item.uuid" :class="cn('flex items-start gap-3 px-3 py-2.5', !row.sendable && 'opacity-70')">
                         <Checkbox
@@ -124,7 +142,7 @@ const submit = () => {
             <Button type="button" variant="outline" @click="emit('update:open', false)">Annuler</Button>
             <Button type="button" :disabled="!ready || sending" @click="submit">
                 <Send class="h-4 w-4" />
-                {{ chosen.length > 1 ? `Envoyer les ${chosen.length} analyses` : 'Envoyer' }}
+                {{ allChosen && chosen.length > 1 ? `Tout envoyer (${chosen.length})` : chosen.length > 1 ? `Envoyer les ${chosen.length} analyses` : 'Envoyer' }}
             </Button>
         </template>
     </Dialog>

@@ -67,6 +67,11 @@ watch(() => props.items.map((item) => item.uuid).join(','), () => {
     if (!props.items.some((item) => item.uuid === selected.value)) selected.value = firstToWork();
 });
 const current = computed(() => props.items.find((item) => item.uuid === selected.value) ?? null);
+// Une analyse terminée : on passe à la suivante qui reste à faire, s'il y en a une.
+const selectNextToWork = (uuid) => {
+    const next = props.items.find((item) => item.uuid !== uuid && item.editable);
+    if (next) selected.value = next.uuid;
+};
 
 // ADR-218 — le compte rendu PDF porte tout ce qui a un résultat, envoyé ou non.
 const anyRendered = computed(() => props.items.some((item) => ['COMPLETED', 'VALIDATED'].includes(item.status) || item.result_value
@@ -129,10 +134,14 @@ const openSend = (uuids = []) => {
                     <Download class="h-4 w-4" />
                 </Button>
                 <LabRequestManage ref="manager" :lab-request="labRequest" :items="items" :manage="manage" :addable="addableAnalyses" />
-                <LabSiteOnlyAction v-if="(can.send || can.site_only) && canSendHere && toSend > 0" label="Envoyer au médecin" variant="default">
-                    <Button type="button" size="sm" @click="openSend()">
-                        <Send class="h-4 w-4" /> Envoyer au médecin<template v-if="toSend > 1"> · {{ toSend }}</template>
-                    </Button>
+                <!-- Amendement ADR-216 du 2026-09-29 — l'envoi, pour une, plusieurs ou toutes les
+                     analyses terminées (toutes par défaut) ; « Terminer » est au pied de chaque saisie. -->
+                <LabSiteOnlyAction v-if="(can.send || can.site_only) && canSendHere && !allValidated" label="Envoyer au médecin" variant="default">
+                    <span class="inline-flex" :title="toSend === 0 ? 'Terminez d’abord au moins une analyse, au pied de sa saisie.' : `${toSend} analyse${toSend > 1 ? 's terminées prêtes' : ' terminée prête'} à partir`">
+                        <Button type="button" size="sm" :disabled="toSend === 0" @click="openSend()">
+                            <Send class="h-4 w-4" /> Envoyer au médecin<template v-if="toSend > 0"> · {{ toSend }}</template>
+                        </Button>
+                    </span>
                 </LabSiteOnlyAction>
             </div>
         </div>
@@ -289,7 +298,7 @@ const openSend = (uuids = []) => {
                     :received="labRequest.received"
                     :request-uuid="labRequest.uuid"
                     :external-labs="externalLabs"
-                    @send="openSend([$event])"
+                    @completed="selectNextToWork"
                 />
                 <Card v-else class="p-8 text-center text-sm text-muted-foreground">Aucune analyse dans cette demande.</Card>
 

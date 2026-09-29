@@ -6,7 +6,9 @@ use App\Enums\LabItemStatus;
 use App\Models\AuditLog;
 use App\Models\LabRequest;
 use App\Models\LabRequestItem;
+use App\Models\Permission;
 use App\Models\User;
+use App\Notifications\LabRedoRequested;
 use App\Notifications\LabResultReturned;
 use App\Notifications\LabResultsAddressed;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -107,6 +109,91 @@ class LabResultsDeliveryTest extends TestCase
         // Envoyée une fois, elle reste « livrée » : le médecin garde la valeur envoyée, marquée en correction.
         $this->assertSame(LabItemStatus::ToRedo, $item->fresh()->currentStatus());
         $this->assertNotNull($item->fresh()->sent_at);
+    }
+
+    /**
+     * Amendement ADR-216 du 2026-09-29 — le médecin qui a reçu un résultat peut
+     * demander qu'il soit refait ; le technicien qui l'avait envoyé est prévenu.
+     * Un confrère à qui il n'est pas adressé ne le peut pas sans l'avoir ouvert.
+     */
+    public function test_the_doctor_asks_for_a_redo_and_the_sender_is_notified(): void
+    {
+        Notification::fake();
+        $doctor = $this->userWithRole('MEDICINE');
+        [$request, $item, $technician] = $this->renderedRequest($doctor);
+        $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", [
+            'items' => [$item->uuid], 'recipient_uuid' => $doctor->uuid,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertTrue($doctor->can('laboratory_results.return'), 'Le socle MEDICINE porte le droit.');
+        $this->actingAs($doctor)->get("/resultats-analyses/{$request->uuid}")
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('can.return', true));
+
+        $colleague = $this->userWithRole('MEDICINE');
+        $this->actingAs($colleague)->post("/laboratory/items/{$item->uuid}/return", ['reason' => 'À contrôler'])->assertForbidden();
+
+        $this->actingAs($doctor)->post("/laboratory/items/{$item->uuid}/return", ['reason' => 'Valeur incohérente avec la clinique'])
+            ->assertSessionHasNoErrors();
+        $this->assertSame(LabItemStatus::ToRedo, $item->fresh()->currentStatus());
+        Notification::assertSentTo($technician, LabRedoRequested::class);
+        Notification::assertNotSentTo($doctor, LabResultReturned::class);
+
+        // Sans le droit, la feuille ne propose rien et le serveur refuse.
+        $doctor->permissions()->syncWithoutDetaching([
+            Permission::query()->where('name', 'laboratory_results.return')->value('id') => ['effect' => 'deny'],
+        ]);
+        $this->actingAs($doctor->fresh())->get("/resultats-analyses/{$request->uuid}")
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('can.return', false)->where('can.bench_url', null));
+    }
+
+    /** Une analyse terminée mais pas envoyée se rouvre sans motif ; envoyée, elle se renvoie à refaire. */
+    public function test_a_completed_analysis_reopens_without_a_reason_until_it_is_sent(): void
+    {
+        $doctor = $this->userWithRole('MEDICINE');
+        [$request, $item, $technician] = $this->renderedRequest($doctor);
+
+        $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/reopen")->assertSessionHasNoErrors();
+        $item->refresh();
+        $this->assertSame(LabItemStatus::InProgress, $item->currentStatus());
+        $this->assertNull($item->resulted_at);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'laboratory.item.reopen']);
+
+        // Pas terminée : l'envoi refuse.
+        $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", ['items' => [$item->uuid], 'to_nobody' => true])
+            ->assertSessionHasErrors('items');
+        $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/reopen")->assertSessionHasErrors('item');
+    }
+
+    /** Un médecin à qui l'on accorde la saisie ou la modification d'une demande les a, sans rôle codé en dur. */
+    public function test_a_doctor_granted_the_rights_enters_results_and_edits_the_request(): void
+    {
+        $doctor = $this->userWithRole('MEDICINE');
+        $technician = $this->userWithRole('LABORATORY');
+        [$episode, $orientation] = $this->episodeWithLabOrientation($technician);
+        $glycemie = $this->prestation($technician, 'LAB-GLY', 'Glycémie');
+        $definition = $this->definition($glycemie, ['code' => 'GLY', 'designation' => 'Glycémie', 'result_type' => 'NUMERIC', 'unit' => 'g/L']);
+        $request = $this->labRequest($episode, $orientation, $doctor);
+        $item = $this->requestItem($request, $glycemie);
+        $uree = $this->prestation($technician, 'LAB-UREE', 'Urée');
+
+        $results = fn () => $this->actingAs($doctor->fresh())->put("/laboratory/items/{$item->uuid}/results", [
+            'results' => [['analysis_uuid' => $definition->uuid, 'value' => '1.10']],
+        ]);
+        $results()->assertForbidden();
+
+        $doctor->permissions()->syncWithoutDetaching([
+            Permission::query()->where('name', 'laboratory_results.create')->value('id') => ['effect' => 'allow'],
+            Permission::query()->where('name', 'laboratory_orders.update')->value('id') => ['effect' => 'allow'],
+        ]);
+
+        $this->actingAs($doctor->fresh())->get("/resultats-analyses/{$request->uuid}")
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('can.bench_url', "/laboratory/requests/{$request->uuid}"));
+        $results()->assertSessionHasNoErrors();
+        $this->actingAs($doctor->fresh())->post("/laboratory/items/{$item->uuid}/complete")->assertSessionHasNoErrors();
+        $this->assertSame(LabItemStatus::Completed, $item->fresh()->currentStatus());
+        $this->actingAs($doctor->fresh())->post("/laboratory/requests/{$request->uuid}/items", ['catalog_item_uuids' => [$uree->uuid]])
+            ->assertSessionHasNoErrors();
+        $this->assertSame(2, $request->items()->count());
     }
 
     public function test_a_colleague_sees_the_result_sealed_until_he_confirms_and_the_opening_is_traced(): void

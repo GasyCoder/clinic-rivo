@@ -20840,6 +20840,37 @@ reprise      migration 2026_11_21_090000 : accordé aux rôles qui détenaient `
 
 Conséquence signalée : un rôle dont le socle porte `laboratory_results.create` par décision du portail (NURSE
 sur un site local) garde le droit de renvoyer, comme avant ; le retirer est une décision du portail.
+
+## Amendement du 2026-09-29 (bis) — « Terminer » revient au pied de la saisie, l'envoi reste en haut
+
+Demande du propriétaire, en cinq points. Rien n'est remis en cause de ce que l'envoi signifie (il valide, pas
+de biologiste distinct) ; il redevient seulement un geste séparé de la fin de la saisie.
+
+```text
+Terminer l'analyse   au pied de chaque saisie (CompleteLabItemAction, POST …/items/{uuid}/complete,
+                     laboratory_results.create, site seulement) : résultat composé, référence figée ;
+                     la liste des tâches la marque « Terminée » (COMPLETED, ex-« À envoyer ») et l'écran
+                     passe à l'analyse suivante qui reste à faire
+Envoyer au médecin   en haut, seul bouton d'envoi : la fenêtre coche toutes les analyses terminées
+                     par défaut (« Tout envoyer (N) »), on en décoche pour n'en envoyer qu'une partie ;
+                     une analyse pas encore terminée est montrée, non cochable, et le serveur la
+                     refuse — « Tout envoyer » ne fait jamais partir une saisie à moitié faite
+Rouvrir la saisie    une analyse terminée mais pas envoyée se rouvre sans motif (ReopenLabItemAction,
+                     laboratory_results.create) : personne hors du laboratoire ne l'a lue ; envoyée,
+                     elle se renvoie à refaire avec un motif
+correction           une analyse envoyée puis reprise garde la valeur lue par le médecin : « Terminer »
+                     ne la réécrit pas, l'envoi la recompose
+médecin              « Demander à refaire » sur sa feuille de résultats, avec un motif, selon
+                     laboratory_results.return — accordé au socle MEDICINE (migration
+                     2026_11_22_090000), retirable depuis le portail ; le technicien qui avait
+                     envoyé est prévenu (LabRedoRequested) ; un résultat adressé à un confrère ne se
+                     reprend pas sans l'avoir ouvert
+droits du médecin    un médecin à qui l'on accorde laboratory_results.create (saisir, terminer) ou
+                     laboratory_orders.update (ajouter, retirer, renseigner) les exerce au
+                     laboratoire : sa feuille de résultats et « Demandes d'examens » y mènent
+                     (« Saisir au laboratoire » / « Modifier la demande ») ; aucun rôle codé en dur
+compte rendu         /laboratory/requests/{uuid}/impression passe en pleine largeur
+```
 ---
 
 # ADR-217 — Le technicien traite la demande tout de suite : ni réception préalable, ni règlement qui bloque

@@ -75,12 +75,26 @@ class LaboratoryWorkbenchTest extends TestCase
             'items' => [$item->uuid], 'recipient_uuid' => $doctor->uuid,
         ]);
 
-        // Rien de saisi : rien à envoyer.
+        $complete = fn () => $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/complete");
+
+        // Rien de saisi : rien à terminer, et une analyse pas terminée ne part pas.
+        $complete()->assertSessionHasErrors('item');
         $send()->assertSessionHasErrors('items');
 
         $this->actingAs($technician)->put("/laboratory/items/{$item->uuid}/results", [
             'results' => [['analysis_uuid' => $definition->uuid, 'value' => '0.95']],
         ]);
+        // Saisie mais pas terminée : l'envoi refuse et le dit.
+        $send()->assertSessionHasErrors('items');
+
+        // Amendement ADR-216 du 2026-09-29 — « Terminer » rend l'analyse, sans l'envoyer.
+        $complete()->assertSessionHasNoErrors();
+        $item->refresh();
+        $this->assertSame(LabItemStatus::Completed, $item->currentStatus());
+        $this->assertNotNull($item->resulted_at);
+        $this->assertNull($item->sent_at);
+        $this->assertStringContainsString('0.95', (string) $item->result_value);
+
         $send()->assertSessionHasNoErrors();
 
         $item->refresh();
@@ -196,6 +210,7 @@ class LaboratoryWorkbenchTest extends TestCase
         $request = $this->labRequest($episode, $orientation, $technician);
         $item = $this->requestItem($request, $ecbu);
         $send = fn () => $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", ['items' => [$item->uuid], 'to_nobody' => true]);
+        $complete = fn () => $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/complete");
 
         $family = LabBacteriumFamily::query()->create(['name' => 'Entérobactéries', 'is_active' => true]);
         $germ = LabBacterium::query()->create(['family_id' => $family->id, 'name' => 'Escherichia coli', 'is_active' => true]);
@@ -205,7 +220,7 @@ class LaboratoryWorkbenchTest extends TestCase
         $this->actingAs($technician)->put("/laboratory/items/{$item->uuid}/results", [
             'results' => [['analysis_uuid' => $culture->uuid, 'value' => 'GROWTH', 'selections' => ['bacteria' => []]]],
         ])->assertSessionHasNoErrors();
-        $send()->assertSessionHasErrors('items');
+        $complete()->assertSessionHasErrors('item');
 
         $this->actingAs($technician)->put("/laboratory/items/{$item->uuid}/results", [
             'results' => [['analysis_uuid' => $culture->uuid, 'value' => 'GROWTH', 'selections' => ['bacteria' => [$germ->uuid]]]],
@@ -220,6 +235,7 @@ class LaboratoryWorkbenchTest extends TestCase
         ])->assertSessionHasNoErrors();
         $this->assertSame('R', $antibiogram->results()->sole()->interpretation);
 
+        $complete()->assertSessionHasNoErrors();
         $send()->assertSessionHasNoErrors();
         $this->assertStringContainsString('Escherichia coli', (string) $item->fresh()->result_value);
     }

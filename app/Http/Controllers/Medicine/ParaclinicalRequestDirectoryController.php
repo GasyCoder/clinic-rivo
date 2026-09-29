@@ -233,7 +233,7 @@ class ParaclinicalRequestDirectoryController extends Controller
                 // fois, pas une requête par examen.
                 'items.catalogItem:id,imaging_modality',
                 'requestedBy:id,name',
-                ...($isLab ? ['resultsRecipient:id,name'] : []),
+                ...($isLab ? ['resultsRecipient:id,name', 'recipients:users.id,users.name'] : []),
                 ...($showPayment ? LabPaymentClearance::RELATIONS : []),
                 'consultation:id,episode_orientation_id,status,completed_at',
                 'consultation.orientation:id,uuid,status',
@@ -263,13 +263,13 @@ class ParaclinicalRequestDirectoryController extends Controller
             // à qui le laboratoire l'a adressée, et du laboratoire lui-même.
             ->filter(fn ($request) => $request->episode?->patient !== null
                 && ($request->consultation !== null || $request->hospitalStay !== null || $request->maternityRecord !== null
-                    || ($isLab && ($atBench || ($viewerId !== null && (int) $request->results_recipient_id === (int) $viewerId)))))
+                    || ($isLab && ($atBench || ($viewer !== null && $request->isAddressedTo($viewer))))))
             ->map(fn ($request) => [
                 'uuid' => $request->uuid,
                 'kind' => $kind,
                 'origin' => ParaclinicalRequestPresenter::origin($request),
                 // ADR-216 — à qui le laboratoire a envoyé les résultats, et où les lire.
-                'recipient' => $isLab ? $request->resultsRecipient?->name : null,
+                'recipient' => $isLab ? $request->recipientNames() : null,
                 'sealed' => $isLab && $labAccess->sealed($request, $viewer),
                 'results_url' => $isLab && $request->items->contains(fn ($item) => $item->isDelivered())
                     ? "/resultats-analyses/{$request->uuid}"

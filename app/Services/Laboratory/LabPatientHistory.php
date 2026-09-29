@@ -27,7 +27,7 @@ class LabPatientHistory
             ->whereNotNull('resulted_at')
             ->whereHas('labRequest', fn ($request) => $request->whereNull('cancelled_at')
                 ->whereHas('episode', fn ($episode) => $episode->where('patient_id', $patient->getKey())))
-            ->with(['labRequest:id,uuid,lab_number,requested_at,requested_by,results_recipient_id', 'results'])
+            ->with(['labRequest:id,uuid,lab_number,requested_at,requested_by,results_recipient_id', 'labRequest.recipients:users.id', 'results'])
             ->orderByDesc('resulted_at')
             ->get();
 

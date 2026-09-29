@@ -20871,6 +20871,24 @@ droits du médecin    un médecin à qui l'on accorde laboratory_results.create 
                      (« Saisir au laboratoire » / « Modifier la demande ») ; aucun rôle codé en dur
 compte rendu         /laboratory/requests/{uuid}/impression passe en pleine largeur
 ```
+
+## Amendement du 2026-09-29 (ter) — les résultats s'adressent à un, plusieurs ou tous les médecins
+
+Demande du propriétaire : dans « Envoyer au médecin », choisir tous les destinataires, un seul, ou quelques-uns.
+
+```text
+données        lab_request_recipients : une ligne par médecin destinataire (addressed_at, addressed_by) ;
+               lab_requests.results_recipient_id garde le premier, les destinataires déjà enregistrés
+               sont repris par la migration 2026_11_23_090000
+fenêtre        une liste à cocher des médecins qui peuvent recevoir (prescripteur en tête), « Tous les
+               médecins », et « Aucun médecin — patient externe » qui exclut les autres ; cochés à
+               l'ouverture : ceux déjà servis, sinon le prescripteur
+envoi          recipient_uuids[] (recipient_uuid seul reste accepté) ; chaque destinataire est vérifié
+               (prescrire et lire des analyses) et notifié ; les destinataires s'ajoutent à ceux déjà
+               servis, jamais retirés — un médecin qui a reçu une analyse continue de la lire librement
+lecture        chaque destinataire lit sans confirmation ; les autres voient « adressé à A, B » et
+               ouvrent après confirmation tracée ; « Renvoyer à refaire » prévient chacun d'eux
+```
 ---
 
 # ADR-217 — Le technicien traite la demande tout de suite : ni réception préalable, ni règlement qui bloque

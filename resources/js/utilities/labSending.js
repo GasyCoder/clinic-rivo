@@ -54,3 +54,24 @@ export function defaultRecipient(recipient, options) {
 
     return '';
 }
+
+/**
+ * Amendement ADR-216 du 2026-09-29 (ter) — les destinataires cochés à l'ouverture :
+ * ceux déjà servis, sinon le prescripteur quand il peut recevoir ; sinon aucun —
+ * le technicien choisit, jamais des médecins devinés. « Aucun médecin » seulement
+ * quand un envoi précédent l'a choisi.
+ *
+ * @returns {{ uuids: string[], nobody: boolean }}
+ */
+export function defaultRecipients(recipient, options) {
+    const known = new Set((options ?? []).map((option) => option.uuid));
+    const proposed = (recipient?.proposed_uuids ?? []).filter((uuid) => known.has(uuid));
+
+    if (proposed.length) return { uuids: proposed, nobody: false };
+    if (recipient?.addressed && !recipient.uuid) return { uuids: [], nobody: true };
+
+    const single = defaultRecipient(recipient, options);
+    if (single === NO_RECIPIENT) return { uuids: [], nobody: true };
+
+    return { uuids: single ? [single] : [], nobody: false };
+}

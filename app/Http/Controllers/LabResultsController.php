@@ -37,7 +37,7 @@ class LabResultsController extends Controller
         LabResultAccess $access,
     ): Response {
         $labRequest->load([
-            'items', 'episode.patient', 'requestedBy:id,name', 'resultsRecipient:id,name', 'resultsAddressedBy:id,name',
+            'items', 'episode.patient', 'requestedBy:id,name', 'resultsRecipient:id,name', 'recipients:users.id,users.name', 'resultsAddressedBy:id,name',
             'hospitalStay:id,uuid', 'maternityRecord.orientation:id,uuid', 'consultation.orientation:id,uuid',
         ]);
         $user = $request->user();
@@ -52,7 +52,7 @@ class LabResultsController extends Controller
 
         return Inertia::render('Laboratory/ResultsPrint', [
             'labRequest' => $header + [
-                'recipient' => $labRequest->resultsRecipient?->name,
+                'recipient' => $labRequest->recipientNames(),
                 'addressed_at' => $labRequest->results_addressed_at,
                 'addressed_by' => $labRequest->resultsAddressedBy?->name,
             ],
@@ -79,7 +79,7 @@ class LabResultsController extends Controller
     /** Ouvrir un résultat adressé à un confrère, après confirmation : tracé, valable pour la session. */
     public function open(Request $request, LabRequest $labRequest, LabResultAccess $access): RedirectResponse
     {
-        $labRequest->loadMissing('resultsRecipient:id,name');
+        $labRequest->loadMissing('resultsRecipient:id,name', 'recipients:users.id,users.name');
         $access->open($labRequest, $request->user());
 
         return back(fallback: "/resultats-analyses/{$labRequest->uuid}");

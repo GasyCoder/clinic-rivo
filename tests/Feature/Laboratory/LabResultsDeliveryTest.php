@@ -196,6 +196,57 @@ class LabResultsDeliveryTest extends TestCase
         $this->assertSame(2, $request->items()->count());
     }
 
+    /**
+     * Amendement ADR-216 du 2026-09-29 (ter) — un, plusieurs ou tous les médecins : chacun
+     * est notifié et lit librement ; un envoi suivant ajoute des destinataires sans en retirer.
+     */
+    public function test_results_go_to_several_doctors_who_all_read_them_freely(): void
+    {
+        Notification::fake();
+        $prescriber = $this->userWithRole('MEDICINE');
+        $second = $this->userWithRole('MEDICINE');
+        $third = $this->userWithRole('MEDICINE');
+        [$request, $item, $technician] = $this->renderedRequest($prescriber);
+
+        $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", [
+            'items' => [$item->uuid], 'recipient_uuids' => [$prescriber->uuid, $second->uuid],
+        ])->assertSessionHasNoErrors();
+
+        Notification::assertSentTo($prescriber, LabResultsAddressed::class);
+        Notification::assertSentTo($second, LabResultsAddressed::class);
+        Notification::assertNotSentTo($third, LabResultsAddressed::class);
+        $request->refresh();
+        $this->assertSame($prescriber->id, $request->results_recipient_id);
+        $this->assertTrue($request->isAddressedTo($second));
+
+        $this->actingAs($second)->get("/resultats-analyses/{$request->uuid}")
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('sealed', null)->count('items', 1));
+        $this->actingAs($third)->get("/resultats-analyses/{$request->uuid}")
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('sealed.recipient', "{$prescriber->name}, {$second->name}"));
+
+        // Une seconde analyse, envoyée au troisième seul : les deux premiers gardent leur accès.
+        $other = $this->requestItem($request, $this->prestation($technician, 'LAB-GLY', 'Glycémie'), [
+            'status' => LabItemStatus::Completed, 'resulted_at' => now(), 'result_value' => '0,95 g/L',
+        ]);
+        $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", [
+            'items' => [$other->uuid], 'recipient_uuids' => [$third->uuid],
+        ])->assertSessionHasNoErrors();
+        $request->refresh();
+        foreach ([$prescriber, $second, $third] as $doctor) {
+            $this->assertTrue($request->isAddressedTo($doctor));
+        }
+
+        // « Aucun médecin » et des médecins à la fois : refusé.
+        $this->actingAs($technician)->post("/laboratory/requests/{$request->uuid}/send", [
+            'items' => [$other->uuid], 'recipient_uuids' => [$third->uuid], 'to_nobody' => true,
+        ])->assertSessionHasErrors('recipient_uuids');
+
+        // Renvoyée à refaire : chacun des destinataires est prévenu.
+        $this->actingAs($technician)->post("/laboratory/items/{$item->uuid}/return", ['reason' => 'Valeur à contrôler'])->assertSessionHasNoErrors();
+        Notification::assertSentTo($second, LabResultReturned::class);
+        Notification::assertSentTo($third, LabResultReturned::class);
+    }
+
     public function test_a_colleague_sees_the_result_sealed_until_he_confirms_and_the_opening_is_traced(): void
     {
         $doctor = $this->userWithRole('MEDICINE');

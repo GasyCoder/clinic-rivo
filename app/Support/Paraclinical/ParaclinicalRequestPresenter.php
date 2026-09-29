@@ -128,7 +128,7 @@ final class ParaclinicalRequestPresenter
         'episode.patient.addressEntry:id,label',
     ];
 
-    public const LAB_RELATIONS = ['items', 'requestedBy:id,name', 'resultsRecipient:id,name'];
+    public const LAB_RELATIONS = ['items', 'requestedBy:id,name', 'resultsRecipient:id,name', 'recipients:users.id,users.name'];
 
     /**
      * Le catalogue d'un service demandeur : ce qui se demande, jamais un prix.

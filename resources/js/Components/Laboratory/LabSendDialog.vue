@@ -1,16 +1,14 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
-import { CircleAlert, FlaskConical, Send, Stethoscope, UserRoundX } from 'lucide-vue-next';
+import { CircleAlert, FlaskConical, Send, Stethoscope, UserRoundX, Users } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
-import FormField from '@/Components/Shadcn/FormField.vue';
-import Select from '@/Components/Shadcn/Select.vue';
 import { cn } from '@/lib/cn';
 import { labUrl } from '@/utilities/labUrl';
-import { NO_RECIPIENT, defaultRecipient, sendabilityOf } from '@/utilities/labSending';
+import { defaultRecipients, sendabilityOf } from '@/utilities/labSending';
 
 /**
  * ADR-216 — envoyer les résultats au médecin. Un seul geste, qui les valide :
@@ -34,15 +32,34 @@ const errors = computed(() => page.props.errors ?? {});
 
 const rows = computed(() => props.items.map((item) => ({ item, ...sendabilityOf(item) })));
 const chosen = ref([]);
-const target = ref('');
+// Amendement ADR-216 du 2026-09-29 (ter) — un, plusieurs ou tous les médecins ; ou aucun.
+const targets = ref([]);
+const nobody = ref(false);
 const sending = ref(false);
 
 watch(() => props.open, (open) => {
     if (!open) return;
     const sendable = rows.value.filter((row) => row.sendable).map((row) => row.item.uuid);
     chosen.value = props.preselected.length ? props.preselected.filter((uuid) => sendable.includes(uuid)) : sendable;
-    target.value = defaultRecipient(props.recipient, props.recipients);
+    const initial = defaultRecipients(props.recipient, props.recipients);
+    targets.value = initial.uuids;
+    nobody.value = initial.nobody;
 }, { immediate: true });
+
+const allTargets = computed(() => props.recipients.length > 0 && props.recipients.every((option) => targets.value.includes(option.uuid)));
+const toggleTarget = (uuid, on) => {
+    targets.value = on ? [...new Set([...targets.value, uuid])] : targets.value.filter((value) => value !== uuid);
+    if (on) nobody.value = false;
+};
+const toggleAllTargets = () => {
+    targets.value = allTargets.value ? [] : props.recipients.map((option) => option.uuid);
+    if (targets.value.length) nobody.value = false;
+};
+// « Aucun médecin » exclut les autres choix, et inversement.
+const setNobody = (on) => {
+    nobody.value = on;
+    if (on) targets.value = [];
+};
 
 // Par défaut, toutes les analyses terminées partent ; on peut n'en envoyer qu'une partie.
 const sendableUuids = computed(() => rows.value.filter((row) => row.sendable).map((row) => row.item.uuid));
@@ -54,24 +71,16 @@ const toggle = (uuid, on) => {
     chosen.value = on ? [...new Set([...chosen.value, uuid])] : chosen.value.filter((value) => value !== uuid);
 };
 
-const options = computed(() => [
-    ...props.recipients.map((option) => ({
-        value: option.uuid,
-        label: `${option.name}${option.detail ? ` — ${option.detail}` : ''}${option.prescriber ? ' · prescripteur' : ''}`,
-    })),
-    { value: NO_RECIPIENT, label: 'Aucun médecin — patient externe' },
-]);
-const chosenRecipient = computed(() => props.recipients.find((option) => option.uuid === target.value) ?? null);
-const ready = computed(() => chosen.value.length > 0 && target.value !== '');
+const chosenRecipients = computed(() => props.recipients.filter((option) => targets.value.includes(option.uuid)));
+const ready = computed(() => chosen.value.length > 0 && (nobody.value || targets.value.length > 0));
 
 const submit = () => {
     if (!ready.value) return;
     sending.value = true;
-    const toNobody = target.value === NO_RECIPIENT;
     router.post(labUrl(`/laboratory/requests/${props.requestUuid}/send`), {
         items: chosen.value,
-        to_nobody: toNobody,
-        recipient_uuid: toNobody ? null : target.value,
+        to_nobody: nobody.value,
+        recipient_uuids: nobody.value ? [] : targets.value,
     }, {
         preserveScroll: true,
         onSuccess: () => emit('update:open', false),
@@ -90,14 +99,44 @@ const submit = () => {
         @update:open="emit('update:open', $event)"
     >
         <div class="space-y-5">
-            <FormField label="Destinataire" :error="errors.recipient_uuid" required>
-                <Select v-model="target" :options="options" :icon="target === NO_RECIPIENT ? UserRoundX : Stethoscope" placeholder="Choisir le médecin" />
+            <fieldset>
+                <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <legend class="text-sm font-medium text-foreground">
+                        Destinataires <span class="text-destructive">*</span>
+                        <span class="font-normal text-muted-foreground">— {{ nobody ? 'aucun médecin' : `${targets.length} sur ${recipients.length}` }}</span>
+                    </legend>
+                    <Button v-if="recipients.length > 1" type="button" size="xs" variant="ghost" @click="toggleAllTargets">
+                        <Users class="h-3.5 w-3.5" /> {{ allTargets ? 'Tout décocher' : 'Tous les médecins' }}
+                    </Button>
+                </div>
+                <ul class="max-h-56 divide-y divide-border overflow-y-auto rounded-lg border border-border">
+                    <li v-for="option in recipients" :key="option.uuid" class="flex items-center gap-3 px-3 py-2">
+                        <Checkbox
+                            :id="`recipient-${option.uuid}`"
+                            :model-value="targets.includes(option.uuid)"
+                            @update:model-value="toggleTarget(option.uuid, $event)"
+                        />
+                        <label :for="`recipient-${option.uuid}`" class="flex min-w-0 flex-1 cursor-pointer flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
+                            <Stethoscope class="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                            <span class="font-semibold text-foreground">{{ option.name }}</span>
+                            <span v-if="option.detail" class="text-xs text-muted-foreground">{{ option.detail }}</span>
+                            <Badge v-if="option.prescriber" tone="primary">Prescripteur</Badge>
+                        </label>
+                    </li>
+                    <li class="flex items-center gap-3 bg-muted/30 px-3 py-2">
+                        <Checkbox id="recipient-nobody" :model-value="nobody" @update:model-value="setNobody($event)" />
+                        <label for="recipient-nobody" class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm text-foreground">
+                            <UserRoundX class="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /> Aucun médecin — patient externe
+                        </label>
+                    </li>
+                </ul>
                 <p class="mt-1.5 text-xs text-muted-foreground">
-                    <template v-if="target === NO_RECIPIENT">Aucun médecin n’est notifié : le résultat reste lisible par les comptes autorisés, sans confirmation.</template>
-                    <template v-else-if="chosenRecipient">{{ chosenRecipient.name }} est notifié. Les autres médecins pourront l’ouvrir après confirmation, tracée.</template>
-                    <template v-else>Cette demande n’a pas de médecin prescripteur : choisissez à qui l’envoyer.</template>
+                    <template v-if="nobody">Aucun médecin n’est notifié : le résultat reste lisible par les comptes autorisés, sans confirmation.</template>
+                    <template v-else-if="chosenRecipients.length">{{ chosenRecipients.map((option) => option.name).join(', ') }} {{ chosenRecipients.length > 1 ? 'sont notifiés et les lisent' : 'est notifié et le lit' }} librement. Les autres médecins pourront l’ouvrir après confirmation, tracée.</template>
+                    <template v-else>Cochez un ou plusieurs médecins, ou « Aucun médecin » pour un patient externe.</template>
                 </p>
-            </FormField>
+                <p v-if="errors.recipient_uuid || errors.recipient_uuids" class="mt-1 text-xs text-destructive">{{ errors.recipient_uuid ?? errors.recipient_uuids }}</p>
+            </fieldset>
 
             <fieldset>
                 <div class="mb-2 flex flex-wrap items-center justify-between gap-2">

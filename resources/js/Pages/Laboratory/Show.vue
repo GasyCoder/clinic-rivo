@@ -170,7 +170,7 @@ const openSend = (uuids = []) => {
                     <div>
                         <dt class="text-muted-foreground">Résultats adressés à</dt>
                         <dd v-if="recipient.addressed" class="flex items-center gap-1 font-semibold text-foreground">
-                            <Stethoscope class="h-3.5 w-3.5 text-primary" aria-hidden="true" />{{ recipient.name ?? 'Aucun médecin (patient externe)' }}
+                            <Stethoscope class="h-3.5 w-3.5 text-primary" aria-hidden="true" />{{ recipient.names ?? recipient.name ?? 'Aucun médecin (patient externe)' }}
                         </dd>
                         <dd v-else class="font-semibold text-muted-foreground">Pas encore envoyés</dd>
                     </div>

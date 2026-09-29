@@ -90,7 +90,7 @@ final class PregnancyParaclinicalHistory
         }
 
         $lab = $canLab
-            ? LabRequest::query()->whereIn('episode_id', $episodeIds)->with(['items', 'requestedBy:id,name', 'resultsRecipient:id,name'])->get()
+            ? LabRequest::query()->whereIn('episode_id', $episodeIds)->with(['items', 'requestedBy:id,name', 'resultsRecipient:id,name', 'recipients:users.id,users.name'])->get()
             : collect();
         $imaging = $canImaging
             ? ImagingRequest::query()->whereIn('episode_id', $episodeIds)->with(['items', 'requestedBy:id,name'])->get()

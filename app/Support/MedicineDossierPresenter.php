@@ -474,7 +474,7 @@ class MedicineDossierPresenter
                         // Une demande retirée quitte le plan de
                         // soins ; elle reste en base, auditée.
                         ->whereNull('cancelled_at')
-                        ->with(['items.resultedBy:id,name', 'items.catalogItem:id,uuid', 'requestedBy:id,name', 'resultsRecipient:id,name'])
+                        ->with(['items.resultedBy:id,name', 'items.catalogItem:id,uuid', 'requestedBy:id,name', 'resultsRecipient:id,name', 'recipients:users.id,users.name'])
                         ->latest('requested_at')
                         ->get()
                         ->map(function (LabRequest $labRequest) use ($user) {

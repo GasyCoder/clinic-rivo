@@ -8,6 +8,7 @@ use App\Models\Concerns\SoftDeletable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -77,6 +78,50 @@ class LabRequest extends Model
     public function resultsRecipient(): BelongsTo
     {
         return $this->belongsTo(User::class, 'results_recipient_id');
+    }
+
+    /**
+     * Amendement ADR-216 du 2026-09-29 (ter) — tous les médecins à qui les résultats
+     * ont été adressés (un, plusieurs ou tous) ; `resultsRecipient` reste le premier.
+     */
+    public function recipients(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'lab_request_recipients')
+            ->withPivot(['addressed_at', 'addressed_by'])
+            ->withTimestamps()
+            ->orderBy('lab_request_recipients.id');
+    }
+
+    /** @return list<int> les destinataires, y compris le premier enregistré avant la table */
+    public function recipientIds(): array
+    {
+        $ids = $this->relationLoaded('recipients')
+            ? $this->recipients->pluck('id')->all()
+            : $this->recipients()->pluck('users.id')->all();
+
+        if ($this->results_recipient_id !== null) {
+            $ids[] = $this->results_recipient_id;
+        }
+
+        return array_values(array_unique(array_map('intval', $ids)));
+    }
+
+    public function isAddressedTo(?User $user): bool
+    {
+        return $user?->getKey() !== null && in_array((int) $user->getKey(), $this->recipientIds(), true);
+    }
+
+    /** Les noms des destinataires, « A, B » ; `null` quand personne n'est nommé. */
+    public function recipientNames(): ?string
+    {
+        $this->loadMissing('recipients:users.id,users.name');
+        $names = $this->recipients->pluck('name');
+
+        if ($names->isEmpty() && $this->results_recipient_id !== null) {
+            $names = collect([$this->resultsRecipient?->name])->filter();
+        }
+
+        return $names->isEmpty() ? null : $names->implode(', ');
     }
 
     public function resultsAddressedBy(): BelongsTo

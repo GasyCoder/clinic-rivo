@@ -200,6 +200,9 @@ class LaboratoryController extends Controller
                 'addressed_at' => $labRequest->results_addressed_at,
                 'addressed_by' => $labRequest->resultsAddressedBy?->name,
                 'proposed_uuid' => $proposed?->uuid,
+                // Amendement ADR-216 du 2026-09-29 (ter) — un, plusieurs ou tous.
+                'names' => $labRequest->recipientNames(),
+                'proposed_uuids' => $recipients->proposedUuidsFor($labRequest),
             ],
             'recipients' => $canSend && ! $labRequest->cancelled_at ? $recipients->options($labRequest) : [],
             'options' => LabEntryOptions::forScreen(),
@@ -327,15 +330,16 @@ class LaboratoryController extends Controller
         $sent = $action->execute(
             $labRequest,
             $request->validated('items'),
-            $request->validated('recipient_uuid'),
+            $request->recipientUuids(),
             (bool) $request->validated('to_nobody', false),
             $request->user(),
         );
 
         $what = $sent['count'] === 1 ? 'Une analyse envoyée' : "{$sent['count']} analyses envoyées";
+        $names = $sent['recipients']->pluck('name')->implode(', ');
 
-        return back()->with('status', $sent['recipient']
-            ? "{$what} à {$sent['recipient']->name} : le résultat est définitif."
+        return back()->with('status', $names !== ''
+            ? "{$what} à {$names} : le résultat est définitif."
             : "{$what}, sans médecin destinataire (patient externe) : le résultat est définitif.");
     }
 

@@ -15,3 +15,12 @@ test('la fenêtre coche toutes les terminées par défaut et permet d’en déco
     assert.match(dialog, /toggleAll/);
     assert.match(dialog, /Par défaut, toutes les analyses terminées partent ensemble/);
 });
+
+test('les destinataires se cochent : un, plusieurs ou tous ; « Aucun médecin » exclut les autres', () => {
+    const dialog = fs.readFileSync('resources/js/Components/Laboratory/LabSendDialog.vue', 'utf8');
+    assert.match(dialog, /recipient_uuids: nobody\.value \? \[\] : targets\.value/);
+    assert.match(dialog, /Tous les médecins/);
+    assert.match(dialog, /const setNobody = \(on\) => \{\s*nobody\.value = on;\s*if \(on\) targets\.value = \[\];/);
+    assert.doesNotMatch(dialog, /<Select /);
+    assert.match(sending, /export function defaultRecipients/);
+});

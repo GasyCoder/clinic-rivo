@@ -48,7 +48,7 @@ class LabResultReport
      */
     public function compose(LabRequest $request, Collection $items, ?User $viewer = null): array
     {
-        $request->loadMissing(['episode.patient', 'requestedBy:id,name', 'conclusionBy:id,name', 'resultsRecipient:id,name']);
+        $request->loadMissing(['episode.patient', 'requestedBy:id,name', 'conclusionBy:id,name', 'resultsRecipient:id,name', 'recipients:users.id,users.name']);
         $items = $items->sortBy('id')->values();
         $disciplines = $this->disciplines->forCatalogItems($items->pluck('catalog_item_id')->filter()->all());
 
@@ -73,7 +73,7 @@ class LabResultReport
                 'episode_number' => $request->episode->episode_number,
                 'requested_at' => $this->date($request->requested_at),
                 'prescriber' => $request->requestedBy?->name,
-                'recipient' => $request->resultsRecipient?->name,
+                'recipient' => $request->recipientNames(),
                 'clinical_notes' => $request->notes,
             ],
             'sections' => array_values($sections),

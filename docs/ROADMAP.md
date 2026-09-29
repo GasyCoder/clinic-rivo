@@ -490,6 +490,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] « Terminer l'analyse » au pied de la saisie (marquée « Terminée » dans la liste des tâches), « Envoyer au médecin » en haut pour une, plusieurs ou toutes les analyses terminées (toutes par défaut), « Rouvrir la saisie » avant l'envoi (ADR-216, amendement bis du 2026-09-29)
 - [x] Le médecin « Demande à refaire » depuis sa feuille de résultats (droit `laboratory_results.return`, MEDICINE par défaut), le technicien est prévenu ; saisie et modification de demande accessibles au médecin qui en reçoit les droits (ADR-216, amendement bis)
 - [x] Compte rendu d'analyses en pleine largeur
+- [x] Résultats adressés à un, plusieurs ou tous les médecins (liste à cocher, « Aucun médecin » exclusif), chacun notifié et lecteur libre (ADR-216, amendement ter)
 - [x] Note par ligne d'analyse (groupes compris), conclusion de chaque analyse et conclusion générale, comme labo-vuejs (ADR-218)
 - [x] Compte rendu de résultats en PDF produit par le serveur : sections par discipline, Résultat · Val. réf. · Antériorité, notes, provisoire ; montré, imprimé et téléchargé depuis la page ; version du médecin limitée à l'envoyé (ADR-218)
 - [x] Paillasse refaite façon labo-vuejs en shadcn : « Tâche(s) à traiter », une carte par ligne (mode, norme, résultat, interprétation), pied collant (ADR-219)

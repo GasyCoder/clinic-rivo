@@ -13,6 +13,7 @@ use App\Services\Laboratory\LabResultRecipients;
 use App\Services\Laboratory\LabResultSummary;
 use App\Services\Laboratory\LabWorkbench;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -38,23 +39,24 @@ class SendLabResultsAction
         private readonly LabWorkbench $workbench,
         private readonly LabResultSummary $summary,
         private readonly AnalysisReferenceResolver $references,
-        private readonly LabResultRecipients $recipients,
+        private readonly LabResultRecipients $recipientRule,
         private readonly Auditor $auditor,
     ) {}
 
     /**
      * @param  list<string>  $itemUuids
-     * @return array{count: int, recipient: ?User, corrected: bool}
+     * @param  list<string>|string|null  $recipientUuids  un, plusieurs ou tous les médecins proposés
+     * @return array{count: int, recipients: Collection<int, User>, recipient: ?User, corrected: bool}
      */
-    public function execute(LabRequest $request, array $itemUuids, ?string $recipientUuid, bool $toNobody, User $actor): array
+    public function execute(LabRequest $request, array $itemUuids, array|string|null $recipientUuids, bool $toNobody, User $actor): array
     {
         if ($actor->cannot(self::PERMISSION)) {
             throw new AuthorizationException('Envoyer un résultat au médecin demande le droit « '.self::PERMISSION.' ».');
         }
 
-        $recipient = $this->recipient($recipientUuid, $toNobody);
+        $recipients = $this->recipients(array_values(array_filter((array) $recipientUuids)), $toNobody);
 
-        $result = DB::transaction(function () use ($request, $itemUuids, $recipient, $actor): array {
+        $result = DB::transaction(function () use ($request, $itemUuids, $recipients, $actor): array {
             $locked = LabRequest::query()->lockForUpdate()->findOrFail($request->getKey());
 
             if ($locked->cancelled_at !== null) {
@@ -78,23 +80,39 @@ class SendLabResultsAction
             }
 
             $before = [
-                'recipient' => $locked->resultsRecipient?->name,
+                'recipient' => $locked->recipientNames(),
                 'addressed' => $locked->results_addressed_at !== null,
             ];
 
+            // Amendement ADR-216 du 2026-09-29 (ter) — les destinataires s'ajoutent à ceux déjà
+            // servis : un médecin qui a reçu une première analyse continue de la lire librement.
+            $now = now();
+            foreach ($recipients as $recipient) {
+                DB::table('lab_request_recipients')->insertOrIgnore([
+                    'lab_request_id' => $locked->getKey(),
+                    'user_id' => $recipient->getKey(),
+                    'addressed_at' => $now,
+                    'addressed_by' => $actor->getKey(),
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+
             $locked->update([
-                'results_recipient_id' => $recipient?->getKey(),
-                'results_addressed_at' => now(),
+                'results_recipient_id' => $locked->results_recipient_id ?? $recipients->first()?->getKey(),
+                'results_addressed_at' => $now,
                 'results_addressed_by' => $actor->getKey(),
             ]);
+            $locked->unsetRelation('recipients');
 
             $this->auditor->record(
                 'laboratory.results.send',
                 $locked,
                 [
                     'analyses' => $names,
-                    'recipient' => $recipient?->name,
-                    'to_nobody' => $recipient === null,
+                    'recipient' => $recipients->pluck('name')->implode(', ') ?: null,
+                    'recipients' => $recipients->pluck('name')->all(),
+                    'to_nobody' => $recipients->isEmpty(),
                     'corrected' => $corrected,
                 ],
                 $before,
@@ -106,7 +124,10 @@ class SendLabResultsAction
         });
 
         // Après l'écriture : une notification ne doit jamais annoncer un envoi annulé.
-        if ($recipient !== null && (int) $recipient->getKey() !== (int) $actor->getKey()) {
+        foreach ($recipients as $recipient) {
+            if ((int) $recipient->getKey() === (int) $actor->getKey()) {
+                continue;
+            }
             $recipient->notify(new LabResultsAddressed(
                 request: $result['request'],
                 analyses: $result['names'],
@@ -115,26 +136,31 @@ class SendLabResultsAction
             ));
         }
 
-        return ['count' => $result['count'], 'recipient' => $recipient, 'corrected' => $result['corrected']];
+        return ['count' => $result['count'], 'recipients' => $recipients, 'recipient' => $recipients->first(), 'corrected' => $result['corrected']];
     }
 
-    private function recipient(?string $uuid, bool $toNobody): ?User
+    /**
+     * @param  list<string>  $uuids
+     * @return Collection<int, User>
+     */
+    private function recipients(array $uuids, bool $toNobody): Collection
     {
         if ($toNobody) {
-            return null;
+            return collect();
         }
 
-        if (blank($uuid)) {
-            throw ValidationException::withMessages(['recipient_uuid' => 'Choisissez le médecin destinataire, ou « Aucun médecin » pour un patient externe.']);
+        if ($uuids === []) {
+            throw ValidationException::withMessages(['recipient_uuid' => 'Choisissez au moins un médecin destinataire, ou « Aucun médecin » pour un patient externe.']);
         }
 
-        $user = User::query()->where('uuid', $uuid)->first();
+        $users = User::query()->whereIn('uuid', array_unique($uuids))->get();
 
-        if (! $this->recipients->isRecipient($user)) {
-            throw ValidationException::withMessages(['recipient_uuid' => 'Ce compte ne peut pas recevoir de résultats d’analyse : il doit pouvoir prescrire et lire des analyses.']);
+        if ($users->count() !== count(array_unique($uuids)) || $users->contains(fn (User $user) => ! $this->recipientRule->isRecipient($user))) {
+            throw ValidationException::withMessages(['recipient_uuid' => 'Un compte choisi ne peut pas recevoir de résultats d’analyse : il doit pouvoir prescrire et lire des analyses.']);
         }
 
-        return $user;
+        // Dans l'ordre choisi.
+        return collect(array_unique($uuids))->map(fn (string $uuid) => $users->firstWhere('uuid', $uuid))->values();
     }
 
     /**

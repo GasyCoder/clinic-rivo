@@ -14,7 +14,7 @@ use App\Services\Audit\Auditor;
  *
  *   - une demande adressée à personne (patient externe, ou envoyée avant
  *     l'ADR-216) ;
- *   - le médecin destinataire, et le prescripteur de la demande ;
+ *   - chacun des médecins destinataires, et le prescripteur de la demande ;
  *   - le laboratoire lui-même — qui saisit (`laboratory_results.create`) : c'est
  *     lui qui a produit le résultat. `laboratory_results.view` ne suffit pas,
  *     le socle Médecine le détient aussi.
@@ -31,13 +31,15 @@ final class LabResultAccess
 
     public function sealed(LabRequest $request, ?User $viewer): bool
     {
-        if ($request->results_recipient_id === null || $viewer === null) {
+        // Amendement ADR-216 du 2026-09-29 (ter) — adressés à un, plusieurs ou tous : chacun
+        // des destinataires les lit librement.
+        if ($viewer === null || $request->recipientIds() === []) {
             return false;
         }
 
         $id = $viewer->getKey();
 
-        if ($id !== null && ((int) $id === (int) $request->results_recipient_id || (int) $id === (int) $request->requested_by)) {
+        if ($id !== null && ($request->isAddressedTo($viewer) || (int) $id === (int) $request->requested_by)) {
             return false;
         }
 
@@ -57,7 +59,7 @@ final class LabResultAccess
     public function seal(LabRequest $request): array
     {
         return [
-            'recipient' => $request->resultsRecipient?->name,
+            'recipient' => $request->recipientNames(),
             'addressed_at' => $request->results_addressed_at?->toIso8601String(),
             'open_url' => "/resultats-analyses/{$request->uuid}/ouvrir",
         ];
@@ -80,7 +82,7 @@ final class LabResultAccess
             'laboratory.results.open',
             $request,
             [
-                'recipient' => $request->resultsRecipient?->name,
+                'recipient' => $request->recipientNames(),
                 'lab_number' => $request->lab_number,
             ],
             module: 'laboratory',

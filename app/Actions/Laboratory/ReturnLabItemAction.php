@@ -71,10 +71,14 @@ class ReturnLabItemAction
         });
 
         // ADR-216 — le médecin qui a reçu ce résultat doit savoir qu'il est repris.
-        $request = $returned->labRequest()->with(['resultsRecipient', 'episode.patient'])->first();
-        $recipient = $request?->resultsRecipient;
+        // Tous ceux à qui il a été adressé (amendement du 2026-09-29, ter).
+        $request = $returned->labRequest()->with(['episode.patient'])->first();
+        $recipients = $request === null ? collect() : User::query()->whereIn('id', $request->recipientIds())->get();
 
-        if ($wasSent && $recipient !== null && (int) $recipient->getKey() !== (int) $actor->getKey()) {
+        foreach ($wasSent ? $recipients : [] as $recipient) {
+            if ((int) $recipient->getKey() === (int) $actor->getKey()) {
+                continue;
+            }
             $recipient->notify(new LabResultReturned(
                 request: $request,
                 analysis: $returned->catalog_item_name_snapshot,

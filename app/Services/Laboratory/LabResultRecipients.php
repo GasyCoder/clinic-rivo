@@ -77,6 +77,25 @@ final class LabResultRecipients
     }
 
     /**
+     * Amendement ADR-216 du 2026-09-29 (ter) — les destinataires cochés à
+     * l'ouverture : ceux déjà servis, sinon le prescripteur quand il peut recevoir.
+     *
+     * @return list<string>
+     */
+    public function proposedUuidsFor(LabRequest $request): array
+    {
+        $ids = $request->recipientIds();
+
+        if ($ids !== []) {
+            return User::query()->whereIn('id', $ids)->pluck('uuid')->all();
+        }
+
+        $prescriber = $this->proposedFor($request);
+
+        return $prescriber ? [$prescriber->uuid] : [];
+    }
+
+    /**
      * La liste du choix, le prescripteur en tête quand il y figure.
      *
      * @return list<array{uuid: string, name: string, detail: ?string, prescriber: bool}>

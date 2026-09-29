@@ -13,6 +13,7 @@ use App\Actions\Settings\UpdateAppSettingsAction;
 use App\Http\Controllers\Controller;
 use App\Models\DiscountCoupon;
 use App\Services\Catalog\CatalogActor;
+use App\Services\Laboratory\LabResultReport;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\AppSettingsPresenter;
 use App\Services\Settings\SiteMaintenanceState;
@@ -20,6 +21,7 @@ use App\Support\Settings\AppSettingsRules;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 
 /**
  * Les paramètres de l'application de ce site (ADR-184). Chaque site a les siens
@@ -63,6 +65,23 @@ class AppSettingsController extends Controller
         return response()->json([
             'message' => 'Tous les paramètres ont été réinitialisés aux valeurs par défaut pour ce site.',
             'data' => $presenter->payload(),
+        ]);
+    }
+
+    /**
+     * ADR-223 — l'aperçu du compte rendu d'analyses : le PDF d'un patient fictif, avec
+     * l'en-tête réel de ce site (nom, logo, coordonnées) et les réglages en cours de
+     * saisie. Une lecture : rien n'est enregistré, aucun dossier n'est lu.
+     */
+    public function labReportPreview(Request $request, LabResultReport $report): Response
+    {
+        $this->authorizeActor($request, 'settings.view');
+        $draft = $request->validate(AppSettingsRules::labReport(), AppSettingsRules::labReportMessages());
+
+        return response($report->render($report->sample($draft)), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="apercu-compte-rendu.pdf"',
+            'Cache-Control' => 'no-store',
         ]);
     }
 

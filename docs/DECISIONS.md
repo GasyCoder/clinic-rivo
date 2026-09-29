@@ -21603,3 +21603,77 @@ consommation centrale          chaque base compte la sienne ; aucun tableau cons
 fiches d'aide                  à tenir à jour à chaque évolution d'un workflow
 rendu                          vérifié par les tests et le build, pas dans un navigateur ni avec un vrai fournisseur
 ```
+
+---
+
+# ADR-223 — L'aspect du compte rendu d'analyses se règle par site, depuis le portail
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire : « Âge : 28 ans | Sexe : Féminin
+en parallèle ; gérer ou personnaliser ces résultats PDF dans les paramètres — couleurs des textes, masquer
+les lignes du bas (envoyé, validé, édité), le responsable du laboratoire ou le médecin ou les deux ou
+automatique (le médecin qui demande l'analyse), le pied de page, le site web, le QR code, le logo, le
+titre, le modèle, le fond des textes… ; tout ça dans le Super Admin »)
+
+**Complète l'ADR-218** (compte rendu PDF) et **l'ADR-184** (paramètres par site). Aucune règle des
+résultats ne change : valeurs, unités, références, notes, antériorités et validation restent celles du
+dossier (ADR-216, ADR-218). Le CDC §14 cite « impression » sans en fixer la forme.
+
+## Ce qui se règle
+
+`App\Support\Laboratory\LabReportDesign` porte 29 réglages, colonnes nullables de `app_settings`
+(migration `2026_11_25_090000`) — **une colonne vide = le compte rendu d'origine** :
+
+```text
+modèle        Classique (d'origine) · Bandeau (l'établissement sur un bandeau de couleur) · Sobre
+              (centré, filets gris) ; police sans / avec empattements ; taille du texte 90 à 120 %
+couleurs      principale (vide = celle du site), texte, fond des titres de section, fond du bloc
+              patient, valeurs hors norme ; sur un fond foncé le texte passe en blanc (inkOn) ;
+              une valeur critique reste toujours rouge
+en-tête       nom, sous-titre, titre du document (vide = aucun), logo, coordonnées, NIF / STAT,
+              QR code ; logo propre au compte rendu (fichier « lab_logo », privé, vide = logo du site)
+résultats     colonne Antériorité, lignes alternées
+bloc final    « envoyés au médecin par », « validés par », « Édité le », rappel du patient — chacun
+              masquable ; qui signe : le laboratoire, le médecin (qui a validé), les deux, ou
+              automatique ; intitulés de chaque signature
+bas de page   affiché ou non, texte (vide = l'établissement — site), patient, site web, numéros de page
+```
+
+Le bloc patient écrit désormais **« Âge : 28 ans | Sexe : Féminin »** sur une ligne, pour tous les sites.
+
+## Deux décisions, prises faute de règle et signalées
+
+```text
+QR code       il porte le numéro de laboratoire, rien d'autre (à défaut le numéro de passage) :
+              le scanner dans la file du laboratoire rouvre la demande (ADR-214). Masqué d'origine
+automatique   le médecin qui a demandé l'analyse, s'il peut recevoir des résultats (ADR-216) ;
+              une demande de l'accueil n'a pas de médecin prescripteur : c'est alors le premier
+              médecin destinataire des résultats ; sans médecin, le laboratoire
+```
+
+`LabResultReport::signatories()` écrit la règle une fois ; `compose()` sert `design`, `signatories`,
+`qr`. Le QR est rendu par `chillerlan/php-qrcode` (dépendance ajoutée), en PNG dans le PDF.
+
+## Où il se règle
+
+Paramètres › Établissement & documents › **Compte rendu d'analyses** (`LabReportSettings.vue`, module
+`compte-rendu`), en quatre onglets, avec les mêmes droits que les autres paramètres (`settings.view` /
+`settings.update`) et le même chemin : enregistré avec le formulaire commun par l'API du site
+(`PUT /api/v1/super-admin/app-settings`, audit `app_settings.update`), jamais par sa base (ADR-004).
+Le portail n'imprime aucun compte rendu : sur la cible « Portail », le module le dit.
+
+**L'aperçu est le vrai PDF**, rendu par le site lui-même (son en-tête, son logo) sur un patient et des
+résultats fictifs, avec les réglages en cours de saisie : `GET /api/v1/super-admin/app-settings/lab-report-preview`
+(`settings.view`), relayé par `GET /super-admin/settings/lab-report-preview?site_code=` (limité à 40 par
+minute). Une lecture : rien n'est enregistré, aucun dossier n'est lu, aucune clé d'idempotence.
+`LabResultReport::sample()` compose ce compte rendu fictif, écrit « Aperçu » en tête.
+
+La réinitialisation des paramètres (ADR-210) remet aussi le compte rendu d'origine et efface son logo.
+La liste des réglages est la même en PHP et en JS (`utilities/labReportDesign.js`, test de parité).
+
+## Signalé, non tranché
+
+```text
+couleur des critiques      toujours rouge : la rendre réglable brouillerait le seul signal d'alarme
+logo non enregistré        l'aperçu ne montre un nouveau logo qu'une fois enregistré
+rendu                      vérifié par les tests (PDF de chaque modèle) et le build, pas dans un navigateur
+```

@@ -1,5 +1,6 @@
-import { BadgePercent, Baby, Coins, Construction, Globe, Hash, IdCard, Landmark, LayoutTemplate, Palette, PenLine, SearchX, SlidersHorizontal, Sparkles } from 'lucide-vue-next';
+import { BadgePercent, Baby, Coins, Construction, FlaskConical, Globe, Hash, IdCard, Landmark, LayoutTemplate, Palette, PenLine, SearchX, SlidersHorizontal, Sparkles } from 'lucide-vue-next';
 import { BADGE_FIELDS } from './employeeBadge.js';
+import { LAB_REPORT_FIELDS } from './labReportDesign.js';
 
 /**
  * Les modules des paramètres de l'application (ADR-191, amendement du 2026-09-25) :
@@ -78,6 +79,12 @@ export const SETTINGS_SECTIONS = Object.freeze([
         id: 'direction', group: 'etablissement', label: 'Direction', icon: PenLine,
         description: 'Directeur général et signature des documents RH.',
         fields: ['director_name', 'director_title'],
+    },
+    {
+        // ADR-223 — l'aspect du compte rendu d'analyses (PDF) ; les résultats ne se règlent jamais ici.
+        id: 'compte-rendu', group: 'etablissement', label: 'Compte rendu d’analyses', icon: FlaskConical,
+        description: 'Modèle, couleurs, en-tête, QR code, signature et bas de page du PDF des résultats.',
+        fields: [...LAB_REPORT_FIELDS],
     },
     {
         id: 'visibilite', group: 'confidentialite', label: 'Moteurs de recherche', icon: SearchX,

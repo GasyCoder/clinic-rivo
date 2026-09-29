@@ -28,6 +28,7 @@ class ResetAppSettingsAction
         'signature_path',
         'auth_background_path',
         'badge_logo_path',
+        'lab_report_logo_path',
     ];
 
     public function __construct(

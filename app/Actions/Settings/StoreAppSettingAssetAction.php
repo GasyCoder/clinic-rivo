@@ -16,7 +16,8 @@ use Throwable;
 
 /**
  * ADR-184 — dépose ou retire le logo, l'icône, la signature du directeur,
- * l'image de fond des pages d'authentification ou l'emblème du badge (ADR-209).
+ * l'image de fond des pages d'authentification, l'emblème du badge (ADR-209) ou
+ * le logo du compte rendu d'analyses (ADR-223).
  *
  * Les fichiers vivent sur le disque privé du site : le logo et l'icône sont
  * servis par une route qui ne sert qu'eux, la signature ne l'est jamais — elle
@@ -26,7 +27,7 @@ use Throwable;
  */
 class StoreAppSettingAssetAction
 {
-    private const COLUMNS = ['logo' => 'logo_path', 'icon' => 'icon_path', 'signature' => 'signature_path', 'background' => 'auth_background_path', 'badge' => 'badge_logo_path'];
+    private const COLUMNS = ['logo' => 'logo_path', 'icon' => 'icon_path', 'signature' => 'signature_path', 'background' => 'auth_background_path', 'badge' => 'badge_logo_path', 'lab_logo' => 'lab_report_logo_path'];
 
     public function __construct(
         private readonly Auditor $auditor,

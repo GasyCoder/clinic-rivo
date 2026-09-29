@@ -333,6 +333,8 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::delete('/settings/reset', [SuperAdminAppSettingsController::class, 'reset'])->name('settings.reset')->middleware('can:settings.update');
         Route::post('/settings/assets/{kind}', [SuperAdminAppSettingsController::class, 'storeAsset'])->name('settings.assets.store')->middleware('can:settings.update');
         Route::delete('/settings/assets/{kind}', [SuperAdminAppSettingsController::class, 'destroyAsset'])->name('settings.assets.destroy')->middleware('can:settings.update');
+        // ADR-223 — l'aperçu du compte rendu d'analyses d'un site, rendu par son API.
+        Route::get('/settings/lab-report-preview', [SuperAdminAppSettingsController::class, 'labReportPreview'])->name('settings.lab-report-preview')->middleware(['can:settings.view', 'throttle:40,1']);
         // ADR-192 — les coupons de remise d'un site.
         Route::post('/settings/coupons', [SuperAdminAppSettingsController::class, 'storeCoupon'])->name('settings.coupons.store')->middleware('can:discount_coupons.create');
         Route::post('/settings/coupons/{coupon}/archive', [SuperAdminAppSettingsController::class, 'archiveCoupon'])->name('settings.coupons.archive')->middleware('can:discount_coupons.archive');

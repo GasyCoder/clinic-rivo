@@ -385,6 +385,59 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'DELETE', 'super-admin/app-settings/reset', ['confirmation' => $confirmation], $actor);
     }
 
+    /**
+     * ADR-223 — l'aperçu du compte rendu d'analyses, rendu par le site lui-même
+     * (son en-tête, son logo) : le PDF revient tel quel, rien n'est gardé au
+     * portail. Une lecture (GET) : aucune clé d'idempotence, rien n'est enregistré.
+     *
+     * @param  array<string, mixed>  $draft
+     * @return array{ok: bool, status: int, message: string, errors: array<string, mixed>, body: ?string}
+     */
+    public function labReportPreview(string $siteCode, array $draft, User $actor): array
+    {
+        $site = $this->site($siteCode);
+        $apiUrl = trim((string) ($site['api_url'] ?? ''));
+        $token = trim((string) ($site['api_token'] ?? ''));
+        $failure = fn (string $message, int $status = 502, array $errors = []) => ['ok' => false, 'status' => $status, 'message' => $message, 'errors' => $errors, 'body' => null];
+
+        if ($apiUrl === '' || $token === '') {
+            return $failure('L’URL ou le jeton API de ce site n’est pas configuré.');
+        }
+
+        // Un interrupteur part en 1 / 0, que la validation « boolean » du site accepte.
+        $query = array_map(fn ($value) => is_bool($value) ? (int) $value : $value, $draft);
+
+        try {
+            $response = Http::withToken($token)
+                ->withHeaders([
+                    // JSON d'abord : un refus du site revient en JSON, un aperçu reste un PDF.
+                    'Accept' => 'application/json, application/pdf',
+                    'X-Request-UUID' => (string) Str::uuid(),
+                    'X-Rivo-Actor-UUID' => $actor->uuid,
+                    'X-Rivo-Actor-Name' => $actor->name,
+                    'X-Rivo-Actor-Permissions' => $actor->effectivePermissionNames()->implode(','),
+                ])
+                ->timeout(max(10, (int) config('rivo.site_api.timeout', 5)))
+                ->get(rtrim($apiUrl, '/').'/super-admin/app-settings/lab-report-preview', $query);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return $failure('Le site ne répond pas actuellement : l’aperçu n’a pas pu être rendu.');
+        }
+
+        if (! $response->successful() || ! str_starts_with((string) $response->header('Content-Type'), 'application/pdf')) {
+            $json = $response->json();
+
+            return $failure(
+                is_array($json) && filled($json['message'] ?? null) ? (string) $json['message'] : 'Le site a refusé de rendre l’aperçu.',
+                $response->status() === 422 ? 422 : 502,
+                is_array($json) && is_array($json['errors'] ?? null) ? $json['errors'] : [],
+            );
+        }
+
+        return ['ok' => true, 'status' => 200, 'message' => '', 'errors' => [], 'body' => $response->body()];
+    }
+
     /** Le fichier part tel quel, en multipart, jamais converti. @return array<string, mixed> */
     public function storeAppSettingAsset(string $siteCode, string $kind, UploadedFile $file, User $actor): array
     {

@@ -30,7 +30,7 @@ use Throwable;
  */
 class AppSettings
 {
-    public const ASSET_KINDS = ['logo', 'icon', 'signature', 'background', 'badge'];
+    public const ASSET_KINDS = ['logo', 'icon', 'signature', 'background', 'badge', 'lab_logo'];
 
     /**
      * Le nom de chaque fichier, et son genre : « Icône enregistrée », pas
@@ -44,6 +44,7 @@ class AppSettings
         'signature' => ['Signature', true],
         'background' => ['Image de fond', true],
         'badge' => ['Emblème du badge', false],
+        'lab_logo' => ['Logo du compte rendu', false],
     ];
 
     /** Largeur de l'aperçu d'une image de fond envoyé au portail : une photo entière y pèserait des mégaoctets. */
@@ -71,7 +72,7 @@ class AppSettings
         .'les migrations doivent d’abord être jouées (php artisan migrate).';
 
     /** Une colonne de chaque migration des paramètres : toutes présentes, la base est à jour. */
-    private const REQUIRED_COLUMNS = ['app_tagline', 'profile_template', 'theme_preset', 'employee_number_digits', 'staff_discount_value', 'badge_logo_style', 'badge_paper', 'ui_font_family', 'badge_show_qr'];
+    private const REQUIRED_COLUMNS = ['app_tagline', 'profile_template', 'theme_preset', 'employee_number_digits', 'staff_discount_value', 'badge_logo_style', 'badge_paper', 'ui_font_family', 'badge_show_qr', 'lab_report_show_qr'];
 
     private ?AppSetting $setting = null;
 
@@ -306,6 +307,7 @@ class AppSettings
             'signature' => $this->setting()?->signature_path,
             'background' => $this->setting()?->auth_background_path,
             'badge' => $this->setting()?->badge_logo_path,
+            'lab_logo' => $this->setting()?->lab_report_logo_path,
             default => null,
         };
     }

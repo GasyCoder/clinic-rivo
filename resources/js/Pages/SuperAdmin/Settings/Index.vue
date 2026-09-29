@@ -14,6 +14,7 @@ import CurrencySettings from '@/Components/Settings/CurrencySettings.vue';
 import DirectionSettings from '@/Components/Settings/DirectionSettings.vue';
 import DiscountSettings from '@/Components/Settings/DiscountSettings.vue';
 import IdentitySettings from '@/Components/Settings/IdentitySettings.vue';
+import LabReportSettings from '@/Components/Settings/LabReportSettings.vue';
 import LegalSettings from '@/Components/Settings/LegalSettings.vue';
 import MaintenanceSettings from '@/Components/Settings/MaintenanceSettings.vue';
 import NumberingSettings from '@/Components/Settings/NumberingSettings.vue';
@@ -27,6 +28,7 @@ import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard';
 import { cn } from '@/lib/cn';
 import { DEFAULT_PRIMARY, isHexColor } from '@/utilities/brandColor';
 import { BADGE_FIELDS, badgeFormValue } from '@/utilities/employeeBadge';
+import { LAB_REPORT_FIELDS, labReportFormValue } from '@/utilities/labReportDesign';
 import { SETTINGS_SECTIONS, settingsSection, settingsUrl } from '@/utilities/settingsSections';
 
 /**
@@ -101,6 +103,8 @@ const FIELDS = [
     'director_name', 'director_title',
     'legal_nif', 'legal_stat', 'legal_address', 'legal_phone', 'legal_email', 'bank_name', 'bank_account',
     'staff_discount_type', 'staff_discount_value',
+    // ADR-223 — le compte rendu d'analyses : une seule liste, celle de LabReportDesign::FIELDS.
+    ...LAB_REPORT_FIELDS,
 ];
 
 const valuesOf = (payload) => Object.fromEntries(FIELDS.map((field) => {
@@ -114,6 +118,8 @@ const valuesOf = (payload) => Object.fromEntries(FIELDS.map((field) => {
     if (field === 'theme_preset') return [field, value || 'rivo'];
     // ADR-209 — jamais réglé : la valeur de la clinique (sceau, tout affiché, A4 portrait…).
     if (BADGE_FIELDS.includes(field)) return [field, badgeFormValue(field, value)];
+    // ADR-223 — jamais réglé : le compte rendu d'origine (Classique, tout affiché, sans QR…).
+    if (LAB_REPORT_FIELDS.includes(field)) return [field, labReportFormValue(field, value)];
     // ADR-192 — une remise se lit « 10 », jamais « 10.00 » : la même valeur ne compte pas deux fois comme modifiée.
     if (field === 'staff_discount_value') return [field, value === null || value === undefined || value === '' ? '' : String(Number(value))];
     // Les couleurs s'éditent en majuscules : la même valeur ne compte pas deux fois comme modifiée.
@@ -381,6 +387,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                         />
                         <LegalSettings v-else-if="current.id === 'legal'" :form="form" :fallbacks="fallbacks" :site-name="target.site.name" :readonly="readonly" />
                         <DirectionSettings v-else-if="current.id === 'direction'" :form="form" :fallbacks="fallbacks" :assets="data.assets" :site-code="selectedCode" :limits="limits" :readonly="readonly" />
+                        <LabReportSettings
+                            v-else-if="current.id === 'compte-rendu'"
+                            :form="form"
+                            :fallbacks="fallbacks"
+                            :assets="data.assets"
+                            :site-code="selectedCode"
+                            :site-name="target.site.name"
+                            :is-portal="isPortal"
+                            :limits="limits"
+                            :readonly="readonly"
+                            @saved="afterSave"
+                        />
                         <SearchVisibilitySettings v-else-if="current.id === 'visibilite'" :form="form" :site-name="target.site.name" :readonly="readonly" />
                         <MaintenanceSettings
                             v-else-if="current.id === 'maintenance'"
@@ -446,8 +464,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                     <ul class="mt-2 list-disc space-y-1 ps-5">
                         <li>l’identité, le thème, l’affichage et les modèles d’écran ;</li>
                         <li>la numérotation, les âges, les badges et la monnaie ;</li>
-                        <li>la remise du personnel, les mentions légales, la direction et la visibilité ;</li>
-                        <li>le logo, l’icône, la signature, le fond de connexion et l’emblème du badge.</li>
+                        <li>la remise du personnel, les mentions légales, la direction, le compte rendu d’analyses et la visibilité ;</li>
+                        <li>le logo, l’icône, la signature, le fond de connexion, l’emblème du badge et le logo du compte rendu.</li>
                     </ul>
                     <p class="mt-3 font-medium">Les coupons, l’état de maintenance et les réglages de l’assistant IA ne seront pas modifiés.</p>
                     <p v-if="form.isDirty" class="mt-2">Les modifications non enregistrées seront également abandonnées.</p>

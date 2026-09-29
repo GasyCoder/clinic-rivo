@@ -211,6 +211,8 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::delete('/app-settings/reset', [AppSettingsController::class, 'reset'])->name('app-settings.reset');
         Route::post('/app-settings/assets/{kind}', [AppSettingsController::class, 'storeAsset'])->name('app-settings.assets.store');
         Route::delete('/app-settings/assets/{kind}', [AppSettingsController::class, 'destroyAsset'])->name('app-settings.assets.destroy');
+        // ADR-223 — l'aperçu du compte rendu d'analyses : un patient fictif, rien n'est enregistré.
+        Route::get('/app-settings/lab-report-preview', [AppSettingsController::class, 'labReportPreview'])->name('app-settings.lab-report-preview');
         // ADR-192 — les coupons de remise de ce site.
         Route::post('/app-settings/coupons', [AppSettingsController::class, 'storeCoupon'])->name('app-settings.coupons.store');
         Route::post('/app-settings/coupons/{coupon}/archive', [AppSettingsController::class, 'archiveCoupon'])->name('app-settings.coupons.archive');

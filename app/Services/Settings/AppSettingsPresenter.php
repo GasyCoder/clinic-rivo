@@ -9,6 +9,7 @@ use App\Models\SiteMaintenance;
 use App\Services\Administration\EmployeeNumberAllocator;
 use App\Services\Patient\PatientNumberGenerator;
 use App\Support\Hr\BadgeDesign;
+use App\Support\Laboratory\LabReportDesign;
 use App\Support\Numbering\EmployeeNumberFormat;
 use App\Support\Settings\ThemePresets;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +33,7 @@ class AppSettingsPresenter
         $currency = $this->settings->currency();
         $ages = $this->settings->ageBands();
         $badge = new BadgeDesign($this->settings);
+        $labReport = new LabReportDesign($this->settings);
 
         $values = collect(UpdateAppSettingsAction::FIELDS)
             ->mapWithKeys(fn (string $field) => [$field => $setting?->{$field}])
@@ -60,6 +62,8 @@ class AppSettingsPresenter
                 'theme_preset' => $this->settings->themePreset(),
                 // ADR-209 — le badge tel qu'il s'imprime : un choix jamais réglé prend celui de la clinique.
                 ...$badge->formValues(),
+                // ADR-223 — le compte rendu tel qu'il s'imprime : un choix jamais réglé prend celui d'origine.
+                ...$labReport->formValues(),
             ],
             // Ce qui s'applique quand un champ reste vide : la configuration du déploiement.
             'fallbacks' => [
@@ -90,6 +94,8 @@ class AppSettingsPresenter
                     'logo_url' => config('rivo.documents.logo_url'),
                     'brand' => $this->settings->brand(),
                 ],
+                // ADR-223 — ce que le compte rendu imprime quand un champ reste vide.
+                'lab_report' => $labReport->fallbacks(),
             ],
             'appearance' => $this->settings->appearance()['site'],
             'numbering' => $this->numbering(),

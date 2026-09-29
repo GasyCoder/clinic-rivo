@@ -27,6 +27,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
  * Les paramètres de l'application, cible par cible (ADR-184) : chaque site, et
@@ -45,7 +46,7 @@ class AppSettingsController extends Controller
      * même ordre, que `resources/js/utilities/settingsSections.js` (vérifié par test) ;
      * le premier s'ouvre quand on arrive sur « Paramètres ».
      */
-    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'badges', 'monnaie', 'remises', 'legal', 'direction', 'visibilite', 'maintenance', 'assistant'];
+    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'badges', 'monnaie', 'remises', 'legal', 'direction', 'compte-rendu', 'visibilite', 'maintenance', 'assistant'];
 
     /**
      * La page d'un module. Sans module, le premier : comme dans les paramètres de
@@ -178,6 +179,28 @@ class AppSettingsController extends Controller
         }
 
         return $this->relay($client->deleteAppSettingAsset($target, $kind, $request->user()), AppSettings::assetMessage($kind, 'retiré'), 'file');
+    }
+
+    /**
+     * ADR-223 — l'aperçu du compte rendu d'analyses d'un site : son PDF, rendu par le
+     * site avec les réglages en cours de saisie. Le portail n'imprime aucun compte
+     * rendu : il ne s'en règle pas.
+     */
+    public function labReportPreview(Request $request, PortalSiteApiClient $client): HttpResponse
+    {
+        $target = $this->siteTarget($request, 'Le compte rendu d’analyses se règle pour un site : le portail n’en imprime aucun.');
+        $draft = $request->validate(AppSettingsRules::labReport(), AppSettingsRules::labReportMessages());
+        $result = $client->labReportPreview($target, $draft, $request->user());
+
+        if (! $result['ok']) {
+            return response()->json(['message' => $result['message'], 'errors' => $result['errors']], $result['status']);
+        }
+
+        return response((string) $result['body'], 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="apercu-compte-rendu.pdf"',
+            'Cache-Control' => 'no-store',
+        ]);
     }
 
     /**

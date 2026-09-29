@@ -7,6 +7,7 @@ use App\Services\Audit\Auditor;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Settings\AppSettings;
 use App\Support\Hr\BadgeDesign;
+use App\Support\Laboratory\LabReportDesign;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
@@ -36,6 +37,8 @@ class UpdateAppSettingsAction
         'director_name', 'director_title',
         'legal_nif', 'legal_stat', 'legal_address', 'legal_phone', 'legal_email', 'bank_name', 'bank_account',
         'staff_discount_type', 'staff_discount_value',
+        // ADR-223 — le compte rendu d'analyses : modèle, couleurs, en-tête, bloc final, pied de page.
+        ...LabReportDesign::FIELDS,
     ];
 
     public function __construct(
@@ -69,7 +72,7 @@ class UpdateAppSettingsAction
             }
 
             // Une couleur s'enregistre en majuscules, comme celles du thème.
-            foreach (BadgeDesign::COLORS as $field) {
+            foreach ([...BadgeDesign::COLORS, ...LabReportDesign::COLORS] as $field) {
                 $values[$field] = $values[$field] === null ? null : strtoupper((string) $values[$field]);
             }
 

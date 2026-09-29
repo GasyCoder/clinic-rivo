@@ -98,7 +98,7 @@ test('the settings read module by module: the open module in a card, the modules
     assert.match(menu, /text: 'Paramètres', link: '\/super-admin\/settings', permission: 'settings\.view'/);
 
     // Une seule liste de modules : l'écran et le serveur (qui refuse tout autre module) disent la même.
-    const serverSections = [...controller.match(/public const SECTIONS = \[([^\]]+)\]/)[1].matchAll(/'([a-z]+)'/g)].map((match) => match[1]);
+    const serverSections = [...controller.match(/public const SECTIONS = \[([^\]]+)\]/)[1].matchAll(/'([a-z-]+)'/g)].map((match) => match[1]);
     assert.deepEqual(serverSections, [...SETTINGS_SECTION_IDS]);
     assert.match(routes, /Route::get\('\/settings\/\{section\}'[\s\S]*?->whereIn\('section', SuperAdminAppSettingsController::SECTIONS\)/);
     assert.match(controller, /redirect\(\)->route\('super-admin\.settings\.section', \['section' => self::SECTIONS\[0\]/, '« Paramètres » ouvre directement le premier module');
@@ -107,7 +107,7 @@ test('the settings read module by module: the open module in a card, the modules
     const COMPONENTS = {
         identite: 'IdentitySettings', theme: 'ThemeSettings', avance: 'AdvancedSettings', ecrans: 'ScreenTemplates',
         numerotation: 'NumberingSettings', ages: 'AgeBandSettings', badges: 'BadgeSettings', monnaie: 'CurrencySettings', remises: 'DiscountSettings', legal: 'LegalSettings',
-        direction: 'DirectionSettings', visibilite: 'SearchVisibilitySettings', maintenance: 'MaintenanceSettings',
+        direction: 'DirectionSettings', 'compte-rendu': 'LabReportSettings', visibilite: 'SearchVisibilitySettings', maintenance: 'MaintenanceSettings',
         assistant: 'AssistantSettings',
     };
     assert.deepEqual(Object.keys(COMPONENTS), [...SETTINGS_SECTION_IDS]);

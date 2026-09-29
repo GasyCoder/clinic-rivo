@@ -11,8 +11,13 @@ use App\Models\LabResult;
 use App\Models\User;
 use App\Services\Settings\AppSettings;
 use App\Support\Laboratory\LabEntryOptions;
+use App\Support\Laboratory\LabReportDesign;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
+use chillerlan\QRCode\Common\EccLevel;
+use chillerlan\QRCode\Output\QRGdImagePNG;
+use chillerlan\QRCode\QRCode;
+use chillerlan\QRCode\QROptions;
 use Dompdf\Canvas;
 use Dompdf\Dompdf;
 use Dompdf\Frame;
@@ -37,6 +42,10 @@ use Illuminate\Support\Str;
  *
  * `$approvedOnly` est la Réception (amendement ADR-216 quater) : seules des
  * analyses validées par le médecin, et des antériorités validées elles aussi.
+ *
+ * ADR-223 — l'aspect (modèle, couleurs, en-tête, QR, signataires, pied de page)
+ * est celui que le portail a réglé pour ce site (LabReportDesign) ; il ne touche
+ * jamais aux résultats.
  */
 class LabResultReport
 {
@@ -64,6 +73,7 @@ class LabResultReport
         private readonly LabWorkbench $workbench,
         private readonly LabDisciplines $disciplines,
         private readonly AppSettings $settings,
+        private readonly LabResultRecipients $recipients,
     ) {}
 
     /**
@@ -88,10 +98,13 @@ class LabResultReport
 
         $validators = $items->filter(fn (LabRequestItem $item) => $item->validated_at !== null);
         $approvers = $items->filter(fn (LabRequestItem $item) => $item->isApproved());
+        $approverNames = $approvers->map(fn (LabRequestItem $item) => $item->approvedBy?->name)->filter()->unique()->values()->all();
         $provisional = $viewer === null && $items->contains(fn (LabRequestItem $item) => $item->currentStatus() !== LabItemStatus::Validated);
+        $design = (new LabReportDesign($this->settings))->resolve();
 
         return [
-            'site' => $this->site(),
+            'design' => $design,
+            'site' => $this->site($design),
             'patient' => $this->patient($request),
             'request' => [
                 'lab_number' => $request->lab_number,
@@ -110,13 +123,125 @@ class LabResultReport
             ],
             // Amendement ADR-216 quater — la validation du médecin, quand elle est donnée.
             'approval' => [
-                'by' => $approvers->map(fn (LabRequestItem $item) => $item->approvedBy?->name)->filter()->unique()->values()->all(),
+                'by' => $approverNames,
                 'at' => $this->date($approvers->max('approved_at'), true),
                 'awaiting' => $items->filter(fn (LabRequestItem $item) => $item->awaitsApproval())->count(),
             ],
             'provisional' => $provisional,
             'generated_at' => now()->format('d/m/Y H:i'),
+            'signatories' => self::signatories($design, $this->requestingPhysician($request), $approverNames[0] ?? null),
+            'qr' => $design['show_qr'] ? self::qr((string) ($request->lab_number ?? $request->episode->episode_number)) : null,
         ];
+    }
+
+    /**
+     * ADR-223 — le compte rendu de l'aperçu des paramètres : patient et résultats
+     * fictifs, écrits comme tels, avec l'aspect en cours de saisie (`$draft`) et
+     * l'en-tête réel du site. Rien n'est lu dans un dossier, rien n'est enregistré.
+     *
+     * @param  array<string, mixed>|null  $draft
+     * @return array<string, mixed>
+     */
+    public function sample(?array $draft = null): array
+    {
+        $design = (new LabReportDesign($this->settings))->resolve($draft);
+        $today = now();
+        $earlier = $today->copy()->subWeeks(3)->format('d/m/Y');
+        $result = fn (string $designation, string $value, string $reference, ?string $anteriority = null, ?string $flag = null, bool $critical = false, int $depth = 1) => [
+            'kind' => 'result', 'depth' => $depth, 'designation' => $designation, 'bold' => false,
+            'value' => $value, 'pathological' => $flag !== null || $critical, 'critical' => $critical, 'flag' => $flag,
+            'reference' => $reference, 'anteriority' => $anteriority !== null ? "{$anteriority} ({$earlier})" : null,
+        ];
+        $analysis = fn (string $name, array $rows, bool $titleRow = true) => [
+            'name' => $name, 'title_row' => $titleRow, 'rows' => $rows, 'text' => null,
+            'sent_out' => null, 'provisional' => false, 'in_correction' => null,
+        ];
+        $physician = 'Dr EXEMPLE Médecin';
+
+        return [
+            'design' => $design,
+            'sample' => true,
+            'site' => $this->site($design),
+            'patient' => ['name' => 'Mme EXEMPLE Patiente', 'number' => 'EX-26-0001', 'since' => $today->copy()->subYear()->format('d/m/Y'),
+                'birth_date' => $today->copy()->subYears(28)->format('d-m-Y'), 'age' => 28, 'sex' => 'Féminin'],
+            'request' => ['lab_number' => 'EX-L26-00001', 'episode_number' => 'EX-26-0001-01', 'requested_at' => $today->format('d/m/Y'),
+                'prescriber' => $physician, 'recipient' => $physician, 'clinical_notes' => 'Bilan de contrôle (exemple).'],
+            'sections' => [
+                ['title' => 'HEMATOLOGIE', 'items' => [$analysis('Numération formule sanguine', [
+                    ['kind' => 'heading', 'depth' => 0, 'designation' => 'Hémogramme', 'bold' => true],
+                    $result('Hématies', '4,52 T/L', '4 - 5,4', '4,61 T/L'),
+                    $result('Hémoglobine', '11,2 g/dL', '12 - 16', '12,1 g/dL', 'LOW'),
+                    $result('Hématocrite', '38 %', '37 - 47', '39 %'),
+                    $result('Leucocytes', '7,8 G/L', '4 - 10', '6,9 G/L'),
+                    $result('Plaquettes', '265 G/L', '150 - 400'),
+                    ['kind' => 'note', 'depth' => 1, 'text' => 'Exemple de conclusion partielle d’une ligne.'],
+                ])]],
+                ['title' => 'BIOCHIMIE', 'items' => [
+                    $analysis('Glycémie à jeun', [$result('Glycémie à jeun', '1,32 g/L', '0,70 - 1,10', '1,05 g/L', 'HIGH', depth: 0)], false),
+                    $analysis('Kaliémie', [$result('Kaliémie', '6,8 mmol/L', '3,5 - 5,0', null, 'HIGH', true, 0)], false),
+                    $analysis('Créatinine', [$result('Créatinine', '9 mg/L', '6 - 12', '8 mg/L', depth: 0)], false),
+                ]],
+            ],
+            'conclusion' => 'Exemple de conclusion générale du laboratoire.',
+            'conclusion_by' => null,
+            'validation' => ['by' => ['EXEMPLE Technicien'], 'at' => $today->format('d/m/Y').' 09:30'],
+            'approval' => ['by' => [$physician], 'at' => $today->format('d/m/Y').' 11:15', 'awaiting' => 0],
+            'provisional' => false,
+            'generated_at' => $today->format('d/m/Y H:i'),
+            'signatories' => self::signatories($design, $physician, $physician),
+            'qr' => $design['show_qr'] ? self::qr('EX-L26-00001') : null,
+        ];
+    }
+
+    /**
+     * ADR-223 — qui signe, écrit une seule fois : le laboratoire, un médecin (celui
+     * qui a validé, quand il l'a fait), les deux, ou — automatique — le médecin qui a
+     * demandé l'analyse ; à défaut de médecin, le laboratoire.
+     *
+     * @return list<array{label: string, name: ?string}>
+     */
+    public static function signatories(array $design, ?string $requestingPhysician, ?string $approver): array
+    {
+        $lab = ['label' => $design['lab_signatory'], 'name' => null];
+        $physician = fn (?string $name) => ['label' => $design['physician_signatory'], 'name' => $name];
+
+        return match ($design['signatory']) {
+            'PHYSICIAN' => [$physician($approver)],
+            'BOTH' => [$lab, $physician($approver)],
+            'AUTO' => $requestingPhysician !== null ? [$physician($requestingPhysician)] : [$lab],
+            default => [$lab],
+        };
+    }
+
+    /**
+     * Le médecin qui a demandé l'analyse : le prescripteur quand il peut recevoir des
+     * résultats (un médecin, ADR-216) ; une demande de l'accueil n'a pas de médecin
+     * prescripteur, c'est alors le premier médecin à qui les résultats sont adressés.
+     */
+    private function requestingPhysician(LabRequest $request): ?string
+    {
+        if ($this->recipients->isRecipient($request->requestedBy)) {
+            return $request->requestedBy->name;
+        }
+
+        return $request->resultsRecipient?->name ?? $request->recipients->first()?->name;
+    }
+
+    /** Le QR du numéro de laboratoire — et de rien d'autre : le scanner rouvre la demande (ADR-214). */
+    private static function qr(string $text): ?string
+    {
+        if ($text === '' || ! extension_loaded('gd')) {
+            return null;
+        }
+
+        return (new QRCode(new QROptions([
+            'outputInterface' => QRGdImagePNG::class,
+            'outputBase64' => true,
+            'eccLevel' => EccLevel::M,
+            'scale' => 6,
+            'addQuietzone' => true,
+            'quietzoneSize' => 2,
+        ])))->render($text);
     }
 
     /**
@@ -131,9 +256,13 @@ class LabResultReport
     public function render(array $report): string
     {
         $dompdf = $this->paginate($report)['dompdf'];
-        $canvas = $dompdf->getCanvas();
-        $font = $dompdf->getFontMetrics()->getFont('DejaVu Sans');
-        $canvas->page_text($canvas->get_width() - 80, $canvas->get_height() - 24, 'Page {PAGE_NUM} / {PAGE_COUNT}', $font, 7, [0.6, 0.6, 0.6]);
+        $design = $report['design'] ?? [];
+
+        if ($design['show_page_numbers'] ?? true) {
+            $canvas = $dompdf->getCanvas();
+            $font = $dompdf->getFontMetrics()->getFont(($design['font'] ?? 'SANS') === 'SERIF' ? 'DejaVu Serif' : 'DejaVu Sans');
+            $canvas->page_text($canvas->get_width() - 80, $canvas->get_height() - 24, 'Page {PAGE_NUM} / {PAGE_COUNT}', $font, 7, [0.6, 0.6, 0.6]);
+        }
 
         return (string) $dompdf->output();
     }
@@ -492,8 +621,14 @@ class LabResultReport
         ];
     }
 
-    /** @return array<string, mixed> L'en-tête et le pied : ceux du site (ADR-184). */
-    private function site(): array
+    /**
+     * L'en-tête et le pied : ceux du site (ADR-184). Le logo est celui du compte
+     * rendu quand il en a un (ADR-223), sinon celui du site ; aucun s'il est masqué.
+     *
+     * @param  array<string, mixed>  $design
+     * @return array<string, mixed>
+     */
+    private function site(array $design): array
     {
         $documents = $this->settings->documents();
         $name = (string) config('rivo.site.name', '');
@@ -501,7 +636,7 @@ class LabResultReport
         return [
             'brand' => $this->settings->brand(),
             'site' => $name,
-            'logo' => $this->logo(),
+            'logo' => $design['show_logo'] ? $this->logo() : null,
             'color' => $this->settings->primaryColor() ?: '#1d4ed8',
             'nif' => $documents['nif'] ?? null,
             'stat' => $documents['stat'] ?? null,
@@ -517,7 +652,7 @@ class LabResultReport
      */
     private function logo(): ?string
     {
-        $uri = $this->settings->assetDataUri('logo');
+        $uri = $this->settings->assetDataUri('lab_logo') ?? $this->settings->assetDataUri('logo');
         if ($uri === null) {
             $url = (string) config('rivo.documents.logo_url');
             $path = str_starts_with($url, '/') ? public_path(ltrim($url, '/')) : null;

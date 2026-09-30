@@ -22196,3 +22196,82 @@ retenues, net        aucun calcul (CNAPS, IRSA : règles non définies, ADR-066)
 « médecins »         la liste suit l'ouverture des avantages, pas un nom de fonction : une autre
                      fonction cochée « Ouvre droit aux avantages » y figure aussi
 ```
+
+---
+
+# ADR-228 — Dettes du personnel : demandées par l'employé, décidées par le DG, remboursées sur la paie ou à la Caisse
+
+**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire)
+
+**Complète l'ADR-227** (paie du mois) et **applique l'ADR-012** (seule la Caisse encaisse). Le CDC ne
+décrit aucune avance ni dette consentie au personnel : les règles ci-dessous sont celles du propriétaire.
+La créance patient de l'ADR-090 est une autre chose et n'est pas touchée.
+
+## Le parcours
+
+```text
+REQUESTED    l'employé demande depuis son compte (/mes-dettes) : montant, mensualité, premier mois,
+             motif ; compte relié à sa fiche (ADR-188), en poste, une seule demande en attente ;
+             retirable tant que rien n'est décidé
+APPROVED     le DG accorde (montant, mensualité et premier mois ajustables ; retenue sur salaire ou
+             espèces à la Caisse) — ou refuse avec motif (REFUSED)
+ACTIVE       le RH constate le versement (date, moyen, référence) : l'argent part hors RIVO, comme
+             la paie ; aucun remboursement n'est dû avant
+SETTLED      tout est remboursé
+WRITTEN_OFF  le DG remet le reste, avec motif
+CANCELLED    retirée par l'employé, ou accord annulé avant versement
+```
+
+`StaffDebtTerms` vérifie les conditions de la même façon à la demande, à l'accord et à l'ajustement :
+montant et mensualité positifs, mensualité au plus égale au montant, premier mois jamais passé. Une retenue
+sur salaire exige un salaire déclaré (ADR-206). Chaque geste se fait sur la ligne verrouillée, s'audite et
+prévient l'employé (`StaffDebtUpdated`).
+
+## Rembourser
+
+```text
+paie du mois      PaySalaryAction retranche les retenues du brut (au plus le brut) ; chaque retenue devient
+                  un remboursement lié à la paie ; annuler la paie annule ses retenues et rouvre la dette
+Caisse            onglet « Dettes du personnel » de l'espace Caisse (StaffDebtCollectionPanel) : encaissement
+                  en espèces dans la session de celui qui encaisse (OwnOpenCashSession, ADR-058/059),
+                  mouvement de caisse, reçu imprimable (/cash/staff-debt-repayments/{uuid}/recu) ; une
+                  dette retenue sur salaire peut être remboursée en avance ici, la paie ne retient ensuite
+                  que ce qui reste
+annulation        un encaissement fait par erreur s'annule avec motif, dans la même caisse encore ouverte,
+                  par celui qui l'a ouverte (mouvement inverse) ; il reste dans l'historique, barré
+```
+
+Aucun remboursement n'est supprimé (ADR-010). La Caisse ne voit ni le motif ni le salaire : un nom, un
+numéro, une mensualité, un retard, un reste dû.
+
+## Où
+
+```text
+employé    Principal › Mes dettes (/mes-dettes)
+RH / DG    Ressources humaines › Dettes du personnel (/administration/dettes), servi aussi au portail
+           par l'API du site (ADR-187) : le DG décide depuis le portail
+DG         prévenu d'une demande par la cloche du portail (StaffDebtWatcher, lecture de
+           /api/v1/super-admin/staff-debts/pending, une fois par demande, marquée « Traité » ensuite)
+Caisse     onglet « Dettes du personnel » de /cash
+```
+
+## Droits
+
+```text
+staff_debts.request    demander depuis son compte          rôles opérationnels
+staff_debts.view       voir les dettes du personnel         ADMINISTRATION
+staff_debts.disburse   marquer versée une dette accordée    ADMINISTRATION
+staff_debts.decide     accorder, ajuster, refuser, annuler  SUPER_ADMIN du portail (DG, ADR-186)
+staff_debts.write_off  remettre le reste                    SUPER_ADMIN du portail
+staff_debts.collect    encaisser à la Caisse                RECEPTION
+```
+
+Migration `2026_12_03_090000_create_staff_debts`, à jouer sur chaque site et sur le portail.
+
+## Signalé, non tranché
+
+```text
+plafond        aucun plafond de montant ni de nombre de dettes en cours : c'est le DG qui décide
+intérêts       aucun
+départ         un employé qui quitte son poste avec une dette en cours : rien d'automatique
+```

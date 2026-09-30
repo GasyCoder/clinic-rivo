@@ -838,6 +838,8 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] « Saisir des avantages » dans le module Bonus : liste des médecins, plusieurs avantages par médecin (montant, motif, mois), totaux en direct, correction et suppression tant que non payés (ADR-227)
 - [x] Paie du mois : salaire de base + avantages du mois = montant brut à verser, « Marquer payé » fige et empêche un second paiement, annulation motivée ; virement hors RIVO (ADR-227)
 - [ ] Bonus par palier (ADR-212) dans la paie, retenues et net — à décider (ADR-227)
+- [x] Dettes du personnel : demande depuis son compte, décision du DG au portail (accord ajusté, refus, remise), versement constaté par le RH, remboursement retenu sur la paie ou encaissé à la Caisse avec reçu (ADR-228)
+- [ ] Dettes du personnel : plafond, intérêts, départ d'un employé endetté — à décider (ADR-228)
 - [x] Dossier employé : le parcours à étapes reste (Identité, Contact, Poste, Compléments, Rémunération, Avantages, Banque, Récapitulatif), chaque étape s'enregistre seule (~1 s après la dernière saisie), plus aucun bouton « Enregistrer » ; Précédent / Continuer, clic direct dans la barre (ADR-221)
 - [x] Création : l'étape Identité seule, « Continuer » crée le dossier et poursuit dans la fiche ; même parcours pour un stagiaire, qui finit sur son contrat de stage (ADR-221)
 - [x] Module Banques (RH) : liste, ajout, correction, désactivation, archivage avec motif, restauration, doublons refusés et nommés ; BOA, BNI, BMOI, SBM livrées ; la fiche choisit sa banque dans la liste (ADR-221)

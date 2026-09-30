@@ -303,7 +303,9 @@ class PortalStaffAccessTest extends TestCase
 
         $this->actingAs($this->superAdmin)->getJson('/notifications/resume')->assertOk();
         $this->assertSame(1, UserNotification::query()->for($colleague)->count());
-        Http::assertSentCount(1);
+        // La cloche relit aussi les dettes du personnel (ADR-228) : on ne compte que les
+        // lectures des accès du personnel.
+        $this->assertCount(1, Http::recorded(fn ($request) => str_ends_with($request->url(), '/staff-access')));
 
         // Pendant deux minutes, la cloche ne programme aucune nouvelle lecture des sites.
         // (En test, Laravel rejoue à chaque requête les tâches « après la réponse » déjà

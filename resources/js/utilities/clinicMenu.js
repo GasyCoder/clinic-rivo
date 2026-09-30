@@ -1,5 +1,5 @@
 import { WEBMAIL_MENU_WARM } from './menuWarm.js';
-import { Mail, TrendingUp } from 'lucide-vue-next';
+import { HandCoins, Mail, TrendingUp } from 'lucide-vue-next';
 import { CLINIC_WORKSPACES, ROLE_FOCUS, SIDEBAR_GROUPS, WORKSPACE_GROUPS } from './clinicWorkspaces.js';
 import { normalizeOrder } from '../composables/useSidebarOrder.js';
 
@@ -149,6 +149,8 @@ export function buildClinicMenu({ roleCode, can, stored = {}, overviewLabel = 'V
         { heading: 'Principal' },
         { icon: TrendingUp, text: overviewLabel, link: '/' },
         ...(webmail ? [{ key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', warm: WEBMAIL_MENU_WARM }] : []),
+        // ADR-228 — ses propres dettes : demander, suivre ce qui reste dû. Filtré par visibleMenu.
+        { key: 'my-debts', icon: HandCoins, text: 'Mes dettes', link: '/mes-dettes', permission: 'staff_debts.request' },
         ...Object.entries(WORKSPACE_GROUPS).flatMap(([group, heading]) => [
             { heading, group },
             ...orderGroup(items.filter((item) => item.group === group), stored[group]),

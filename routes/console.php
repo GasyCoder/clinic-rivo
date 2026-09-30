@@ -16,3 +16,5 @@ Schedule::command('rivo:staff-access:sync')->everyFiveMinutes()->withoutOverlapp
 Schedule::command('rivo:staff-debts:sync')->everyFiveMinutes()->withoutOverlapping();
 // ADR-229 — sur un site : relance mensuelle des remboursements en espèces en retard.
 Schedule::command('rivo:staff-debts:remind')->dailyAt('08:00')->withoutOverlapping();
+// ADR-230 — sur un site : pénalités de retard des remboursements en espèces.
+Schedule::command('rivo:staff-debts:penalties')->dailyAt('07:30')->withoutOverlapping();

@@ -1,4 +1,4 @@
-import { Ban, CircleCheck, CircleX, Gift, Hourglass, Landmark, Wallet } from 'lucide-vue-next';
+import { Ban, CircleCheck, CircleX, DoorOpen, Gift, Hourglass, Landmark, Wallet } from 'lucide-vue-next';
 import { monthLabel, shiftMonth } from './date.js';
 
 /**
@@ -229,6 +229,7 @@ export const STATUS_ICONS = {
 export const DEBT_VIEWS = [
     { key: 'a-decider', label: 'À décider', hint: 'Attendent la décision du DG', icon: Hourglass, tone: 'warning' },
     { key: 'a-verser', label: 'À verser', hint: 'Accordées, à remettre hors RIVO', icon: Wallet, tone: 'primary' },
+    { key: 'depart', label: 'À régler au départ', hint: 'La personne a quitté la clinique', icon: DoorOpen, tone: 'warning' },
     { key: 'en-cours', label: 'En remboursement', hint: 'Versées, reste dû', icon: Landmark, tone: 'primary' },
     { key: 'closes', label: 'Closes', hint: 'Soldées, remises, refusées, annulées', icon: CircleCheck, tone: 'neutral' },
 ];

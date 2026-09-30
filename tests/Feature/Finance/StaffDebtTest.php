@@ -12,6 +12,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SalaryPayment;
 use App\Models\StaffDebt;
+use App\Models\StaffDebtPenalty;
 use App\Models\StaffDebtRepayment;
 use App\Models\StaffDebtSetting;
 use App\Models\User;
@@ -322,7 +323,7 @@ class StaffDebtTest extends TestCase
         $this->portal('GET', '')->assertOk()
             ->assertJsonPath('component', 'Finance/StaffDebts/Index')
             ->assertJsonPath('props.listing.view', 'a-decider')
-            ->assertJsonPath('props.listing.counts', ['a-decider' => 1, 'a-verser' => 1, 'en-cours' => 0, 'closes' => 0])
+            ->assertJsonPath('props.listing.counts', ['a-decider' => 1, 'a-verser' => 1, 'depart' => 0, 'en-cours' => 0, 'closes' => 0])
             ->assertJsonCount(1, 'props.listing.debts')
             ->assertJsonPath('props.can.settings', true);
 
@@ -517,7 +518,7 @@ class StaffDebtTest extends TestCase
 
         $this->withHeaders($this->headers(['staff_debts.view']))->getJson('/api/v1/super-admin/staff-debts/overview')
             ->assertOk()
-            ->assertJsonPath('data.counts', ['a-decider' => 1, 'a-verser' => 0, 'en-cours' => 1, 'closes' => 0])
+            ->assertJsonPath('data.counts', ['a-decider' => 1, 'a-verser' => 0, 'depart' => 0, 'en-cours' => 1, 'closes' => 0])
             ->assertJsonPath('data.balance', '30000.00')
             ->assertJsonPath('data.arrears', '10000.00')
             ->assertJsonPath('data.late', 1)
@@ -525,6 +526,117 @@ class StaffDebtTest extends TestCase
             ->assertJsonMissingPath('data.debts');
 
         $this->withHeaders($this->headers([]))->getJson('/api/v1/super-admin/staff-debts/overview')->assertForbidden();
+    }
+
+    public function test_a_cash_arrear_takes_a_monthly_penalty_once_and_the_dg_can_waive_it(): void
+    {
+        $this->configure($this->settings([
+            'interest_tiers' => [], 'penalty_rate' => '2', 'penalty_grace_days' => 5, 'penalty_cap_rate' => '10',
+        ]));
+        [$user] = $this->staff(salary: 400000);
+        $debt = $this->approved($user, 100000, 50000, '2026-09', 'CASH');
+        $this->disburse($debt);
+        $this->assertSame('2.00', (string) $debt->fresh()->penalty_rate);
+
+        // Pendant le délai de grâce : rien n'est encore dû.
+        Carbon::setTestNow('2026-10-04 08:00:00');
+        $this->artisan('rivo:staff-debts:penalties')->assertSuccessful();
+        $this->assertSame(0, StaffDebtPenalty::query()->count());
+
+        // Délai passé : 2 % des 50 000 Ar de septembre non remboursés, une seule fois.
+        Carbon::setTestNow('2026-10-10 08:00:00');
+        $this->artisan('rivo:staff-debts:penalties')->assertSuccessful();
+        $this->artisan('rivo:staff-debts:penalties')->assertSuccessful();
+        $penalty = StaffDebtPenalty::query()->sole();
+        $this->assertSame('2026-09', $penalty->period->format('Y-m'));
+        $this->assertSame('50000.00', (string) $penalty->base_amount);
+        $this->assertSame('1000.00', (string) $penalty->amount);
+
+        $path = "{$debt->uuid}/penalites/{$penalty->uuid}/remettre";
+        $this->portal('POST', $path, ['reason' => 'Erreur de caisse'], ['staff_debts.view', 'staff_debts.decide'])->assertForbidden();
+        $this->portal('POST', $path, [])->assertJsonValidationErrors('reason');
+        $this->portal('POST', $path, ['reason' => 'Erreur de caisse'])->assertOk();
+        $this->portal('POST', $path, ['reason' => 'Encore'])->assertJsonValidationErrors('penalty');
+
+        $penalty->refresh();
+        $this->assertNotNull($penalty->waived_at);
+        $this->assertSame('Erreur de caisse', $penalty->waiver_reason);
+        $this->assertSame(1, StaffDebtPenalty::query()->count());
+    }
+
+    public function test_salary_repayment_and_a_waived_penalty_rule_never_take_a_penalty(): void
+    {
+        $this->configure($this->settings([
+            'interest_tiers' => [], 'penalty_rate' => '2', 'penalty_grace_days' => 0, 'penalty_cap_rate' => '10',
+        ]));
+        [$first] = $this->staff(salary: 400000, number: 'EMP-1');
+        $salary = $this->approved($first, 100000, 50000, '2026-09');
+        $this->disburse($salary);
+
+        [$second] = $this->staff(salary: 400000, number: 'EMP-2');
+        $waived = $this->request($second, 100000, 50000, '2026-09');
+        $this->portal('POST', "{$waived->uuid}/accorder", [...$this->terms(100000, 50000, '2026-09', 'CASH'), 'waive_penalty' => true])->assertOk();
+        $this->disburse($waived->fresh());
+        $this->assertNull($waived->fresh()->penalty_rate);
+
+        Carbon::setTestNow('2026-11-10 08:00:00');
+        $this->artisan('rivo:staff-debts:penalties')->assertSuccessful();
+        $this->assertSame(0, StaffDebtPenalty::query()->count());
+    }
+
+    public function test_a_penalty_rate_needs_its_cap(): void
+    {
+        $this->portal('PUT', 'reglages', $this->settings(['penalty_rate' => '2']))->assertJsonValidationErrors('penalty_cap_rate');
+        $this->portal('PUT', 'reglages', $this->settings(['penalty_rate' => '12', 'penalty_cap_rate' => '10']))->assertJsonValidationErrors('penalty_rate');
+    }
+
+    public function test_the_debt_of_someone_who_left_is_settled_by_a_departure_agreement(): void
+    {
+        [$user, $employee] = $this->staff(salary: 400000);
+        $debt = $this->approved($user, 200000, 50000, '2026-10');
+        $this->disburse($debt);
+
+        $this->portal('GET', "{$debt->uuid}/reconnaissance")->assertOk()
+            ->assertJsonPath('component', 'Finance/StaffDebts/Document')
+            ->assertJsonPath('props.document.kind', 'ACKNOWLEDGEMENT')
+            ->assertJsonPath('props.document.terms.total', '200000.00');
+        $this->portal('GET', "{$debt->uuid}/protocole-depart")->assertNotFound();
+
+        $terms = [
+            'retained_amount' => '60000', 'retained_on' => '2026-09-20',
+            'installment_amount' => '50000', 'first_period' => '2026-10', 'note' => 'Départ volontaire, reste en espèces.',
+        ];
+        $this->portal('POST', "{$debt->uuid}/depart", $terms)->assertJsonValidationErrors('debt');
+
+        $employee->update(['active' => false]);
+        $this->portal('GET', '')->assertJsonPath('props.listing.counts.depart', 1);
+
+        $this->portal('POST', "{$debt->uuid}/depart", $terms, ['staff_debts.view'])->assertForbidden();
+        $this->portal('POST', "{$debt->uuid}/depart", $terms)->assertOk();
+
+        $debt->refresh();
+        $this->assertNotNull($debt->departure_settled_at);
+        $this->assertSame(StaffDebtStatus::Active, $debt->status);
+        $this->assertSame('CASH', $debt->repayment_mode->value);
+        $this->assertSame('140000.00', $debt->departure_terms['rest']);
+        $this->assertSame(1, StaffDebtRepayment::query()->where('staff_debt_id', $debt->id)->where('source', 'FINAL_PAY')->count());
+        $this->assertTrue(AuditLog::query()->where('action', 'staff_debt.departure_settle')->exists());
+
+        $this->portal('POST', "{$debt->uuid}/depart", $terms)->assertJsonValidationErrors('debt');
+        $this->portal('GET', '')->assertJsonPath('props.listing.counts.depart', 0);
+
+        $this->portal('GET', "{$debt->uuid}/protocole-depart")->assertOk()
+            ->assertJsonPath('props.document.kind', 'DEPARTURE_AGREEMENT')
+            ->assertJsonPath('props.document.departure.retained', '60000.00')
+            ->assertJsonPath('props.document.departure.rest', '140000.00');
+    }
+
+    public function test_a_requested_debt_has_no_acknowledgement_yet(): void
+    {
+        [$user] = $this->staff(salary: 400000);
+        $debt = $this->request($user, 100000, 50000, '2026-10');
+
+        $this->portal('GET', "{$debt->uuid}/reconnaissance")->assertNotFound();
     }
 
     /** @return array{0: User, 1: Employee} */

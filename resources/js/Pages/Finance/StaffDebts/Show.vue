@@ -2,8 +2,8 @@
 import { computed, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import {
-    ArrowLeft, Ban, BellRing, BriefcaseBusiness, CalendarDays, CircleAlert, CircleCheck, CircleX, FileText, Gavel, Gift, HandCoins,
-    Hash, History, Landmark, Lock, NotebookPen, Pencil, Percent, Scale, ShieldAlert, UserRound, Wallet,
+    ArrowLeft, Ban, BellRing, BriefcaseBusiness, CalendarDays, CircleAlert, CircleCheck, CircleX, DoorOpen, FileSignature, FileText, Gavel, Gift, HandCoins,
+    Hash, History, Landmark, Lock, NotebookPen, Pencil, Percent, Printer, Scale, ShieldAlert, Timer, UserRound, Wallet,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -19,10 +19,10 @@ import Textarea from '@/Components/Shadcn/Textarea.vue';
 import StaffDebtRepayments from '@/Components/StaffDebts/StaffDebtRepayments.vue';
 import StaffDebtStatusBadge from '@/Components/StaffDebts/StaffDebtStatusBadge.vue';
 import StaffDebtTermsFields from '@/Components/StaffDebts/StaffDebtTermsFields.vue';
-import { formatDate, formatDateTime } from '@/utilities/date';
+import { formatDate, formatDateTime, monthLabel } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
 import { staffDebtUrl } from '@/utilities/staffDebtUrl';
-import { debtPlan, planSummary, repaidShare as debtRepaidShare, ruleIssues, tierLabel, totalWithInterest } from '@/utilities/staffDebts';
+import { debtPlan, fromMinor, periodOptions, planSummary, repaidShare as debtRepaidShare, ruleIssues, tierLabel, toMinor, totalWithInterest } from '@/utilities/staffDebts';
 
 /**
  * ADR-228 / ADR-229 — une dette du personnel, dans Finance au portail. Le DG l'accorde en
@@ -59,6 +59,7 @@ const decision = useForm({
     repayment_mode: salaryDeclared.value ? 'SALARY' : 'CASH',
     note: '',
     waive_interest: false,
+    waive_penalty: false,
     accept_derogations: false,
 });
 const decisionTotals = computed(() => (decision.waive_interest ? { interest: null, total: decision.amount } : totalWithInterest(decision.amount, rules.value?.interest_tiers ?? [])));
@@ -125,7 +126,72 @@ const reminding = ref(false);
 const reminder = useForm({});
 const remind = () => reminder.post(`${base.value}/relancer`, { preserveScroll: true, onSuccess: () => { reminding.value = false; } });
 
-const TIMELINE_ICONS = { requested: FileText, approved: CircleCheck, refused: CircleX, disbursed: Wallet, written_off: Gift, cancelled: Ban, settled: CircleCheck };
+// ADR-230 — les pénalités de retard (remboursement en espèces seulement), figées à l'accord.
+const rateText = (value) => String(value ?? '').replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1').replace('.', ',');
+const penalty = computed(() => props.debt.penalty ?? { rule: null, due: '0.00', items: [] });
+const hasPenalties = computed(() => Boolean(penalty.value.rule) || penalty.value.items.length > 0);
+const sitePenalty = computed(() => rules.value?.penalty_rate && Number(rules.value.penalty_rate) > 0);
+const waivingPenalty = ref(null);
+const penaltyWaiver = useForm({ reason: '' });
+const openPenaltyWaiver = (item) => {
+    penaltyWaiver.reset();
+    penaltyWaiver.clearErrors();
+    waivingPenalty.value = item;
+};
+const waivePenalty = () => penaltyWaiver.post(`${base.value}/penalites/${waivingPenalty.value.uuid}/remettre`, {
+    preserveScroll: true,
+    onSuccess: () => { waivingPenalty.value = null; },
+});
+
+// ADR-230 — le règlement au départ, convenu avec la personne qui a quitté la clinique.
+const departure = computed(() => props.debt.departure ?? null);
+const departureTerms = computed(() => departure.value?.terms ?? null);
+const settlingDeparture = ref(false);
+const departureForm = useForm({
+    retained_amount: '',
+    retained_on: '',
+    write_off_amount: '',
+    waive_penalties: false,
+    installment_amount: '',
+    first_period: props.currentMonth,
+    keep_penalties: true,
+    note: '',
+});
+const departurePeriods = computed(() => periodOptions(props.currentMonth));
+// Aperçu seulement : le serveur recompte tout au moment de l'enregistrement.
+const departureRest = computed(() => {
+    if (! departure.value) return null;
+    const balance = toMinor(departure.value.balance) ?? 0;
+    const penalties = departureForm.waive_penalties ? (toMinor(departure.value.penalties_due) ?? 0) : 0;
+    const rest = balance - penalties - (toMinor(departureForm.retained_amount) ?? 0) - (toMinor(departureForm.write_off_amount) ?? 0);
+
+    return fromMinor(Math.max(0, rest));
+});
+const departureRestsDue = computed(() => (toMinor(departureRest.value) ?? 0) > 0);
+const departurePlan = computed(() => (departureRestsDue.value ? debtPlan(departureRest.value, departureForm.installment_amount, departureForm.first_period) : null));
+const departureNeedsWriteOffRight = computed(() => (toMinor(departureForm.write_off_amount) ?? 0) > 0 || departureForm.waive_penalties);
+const departureReady = computed(() => departureForm.note.trim().length >= 5
+    && (! (toMinor(departureForm.retained_amount) > 0) || Boolean(departureForm.retained_on))
+    && (! departureRestsDue.value || Boolean(departurePlan.value))
+    && (! departureNeedsWriteOffRight.value || props.debt.can.waive_penalty));
+const openDeparture = () => {
+    departureForm.reset();
+    departureForm.clearErrors();
+    settlingDeparture.value = true;
+};
+const settleDeparture = () => departureForm
+    .transform((data) => ({
+        ...data,
+        retained_amount: data.retained_amount === '' ? null : data.retained_amount,
+        retained_on: data.retained_on === '' ? null : data.retained_on,
+        write_off_amount: data.write_off_amount === '' ? null : data.write_off_amount,
+        installment_amount: departureRestsDue.value ? data.installment_amount : null,
+        first_period: departureRestsDue.value ? data.first_period : null,
+    }))
+    .post(`${base.value}/depart`, { preserveScroll: true, onSuccess: () => { settlingDeparture.value = false; } });
+const isZeroMoney = (value) => ! value || Number(value) === 0;
+
+const TIMELINE_ICONS = { requested: FileText, approved: CircleCheck, refused: CircleX, disbursed: Wallet, written_off: Gift, cancelled: Ban, settled: CircleCheck, penalty: Timer, departure: DoorOpen };
 const firstError = (form) => Object.values(form.errors)[0] ?? '';
 </script>
 
@@ -184,6 +250,13 @@ const firstError = (form) => Object.values(form.errors)[0] ?? '';
                         <span>
                             <span class="block font-semibold text-foreground">Remettre l’intérêt</span>
                             <span class="block text-xs text-muted-foreground">La dette se rembourse sans l’intérêt de sa tranche. Écrit sur la dette.</span>
+                        </span>
+                    </label>
+                    <label v-if="sitePenalty && decision.repayment_mode === 'CASH'" class="flex items-start gap-3 rounded-xl border border-border px-3 py-2.5 text-sm">
+                        <Checkbox v-model="decision.waive_penalty" class="mt-0.5" />
+                        <span>
+                            <span class="block font-semibold text-foreground">Sans pénalité de retard</span>
+                            <span class="block text-xs text-muted-foreground">Un retard à la Caisse ne portera aucune pénalité ({{ rateText(rules.penalty_rate) }} % par mois sinon). Écrit sur la dette à l’accord.</span>
                         </span>
                     </label>
                     <p v-if="tooManyDebts" class="flex items-start gap-2 rounded-xl border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-foreground dark:border-amber-900 dark:bg-amber-950/30">
@@ -245,6 +318,7 @@ const firstError = (form) => Object.values(form.errors)[0] ?? '';
                             <Button v-if="debt.can.cancel" type="button" size="sm" variant="ghost" class="text-destructive hover:text-destructive" @click="openReason('cancel')"><Ban class="h-4 w-4" />Annuler l’accord</Button>
                             <Button v-if="debt.can.remind" type="button" size="sm" variant="outline" @click="reminding = true"><BellRing class="h-4 w-4" />Relancer</Button>
                             <Button v-if="debt.can.write_off" type="button" size="sm" variant="ghost" @click="openReason('write_off')"><Gift class="h-4 w-4" />Remettre le reste</Button>
+                            <Button :as="Link" :href="`${base}/reconnaissance`" size="sm" variant="ghost"><FileSignature class="h-4 w-4" />Reconnaissance de dette</Button>
                         </div>
                     </div>
                     <dl class="grid gap-3 text-sm sm:grid-cols-4">
@@ -294,6 +368,59 @@ const firstError = (form) => Object.values(form.errors)[0] ?? '';
                 <p v-if="debt.status === 'CANCELLED'" class="flex items-start gap-2 rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground"><Ban class="mt-0.5 h-4 w-4 shrink-0" />Annulée : {{ debt.cancel_reason }}</p>
                 <p v-if="debt.write_off_reason" class="flex items-start gap-2 rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground"><Gift class="mt-0.5 h-4 w-4 shrink-0" />Reste remis ({{ formatMoney(debt.written_off_amount) }}) : {{ debt.write_off_reason }}</p>
 
+                <!-- ADR-230 — la personne a quitté la clinique : le reste dû se règle à son départ. -->
+                <Card v-if="departure" :class="['space-y-3 px-5 py-4', departure.awaiting ? 'border-amber-300/60 dark:border-amber-900' : '']">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><DoorOpen class="h-4 w-4 text-amber-600" />Règlement au départ</h2>
+                        <div class="ms-auto flex flex-wrap gap-2">
+                            <Button v-if="debt.can.settle_departure" type="button" size="sm" @click="openDeparture"><Scale class="h-4 w-4" />Régler au départ</Button>
+                            <Button v-if="departure.settled_at" :as="Link" :href="`${base}/protocole-depart`" size="sm" variant="outline"><Printer class="h-4 w-4" />Protocole d’accord</Button>
+                        </div>
+                    </div>
+                    <template v-if="departure.awaiting">
+                        <p class="text-sm text-foreground">
+                            {{ debt.employee_name }} a quitté la clinique<template v-if="departure.left_on"> le {{ formatDate(departure.left_on) }}</template> avec
+                            <strong class="tabular-nums">{{ formatMoney(departure.balance) }}</strong> encore dus<template v-if="! isZeroMoney(departure.penalties_due)">, dont {{ formatMoney(departure.penalties_due) }} de pénalités</template>.
+                            La paie ne retient plus rien : convenez avec la personne de ce qui est retenu sur son solde de tout compte, remis, et remboursé ensuite.
+                        </p>
+                        <p v-if="! debt.can.settle_departure" class="flex items-center gap-1 text-xs text-muted-foreground"><Lock class="h-3.5 w-3.5" />Régler au départ demande le droit « staff_debts.decide ».</p>
+                    </template>
+                    <template v-else-if="departureTerms">
+                        <p class="text-sm text-muted-foreground">Convenu le {{ formatDate(departure.settled_at) }}<template v-if="departure.settled_by"> par {{ departure.settled_by }}</template> — reste dû au départ {{ formatMoney(departureTerms.balance_before) }}.</p>
+                        <dl class="grid gap-3 text-sm sm:grid-cols-4">
+                            <div v-if="! isZeroMoney(departureTerms.retained)"><dt class="text-xs text-muted-foreground">Retenu au solde</dt><dd class="font-semibold tabular-nums text-foreground">{{ formatMoney(departureTerms.retained) }}</dd><dd v-if="departureTerms.retained_on" class="text-xs text-muted-foreground">le {{ formatDate(departureTerms.retained_on) }}</dd></div>
+                            <div v-if="! isZeroMoney(departureTerms.written_off)"><dt class="text-xs text-muted-foreground">Remis</dt><dd class="font-semibold tabular-nums text-foreground">{{ formatMoney(departureTerms.written_off) }}</dd></div>
+                            <div v-if="! isZeroMoney(departureTerms.penalties_waived)"><dt class="text-xs text-muted-foreground">Pénalités remises</dt><dd class="font-semibold tabular-nums text-foreground">{{ formatMoney(departureTerms.penalties_waived) }}</dd></div>
+                            <div><dt class="text-xs text-muted-foreground">Reste à rembourser</dt><dd class="font-semibold tabular-nums text-foreground">{{ formatMoney(departureTerms.rest) }}</dd>
+                                <dd v-if="! isZeroMoney(departureTerms.rest) && departureTerms.installment" class="text-xs text-muted-foreground">{{ formatMoney(departureTerms.installment) }} / mois en espèces, {{ planSummary({ count: departureTerms.count, first_period: departureTerms.first_period, last_period: departureTerms.last_period }) }}</dd>
+                            </div>
+                        </dl>
+                        <p v-if="departureTerms.note" class="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">« {{ departureTerms.note }} »</p>
+                    </template>
+                </Card>
+
+                <!-- ADR-230 — les pénalités de retard d'un remboursement en espèces. -->
+                <Card v-if="hasPenalties" class="space-y-3 px-5 py-4">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><Timer class="h-4 w-4 text-muted-foreground" />Pénalités de retard</h2>
+                        <span v-if="! isZeroMoney(penalty.due)" class="ms-auto text-sm font-semibold tabular-nums text-destructive">{{ formatMoney(penalty.due) }} dues</span>
+                    </div>
+                    <p v-if="penalty.rule" class="text-xs text-muted-foreground">
+                        {{ rateText(penalty.rule.rate) }} % par mois sur le montant en retard, {{ penalty.rule.grace_days }} jour{{ penalty.rule.grace_days > 1 ? 's' : '' }} après la fin du mois<template v-if="penalty.rule.cap">, jamais plus de {{ formatMoney(penalty.rule.cap) }} en tout ({{ rateText(penalty.rule.cap_rate) }} % du montant)</template>. Règle figée à l’accord ; une pénalité par mois, jamais effacée.
+                    </p>
+                    <p v-else class="text-xs text-muted-foreground">Aucune nouvelle pénalité : la règle ne s’applique plus à cette dette.</p>
+                    <ul v-if="penalty.items.length" class="divide-y divide-border rounded-xl border border-border">
+                        <li v-for="item in penalty.items" :key="item.uuid" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                            <span class="min-w-0 flex-1">
+                                <span :class="['font-semibold tabular-nums', item.waived_at ? 'text-muted-foreground line-through' : 'text-foreground']">{{ formatMoney(item.amount) }}</span>
+                                <span class="text-xs text-muted-foreground"> — {{ rateText(item.rate) }} % de {{ formatMoney(item.base_amount) }} en retard · {{ monthLabel(item.period) }}</span>
+                                <span v-if="item.waived_at" class="block text-xs text-muted-foreground">Remise le {{ formatDate(item.waived_at) }}<template v-if="item.waived_by"> par {{ item.waived_by }}</template> : {{ item.waiver_reason }}</span>
+                            </span>
+                            <Button v-if="! item.waived_at && debt.can.waive_penalty" type="button" size="sm" variant="ghost" @click="openPenaltyWaiver(item)"><Gift class="h-4 w-4" />Remettre</Button>
+                        </li>
+                    </ul>
+                </Card>
+
                 <Card v-if="debt.disbursement || debt.repayments.length" class="px-5 py-4">
                     <StaffDebtRepayments :debt="debt" />
                 </Card>
@@ -322,7 +449,7 @@ const firstError = (form) => Object.values(form.errors)[0] ?? '';
                     <p v-if="! debt.employee.in_post" class="flex items-center gap-1.5 text-xs font-medium text-destructive"><CircleAlert class="h-3.5 w-3.5" />N’est plus en poste.</p>
                 </Card>
 
-                <Card v-if="rules && (rules.configured || hasTiers)" class="space-y-3 px-5 py-4 text-sm">
+                <Card v-if="rules && (rules.configured || hasTiers || sitePenalty)" class="space-y-3 px-5 py-4 text-sm">
                     <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><Scale class="h-4 w-4 text-muted-foreground" />Limites du site</h2>
                     <dl class="space-y-1.5 text-xs">
                         <div v-if="rules.min_amount || rules.max_amount" class="flex justify-between gap-3"><dt class="text-muted-foreground">Montant</dt><dd class="text-end tabular-nums text-foreground">{{ rules.min_amount ? formatMoney(rules.min_amount) : '—' }} à {{ rules.max_amount ? formatMoney(rules.max_amount) : '—' }}</dd></div>
@@ -336,6 +463,10 @@ const firstError = (form) => Object.values(form.errors)[0] ?? '';
                     <div v-if="hasTiers" class="space-y-1 border-t border-border pt-2.5">
                         <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Percent class="h-3.5 w-3.5" />Intérêt</p>
                         <p v-for="tier in rules.interest_tiers" :key="tier.from" class="text-xs text-foreground">{{ tierLabel(tier, formatMoney) }}</p>
+                    </div>
+                    <div v-if="sitePenalty" class="space-y-1 border-t border-border pt-2.5">
+                        <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Timer class="h-3.5 w-3.5" />Pénalité de retard</p>
+                        <p class="text-xs text-foreground">{{ rateText(rules.penalty_rate) }} % par mois, espèces seulement, après {{ rules.penalty_grace_days ?? 0 }} jour{{ (rules.penalty_grace_days ?? 0) > 1 ? 's' : '' }}<template v-if="rules.penalty_cap_rate"> · plafond {{ rateText(rules.penalty_cap_rate) }} % du montant</template></p>
                     </div>
                 </Card>
 
@@ -474,6 +605,93 @@ const firstError = (form) => Object.values(form.errors)[0] ?? '';
                 <div class="flex justify-end gap-2 border-t border-border pt-4">
                     <Button type="button" variant="outline" :disabled="disbursement.processing" @click="disbursing = false">Annuler</Button>
                     <Button type="submit" :disabled="disbursement.processing || ! disbursement.disbursed_on"><Wallet class="h-4 w-4" />Marquer versée</Button>
+                </div>
+            </form>
+        </Dialog>
+
+        <ConfirmModal
+            :open="waivingPenalty !== null"
+            title="Remettre la pénalité"
+            :description="`${debt.employee_name} · ${debt.number}`"
+            confirm-label="Remettre"
+            tone="warning"
+            :icon="Gift"
+            :processing="penaltyWaiver.processing"
+            :disabled="penaltyWaiver.reason.trim().length < 3"
+            :dismissible="false"
+            @update:open="(value) => value || penaltyWaiver.processing || (waivingPenalty = null)"
+            @confirm="waivePenalty"
+        >
+            <div v-if="waivingPenalty" class="space-y-3 text-sm">
+                <p class="text-muted-foreground">
+                    La pénalité de <strong class="tabular-nums text-foreground">{{ formatMoney(waivingPenalty.amount) }}</strong> ({{ monthLabel(waivingPenalty.period) }})
+                    n’est plus due. Elle reste dans l’historique, avec votre nom et le motif.
+                </p>
+                <FormField label="Motif" required :error="penaltyWaiver.errors.reason">
+                    <Textarea v-model="penaltyWaiver.reason" :rows="3" maxlength="1000" />
+                </FormField>
+                <p v-if="penaltyWaiver.errors.debt" class="font-medium text-destructive">{{ penaltyWaiver.errors.debt }}</p>
+            </div>
+        </ConfirmModal>
+
+        <Dialog v-if="departure" :open="settlingDeparture" title="Régler la dette au départ" :description="`${debt.employee_name} · ${debt.number} · reste dû ${formatMoney(departure.balance)}`" size="lg" :dismissible="! departureForm.processing" @update:open="(value) => departureForm.processing || (settlingDeparture = value)">
+            <form class="space-y-4" @submit.prevent="settleDeparture">
+                <p class="text-sm text-muted-foreground">
+                    Ce qui a été convenu avec la personne. Le serveur recompte tout et l’enregistre ; le protocole d’accord s’imprime ensuite, à signer par les deux parties.
+                </p>
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <FormField label="Retenu sur le solde de tout compte" :icon="Wallet" hint="(facultatif)" :error="departureForm.errors.retained_amount">
+                        <IconInput v-model="departureForm.retained_amount" :icon="Wallet" inputmode="decimal" placeholder="0" />
+                    </FormField>
+                    <FormField label="Date de la retenue" :icon="CalendarDays" :required="toMinor(departureForm.retained_amount) > 0" :error="departureForm.errors.retained_on">
+                        <DatePicker v-model="departureForm.retained_on" :max="today" />
+                    </FormField>
+                </div>
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <FormField label="Remise accordée" :icon="Gift" hint="(facultatif)" :error="departureForm.errors.write_off_amount">
+                        <IconInput v-model="departureForm.write_off_amount" :icon="Gift" inputmode="decimal" placeholder="0" :disabled="! debt.can.waive_penalty" />
+                    </FormField>
+                    <label v-if="! isZeroMoney(departure.penalties_due)" class="flex items-start gap-3 self-end rounded-xl border border-border px-3 py-2.5 text-sm">
+                        <Checkbox v-model="departureForm.waive_penalties" :disabled="! debt.can.waive_penalty" class="mt-0.5" />
+                        <span>
+                            <span class="block font-semibold text-foreground">Remettre les pénalités</span>
+                            <span class="block text-xs text-muted-foreground">{{ formatMoney(departure.penalties_due) }} de pénalités dues.</span>
+                        </span>
+                    </label>
+                </div>
+                <p v-if="! debt.can.waive_penalty" class="flex items-center gap-1 text-xs text-muted-foreground"><Lock class="h-3.5 w-3.5" />Remettre une partie ou les pénalités demande le droit « staff_debts.write_off ».</p>
+
+                <div class="rounded-xl border border-border bg-muted/40 px-3 py-2.5 text-sm">
+                    Reste à rembourser : <strong class="tabular-nums text-foreground">{{ formatMoney(departureRest) }}</strong>
+                    <span class="text-xs text-muted-foreground"> — aperçu, le serveur recompte.</span>
+                </div>
+
+                <template v-if="departureRestsDue">
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <FormField label="Mensualité en espèces" :icon="HandCoins" required :error="departureForm.errors.installment_amount">
+                            <IconInput v-model="departureForm.installment_amount" :icon="HandCoins" inputmode="decimal" placeholder="Ex. 50000" />
+                        </FormField>
+                        <FormField label="Premier mois" :icon="CalendarDays" required :error="departureForm.errors.first_period">
+                            <Select v-model="departureForm.first_period" :options="departurePeriods" />
+                        </FormField>
+                    </div>
+                    <p v-if="departurePlan" class="text-xs text-muted-foreground">{{ planSummary(departurePlan) }}, remboursées à la Caisse.</p>
+                    <label v-if="penalty.rule" class="flex items-start gap-3 rounded-xl border border-border px-3 py-2.5 text-sm">
+                        <Checkbox v-model="departureForm.keep_penalties" class="mt-0.5" />
+                        <span>
+                            <span class="block font-semibold text-foreground">Les retards continuent de porter la pénalité</span>
+                            <span class="block text-xs text-muted-foreground">{{ rateText(penalty.rule.rate) }} % par mois, comme prévu à l’accord. Décoché : plus aucune pénalité sur ce reste.</span>
+                        </span>
+                    </label>
+                </template>
+
+                <FormField label="Ce qui a été convenu" required :error="departureForm.errors.note">
+                    <Textarea v-model="departureForm.note" :rows="3" maxlength="2000" placeholder="Ex. retenue sur le solde de tout compte, le reste en espèces chaque mois." />
+                </FormField>
+                <p v-if="departureForm.errors.debt" class="text-sm font-medium text-destructive">{{ departureForm.errors.debt }}</p>
+                <div class="flex justify-end gap-2 border-t border-border pt-4">
+                    <Button type="button" variant="outline" :disabled="departureForm.processing" @click="settlingDeparture = false">Annuler</Button>
+                    <Button type="submit" :disabled="departureForm.processing || ! departureReady"><Scale class="h-4 w-4" />Enregistrer le règlement</Button>
                 </div>
             </form>
         </Dialog>

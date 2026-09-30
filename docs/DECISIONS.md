@@ -22438,3 +22438,82 @@ salaire revu après l'accord      la limite « % du salaire » se vérifie à la
 intérêt annuel / par mois        non retenu : l'intérêt est un montant unique, pas un taux dans le
                                  temps — un retard ne coûte rien de plus
 ```
+
+---
+
+# ADR-230 — Dettes du personnel : pénalité de retard, règlement au départ, documents à signer
+
+**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire ; tranche les deux points laissés
+ouverts par les ADR-228 et ADR-229)
+
+**Complète l'ADR-228 et l'ADR-229.** Le CDC ne décrit aucune dette du personnel : les règles ci-dessous sont
+celles du propriétaire. Aucune permission nouvelle.
+
+## Pénalité de retard
+
+```text
+qui               seulement un remboursement en espèces à la Caisse : une retenue sur salaire n'est
+                  jamais en retard par la faute de l'employé (la paie retient, ou le salaire manque)
+règle             réglée par site (Finance › Dettes › Réglages) : taux mensuel ≤ 10 %, délai de grâce
+                  0 à 60 jours, plafond ≤ 100 % du montant emprunté, exigé dès qu'un taux est réglé ;
+                  vide = aucune pénalité
+figée             copiée sur la dette à l'accord du DG (penalty_rate, penalty_grace_days,
+                  penalty_cap_rate) ; le DG peut accorder sans pénalité (waive_penalty) ; un réglage
+                  changé ensuite ne touche aucune dette accordée
+liquidée          pour le mois M, le 1er du mois suivant + le délai de grâce : taux × montant encore
+                  en retard à ce moment, arrondi à l'ariary ; un remboursement pendant la grâce l'évite ;
+                  jamais sur une pénalité (un remboursement paie d'abord le montant et son intérêt) ;
+                  une par mois au plus (index unique), plafonnée au total
+tâche             rivo:staff-debts:penalties, chaque jour à 07:30 sur le site ; rattrape les mois
+                  manqués sans jamais liquider deux fois le même
+remise            par le DG (staff_debts.write_off), motif obligatoire, auditée ; jamais supprimée
+```
+
+`staff_debt_penalties` (`StaffDebtPenalty`) garde la période, la base, le taux, le montant et la remise
+(auteur local ou distant, motif). `StaffDebtPenalties` porte la règle une seule fois ; le reste dû inclut les
+pénalités non remises (`StaffDebtLedger`), l'employé et le RH sont prévenus.
+
+## Règlement au départ
+
+Une dette encore en remboursement dont la personne a quitté la clinique (fiche inactive ou archivée) apparaît
+dans la vue **« À régler au départ »**. Le DG (`staff_debts.decide`) règle le reste dû, une seule fois, en
+combinant au choix :
+
+```text
+retenue          sur le solde de tout compte, faite hors RIVO comme la paie, constatée ici à sa date
+                 (jamais à venir, jamais avant le versement) : remboursement « solde de tout compte »
+remise           partielle ou totale du montant et de son intérêt ; les pénalités se remettent à part
+                 (case « remettre les pénalités ») ; toute remise exige staff_debts.write_off
+accord amiable   le reste, en espèces à la Caisse, sur un nouvel échéancier ; le retard se compte
+                 depuis sa reprise (schedule_offset) ; la pénalité continue seulement si le DG la garde
+```
+
+Une note est obligatoire : elle figure sur le protocole. `SettleStaffDebtDepartureAction` verrouille la dette,
+refuse une personne encore en poste ou un départ déjà réglé, fige ce qui a été convenu dans `departure_terms`
+(reste avant, pénalités remises, retenue, remise, reste, échéancier) et l'audite (`staff_debt.departure_settle`).
+Tout remis → dette remise ; rien ne reste → soldée ; sinon elle continue en espèces.
+
+## Documents à signer
+
+```text
+reconnaissance de dette   dès l'accord : montant reçu, intérêt, total, échéancier, versement, règle de
+                          pénalité figée (ou « aucune pénalité » pour une retenue sur salaire)
+protocole de départ       une fois le départ réglé : reste dû, déjà remboursé, retenue, remise,
+                          pénalités remises, reste et échéancier, observations
+```
+
+`StaffDebtDocuments` lit la dette telle qu'elle est enregistrée ; `Finance/StaffDebts/Document` l'imprime
+(`PaperSheet`), sans rien recalculer. Deux signatures à la main : l'employé (« Lu et approuvé ») et le
+directeur réglé dans les paramètres (ADR-184) ; RIVO n'appose aucune signature. 404 pour une dette jamais
+accordée ou un départ non réglé. Même droit que la fiche de la dette (`staff_debts.view`).
+
+Migration `2026_12_05_090000_add_staff_debt_penalties_and_departure`, à jouer sur chaque site et sur le portail.
+
+## Signalé, non tranché
+
+```text
+pénalité d'une retenue salariale   jamais : le salaire qui manque n'est pas un retard de l'employé
+départ avant versement             une dette accordée non versée s'annule (ADR-228), elle ne se règle pas
+                                   au départ
+recouvrement forcé                 hors RIVO : aucun contentieux n'est modélisé
+```

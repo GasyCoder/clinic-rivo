@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import {
     ArrowLeft, CalendarClock, CalendarRange, Coins, GraduationCap, HandCoins, Landmark, Lock, Percent, Plus, Save, Scale,
-    Settings2, Trash2, Wallet,
+    Settings2, Timer, Trash2, Wallet,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -48,6 +48,9 @@ const form = useForm({
     max_open_debts: plain(props.settings.max_open_debts),
     min_seniority_months: plain(props.settings.min_seniority_months),
     exclude_interns: props.settings.exclude_interns ?? false,
+    penalty_rate: plain(props.settings.penalty_rate),
+    penalty_grace_days: plain(props.settings.penalty_grace_days),
+    penalty_cap_rate: plain(props.settings.penalty_cap_rate),
     interest_tiers: (props.settings.interest_tiers ?? []).map((tier) => ({ from: plain(tier.from), to: plain(tier.to), mode: tier.mode, value: plain(tier.value) })),
 });
 
@@ -71,6 +74,16 @@ const sampleTotal = computed(() => {
     if (! amount) return null;
 
     return fromMinor(amount + (sampleInterest.value ? toMinor(sampleInterest.value.amount) : 0));
+});
+
+// ADR-230 — la pénalité qu'un remboursement en espèces en retard porterait, sur un exemple.
+const penaltyExample = computed(() => {
+    const rate = toMinor(form.penalty_rate);
+    if (! rate) return null;
+    const base = 10000000; // 100 000 Ar en retard
+    const monthly = Math.round((base * rate) / 10000);
+
+    return { base: fromMinor(base), monthly: fromMinor(monthly) };
 });
 
 const tierError = (index, field) => form.errors[`interest_tiers.${index}.${field}`] ?? null;
@@ -180,7 +193,7 @@ const LIMITS = [
                                 <IconInput v-model="tier.from" :icon="Coins" inputmode="decimal" placeholder="0" class="tabular-nums" />
                             </FormField>
                             <FormField label="À" hint="(vide : sans plafond)" :error="tierError(index, 'to')">
-                                <IconInput v-model="tier.to" :icon="Coins" inputmode="decimal" placeholder="Sans plafond" class="tabular-nums" />
+                                <IconInput v-model="tier.to" :icon="Coins" inputmode="decimal" placeholder="Exigé avec un taux" class="tabular-nums" />
                             </FormField>
                             <FormField label="Intérêt" :error="tierError(index, 'mode')">
                                 <Select v-model="tier.mode" :options="MODES" />
@@ -195,6 +208,43 @@ const LIMITS = [
                         </div>
                     </div>
                     <p v-else class="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">Aucune tranche : les dettes de ce site sont sans intérêt.</p>
+                </Card>
+
+                <!-- ADR-230 — la pénalité de retard d'un remboursement en espèces. -->
+                <Card class="space-y-4 px-5 py-4">
+                    <div class="flex items-start gap-3">
+                        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Timer class="h-4 w-4" /></span>
+                        <div class="min-w-0">
+                            <h2 class="text-sm font-semibold text-foreground">Pénalité de retard</h2>
+                            <p class="text-xs text-muted-foreground">Seulement pour un remboursement en espèces : une mensualité non payée à la Caisse après le délai porte cette pénalité, une fois par mois, sur le montant en retard. Figée sur la dette à l’accord ; le DG peut l’écarter à l’accord ou remettre une pénalité. Vide : aucune pénalité.</p>
+                        </div>
+                    </div>
+                    <div class="grid gap-4 sm:grid-cols-3">
+                        <FormField label="Taux par mois" :icon="Percent" :error="form.errors.penalty_rate">
+                            <div class="relative">
+                                <IconInput v-model="form.penalty_rate" :icon="Percent" inputmode="decimal" placeholder="Aucune" class="pe-9 tabular-nums" />
+                                <span class="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                            </div>
+                            <p class="mt-1 text-xs text-muted-foreground">10 % au plus.</p>
+                        </FormField>
+                        <FormField label="Délai de grâce" :icon="CalendarClock" :error="form.errors.penalty_grace_days">
+                            <div class="relative">
+                                <IconInput v-model="form.penalty_grace_days" :icon="CalendarClock" type="number" min="0" max="60" inputmode="numeric" placeholder="0" class="pe-14 tabular-nums" />
+                                <span class="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">jours</span>
+                            </div>
+                            <p class="mt-1 text-xs text-muted-foreground">Après la fin du mois dû.</p>
+                        </FormField>
+                        <FormField label="Plafond" :icon="Scale" :error="form.errors.penalty_cap_rate">
+                            <div class="relative">
+                                <IconInput v-model="form.penalty_cap_rate" :icon="Scale" inputmode="decimal" placeholder="Exigé avec un taux" class="pe-9 tabular-nums" />
+                                <span class="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                            </div>
+                            <p class="mt-1 text-xs text-muted-foreground">Du montant emprunté, toutes pénalités comprises. Exigé dès qu’un taux est saisi.</p>
+                        </FormField>
+                    </div>
+                    <p v-if="penaltyExample" class="rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                        Exemple : {{ formatMoney(penaltyExample.base) }} en retard porte {{ formatMoney(penaltyExample.monthly) }} de pénalité par mois de retard.
+                    </p>
                 </Card>
             </div>
 

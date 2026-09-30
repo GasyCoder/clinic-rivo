@@ -31,6 +31,7 @@ const { can } = usePermissions();
 
 const { form, state, savedAt, retry } = useSectionAutosave('contact', {
     phone: props.employee.phone ?? '',
+    phone_secondary: props.employee.phone_secondary ?? '',
     address_entry_uuid: props.employee.address_entry_uuid ?? '',
     identity_document_type: props.employee.identity_document_type ?? '',
     identity_document_number: props.employee.identity_document_number ?? '',
@@ -103,6 +104,9 @@ onBeforeUnmount(() => registry?.unregister('contact:address'));
                 <h3 id="contact-title" class="flex items-center gap-2 text-sm font-bold text-foreground"><Phone class="h-4 w-4 text-cyan-600" />Contact</h3>
                 <FormField label="Téléphone" :error="form.errors.phone">
                     <IconInput id="phone" v-model="form.phone" :icon="Phone" type="tel" autocomplete="tel" />
+                </FormField>
+                <FormField label="Second téléphone" :error="form.errors.phone_secondary">
+                    <IconInput id="phone_secondary" v-model="form.phone_secondary" :icon="Phone" type="tel" />
                 </FormField>
                 <div class="space-y-1.5">
                     <p class="text-sm font-medium text-foreground">Email</p>

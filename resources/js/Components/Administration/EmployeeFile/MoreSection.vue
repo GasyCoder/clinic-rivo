@@ -28,6 +28,12 @@ const { form, state, savedAt, retry } = useSectionAutosave('more', {
     education_level: props.employee.education_level ?? '',
     badge: props.employee.badge ?? '',
     blouse: props.employee.blouse ?? '',
+    tshirt_size: props.employee.tshirt_size ?? '',
+    blouse_size: props.employee.blouse_size ?? '',
+    bloc_outfit: props.employee.bloc_outfit ?? '',
+    shoe_size: props.employee.shoe_size ?? '',
+    scrub_cap: props.employee.scrub_cap ?? '',
+    clog: props.employee.clog ?? '',
     observation: props.employee.observation ?? '',
 }, () => props.url, { canEdit: () => props.canEdit });
 
@@ -76,8 +82,16 @@ const maritalOptions = computed(() => [{ value: '', label: 'Non renseignée' }, 
                     <IconInput id="badge" v-model="form.badge" :icon="BadgeCheck" placeholder="Numéro ou référence" />
                 </FormField>
                 <FormField label="Blouse" :error="form.errors.blouse">
-                    <IconInput id="blouse" v-model="form.blouse" :icon="Shirt" placeholder="Taille ou référence" />
+                    <IconInput id="blouse" v-model="form.blouse" :icon="Shirt" placeholder="Oui, Non ou référence" />
                 </FormField>
+                <div class="grid grid-cols-2 gap-3">
+                    <FormField label="Taille T-shirt" :error="form.errors.tshirt_size"><Input id="tshirt_size" v-model="form.tshirt_size" placeholder="M, L…" /></FormField>
+                    <FormField label="Taille blouse" :error="form.errors.blouse_size"><Input id="blouse_size" v-model="form.blouse_size" placeholder="M, L…" /></FormField>
+                    <FormField label="Pointure" :error="form.errors.shoe_size"><Input id="shoe_size" v-model="form.shoe_size" inputmode="numeric" placeholder="37" /></FormField>
+                    <FormField label="Tenue bloc" :error="form.errors.bloc_outfit"><Input id="bloc_outfit" v-model="form.bloc_outfit" placeholder="Oui / taille" /></FormField>
+                    <FormField label="Callot" :error="form.errors.scrub_cap"><Input id="scrub_cap" v-model="form.scrub_cap" placeholder="Oui / Non" /></FormField>
+                    <FormField label="Sabot" :error="form.errors.clog"><Input id="clog" v-model="form.clog" placeholder="Oui / Non" /></FormField>
+                </div>
             </section>
         </fieldset>
     </EmployeeSectionCard>

@@ -167,7 +167,13 @@ class ImportEmployeesAction
 
         // ADR-190 : aucun email n'est importé — celui d'un employé est son adresse
         // professionnelle, créée après son enregistrement. Une colonne « Email » est ignorée.
-        $phone = $this->value($row, 'telephone', 'tel');
+        $phone = $this->value($row, 'telephone', 'tel', 'contact');
+        // La feuille du personnel peut porter deux numéros dans la même cellule.
+        $secondPhone = null;
+        if (is_string($phone) && preg_match('/^(\+?[\d .-]{6,}?)\s*(?:[\/;,]|\s{2,})\s*(\+?[\d .-]{6,})$/', $phone, $m)) {
+            $phone = Str::squish($m[1]);
+            $secondPhone = Str::squish($m[2]);
+        }
         $combinedContact = $this->value($row, 'email_tel');
         if ($combinedContact && ! $phone && ! str_contains($combinedContact, '@')) {
             $phone = $combinedContact;
@@ -200,6 +206,13 @@ class ImportEmployeesAction
             'blouse' => $this->value($row, 'blouse'),
             'profession' => $job?->label,
             'phone' => $phone,
+            'phone_secondary' => $secondPhone,
+            'tshirt_size' => $this->value($row, 'taille_tshirt', 'taille_t_shirt'),
+            'blouse_size' => $this->value($row, 'taille_blouse'),
+            'bloc_outfit' => $this->value($row, 'tenue_bloc'),
+            'shoe_size' => $this->value($row, 'pointure'),
+            'scrub_cap' => $this->value($row, 'callot'),
+            'clog' => $this->value($row, 'sabot'),
             'address' => $this->value($row, 'adresse'),
             'observation' => $this->value($row, 'observation'),
             'active' => $this->active($this->value($row, 'statut', 'status')),

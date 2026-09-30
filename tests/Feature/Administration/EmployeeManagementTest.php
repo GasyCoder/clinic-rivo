@@ -58,7 +58,7 @@ class EmployeeManagementTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Administration/Employees/Import')
-                ->has('columns', 23)
+                ->has('columns', 29)
                 ->where('limits.rows', 1000)
                 ->where('limits.megabytes', 5)
                 ->has('referenceValues.departments'));

@@ -402,6 +402,8 @@ class EmployeeController extends Controller
                 $employee->identity_document_issued_on?->toDateString(), $employee->identity_document_issued_at,
                 $employee->address, $employee->children_count, $employee->children_details,
                 $employee->badge, $employee->blouse, $employee->email, $employee->phone,
+                $employee->phone_secondary, $employee->tshirt_size, $employee->blouse_size,
+                $employee->bloc_outfit, $employee->shoe_size, $employee->scrub_cap, $employee->clog,
                 $employee->trashed() ? 'ARCHIVÉ' : ($employee->active ? 'ACTIF' : 'INACTIF'),
                 $employee->contracts->first()?->contractType?->label, $employee->observation,
             ]),
@@ -536,7 +538,7 @@ class EmployeeController extends Controller
     /** @return array<int, string> */
     private function exportHeaders(): array
     {
-        return ['Matricule', 'Nom', 'Prénoms', 'Fonction', 'Département', 'Diplôme', 'Niveau', 'Genre', 'Date entrée', 'Date naissance', 'Lieu naissance', 'Numéro CIN', 'Date CIN', 'Lieu CIN', 'Adresse', 'Nombre enfants', 'Détails enfants', 'Badge', 'Blouse', 'Email', 'Téléphone', 'Statut', 'Type contrat', 'Observation'];
+        return ['Matricule', 'Nom', 'Prénoms', 'Fonction', 'Département', 'Diplôme', 'Niveau', 'Genre', 'Date entrée', 'Date naissance', 'Lieu naissance', 'Numéro CIN', 'Date CIN', 'Lieu CIN', 'Adresse', 'Nombre enfants', 'Détails enfants', 'Badge', 'Blouse', 'Email', 'Téléphone', 'Second téléphone', 'Taille T-shirt', 'Taille blouse', 'Tenue bloc', 'Pointure', 'Callot', 'Sabot', 'Statut', 'Type contrat', 'Observation'];
     }
 
     /** @return array<int, array{name: string, required: bool, format: string}> */
@@ -564,7 +566,13 @@ class EmployeeController extends Controller
             ['name' => 'Détails enfants', 'required' => false, 'format' => 'Note administrative libre'],
             ['name' => 'Badge', 'required' => false, 'format' => 'Texte'],
             ['name' => 'Blouse', 'required' => false, 'format' => 'Texte'],
-            ['name' => 'Téléphone', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Téléphone', 'required' => false, 'format' => 'Texte ; deux numéros séparés par « / » sont répartis en téléphone et second téléphone'],
+            ['name' => 'Taille T-shirt', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Taille blouse', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Tenue bloc', 'required' => false, 'format' => 'Texte (taille ou Oui/Non)'],
+            ['name' => 'Pointure', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Callot', 'required' => false, 'format' => 'Texte (taille ou Oui/Non)'],
+            ['name' => 'Sabot', 'required' => false, 'format' => 'Texte (taille ou Oui/Non)'],
             ['name' => 'Observation', 'required' => false, 'format' => 'Texte'],
         ];
     }

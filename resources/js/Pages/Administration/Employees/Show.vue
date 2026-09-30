@@ -114,10 +114,17 @@ const identityFacts = computed(() => [
 ]);
 const contactFacts = computed(() => [
     { key: 'phone', icon: Phone, label: 'Téléphone', value: props.employee.phone, href: props.employee.phone ? `tel:${props.employee.phone.replace(/\s+/g, '')}` : null, copy: true },
+    { key: 'phone_secondary', icon: Phone, label: 'Second téléphone', value: props.employee.phone_secondary, href: props.employee.phone_secondary ? `tel:${props.employee.phone_secondary.replace(/\s+/g, '')}` : null, copy: true, hideEmpty: true },
     { key: 'email', icon: AtSign, label: 'Email', value: props.employee.email, href: props.employee.email ? `mailto:${props.employee.email}` : null, copy: true },
     { key: 'address', icon: MapPin, label: 'Adresse', value: props.employee.address, wide: true },
     { key: 'badge', icon: IdCard, label: 'N° de badge', value: props.employee.badge },
     { key: 'blouse', icon: Shirt, label: 'Blouse', value: props.employee.blouse },
+    { key: 'tshirt_size', icon: Shirt, label: 'Taille T-shirt', value: props.employee.tshirt_size, hideEmpty: true },
+    { key: 'blouse_size', icon: Shirt, label: 'Taille blouse', value: props.employee.blouse_size, hideEmpty: true },
+    { key: 'bloc_outfit', icon: Shirt, label: 'Tenue bloc', value: props.employee.bloc_outfit, hideEmpty: true },
+    { key: 'shoe_size', icon: Shirt, label: 'Pointure', value: props.employee.shoe_size, hideEmpty: true },
+    { key: 'scrub_cap', icon: Shirt, label: 'Callot', value: props.employee.scrub_cap, hideEmpty: true },
+    { key: 'clog', icon: Shirt, label: 'Sabot', value: props.employee.clog, hideEmpty: true },
     { key: 'observation', icon: NotebookPen, label: 'Observation', value: props.employee.observation, wide: true, multiline: true, hideEmpty: true },
 ]);
 

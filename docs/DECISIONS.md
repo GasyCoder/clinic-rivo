@@ -21941,3 +21941,38 @@ possible. La fiche centrale présente sur trente jours les entrées/sorties en
 histogramme ou courbes et la répartition des entrées par mode de paiement. Ces
 données sont calculées par l'API du site ; le portail n'accède à aucune base
 opérationnelle.
+
+---
+
+# ADR-225 — Fiche du personnel : tailles de tenue, matériel remis et second téléphone
+
+**Status:** ACCEPTED (2026-09-30 — demande du propriétaire, à partir de la feuille de suivi du personnel de la clinique)
+
+**Complète l'ADR-066** (dossier Employé) et **l'ADR-221** (étapes enregistrées toutes seules). Le CDC ne décrit pas ces informations : la liste des champs est celle de la feuille du propriétaire. Aucune paie, aucun calcul, aucune permission nouvelle.
+
+## Ce qui manquait
+
+Comparée aux champs du dossier, la feuille portait six colonnes sans équivalent — Taille (T-shirt), Taille (blouse), Tenue bloc, Pointure, Callot, Sabot — et un second numéro dans la colonne CONTACT.
+
+```text
+employees.tshirt_size, blouse_size, shoe_size   tailles, texte libre (50 caractères)
+employees.bloc_outfit, scrub_cap, clog          tenue bloc, callot, sabot : taille ou Oui/Non, texte libre
+employees.phone_secondary                       second téléphone
+```
+
+Colonnes nullables (migration `2026_11_27_090000`) : aucun dossier existant n'est réécrit. « Badge » et « Blouse » restent les champs texte existants (Oui, Non ou référence).
+
+## Où ils se saisissent
+
+Étape « Compléments » (bloc « Matériel remis ») et étape « Contact » (« Second téléphone »), enregistrées toutes seules comme les autres (ADR-221). Ils sont lus par la fiche (masqués quand ils sont vides), la fiche imprimée et l'export Excel. Aucun droit particulier : ce sont des informations déclaratives du dossier, comme le badge et la blouse.
+
+## Import Excel
+
+Le modèle passe de 23 à 29 colonnes. Les en-têtes de la feuille sont reconnus tels quels (IMMATRICULE, CONTACT, Taille (Tshirt), Taille (Blouse), Tenue bloc, Pointure, Callot, Sabot). Une cellule CONTACT qui contient deux numéros séparés par « / », « ; », une virgule ou deux espaces est répartie entre téléphone et second téléphone. L'import reste atomique (ADR-066).
+
+## Signalé, non tranché
+
+```text
+tenue bloc, callot, sabot   taille ou Oui/Non : texte libre, jamais contraint — à resserrer si la clinique choisit
+matricule de la feuille     H/F + année d'entrée + jour et mois de naissance : saisi à la main, non généré (ADR-191 propose EMP-0001)
+```

@@ -55,6 +55,8 @@ const props = defineProps({
     section: { type: String, default: '' },
     // ADR-194 — « Nouveau stagiaire » : au bout du parcours, son stage.
     internshipIntent: { type: Boolean, default: false },
+    /** Le parcours de création, juste après l'étape Identité : l'email n'y est pas montré. */
+    creating: { type: Boolean, default: false },
 });
 const { can } = usePermissions();
 
@@ -241,7 +243,7 @@ const finish = async () => {
                     <IdentitySection :employee="employee" :options="options" :url="url" :can-edit="canEdit" />
                 </div>
                 <div id="section-contact" v-show="current === 'contact'">
-                    <ContactSection :employee="employee" :options="options" :addresses="addresses" :url="url" :can-edit="canEdit" />
+                    <ContactSection :employee="employee" :options="options" :addresses="addresses" :url="url" :can-edit="canEdit" :show-email="! creating" />
                 </div>
                 <div id="section-post" v-show="current === 'post'">
                     <PostSection :employee="employee" :departments="departments" :job-titles="jobTitles" :current-pair="currentPair" :url="url" :can-edit="canEdit" />

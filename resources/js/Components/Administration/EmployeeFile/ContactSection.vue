@@ -18,7 +18,8 @@ import EmployeeSectionCard from './EmployeeSectionCard.vue';
  *
  * Une nouvelle adresse, elle, s'ajoute par un bouton : enregistrée à la pause
  * de frappe, elle créerait une entrée du référentiel pour chaque mot tapé.
- * L'email est l'adresse professionnelle (ADR-190) : il se lit, ne se saisit pas.
+ * L'email est l'adresse professionnelle (ADR-190) : il se lit, ne se saisit pas, et
+ * n'est montré qu'en mise à jour — pendant la création, il n'existe pas encore.
  */
 const props = defineProps({
     employee: { type: Object, required: true },
@@ -26,6 +27,8 @@ const props = defineProps({
     addresses: { type: Array, default: () => [] },
     url: { type: String, required: true },
     canEdit: { type: Boolean, default: true },
+    /** Faux pendant la création : l'adresse pro n'existera qu'avec l'accès du personnel. */
+    showEmail: { type: Boolean, default: true },
 });
 const { can } = usePermissions();
 
@@ -102,13 +105,15 @@ onBeforeUnmount(() => registry?.unregister('contact:address'));
         <fieldset :disabled="! canEdit" class="grid gap-6 lg:grid-cols-2 lg:divide-x lg:divide-border">
             <section class="space-y-4" aria-labelledby="contact-title">
                 <h3 id="contact-title" class="flex items-center gap-2 text-sm font-bold text-foreground"><Phone class="h-4 w-4 text-cyan-600" />Contact</h3>
-                <FormField label="Téléphone" :error="form.errors.phone">
-                    <IconInput id="phone" v-model="form.phone" :icon="Phone" type="tel" autocomplete="tel" />
-                </FormField>
-                <FormField label="Second téléphone" :error="form.errors.phone_secondary">
-                    <IconInput id="phone_secondary" v-model="form.phone_secondary" :icon="Phone" type="tel" />
-                </FormField>
-                <div class="space-y-1.5">
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <FormField label="Téléphone" :error="form.errors.phone">
+                        <IconInput id="phone" v-model="form.phone" :icon="Phone" type="tel" autocomplete="tel" />
+                    </FormField>
+                    <FormField label="Second téléphone" :error="form.errors.phone_secondary">
+                        <IconInput id="phone_secondary" v-model="form.phone_secondary" :icon="Phone" type="tel" />
+                    </FormField>
+                </div>
+                <div v-if="showEmail" class="space-y-1.5">
                     <p class="text-sm font-medium text-foreground">Email</p>
                     <div class="flex items-start gap-2.5 rounded-lg border border-dashed border-border bg-muted/40 px-3 py-2">
                         <Mail class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />

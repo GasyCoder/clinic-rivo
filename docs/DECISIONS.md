@@ -21550,6 +21550,16 @@ référentiel central     les banques sont par site ; une liste poussée par le 
 rendu                   vérifié par le build et les tests (PHP et JS), pas dans un navigateur
 ```
 
+## Amendement du 2026-09-30 — l'étape Contact : téléphones côte à côte, email seulement en mise à jour
+
+Demande du propriétaire. Téléphone et Second téléphone sont sur une même ligne (une colonne sur téléphone).
+L'email n'est plus montré pendant la création : il n'existe qu'une fois l'accès créé (ADR-190, ADR-197), et un
+champ vide sans rien à y faire se lisait comme un oubli. La création mène à `/edit?section=contact&nouveau=1`
+(`&stage=1` pour un stagiaire) ; `nouveau=1` sert la prop `creating`, qui masque le champ. L'adresse garde ce
+paramètre en changeant d'étape, si bien qu'une actualisation pendant la création ne le fait pas réapparaître. Une
+fiche ouverte depuis la liste montre l'email, en lecture seule comme avant. Présentation seulement : ni règle, ni
+droit, ni donnée ne change — le serveur refusait déjà l'email à la saisie (ADR-190).
+
 ---
 
 # ADR-222 — Assistant IA d'aide au logiciel (Laravel AI SDK), réglé par site depuis le portail

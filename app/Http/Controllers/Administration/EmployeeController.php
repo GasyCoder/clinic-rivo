@@ -264,6 +264,8 @@ class EmployeeController extends Controller
             ] : null,
             // Ouvrir directement une section : ?section=pay depuis la fiche.
             'section' => (string) $request->query('section', ''),
+            // Le parcours de création (juste après l'étape Identité), pas la mise à jour d'un dossier.
+            'creating' => $request->boolean('nouveau'),
             // ADR-194 — « Nouveau stagiaire » : au bout du parcours, son stage.
             'internshipIntent' => $request->boolean('stage')
                 && $user->can('contracts.create')
@@ -318,7 +320,9 @@ class EmployeeController extends Controller
         // ADR-221 — le dossier est créé à la première étape : le parcours continue
         // dans la fiche, où chaque étape s'enregistre toute seule.
         if ($request->validated('after') === 'edit' && $request->user()->can('update', $employee)) {
-            $next = ['employee' => $employee, 'section' => 'contact'];
+            // `nouveau` : le parcours de création continue ; l'étape Contact n'y montre pas l'email,
+            // qui n'existera qu'avec l'accès (ADR-190, ADR-197).
+            $next = ['employee' => $employee, 'section' => 'contact', 'nouveau' => 1];
             if ($request->boolean('internship')) {
                 $next['stage'] = 1;
             }

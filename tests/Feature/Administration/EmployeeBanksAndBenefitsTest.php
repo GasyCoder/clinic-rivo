@@ -225,11 +225,17 @@ class EmployeeBanksAndBenefitsTest extends TestCase
 
         $employee = Employee::query()->where('last_name', 'Rabe')->firstOrFail();
         // Le parcours reprend à l'étape suivante, où tout s'enregistre tout seul.
-        $response->assertRedirect("/administration/employees/{$employee->uuid}/edit?section=contact");
+        $response->assertRedirect("/administration/employees/{$employee->uuid}/edit?section=contact&nouveau=1");
+
+        // Pendant la création, l'étape Contact ne montre pas l'email : il viendra avec l'accès.
+        $this->actingAs($this->hr)->get("/administration/employees/{$employee->uuid}/edit?section=contact&nouveau=1")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('creating', true));
 
         $this->actingAs($this->hr)->get("/administration/employees/{$employee->uuid}/edit")
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page->component('Administration/Employees/Edit')
+                ->where('creating', false)
                 ->has('banks', 5)
                 ->where('benefitOptions.eligible', false)
                 ->has('benefitOptions.types', 7));
@@ -242,7 +248,7 @@ class EmployeeBanksAndBenefitsTest extends TestCase
         ])->assertSessionHasNoErrors();
 
         $trainee = Employee::query()->where('last_name', 'Soa')->firstOrFail();
-        $response->assertRedirect("/administration/employees/{$trainee->uuid}/edit?section=contact&stage=1");
+        $response->assertRedirect("/administration/employees/{$trainee->uuid}/edit?section=contact&nouveau=1&stage=1");
 
         // Au bout du parcours, « Terminer » mène au stage.
         $this->actingAs($this->hr)->get("/administration/employees/{$trainee->uuid}/edit?section=contact&stage=1")

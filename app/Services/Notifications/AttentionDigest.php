@@ -7,8 +7,6 @@ use App\Enums\EpisodeStatus;
 use App\Models\Episode;
 use App\Models\PharmacyStockAlert;
 use App\Models\User;
-use App\Enums\StaffDebtStatus;
-use App\Models\StaffDebt;
 use App\Services\StaffAccess\StaffAccessWatcher;
 use App\Services\StaffDebts\StaffDebtWatcher;
 
@@ -38,8 +36,8 @@ class AttentionDigest
         // Le portail n'a ni passages ni stock : ce qui l'attend, ce sont les accès
         // du personnel à créer sur les sites (ADR-197).
         $items = collect(config('rivo.site.type') === 'admin'
-            ? [$this->staffAccess($user), $this->staffDebtsToDecide($user)]
-            : [$this->settlements($user), $this->stockAlerts($user), $this->staffDebtsToDisburse($user)]
+            ? [$this->staffAccess($user), $this->staffDebtsToDecide($user), $this->staffDebtsToDisburse($user)]
+            : [$this->settlements($user), $this->stockAlerts($user)]
         )->filter()->values()->all();
 
         return [
@@ -126,8 +124,8 @@ class AttentionDigest
         }
 
         $url = count($counts) === 1
-            ? '/super-admin/sites/'.rawurlencode((string) array_key_first($counts)).'/rh/dettes?vue=a-decider'
-            : '/notifications?category=staff_debts';
+            ? '/super-admin/sites/'.rawurlencode((string) array_key_first($counts)).'/finance/dettes?vue=a-decider'
+            : '/super-admin/finance/dettes';
 
         return [
             'key' => 'staff_debts',
@@ -142,7 +140,9 @@ class AttentionDigest
     }
 
     /**
-     * ADR-228 — sur le site : les dettes accordées par le DG que le RH doit verser.
+     * ADR-229 — portail : les dettes accordées qui restent à verser, telles que la
+     * dernière lecture des sites les a comptées. Le versement se fait hors RIVO, puis se
+     * marque ici, dans Finance.
      *
      * @return array<string, mixed>|null
      */
@@ -152,16 +152,22 @@ class AttentionDigest
             return null;
         }
 
-        $count = StaffDebt::query()->where('status', StaffDebtStatus::Approved->value)->count();
+        $counts = array_filter(StaffDebtWatcher::toDisburseCounts());
+        $count = array_sum($counts);
+        if ($count === 0) {
+            return null;
+        }
 
-        return $count === 0 ? null : [
-            'key' => 'staff_debts',
+        return [
+            'key' => 'staff_debts_disburse',
             'label' => 'Dette'.($count > 1 ? 's' : '').' à verser',
-            'description' => 'Accordées par le DG : à remettre hors RIVO, puis à marquer versées.',
+            'description' => 'Accordées : à remettre hors RIVO, puis à marquer versées dans Finance.',
             'count' => $count,
-            'url' => '/administration/dettes?vue=a-verser',
+            'url' => count($counts) === 1
+                ? '/super-admin/sites/'.rawurlencode((string) array_key_first($counts)).'/finance/dettes?vue=a-verser'
+                : '/super-admin/finance/dettes',
             'action' => 'Ouvrir les dettes',
-            'icon' => 'hand-coins',
+            'icon' => 'wallet',
             'tone' => 'primary',
         ];
     }

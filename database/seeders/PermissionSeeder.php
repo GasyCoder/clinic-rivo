@@ -152,11 +152,13 @@ class PermissionSeeder extends Seeder
         'salary_payments.cancel' => 'Annuler une paie marquée payée',
         // ADR-228 — les dettes du personnel : demandées depuis son compte, décidées par le DG.
         'staff_debts.request' => 'Demander une dette depuis son compte (dettes du personnel)',
-        'staff_debts.view' => 'Voir les dettes du personnel',
+        'staff_debts.view' => 'Voir les dettes du personnel (Finance, et relances des retards sur le site)',
         'staff_debts.decide' => 'Accorder, ajuster, refuser ou annuler une dette du personnel (DG)',
         'staff_debts.write_off' => 'Remettre le reste d’une dette du personnel (DG)',
         'staff_debts.disburse' => 'Marquer versée une dette accordée au personnel',
         'staff_debts.collect' => 'Encaisser à la Caisse le remboursement d’une dette du personnel',
+        'staff_debts.settings' => 'Régler les dettes du personnel : montants, intérêts, limites, ouverture des demandes',
+        'staff_debts.export' => 'Exporter en Excel les dettes du personnel',
 
         'patient_coverages.view' => 'Voir la couverture administrative du patient',
         'patient_coverages.create' => 'Enregistrer une couverture mutuelle',

@@ -70,7 +70,7 @@ class DisburseStaffDebtAction
             return $debt;
         });
 
-        $plan = StaffDebtLedger::plan(Money::toMinor((string) $debt->amount), Money::toMinor((string) $debt->installment_amount), $debt->first_period);
+        $plan = StaffDebtLedger::plan($debt->totalDueMinor(), Money::toMinor((string) $debt->installment_amount), $debt->first_period);
         $this->notifier->employee(
             $debt,
             'disbursed',

@@ -19,19 +19,21 @@ use LogicException;
  * décidée par le DG, versée hors RIVO, remboursée par retenue sur la paie du mois
  * ou en espèces à la Caisse.
  *
- * Reste dû = montant accordé − remboursements non annulés − montant remis. Il ne se
- * stocke pas : il se lit toujours sur les remboursements, qui ne mentent pas.
+ * Reste dû = montant accordé + intérêt − remboursements non annulés − montant remis. Il
+ * ne se stocke pas : il se lit toujours sur les remboursements, qui ne mentent pas.
+ * ADR-229 — l'intérêt est figé à la décision du DG, selon les tranches du site.
  * Jamais supprimée (ADR-010) : refusée, annulée, soldée ou remise.
  */
 #[Fillable([
     'number', 'employee_id', 'employee_name', 'employee_number',
-    'requested_amount', 'requested_installment', 'requested_first_period', 'reason', 'requested_at', 'requested_by',
+    'requested_amount', 'requested_installment', 'requested_first_period', 'requested_interest_amount', 'reason', 'requested_at', 'requested_by',
     'status', 'pending_key',
-    'amount', 'installment_amount', 'first_period', 'repayment_mode', 'decision_note', 'refusal_reason',
+    'amount', 'installment_amount', 'interest_amount', 'interest_mode', 'interest_value', 'interest_waived',
+    'first_period', 'repayment_mode', 'decision_note', 'derogations', 'refusal_reason',
     'decided_at', 'decided_by', 'external_decided_by_uuid', 'external_decided_by_name',
     'disbursed_on', 'disbursement_mode', 'disbursement_reference', 'disbursement_note',
     'disbursed_at', 'disbursed_by', 'external_disbursed_by_uuid', 'external_disbursed_by_name',
-    'settled_at',
+    'settled_at', 'arrears_notified_for',
     'written_off_amount', 'write_off_reason', 'written_off_at', 'written_off_by', 'external_written_off_by_uuid', 'external_written_off_by_name',
     'cancel_reason', 'cancelled_at', 'cancelled_by', 'external_cancelled_by_uuid', 'external_cancelled_by_name',
 ])]
@@ -52,7 +54,7 @@ class StaffDebt extends Model
 
     protected function auditModule(): ?string
     {
-        return 'hr';
+        return 'finance';
     }
 
     protected function casts(): array
@@ -61,10 +63,15 @@ class StaffDebt extends Model
             'requested_amount' => 'decimal:2',
             'requested_installment' => 'decimal:2',
             'requested_first_period' => 'date',
+            'requested_interest_amount' => 'decimal:2',
             'requested_at' => 'datetime',
             'status' => StaffDebtStatus::class,
             'amount' => 'decimal:2',
             'installment_amount' => 'decimal:2',
+            'interest_amount' => 'decimal:2',
+            'interest_value' => 'decimal:2',
+            'interest_waived' => 'boolean',
+            'derogations' => 'array',
             'first_period' => 'date',
             'repayment_mode' => StaffDebtRepaymentMode::class,
             'decided_at' => 'datetime',
@@ -123,6 +130,22 @@ class StaffDebt extends Model
         return (int) $repayments->sum(fn (StaffDebtRepayment $repayment) => Money::toMinor((string) $repayment->amount));
     }
 
+    /** Ce qui est à rembourser en tout : le montant accordé et son intérêt ; zéro tant que rien n'est accordé. */
+    public function totalDueMinor(): int
+    {
+        if ($this->amount === null) {
+            return 0;
+        }
+
+        return Money::toMinor((string) $this->amount) + Money::toMinor((string) ($this->interest_amount ?? 0));
+    }
+
+    /** Ce que la demande porterait à rembourser : le montant demandé et l'intérêt de sa tranche à la demande. */
+    public function requestedTotalMinor(): int
+    {
+        return Money::toMinor((string) $this->requested_amount) + Money::toMinor((string) ($this->requested_interest_amount ?? 0));
+    }
+
     /** Le reste dû, en unités mineures ; zéro tant que rien n'est accordé. */
     public function balanceMinor(): int
     {
@@ -130,6 +153,6 @@ class StaffDebt extends Model
             return 0;
         }
 
-        return max(0, Money::toMinor((string) $this->amount) - $this->repaidMinor() - Money::toMinor((string) ($this->written_off_amount ?? 0)));
+        return max(0, $this->totalDueMinor() - $this->repaidMinor() - Money::toMinor((string) ($this->written_off_amount ?? 0)));
     }
 }

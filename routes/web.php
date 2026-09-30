@@ -84,6 +84,7 @@ use App\Http\Controllers\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\SuperAdmin\SiteHumanResourcesController;
 use App\Http\Controllers\SuperAdmin\SiteLaboratoryController;
 use App\Http\Controllers\SuperAdmin\SitePartnersController;
+use App\Http\Controllers\SuperAdmin\SiteStaffDebtsController;
 use App\Http\Controllers\SuperAdmin\SitePharmacyController;
 use App\Http\Controllers\SuperAdmin\StaffAccessController as SuperAdminStaffAccessController;
 use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
@@ -116,6 +117,7 @@ use App\Http\Controllers\Webmail\WebmailController;
 use App\Http\Controllers\Webmail\WebmailLabelController;
 use App\Http\Controllers\Webmail\WebmailSessionController;
 use App\Http\Controllers\Webmail\WebmailTemplateController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', HomeController::class)->name('dashboard')->middleware('account.deployment');
@@ -485,6 +487,14 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::delete('/workspaces/roles/{site}/catalog/{permission}', [SuperAdminRoleController::class, 'destroyPermission'])->name('workspaces.permissions.destroy')->middleware('can:permissions.delete');
 
         Route::get('/workspaces/hr', SuperAdminHumanResourcesController::class)->name('workspaces.hr')->middleware('can:employees.view');
+        // ADR-229 — les dettes du personnel d'un site sont dans Finance : les
+        // anciennes adresses de la rubrique RH (ADR-228) mènent aux mêmes écrans.
+        // Avant le relais RH, qui les prendrait sinon.
+        Route::get('/sites/{site}/rh/dettes/{path?}', function (Request $request, string $site, string $path = '') {
+            $query = $request->getQueryString();
+
+            return redirect('/super-admin/sites/'.rawurlencode($site).'/finance/dettes'.($path !== '' ? '/'.$path : '').($query ? '?'.$query : ''));
+        })->where('path', '.*')->name('sites.hr.staff-debts.legacy');
         // ADR-187 — l'espace RH d'un site, géré depuis le portail par son API :
         // les écrans et les règles de /administration, relayés tels quels.
         Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/sites/{site}/rh/{path?}', SiteHumanResourcesController::class)
@@ -507,6 +517,15 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
             ->where('path', '.*')
             ->name('sites.laboratory')
             ->middleware('can:laboratory_results.view');
+        // ADR-229 — les dettes du personnel, dans Finance : tous les sites, puis
+        // les écrans et les règles d'un site, relayés par son API.
+        Route::get('/finance/dettes', [SiteStaffDebtsController::class, 'overview'])
+            ->name('finance.staff-debts.index')
+            ->middleware('can:staff_debts.view');
+        Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/sites/{site}/finance/dettes/{path?}', SiteStaffDebtsController::class)
+            ->where('path', '.*')
+            ->name('sites.staff-debts')
+            ->middleware('can:staff_debts.view');
         // ADR-211 — les Partenaires d'un site, gérés depuis le portail par son API.
         Route::get('/partners', [SitePartnersController::class, 'overview'])
             ->name('partners.index')
@@ -530,6 +549,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/trash', [TrashController::class, 'index'])->name('trash.index')->middleware('can:trash.view');
     Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore')->middleware('can:trash.restore');
 
+    // ADR-229 — les dettes du personnel se gèrent dans Finance, au portail : l'ancienne
+    // rubrique RH (ADR-228) ramène à l'accueil, en le disant. Avant routes/hr.php.
+    Route::get('/administration/dettes/{path?}', fn () => redirect()->route('dashboard')
+        ->with('status', 'Les dettes du personnel se gèrent désormais dans Finance, au portail. Chacun suit les siennes dans « Mes dettes ».'))
+        ->where('path', '.*')
+        ->name('administration.staff-debts.legacy');
     // ADR-187 — l'espace RH, partagé avec l'API du portail (routes/hr.php).
     Route::prefix('administration')->name('administration.')->group(base_path('routes/hr.php'));
     Route::get('/logistics', LogisticsController::class)->name('logistics.index')->middleware('can:logistics.view');

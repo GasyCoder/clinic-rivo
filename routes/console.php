@@ -14,3 +14,5 @@ Artisan::command('inspire', function () {
 Schedule::command('rivo:staff-access:sync')->everyFiveMinutes()->withoutOverlapping();
 // ADR-228 — le portail prévient le DG des demandes de dette du personnel.
 Schedule::command('rivo:staff-debts:sync')->everyFiveMinutes()->withoutOverlapping();
+// ADR-229 — sur un site : relance mensuelle des remboursements en espèces en retard.
+Schedule::command('rivo:staff-debts:remind')->dailyAt('08:00')->withoutOverlapping();

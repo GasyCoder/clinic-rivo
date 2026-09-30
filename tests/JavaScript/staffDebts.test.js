@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { debtPlan, debtSteps, isOpenDebt, repaidShare } from '../../resources/js/utilities/staffDebts.js';
+import { debtPlan, debtSteps, interestFor, isOpenDebt, repaidShare, ruleIssues, tierLabel, totalWithInterest } from '../../resources/js/utilities/staffDebts.js';
+import { mapStaffDebtPath } from '../../resources/js/utilities/staffDebtPath.js';
 
 /*
  * ADR-228 — « Mes dettes » : l'avancement d'une dette en quatre étapes, lu sur l'état et
@@ -44,7 +45,7 @@ test('accordée puis annulée avant versement : l’arrêt est au versement', ()
     assert.deepEqual(states(cancelled), ['request:done', 'decision:done', 'disbursement:stopped', 'repayment:skipped']);
 });
 
-test('accordée, ajustée, attend le versement du RH', () => {
+test('accordée, ajustée, attend son versement', () => {
     const approved = debt({ status: 'APPROVED', granted: { adjusted: true }, amount: '300000.00' });
     assert.deepEqual(states(approved), ['request:done', 'decision:done', 'disbursement:current', 'repayment:upcoming']);
     assert.equal(debtSteps(approved)[1].label, 'Accordée · ajustée');
@@ -102,5 +103,83 @@ test('aucun composant de « Mes dettes » n’est utilisé sans être importé',
     // Les icônes passées par :is ou :icon doivent aussi être importées.
     for (const [, name] of source.slice(cut).matchAll(/:(?:is|icon)="([A-Z][A-Za-z]+)"/g)) {
         assert.match(script, new RegExp(`\\b${name}\\b`), `${name} utilisé sans import`);
+    }
+});
+
+/*
+ * ADR-229 — les règles du site écrites comme le serveur (StaffDebtInterest, StaffDebtRules) :
+ * l'aperçu pendant la saisie ne doit jamais annoncer un autre intérêt que celui qui sera figé.
+ */
+const TIERS = [
+    { from: '0.00', to: '999999.99', mode: 'PERCENT', value: '5.00' },
+    { from: '1000000.00', to: '4999999.99', mode: 'FIXED', value: '300000.00' },
+    { from: '5000000.00', to: null, mode: 'PERCENT', value: '25.00' },
+];
+const money = (value) => `${Number(value).toLocaleString('fr-FR').replace(/\u202f|\u00a0/g, ' ')} Ar`;
+
+test('l’intérêt suit la tranche du montant, bornes comprises, comme le serveur', () => {
+    assert.equal(interestFor('200000', TIERS).amount, '10000.00');
+    assert.equal(interestFor('999999.99', TIERS).amount, '50000.00');
+    assert.equal(interestFor('1000000', TIERS).amount, '300000.00');
+    assert.equal(interestFor('1000000', TIERS).mode, 'FIXED');
+    assert.equal(interestFor('8000000', TIERS).amount, '2000000.00');
+    // 3,33 % de 123 457 Ar = 4 111,12 → arrondi à l'ariary : 4 111 (même calcul que Money::percentage).
+    assert.equal(interestFor('123457', [{ from: '0', to: null, mode: 'PERCENT', value: '3.33' }]).amount, '4111.00');
+    assert.equal(interestFor('50000', [{ from: '100000', to: null, mode: 'FIXED', value: '1000' }]), null);
+    assert.equal(interestFor('', TIERS), null);
+});
+
+test('le total à rembourser ajoute l’intérêt une fois', () => {
+    assert.deepEqual(totalWithInterest('1000000', TIERS).total, '1300000.00');
+    assert.equal(totalWithInterest('1000000', []).interest, null);
+    assert.equal(totalWithInterest('1000000', []).total, '1000000.00');
+    assert.equal(debtPlan(totalWithInterest('1000000', TIERS).total, '325000', '2026-10').count, 4);
+});
+
+test('une tranche se lit en clair', () => {
+    assert.equal(tierLabel(TIERS[0], money), 'de 0 Ar à 999 999,99 Ar : 5 %');
+    assert.equal(tierLabel(TIERS[2], money), 'à partir de 5 000 000 Ar : 25 %');
+    assert.equal(tierLabel(TIERS[1], money), 'de 1 000 000 Ar à 4 999 999,99 Ar : 300 000 Ar');
+});
+
+test('les limites du site se signalent pendant la saisie', () => {
+    const rules = { min_amount: '50000.00', max_amount: '10000000.00', max_months: 12, max_salary_share: 40, interest_tiers: TIERS };
+
+    assert.deepEqual(Object.keys(ruleIssues('20000', '10000', rules, money)), ['amount']);
+    assert.deepEqual(Object.keys(ruleIssues('20000000', '3000000', rules, money)), ['amount']);
+    // 1 300 000 Ar à rembourser (intérêt compris) en 12 mois au plus : 50 000 Ar ne suffisent pas.
+    assert.match(ruleIssues('1000000', '50000', rules, money).installment_amount, /12 mois au plus : au moins 108 334 Ar/);
+    // La mensualité que le salaire permet encore, servie par le serveur.
+    assert.match(ruleIssues('1000000', '200000', rules, money, '160000.00').installment_amount, /Au plus 160 000 Ar par mois \(40 %/);
+    assert.deepEqual(ruleIssues('1000000', '160000', rules, money, '160000.00'), {});
+    assert.deepEqual(ruleIssues('1000000', '10', null, money), {});
+});
+
+test('les adresses des dettes suivent la base où l’écran est ouvert', () => {
+    const base = '/super-admin/sites/A/finance/dettes';
+    assert.equal(mapStaffDebtPath('/finance/dettes/reglages', base), `${base}/reglages`);
+    assert.equal(mapStaffDebtPath('/finance/dettes?vue=a-verser', base), `${base}?vue=a-verser`);
+    assert.equal(mapStaffDebtPath('/finance/dettes', base), base);
+    assert.equal(mapStaffDebtPath('/finance/dettes-archives', base), '/finance/dettes-archives');
+    assert.equal(mapStaffDebtPath('/mes-dettes', base), '/mes-dettes');
+    assert.equal(mapStaffDebtPath('/finance/dettes/x', '/finance/dettes'), '/finance/dettes/x');
+});
+
+test('les écrans Finance des dettes n’utilisent aucun composant sans l’importer', () => {
+    const BUILTINS = new Set(['Transition', 'TransitionGroup', 'Teleport', 'KeepAlive', 'Suspense', 'Component', 'Head', 'Link']);
+    for (const path of ['Pages/Finance/StaffDebts/Index.vue', 'Pages/Finance/StaffDebts/Show.vue', 'Pages/Finance/StaffDebts/Settings.vue',
+        'Pages/SuperAdmin/Finance/StaffDebts.vue', 'Components/StaffDebts/StaffDebtPortalBar.vue', 'Components/StaffDebts/StaffDebtTermsFields.vue']) {
+        const source = read(path);
+        const cut = source.indexOf('<template>');
+        const script = source.slice(0, cut);
+        const missing = [...source.slice(cut).matchAll(/<([A-Z][A-Za-z0-9]*)[\s/>]/g)]
+            .map(([, name]) => name)
+            .filter((name) => ! BUILTINS.has(name) && ! new RegExp(`\\b${name}\\b`).test(script));
+        assert.deepEqual([...new Set(missing)], [], path);
+        for (const [, name] of source.slice(cut).matchAll(/:(?:is|icon)="([A-Z][A-Za-z]+)"/g)) {
+            assert.match(script, new RegExp(`\\b${name}\\b`), `${path} : ${name} utilisé sans import`);
+        }
+        // Aucune adresse de dette écrite en dur hors de staffDebtUrl (le portail la réécrit).
+        assert.doesNotMatch(source, /['"`]\/administration\/dettes/, path);
     }
 });

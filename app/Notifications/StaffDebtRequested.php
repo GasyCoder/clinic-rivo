@@ -25,7 +25,8 @@ class StaffDebtRequested extends InboxNotification
             'category' => 'staff_debts',
             'title' => "{$this->employeeName} demande une dette · {$this->siteName}",
             'body' => 'Demande '.$this->number.' de '.number_format((float) $this->amount, 0, ',', ' ').' Ar : à accorder, ajuster ou refuser.',
-            'url' => '/super-admin/sites/'.rawurlencode($this->siteCode).'/rh/dettes/'.rawurlencode($this->debtUuid),
+            // ADR-229 — dans Finance, au portail.
+            'url' => '/super-admin/sites/'.rawurlencode($this->siteCode).'/finance/dettes/'.rawurlencode($this->debtUuid),
             'icon' => 'hand-coins',
             'tone' => 'warning',
             'meta' => [

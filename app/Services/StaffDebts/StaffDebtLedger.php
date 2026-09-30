@@ -24,7 +24,8 @@ final class StaffDebtLedger
 {
     /**
      * Le plan d'un montant : combien de mensualités, la dernière (plus petite si le
-     * montant ne tombe pas juste), et le mois de la dernière.
+     * montant ne tombe pas juste), et le mois de la dernière. ADR-229 — le montant est
+     * ce qui est à rembourser : le montant emprunté et son intérêt.
      *
      * @return array{count: int, installment: string, last_amount: string, first_period: string, last_period: string}|null
      */
@@ -164,8 +165,8 @@ final class StaffDebtLedger
         }
 
         [$amount, $installment] = match ($debt->status) {
-            StaffDebtStatus::Requested => [Money::toMinor((string) $debt->requested_amount), Money::toMinor((string) $debt->requested_installment)],
-            StaffDebtStatus::Approved => [Money::toMinor((string) $debt->amount), Money::toMinor((string) $debt->installment_amount)],
+            StaffDebtStatus::Requested => [$debt->requestedTotalMinor(), Money::toMinor((string) $debt->requested_installment)],
+            StaffDebtStatus::Approved => [$debt->totalDueMinor(), Money::toMinor((string) $debt->installment_amount)],
             default => [$debt->balanceMinor(), Money::toMinor((string) $debt->installment_amount)],
         };
 
@@ -211,7 +212,7 @@ final class StaffDebtLedger
         }
 
         $months = ((int) $current->format('Y') - (int) $first->format('Y')) * 12 + ((int) $current->format('n') - (int) $first->format('n')) + 1;
-        $owed = Money::toMinor((string) $debt->amount) - Money::toMinor((string) ($debt->written_off_amount ?? 0));
+        $owed = $debt->totalDueMinor() - Money::toMinor((string) ($debt->written_off_amount ?? 0));
         $expected = min($owed, $months * Money::toMinor((string) $debt->installment_amount));
 
         return max(0, $expected - $debt->repaidMinor());

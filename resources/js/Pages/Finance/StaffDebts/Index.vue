@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { AlarmClock, ArrowRight, Banknote, Gavel, HandCoins, Landmark, Search, Wallet } from 'lucide-vue-next';
+import { AlarmClock, ArrowRight, Download, Gavel, HandCoins, Landmark, Lock, Percent, Scale, Search, Settings2, ShieldAlert, Wallet } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
@@ -9,28 +9,30 @@ import IconInput from '@/Components/Shadcn/IconInput.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
 import StaffDebtStatusBadge from '@/Components/StaffDebts/StaffDebtStatusBadge.vue';
-import { usePermissions } from '@/composables/usePermissions';
+import Badge from '@/Components/Shadcn/Badge.vue';
 import { formatDateTime, monthLabel } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
-import { hrUrl } from '@/utilities/hrUrl';
+import { staffDebtContext, staffDebtUrl } from '@/utilities/staffDebtUrl';
 import { DEBT_VIEWS } from '@/utilities/staffDebts';
 
 /**
- * ADR-228 — les dettes du personnel, une rubrique RH servie aussi au portail (ADR-187) :
- * le DG décide les demandes, le RH verse ce qui est accordé et suit les remboursements.
- * Quatre vues exclusives, comptées par le serveur ; la carte est le filtre.
+ * ADR-229 — les dettes du personnel d'un site, dans Finance au portail (servies par l'API
+ * du site). Le DG décide les demandes, marque versé ce qu'il a accordé, suit les
+ * remboursements, relance les retards ; il règle les limites et les intérêts du site et
+ * exporte la liste. Quatre vues exclusives, comptées par le serveur ; la carte est le filtre.
  */
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
     listing: { type: Object, required: true },
+    rules: { type: Object, default: () => ({ configured: false, requests_open: true, has_interest: false }) },
     can: { type: Object, required: true },
 });
 
-const { can: allowed } = usePermissions();
 const search = ref(props.listing.search ?? '');
+const siteName = computed(() => staffDebtContext()?.site?.name ?? '');
 
-const visit = (params) => router.get(hrUrl('/administration/dettes'), params, { preserveScroll: true, preserveState: true, replace: true });
+const visit = (params) => router.get(staffDebtUrl('/finance/dettes'), params, { preserveScroll: true, preserveState: true, replace: true });
 const selectView = (view) => visit({ vue: view, q: search.value || undefined });
 
 let timer = null;
@@ -60,21 +62,38 @@ const actionFor = (debt) => {
 
     return { label: 'Ouvrir', icon: ArrowRight, variant: 'outline' };
 };
+
+// L'export suit la vue et la recherche de l'écran ; il est audité par le site.
+const exportUrl = computed(() => {
+    const query = new URLSearchParams({ vue: props.listing.view });
+    if (props.listing.search) query.set('q', props.listing.search);
+
+    return `${staffDebtUrl('/finance/dettes/export')}?${query}`;
+});
 </script>
 
 <template>
     <Head title="Dettes du personnel" />
     <div class="w-full space-y-5">
         <PageHeader
-            eyebrow="Ressources humaines · Pilotage"
+            :eyebrow="`Finance · ${siteName}`"
             title="Dettes du personnel"
-            description="Demandées par le personnel depuis leur compte, décidées par le DG, versées hors RIVO par le RH, remboursées par retenue sur la paie ou en espèces à la Caisse."
+            description="Demandées par le personnel depuis « Mes dettes », décidées et marquées versées ici (l’argent est remis hors RIVO), remboursées par retenue sur la paie ou en espèces à la Caisse."
             :icon="HandCoins"
         >
             <template #actions>
-                <Button v-if="allowed('salary_payments.view')" :as="Link" :href="hrUrl('/administration/paie')" variant="outline"><Banknote class="h-4 w-4" />Paie du mois</Button>
+                <Button v-if="can.export" :as="'a'" :href="exportUrl" variant="outline"><Download class="h-4 w-4" />Exporter en Excel</Button>
+                <Button v-if="can.settings" :as="Link" :href="staffDebtUrl('/finance/dettes/reglages')" variant="outline"><Settings2 class="h-4 w-4" />Réglages</Button>
             </template>
         </PageHeader>
+
+        <div class="flex flex-wrap items-center gap-2 text-sm">
+            <Badge v-if="! rules.requests_open" variant="destructive" class="gap-1.5"><Lock class="h-3.5 w-3.5" />Demandes fermées</Badge>
+            <Badge v-else variant="secondary" class="gap-1.5"><HandCoins class="h-3.5 w-3.5" />Demandes ouvertes</Badge>
+            <Badge variant="secondary" class="gap-1.5"><Scale class="h-3.5 w-3.5" />{{ rules.configured ? 'Limites du site réglées' : 'Aucune limite réglée' }}</Badge>
+            <Badge variant="secondary" class="gap-1.5"><Percent class="h-3.5 w-3.5" />{{ rules.has_interest ? 'Intérêts par tranche' : 'Sans intérêt' }}</Badge>
+            <Link v-if="can.settings" :href="staffDebtUrl('/finance/dettes/reglages')" class="text-xs font-semibold text-primary hover:underline">Modifier</Link>
+        </div>
 
         <QueueCounters :tiles="tiles" @select="selectView" />
 
@@ -92,7 +111,7 @@ const actionFor = (debt) => {
         <Card v-if="! listing.debts.length" class="flex flex-col items-center gap-3 px-6 py-12 text-center">
             <span class="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary"><HandCoins class="h-6 w-6" /></span>
             <p class="text-sm font-semibold text-foreground">{{ listing.search ? 'Aucune dette ne correspond à cette recherche' : 'Rien dans cette vue' }}</p>
-            <p class="max-w-md text-sm text-muted-foreground">Le personnel demande une dette depuis « Mes dettes » ; le DG la décide ici, depuis le portail.</p>
+            <p class="max-w-md text-sm text-muted-foreground">Le personnel demande une dette depuis « Mes dettes », sur son site ; elle se décide ici.</p>
         </Card>
 
         <Card v-else class="overflow-hidden">
@@ -111,13 +130,14 @@ const actionFor = (debt) => {
                     <tbody class="divide-y divide-border">
                         <tr v-for="debt in listing.debts" :key="debt.uuid" class="hover:bg-muted/30">
                             <td class="px-4 py-3">
-                                <p class="font-semibold text-foreground">{{ debt.employee_name }}</p>
+                                <p class="flex items-center gap-1.5 font-semibold text-foreground">{{ debt.employee_name }}<ShieldAlert v-if="debt.derogated" class="h-3.5 w-3.5 text-amber-600" aria-label="Accordée par dérogation" /></p>
                                 <p class="text-xs text-muted-foreground">{{ [debt.number, debt.employee_number].filter(Boolean).join(' · ') }} · {{ formatDateTime(debt.requested_at) }}</p>
                             </td>
                             <td class="px-4 py-3"><StaffDebtStatusBadge :status="debt.status" :label="debt.status_label" :tone="debt.status_tone" /></td>
                             <td class="px-4 py-3 text-right tabular-nums">
                                 <p class="font-semibold text-foreground">{{ formatMoney(debt.amount ?? debt.requested_amount) }}</p>
                                 <p v-if="debt.amount && debt.amount !== debt.requested_amount" class="text-xs text-muted-foreground line-through">{{ formatMoney(debt.requested_amount) }}</p>
+                                <p v-if="Number(debt.interest_amount) > 0" class="text-xs text-muted-foreground">+ {{ formatMoney(debt.interest_amount) }} d’intérêt</p>
                             </td>
                             <td class="px-4 py-3">
                                 <p class="text-foreground">{{ formatMoney(debt.installment_amount) }} / mois</p>
@@ -130,7 +150,7 @@ const actionFor = (debt) => {
                                 <p v-if="Number(debt.arrears) > 0" class="flex items-center justify-end gap-1 text-xs text-destructive"><AlarmClock class="h-3 w-3" />{{ formatMoney(debt.arrears) }} en retard</p>
                             </td>
                             <td class="px-4 py-3 text-right">
-                                <Button :as="Link" :href="hrUrl(`/administration/dettes/${debt.uuid}`)" size="sm" :variant="actionFor(debt).variant">
+                                <Button :as="Link" :href="staffDebtUrl(`/finance/dettes/${debt.uuid}`)" size="sm" :variant="actionFor(debt).variant">
                                     <component :is="actionFor(debt).icon" class="h-4 w-4" />{{ actionFor(debt).label }}
                                 </Button>
                             </td>

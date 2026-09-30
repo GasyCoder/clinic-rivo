@@ -27,6 +27,8 @@ final class StaffDebtWatcher
 
     private const COUNTS_KEY = 'staff-debts.pending-counts';
 
+    private const DISBURSE_KEY = 'staff-debts.to-disburse-counts';
+
     private const THROTTLE_SECONDS = 120;
 
     public function __construct(private readonly PortalSiteApiClient $sites) {}
@@ -56,6 +58,7 @@ final class StaffDebtWatcher
     {
         $results ??= $this->sites->staffDebtsPendingForAllSites($actor);
         $counts = Cache::get(self::COUNTS_KEY, []);
+        $toDisburse = Cache::get(self::DISBURSE_KEY, []);
         $notified = 0;
 
         foreach ($results as $result) {
@@ -68,6 +71,8 @@ final class StaffDebtWatcher
 
             $pending = collect($result['data']['pending'])->filter(fn ($row) => is_array($row) && is_string($row['uuid'] ?? null))->values();
             $counts[$code] = $pending->count();
+            // ADR-229 — les dettes accordées que le portail doit encore verser.
+            $toDisburse[$code] = (int) ($result['meta']['summary']['to_disburse'] ?? 0);
 
             $this->resolve($code, $pending->pluck('uuid')->all());
 
@@ -98,6 +103,7 @@ final class StaffDebtWatcher
         }
 
         Cache::put(self::COUNTS_KEY, $counts, now()->addDay());
+        Cache::put(self::DISBURSE_KEY, $toDisburse, now()->addDay());
 
         return $notified;
     }
@@ -140,6 +146,14 @@ final class StaffDebtWatcher
     public static function pendingCounts(): array
     {
         $counts = Cache::get(self::COUNTS_KEY, []);
+
+        return is_array($counts) ? array_map('intval', $counts) : [];
+    }
+
+    /** @return array<string, int> ADR-229 — les dettes accordées à verser par site, à la dernière lecture. */
+    public static function toDisburseCounts(): array
+    {
+        $counts = Cache::get(self::DISBURSE_KEY, []);
 
         return is_array($counts) ? array_map('intval', $counts) : [];
     }

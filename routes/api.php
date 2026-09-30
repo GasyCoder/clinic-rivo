@@ -54,6 +54,14 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
             ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
             ->group(base_path('routes/laboratory.php'));
 
+        // ADR-229 — les dettes du personnel du site, gérées dans Finance au portail.
+        // Montées ici seulement : le site n'a plus d'écran de gestion, l'employé
+        // demande depuis « Mes dettes » et la Caisse encaisse (routes/web.php).
+        Route::prefix('site-staff-debts')
+            ->name('site-staff-debts.')
+            ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
+            ->group(base_path('routes/staff_debts.php'));
+
         // ADR-211 — les Partenaires du site, gérés aussi depuis le portail :
         // mêmes routes, contrôleurs et droits que /partenaires (routes/partners.php).
         Route::prefix('site-partners')
@@ -82,6 +90,8 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
 
         // ADR-228 — les demandes de dette qui attendent le DG, relues par le portail pour le prévenir.
         Route::get('/staff-debts/pending', [StaffDebtController::class, 'pending'])->name('staff-debts.pending');
+        // ADR-229 — ce qu'un site a en jeu, pour « Tous les sites » dans Finance.
+        Route::get('/staff-debts/overview', [StaffDebtController::class, 'overview'])->name('staff-debts.overview');
 
         Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
         Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore');

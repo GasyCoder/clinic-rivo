@@ -22211,7 +22211,10 @@ retenues, net        aucun calcul (CNAPS, IRSA : règles non définies, ADR-066)
 
 # ADR-228 — Dettes du personnel : demandées par l'employé, décidées par le DG, remboursées sur la paie ou à la Caisse
 
-**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire)
+**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire) ; **déplacée dans Finance au portail
+par l'ADR-229** (même jour) : le DG décide, ajuste, verse, remet et relance depuis Finance › Dettes du
+personnel ; la rubrique RH du site disparaît, et le RH ne verse plus. Limites, intérêts par tranche et
+dérogations s'ajoutent. Le reste (demande, retenue sur la paie, Caisse) est inchangé.
 
 **Complète l'ADR-227** (paie du mois) et **applique l'ADR-012** (seule la Caisse encaisse). Le CDC ne
 décrit aucune avance ni dette consentie au personnel : les règles ci-dessous sont celles du propriétaire.
@@ -22308,3 +22311,130 @@ détail         demande, accord, remboursement (part, reste, prochain mois, reta
 ```
 
 `repaidShare()` est partagé avec la fiche d'une dette du RH. Test : `tests/JavaScript/staffDebts.test.js`.
+
+---
+
+# ADR-229 — Dettes du personnel dans Finance au portail : limites, intérêts par tranche, dérogations, relances
+
+**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire, quatre arbitrages)
+
+**Amende l'ADR-228** (où se gère une dette, et qui la verse) et **tranche deux de ses points signalés**
+(plafond, intérêts). Le CDC ne décrit aucune dette du personnel : les règles ci-dessous sont celles du
+propriétaire.
+
+## Les arbitrages du propriétaire
+
+```text
+où             tout au portail : Finance › Dettes du personnel décide, ajuste, verse, remet et
+               relance ; le site ne garde que « Mes dettes », la Caisse et la retenue sur la paie
+intérêt        par tranche de montant : chaque tranche porte un montant fixe (« 1 000 000 Ar →
+               300 000 Ar ») ou un pourcentage (« 25 % ») ; ajouté une fois, remboursé avec le
+               montant, figé à l'accord
+limites        montant minimum et maximum, durée maximale, mensualité ≤ % du salaire déclaré,
+               nombre de dettes en cours, ancienneté minimale, stagiaires exclus
+autres         vue de tous les sites, demandes suspendues avec un message, export Excel audité,
+               relance des remboursements en retard
+```
+
+## Tout au portail, par l'API du site
+
+`routes/staff_debts.php` n'est monté que sur l'API du site (`/api/v1/super-admin/site-staff-debts`,
+`rivo.remote-actor` + `rivo.hr-screens`) ; le portail relaie `/super-admin/sites/{site}/finance/dettes/...`
+(`SiteStaffDebtsController`, `SiteStaffDebtGateway`, écrans `Finance/StaffDebts/*` seulement) et affiche la
+même page Vue — jamais la base du site (ADR-004). Chaque geste est signé du Super Admin (ADR-187).
+
+```text
+/super-admin/finance/dettes                 tous les sites : à décider, à verser, reste dû, retards,
+                                            lus par GET /api/v1/super-admin/staff-debts/overview
+                                            (des nombres et des montants, jamais un nom)
+/super-admin/sites/{site}/finance/dettes    la liste, une dette, les réglages, l'export
+anciennes adresses                          /super-admin/sites/{site}/rh/dettes → Finance ;
+                                            /administration/dettes (site) → accueil, qui le dit
+```
+
+La rubrique « Dettes du personnel » quitte les RH (menu, rubriques RH, écrans relayés). Le module de
+permissions `staff_debts` passe de « Ressources humaines » à « Finance ». Dans l'écran, toute adresse passe
+par `staffDebtUrl()` ; `StaffDebtPortalBar` dit de quel site on lit les dettes et mène aux autres.
+
+**Le RH ne verse plus** : `staff_debts.disburse` est retiré au rôle ADMINISTRATION (migration, et
+`RolePermissionSeeder`), qui garde `staff_debts.view` pour être prévenu des retards. Le versement se
+constate au portail, l'argent partant toujours hors RIVO (ADR-228). La cloche du portail compte ce qui est
+à décider **et** à verser (`StaffDebtWatcher`, `to_disburse` servi par l'API du site).
+
+## Les réglages du site
+
+`staff_debt_settings` (une ligne par base, `StaffDebtSetting`, audité avec l'acteur distant), réglés depuis
+Finance › Dettes du personnel › Réglages (`staff_debts.settings`, `UpdateStaffDebtSettingsAction`). Une
+valeur vide ne pose aucune limite ; sans réglage, tout reste comme à l'ADR-228. Les nouvelles règles valent
+pour les demandes et décisions à venir : aucune dette accordée n'est recalculée.
+
+```text
+demandes         ouvertes ou suspendues, avec le message montré à l'employé
+montant          minimum et maximum
+durée            nombre de mois au plus (intérêt compris dans ce qui est à rembourser)
+salaire          mensualités ≤ N % du salaire déclaré, dettes déjà engagées comprises ; seul le
+                 plafond encore disponible est servi à l'employé, jamais son salaire
+dettes en cours  nombre au plus de dettes accordées ou en remboursement
+ancienneté       N mois depuis la date d'entrée (une date absente bloque, et le dit)
+stagiaires       exclus ou non (InternshipDirectory, ADR-207)
+```
+
+`StaffDebtRules` porte ces règles une seule fois. **À la demande de l'employé, une limite dépassée est un
+refus** nommé par champ ; **à la décision du DG, c'est une dérogation** : l'écran la montre, l'accord est
+refusé (422, `derogation`) tant qu'elle n'est pas confirmée (`accept_derogations`), puis elle reste écrite
+sur la dette (`staff_debts.derogations`) et dans l'audit. Un ajustement ne revérifie que les montants et
+les mensualités (la mensualité seule une fois la dette versée).
+
+La mensualité minimale annoncée pour tenir la durée est arrondie à l'ariary supérieur : 1 000 000 Ar en
+12 mois demandent 83 334 Ar, pas 83 333 (qui ne rembourserait pas dans la durée).
+
+## L'intérêt, par tranche
+
+`StaffDebtInterest` : de … à … (la dernière tranche peut être sans plafond), un montant fixe ou un
+pourcentage d'au plus 100, 20 tranches au plus, sans chevauchement (refus nommé). Le pourcentage est
+arrondi à l'ariary (`Money::percentage`). Un montant qu'aucune tranche ne couvre n'a pas d'intérêt.
+
+```text
+à la demande     requested_interest_amount : ce que l'employé a vu
+à l'accord       interest_amount, interest_mode, interest_value : figés ; le DG peut remettre
+                 l'intérêt (interest_waived)
+remboursement    le plan, la paie, la Caisse et le reste dû portent sur montant + intérêt
+                 (StaffDebt::totalDueMinor)
+ajustement       avant versement, l'intérêt suit le nouveau montant ; après, il ne bouge plus
+```
+
+`utilities/staffDebts.js` (`interestFor`, `totalWithInterest`, `ruleIssues`) écrit les mêmes règles pour
+l'aperçu pendant la saisie — vérifié par test sur les mêmes cas que le serveur, qui recalcule toujours.
+
+## Relances et export
+
+```text
+automatique   rivo:staff-debts:remind, chaque jour à 08:00 sur le site : une dette en espèces en
+              retard est relancée une fois par mois (arrears_notified_for) — l'employé et les
+              comptes qui voient les dettes (le RH) sont prévenus
+à la main     « Relancer » sur la dette, au portail (staff_debts.decide), même déjà relancée ;
+              audité staff_debt.remind ; refusé sans retard
+export        Excel de la vue et de la recherche (staff_debts.export), 5 000 lignes au plus,
+              audité staff_debt.export avec les numéros exportés
+```
+
+## Droits
+
+```text
+staff_debts.settings   régler limites et intérêts     SUPER_ADMIN du portail
+staff_debts.export     exporter la liste               SUPER_ADMIN du portail
+staff_debts.disburse   retiré au rôle ADMINISTRATION   SUPER_ADMIN du portail
+```
+
+Migration `2026_12_04_090000_create_staff_debt_settings_and_interest`, à jouer sur chaque site et sur le
+portail (le Super Admin reçoit les deux droits par l'ADR-186).
+
+## Signalé, non tranché
+
+```text
+intérêt en cas de remise         remettre le reste d'une dette (ADR-228) remet aussi son intérêt
+salaire revu après l'accord      la limite « % du salaire » se vérifie à la demande et à la décision ;
+                                 un salaire qui baisse ensuite ne revoit pas une dette accordée
+intérêt annuel / par mois        non retenu : l'intérêt est un montant unique, pas un taux dans le
+                                 temps — un retard ne coûte rien de plus
+```

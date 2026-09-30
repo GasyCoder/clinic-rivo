@@ -35,7 +35,10 @@ final class StaffDebtDirectory
         'closes' => [StaffDebtStatus::Settled, StaffDebtStatus::WrittenOff, StaffDebtStatus::Refused, StaffDebtStatus::Cancelled],
     ];
 
-    public function __construct(private readonly StaffDebtLedger $ledger) {}
+    public function __construct(
+        private readonly StaffDebtLedger $ledger,
+        private readonly StaffDebtRules $rules,
+    ) {}
 
     /**
      * L'espace de l'employé : ses dettes, et s'il peut en demander une.
@@ -55,8 +58,10 @@ final class StaffDebtDirectory
             $employee === null => 'Votre compte n’est relié à aucune fiche du personnel. Demandez au RH de le relier (Utilisateurs › Personnel clinique) avant de faire une demande.',
             ! $employee->active || $employee->trashed() => 'Votre fiche n’est plus en poste : aucune demande n’est possible.',
             $debts->contains(fn (StaffDebt $debt) => $debt->status === StaffDebtStatus::Requested) => 'Votre demande en cours attend la décision du DG. Vous pourrez en faire une autre ensuite, ou la retirer.',
-            default => null,
+            // ADR-229 — les règles du site : demandes ouvertes, stagiaires, ancienneté, dettes en cours.
+            default => $this->rules->requestBlocker($employee),
         };
+        $cap = $employee !== null ? $this->rules->installmentCapMinor($employee) : null;
 
         $owing = $debts->filter(fn (StaffDebt $debt) => $debt->status === StaffDebtStatus::Active);
         $today = now();
@@ -74,6 +79,9 @@ final class StaffDebtDirectory
             'can_request' => $user->can('staff_debts.request') && $blocker === null,
             'request_blocker' => $user->can('staff_debts.request') ? $blocker : 'Demander une dette demande le droit « staff_debts.request ».',
             'current_month' => now()->format('Y-m'),
+            // Les règles du site, pour l'aperçu pendant la saisie ; le serveur revérifie tout.
+            // Le plafond de mensualité est tiré de son propre salaire : jamais le salaire lui-même.
+            'rules' => [...$this->rules->present(), 'max_installment' => $cap !== null ? Money::fromMinor($cap['available']) : null],
             'summary' => [
                 'balance' => Money::fromMinor((int) $owing->sum(fn (StaffDebt $debt) => $debt->balanceMinor())),
                 'active' => $owing->count(),
@@ -142,6 +150,10 @@ final class StaffDebtDirectory
             'status_tone' => $debt->status->tone(),
             'requested_amount' => (string) $debt->requested_amount,
             'amount' => $debt->amount !== null ? (string) $debt->amount : null,
+            // ADR-229 — l'intérêt figé et ce qui est à rembourser en tout.
+            'interest_amount' => (string) ($debt->amount !== null ? $debt->interest_amount : $debt->requested_interest_amount),
+            'total_due' => Money::fromMinor($debt->amount !== null ? $debt->totalDueMinor() : $debt->requestedTotalMinor()),
+            'derogated' => ! empty($debt->derogations),
             'installment_amount' => (string) ($debt->installment_amount ?? $debt->requested_installment),
             'repayment_mode' => $debt->repayment_mode?->value,
             'repayment_mode_label' => $debt->repayment_mode?->label(),
@@ -170,7 +182,9 @@ final class StaffDebtDirectory
                 'amount' => (string) $debt->requested_amount,
                 'installment_amount' => (string) $debt->requested_installment,
                 'first_period' => $debt->requested_first_period?->format('Y-m'),
-                'plan' => StaffDebtLedger::plan(Money::toMinor((string) $debt->requested_amount), Money::toMinor((string) $debt->requested_installment), $debt->requested_first_period),
+                'interest_amount' => (string) $debt->requested_interest_amount,
+                'total' => Money::fromMinor($debt->requestedTotalMinor()),
+                'plan' => StaffDebtLedger::plan($debt->requestedTotalMinor(), Money::toMinor((string) $debt->requested_installment), $debt->requested_first_period),
             ],
             'granted' => $debt->amount === null ? null : [
                 'amount' => (string) $debt->amount,
@@ -178,6 +192,13 @@ final class StaffDebtDirectory
                 'first_period' => $debt->first_period?->format('Y-m'),
                 'repayment_mode' => $debt->repayment_mode?->value,
                 'repayment_mode_label' => $debt->repayment_mode?->label(),
+                'interest' => [
+                    'amount' => (string) $debt->interest_amount,
+                    'mode' => $debt->interest_mode,
+                    'value' => $debt->interest_value !== null ? (string) $debt->interest_value : null,
+                    'waived' => (bool) $debt->interest_waived,
+                ],
+                'total' => Money::fromMinor($debt->totalDueMinor()),
                 'plan' => $plan,
                 'adjusted' => $debt->requested_amount !== null && (
                     (string) $debt->amount !== (string) $debt->requested_amount
@@ -186,6 +207,7 @@ final class StaffDebtDirectory
                 ),
             ],
             'decision_note' => $debt->decision_note,
+            'derogations' => $debt->derogations ?? [],
             'refusal_reason' => $debt->refusal_reason,
             'cancel_reason' => $debt->cancel_reason,
             'write_off_reason' => $debt->write_off_reason,
@@ -202,6 +224,9 @@ final class StaffDebtDirectory
             'schedule' => $this->ledger->projection($debt, $today),
             'repayments' => $debt->repayments->map(fn (StaffDebtRepayment $repayment) => $this->repayment($repayment))->values()->all(),
             'employee' => $withEmployee ? $this->employee($debt, $viewer) : null,
+            // ADR-229 — ce qu'il faut au DG pour décider : les règles du site et, pour sa
+            // personne, la mensualité que le salaire permet encore. L'écran avertit, le serveur tranche.
+            'rules' => $withEmployee ? $this->decisionRules($debt) : null,
             'can' => $this->abilities($debt, $viewer),
         ];
     }
@@ -275,6 +300,91 @@ final class StaffDebtDirectory
             ])->values()->all();
     }
 
+    /**
+     * ADR-229 — ce que le portail montre d'un site dans « Tous les sites » : les comptes
+     * de chaque vue, l'argent en jeu et l'état des demandes. Ni nom, ni motif, ni salaire.
+     *
+     * @return array<string, mixed>
+     */
+    public function overview(): array
+    {
+        $today = now();
+        $counts = collect(self::VIEWS)->map(fn (array $statuses) => StaffDebt::query()->whereIn('status', array_map(fn ($status) => $status->value, $statuses))->count())->all();
+        $active = StaffDebt::query()->where('status', StaffDebtStatus::Active->value)->with('repayments')->get();
+        $arrears = $active->map(fn (StaffDebt $debt) => $this->ledger->arrearsMinor($debt, $today));
+        $present = $this->rules->present();
+
+        return [
+            'counts' => $counts,
+            'balance' => Money::fromMinor((int) $active->sum(fn (StaffDebt $debt) => $debt->balanceMinor())),
+            'arrears' => Money::fromMinor((int) $arrears->sum()),
+            'late' => $arrears->filter(fn (int $minor) => $minor > 0)->count(),
+            'to_disburse_amount' => Money::fromMinor((int) StaffDebt::query()->where('status', StaffDebtStatus::Approved->value)->get()->sum(fn (StaffDebt $debt) => Money::toMinor((string) $debt->amount))),
+            'requested_amount' => Money::fromMinor((int) StaffDebt::query()->where('status', StaffDebtStatus::Requested->value)->get()->sum(fn (StaffDebt $debt) => Money::toMinor((string) $debt->requested_amount))),
+            'interest' => Money::fromMinor((int) $active->sum(fn (StaffDebt $debt) => Money::toMinor((string) $debt->interest_amount))),
+            'rules' => [
+                'configured' => $present['configured'],
+                'requests_open' => $present['requests_open'],
+                'has_interest' => $present['interest_tiers'] !== [],
+            ],
+        ];
+    }
+
+    /**
+     * ADR-229 — la liste en Excel : la vue et la recherche de l'écran (toutes les dettes
+     * sans vue), une ligne par dette. Le motif et le salaire n'y sont pas.
+     *
+     * @return array{view: string, search: string, headers: list<string>, rows: list<list<mixed>>, numbers: list<string>}
+     */
+    public function export(?string $view, ?string $search): array
+    {
+        $view = array_key_exists((string) $view, self::VIEWS) ? (string) $view : 'toutes';
+        $search = Str::squish((string) $search);
+        $today = now();
+
+        $debts = StaffDebt::query()
+            ->when($view !== 'toutes', fn (Builder $query) => $query->whereIn('status', array_map(fn ($status) => $status->value, self::VIEWS[$view])))
+            ->when($search !== '', fn (Builder $query) => $this->search($query, $search))
+            ->with('repayments')
+            ->orderBy('requested_at')
+            ->orderBy('id')
+            ->limit(5000)
+            ->get();
+
+        $amount = fn (mixed $value): ?float => $value === null ? null : (float) $value;
+
+        return [
+            'view' => $view,
+            'search' => $search,
+            'headers' => [
+                'N° de dette', 'Personne', 'Matricule', 'État', 'Demandée le', 'Montant demandé', 'Montant accordé',
+                'Intérêt', 'Total à rembourser', 'Mensualité', 'Remboursement', 'Premier mois', 'Versée le',
+                'Remboursé', 'Remis', 'Reste dû', 'En retard', 'Dérogation',
+            ],
+            'rows' => $debts->map(fn (StaffDebt $debt) => [
+                $debt->number,
+                $debt->employee_name,
+                $debt->employee_number,
+                $debt->status->label(),
+                $debt->requested_at?->format('d/m/Y'),
+                $amount($debt->requested_amount),
+                $amount($debt->amount),
+                $debt->amount !== null ? (float) $debt->interest_amount : (float) $debt->requested_interest_amount,
+                (float) Money::fromMinor($debt->amount !== null ? $debt->totalDueMinor() : $debt->requestedTotalMinor()),
+                $amount($debt->installment_amount ?? $debt->requested_installment),
+                $debt->repayment_mode?->label(),
+                ($debt->first_period ?? $debt->requested_first_period)?->format('m/Y'),
+                $debt->disbursed_on?->format('d/m/Y'),
+                (float) Money::fromMinor($debt->repaidMinor()),
+                $amount($debt->written_off_amount),
+                $debt->status === StaffDebtStatus::Active ? (float) Money::fromMinor($debt->balanceMinor()) : null,
+                $debt->status === StaffDebtStatus::Active ? (float) Money::fromMinor($this->ledger->arrearsMinor($debt, $today)) : null,
+                empty($debt->derogations) ? null : implode(' ', $debt->derogations),
+            ])->values()->all(),
+            'numbers' => $debts->pluck('number')->values()->all(),
+        ];
+    }
+
     /** @return array<string, mixed> */
     public function repayment(StaffDebtRepayment $repayment): array
     {
@@ -301,7 +411,24 @@ final class StaffDebtDirectory
             return null;
         }
 
-        return StaffDebtLedger::plan(Money::toMinor((string) $debt->amount), Money::toMinor((string) $debt->installment_amount), $debt->first_period);
+        return StaffDebtLedger::plan($debt->totalDueMinor(), Money::toMinor((string) $debt->installment_amount), $debt->first_period);
+    }
+
+    /** @return array<string, mixed> */
+    private function decisionRules(StaffDebt $debt): array
+    {
+        $employee = $debt->employee;
+        $cap = $employee !== null ? $this->rules->installmentCapMinor($employee, $debt->getKey()) : null;
+
+        return [
+            ...$this->rules->present(),
+            'installment_cap' => $cap === null ? null : [
+                'cap' => Money::fromMinor($cap['cap']),
+                'engaged' => Money::fromMinor($cap['engaged']),
+                'available' => Money::fromMinor($cap['available']),
+            ],
+            'engaged_debts' => $employee !== null ? $this->rules->engagedDebts($employee, $debt->getKey())->count() : 0,
+        ];
     }
 
     /** Ce qu'aide à décider : sa fonction, ses autres dettes, et son salaire avec le droit de le voir. @return array<string, mixed>|null */
@@ -344,6 +471,7 @@ final class StaffDebtDirectory
         $decide = $viewer->can('staff_debts.decide');
 
         return [
+            'remind' => $decide && $debt->status === StaffDebtStatus::Active && $this->ledger->arrearsMinor($debt, now()) > 0,
             'withdraw' => $own && $debt->status === StaffDebtStatus::Requested,
             'decide' => $decide && $debt->status === StaffDebtStatus::Requested,
             'adjust' => $decide && in_array($debt->status, [StaffDebtStatus::Approved, StaffDebtStatus::Active], true),

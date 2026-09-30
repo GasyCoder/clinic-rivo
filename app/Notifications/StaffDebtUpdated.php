@@ -4,8 +4,9 @@ namespace App\Notifications;
 
 /**
  * ADR-228 — sur le site : ce qui arrive à une dette du personnel, annoncé à l'employé
- * qui l'a demandée (accordée, refusée, ajustée, versée, soldée, remise, annulée) et au
- * RH qui la verse. Ni motif médical ni salaire : un titre, un montant, un lien.
+ * qui l'a demandée (accordée, refusée, ajustée, versée, soldée, remise, annulée, en
+ * retard) et, pour un retard, au RH du site (ADR-229). Ni motif ni salaire : un titre,
+ * un montant, un lien.
  */
 class StaffDebtUpdated extends InboxNotification
 {
@@ -15,6 +16,8 @@ class StaffDebtUpdated extends InboxNotification
         'adjusted' => ['icon' => 'pencil', 'tone' => 'primary'],
         'cancelled' => ['icon' => 'ban', 'tone' => 'neutral'],
         'to_disburse' => ['icon' => 'hand-coins', 'tone' => 'warning'],
+        // ADR-229 — un remboursement en espèces en retard.
+        'late' => ['icon' => 'clock', 'tone' => 'warning'],
         'disbursed' => ['icon' => 'banknote', 'tone' => 'primary'],
         'settled' => ['icon' => 'circle-check', 'tone' => 'success'],
         'written_off' => ['icon' => 'gift', 'tone' => 'success'],
@@ -26,7 +29,7 @@ class StaffDebtUpdated extends InboxNotification
         public readonly string $number,
         public readonly string $title,
         public readonly string $body,
-        public readonly string $url,
+        public readonly ?string $url,
     ) {}
 
     public function payload(): array

@@ -9,8 +9,9 @@ use Illuminate\Support\Facades\Notification;
 
 /**
  * ADR-228 — sur le site, qui apprend quoi d'une dette : l'employé qui l'a demandée
- * (chaque décision, le versement, la fin), et le RH qui la verse (une dette accordée
- * l'attend). Le DG, lui, est prévenu par le portail (StaffDebtWatcher).
+ * (chaque décision, le versement, la fin). Le DG, lui, est prévenu par le portail
+ * (StaffDebtWatcher). ADR-229 — tout se décide et se verse au portail : le RH n'est plus
+ * prévenu d'une dette à verser, seulement des remboursements en retard.
  */
 final class StaffDebtNotifier
 {
@@ -23,18 +24,29 @@ final class StaffDebtNotifier
         }
     }
 
-    public function disbursers(StaffDebt $debt): void
+    /**
+     * ADR-229 — un remboursement en espèces en retard : l'employé et le RH du site (qui
+     * voit les dettes du personnel) sont prévenus. La Caisse voit déjà le retard.
+     */
+    public function arrears(StaffDebt $debt, string $arrears): void
     {
-        $recipients = User::query()->where('active', true)->get()->filter(fn (User $user) => $user->can('staff_debts.disburse'))->values();
+        $body = StaffDebtNotifier::money($arrears).' en retard sur la dette '.$debt->number.' : à remettre à la Caisse, qui délivre un reçu.';
+
+        $this->employee($debt, 'late', 'Remboursement en retard', $body);
+
+        $employeeUserId = $debt->employee?->user_id;
+        $recipients = User::query()->where('active', true)->get()
+            ->filter(fn (User $user) => $user->getKey() !== $employeeUserId && $user->can('staff_debts.view'))
+            ->values();
 
         if ($recipients->isNotEmpty()) {
             Notification::send($recipients, new StaffDebtUpdated(
-                'to_disburse',
+                'late',
                 $debt->uuid,
                 $debt->number,
-                "Dette accordée à {$debt->employee_name} : à verser",
-                'Dette '.$debt->number.' de '.self::money($debt->amount).' : versez-la hors RIVO, puis marquez-la versée.',
-                '/administration/dettes/'.$debt->uuid,
+                "Dette de {$debt->employee_name} : remboursement en retard",
+                StaffDebtNotifier::money($arrears).' en retard sur la dette '.$debt->number.', remboursée en espèces à la Caisse.',
+                null,
             ));
         }
     }

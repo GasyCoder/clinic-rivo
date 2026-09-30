@@ -10,6 +10,7 @@ import PageSkeleton from '@/Components/Layout/PageSkeleton.vue';
 import HrPortalBar from '@/Components/Administration/HrPortalBar.vue';
 import PharmacyPortalBar from '@/Components/Pharmacy/PharmacyPortalBar.vue';
 import LaboratoryPortalBar from '@/Components/Laboratory/LaboratoryPortalBar.vue';
+import StaffDebtPortalBar from '@/Components/StaffDebts/StaffDebtPortalBar.vue';
 import MaintenanceBanner from '@/Components/Layout/MaintenanceBanner.vue';
 import AssistantWidget from '@/Components/Assistant/AssistantWidget.vue';
 import { usePageLoading } from '@/composables/usePageLoading';
@@ -64,6 +65,7 @@ const sidebarResizing = ref(false);
                         <HrPortalBar v-if="page.props.hrContext" />
                         <PharmacyPortalBar v-if="page.props.pharmacyContext" />
                         <LaboratoryPortalBar v-if="page.props.laboratoryContext" />
+                        <StaffDebtPortalBar v-if="page.props.staffDebtContext" />
                         <MaintenanceBanner />
                         <slot />
                     </div>

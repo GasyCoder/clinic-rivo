@@ -14,6 +14,7 @@ import {
     ChevronUp,
     ClipboardList,
     Crown,
+    HandCoins,
     Handshake,
     FileText,
     FlaskConical,
@@ -121,6 +122,14 @@ const adminMenu = computed(() => [
     { icon: Wallet, text: 'Caisses des sites', link: '/super-admin/cash-registers', permission: 'cash_registers.view' },
     { icon: ClipboardList, text: 'Modes de paiement', link: '/super-admin/payment-methods', permission: 'payment_methods.view' },
     { icon: Wallet, text: 'Rapports financiers', link: '/super-admin/workspaces/finance', permission: 'reports.financial.view' },
+    // ADR-229 — les dettes du personnel de chaque site : décidées, versées et réglées ici.
+    {
+        icon: HandCoins,
+        text: 'Dettes du personnel',
+        link: '/super-admin/finance/dettes',
+        permission: 'staff_debts.view',
+        activeLinks: ['/super-admin/finance/dettes', ...(page.props.adminNavigation ?? []).map((site) => `/super-admin/sites/${site.code}/finance/dettes`)],
+    },
     { heading: 'Référentiels' },
     { icon: FileText, text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
     { icon: FileText, text: 'Canevas de documents', link: '/super-admin/workspaces/document-templates', permission: 'document_templates.view' },

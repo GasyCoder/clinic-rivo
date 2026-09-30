@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Audit\Auditor;
 use App\Services\StaffDebts\StaffDebtLedger;
 use App\Services\StaffDebts\StaffDebtNotifier;
+use App\Services\StaffDebts\StaffDebtRules;
 use App\Support\Authorization\RemoteActorAttribution;
 use App\Support\Money;
 use App\Support\StaffDebts\StaffDebtTerms;
@@ -27,6 +28,11 @@ use Illuminate\Validation\ValidationException;
  *
  * Une retenue sur salaire exige un salaire déclaré (ADR-206) : sans lui, la paie
  * n'aurait rien sur quoi retenir.
+ *
+ * ADR-229 — l'intérêt de la tranche est figé à l'accord (le DG peut le remettre), et
+ * recalculé si le montant change avant le versement. Des conditions qui dépassent les
+ * limites du site sont une dérogation : refusée tant que le DG ne la confirme pas
+ * (`accept_derogations`), puis écrite sur la dette et dans l'audit.
  */
 class DecideStaffDebtAction
 {
@@ -34,9 +40,10 @@ class DecideStaffDebtAction
         private readonly StaffDebtLedger $ledger,
         private readonly StaffDebtNotifier $notifier,
         private readonly Auditor $auditor,
+        private readonly StaffDebtRules $rules,
     ) {}
 
-    /** @param  array{amount: string, installment_amount: string, first_period: string, repayment_mode: string, note?: ?string}  $terms */
+    /** @param  array{amount: string, installment_amount: string, first_period: string, repayment_mode: string, note?: ?string, waive_interest?: bool, accept_derogations?: bool}  $terms */
     public function approve(StaffDebt $debt, array $terms, User $actor): StaffDebt
     {
         $this->authorize($actor, 'staff_debts.decide', 'Seul le DG accorde une dette.');
@@ -53,16 +60,20 @@ class DecideStaffDebtAction
                 throw ValidationException::withMessages(['debt' => 'Cette personne n’est plus en poste : refusez la demande.']);
             }
 
-            [$amount, $installment, $first, $mode] = $this->terms($terms, $employee);
+            $waived = (bool) ($terms['waive_interest'] ?? false);
+            [$amount, $installment, $first, $mode, $interest] = $this->terms($terms, $employee, interest: fn (int $amount) => $waived ? null : $this->rules->interest($amount));
+            $derogations = $this->derogations($employee, $amount, $installment, $terms);
 
             $debt->forceFill([
                 'status' => StaffDebtStatus::Approved,
                 'pending_key' => null,
                 'amount' => $amount,
                 'installment_amount' => $installment,
+                ...$this->interestFields($interest, $waived),
                 'first_period' => $first->toDateString(),
                 'repayment_mode' => $mode,
                 'decision_note' => filled($terms['note'] ?? null) ? Str::squish($terms['note']) : null,
+                'derogations' => $derogations ?: null,
                 'decided_at' => now(),
                 'decided_by' => $actor->getKey(),
                 ...RemoteActorAttribution::fields('decided', $actor),
@@ -71,15 +82,16 @@ class DecideStaffDebtAction
             return $debt;
         });
 
-        $plan = StaffDebtLedger::plan(Money::toMinor((string) $debt->amount), Money::toMinor((string) $debt->installment_amount), $debt->first_period);
+        $plan = StaffDebtLedger::plan($debt->totalDueMinor(), Money::toMinor((string) $debt->installment_amount), $debt->first_period);
         $this->notifier->employee(
             $debt,
             'approved',
             'Votre demande de dette est accordée',
-            StaffDebtNotifier::money($debt->amount).' — '.$plan['count'].' mensualité'.($plan['count'] > 1 ? 's' : '').' de '.StaffDebtNotifier::money($debt->installment_amount)
-                .', '.mb_strtolower($debt->repayment_mode->label()).'. Le RH vous la versera.',
+            StaffDebtNotifier::money($debt->amount)
+                .((float) $debt->interest_amount > 0 ? ' + intérêt '.StaffDebtNotifier::money($debt->interest_amount).' = '.StaffDebtNotifier::money(Money::fromMinor($debt->totalDueMinor())).' à rembourser' : '')
+                .' — '.$plan['count'].' mensualité'.($plan['count'] > 1 ? 's' : '').' de '.StaffDebtNotifier::money($debt->installment_amount)
+                .', '.mb_strtolower($debt->repayment_mode->label()).'. Elle vous sera versée.',
         );
-        $this->notifier->disbursers($debt);
 
         return $debt;
     }
@@ -138,13 +150,19 @@ class DecideStaffDebtAction
 
             // Un premier mois déjà passé reste accepté tant qu'on n'y touche pas : une dette en cours a commencé.
             $keepsPeriod = ($terms['first_period'] ?? null) === $debt->first_period?->format('Y-m');
-            [$amount, $installment, $first, $mode] = $this->terms($terms, $debt->employee, $keepsPeriod);
-            $before = $debt->only(['amount', 'installment_amount', 'first_period', 'repayment_mode']);
+            // Versée, l'intérêt reste celui de l'accord ; avant, il suit le montant (sauf s'il a été remis).
+            $interestFor = $disbursed ? null : fn (int $amount) => $debt->interest_waived ? null : $this->rules->interest($amount);
+            [$amount, $installment, $first, $mode, $interest] = $this->terms($terms, $debt->employee, $keepsPeriod, $interestFor, $disbursed ? $debt->totalDueMinor() : null);
+            // Ajuster ne crée pas de nouvelle dette : seuls les montants et les mensualités se revérifient.
+            $derogations = $this->derogations($debt->employee, $amount, $installment, $terms, $debt->getKey(), $disbursed ? ['installment_amount'] : ['amount', 'installment_amount']);
+            $fields = ['amount', 'installment_amount', 'interest_amount', 'first_period', 'repayment_mode'];
+            $before = $debt->only($fields);
             $reason = $this->reason($terms['reason'] ?? '');
 
             $debt->forceFill([
                 'amount' => $amount,
                 'installment_amount' => $installment,
+                ...($disbursed ? [] : $this->interestFields($interest, (bool) $debt->interest_waived)),
                 'first_period' => $first->toDateString(),
                 'repayment_mode' => $mode,
             ]);
@@ -153,9 +171,13 @@ class DecideStaffDebtAction
                 throw ValidationException::withMessages(['debt' => 'Rien n’a changé.']);
             }
 
+            if ($derogations !== []) {
+                $debt->derogations = array_values(array_unique([...($debt->derogations ?? []), ...$derogations]));
+            }
+
             $debt->save();
-            $this->auditor->record('staff_debt.adjust', entity: $debt, newValues: $debt->only(['amount', 'installment_amount', 'first_period', 'repayment_mode']),
-                oldValues: $before, reason: $reason, module: 'hr', actor: $actor);
+            $this->auditor->record('staff_debt.adjust', entity: $debt, newValues: [...$debt->only($fields), 'derogations' => $derogations ?: null],
+                oldValues: $before, reason: $reason, module: 'finance', actor: $actor);
 
             return $debt;
         });
@@ -236,14 +258,17 @@ class DecideStaffDebtAction
 
     /**
      * @param  array<string, mixed>  $terms
-     * @return array{0: string, 1: string, 2: \Illuminate\Support\Carbon, 3: StaffDebtRepaymentMode}
+     * @param  callable(int): (array<string, mixed>|null)  $interest  l'intérêt d'un montant
+     * @return array{0: string, 1: string, 2: \Illuminate\Support\Carbon, 3: StaffDebtRepaymentMode, 4: array<string, mixed>|null}
      */
-    private function terms(array $terms, ?Employee $employee, bool $allowPastPeriod = false): array
+    private function terms(array $terms, ?Employee $employee, bool $allowPastPeriod = false, ?callable $interest = null, ?int $totalMinor = null): array
     {
         $first = StaffDebtTerms::period($terms['first_period'] ?? null, 'first_period');
         $amountMinor = Money::toMinor((string) $terms['amount']);
         $installmentMinor = Money::toMinor((string) $terms['installment_amount']);
-        StaffDebtTerms::assert($amountMinor, $installmentMinor, $allowPastPeriod ? null : $first, 'amount', 'installment_amount', 'first_period');
+        $resolved = $interest !== null ? $interest($amountMinor) : null;
+        $totalMinor ??= $amountMinor + (int) ($resolved['amount_minor'] ?? 0);
+        StaffDebtTerms::assert($amountMinor, $installmentMinor, $allowPastPeriod ? null : $first, 'amount', 'installment_amount', 'first_period', $totalMinor);
 
         $mode = StaffDebtRepaymentMode::tryFrom((string) ($terms['repayment_mode'] ?? ''));
         if ($mode === null) {
@@ -254,7 +279,51 @@ class DecideStaffDebtAction
             throw ValidationException::withMessages(['repayment_mode' => 'Aucun salaire n’est déclaré pour cette personne (étape Rémunération de son dossier) : la paie n’aurait rien sur quoi retenir. Choisissez les espèces, ou faites déclarer son salaire.']);
         }
 
-        return [Money::fromMinor($amountMinor), Money::fromMinor($installmentMinor), $first, $mode];
+        return [Money::fromMinor($amountMinor), Money::fromMinor($installmentMinor), $first, $mode, $resolved];
+    }
+
+    /**
+     * Les limites du site que ces conditions dépassent : refusées tant que le DG ne
+     * confirme pas la dérogation, puis gardées sur la dette.
+     *
+     * @param  array<string, mixed>  $terms
+     * @param  list<string>|null  $only  les limites qui comptent pour ce geste
+     * @return list<string>
+     */
+    private function derogations(?Employee $employee, string $amount, string $installment, array $terms, ?int $ignoreDebtId = null, ?array $only = null): array
+    {
+        if ($employee === null) {
+            return [];
+        }
+
+        $violations = $this->rules->violations($employee, Money::toMinor($amount), Money::toMinor($installment), $ignoreDebtId);
+        if ($only !== null) {
+            $violations = array_intersect_key($violations, array_flip($only));
+        }
+        if ($violations !== [] && ! ($terms['accept_derogations'] ?? false)) {
+            throw ValidationException::withMessages([
+                ...$violations,
+                'derogation' => 'Ces conditions dépassent les limites du site. Confirmez la dérogation pour accorder quand même : elle restera écrite sur la dette.',
+            ]);
+        }
+
+        return array_values($violations);
+    }
+
+    /**
+     * L'intérêt figé sur la dette : sa tranche (mode et valeur) et son montant.
+     *
+     * @param  array<string, mixed>|null  $interest
+     * @return array<string, mixed>
+     */
+    private function interestFields(?array $interest, bool $waived): array
+    {
+        return [
+            'interest_amount' => Money::fromMinor((int) ($interest['amount_minor'] ?? 0)),
+            'interest_mode' => $interest['mode'] ?? null,
+            'interest_value' => $interest['value'] ?? null,
+            'interest_waived' => $waived,
+        ];
     }
 
     private function lock(StaffDebt $debt): StaffDebt

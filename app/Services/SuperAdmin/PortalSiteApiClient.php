@@ -220,6 +220,20 @@ class PortalSiteApiClient
     }
 
     /**
+     * ADR-229 — ce que chaque site a en jeu en dettes du personnel, pour « Tous les
+     * sites » dans Finance. Ni nom, ni motif, ni salaire.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function staffDebtsOverviewForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/staff-debts/overview', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
      * ADR-197 — l'accès du personnel de chaque site : employés sans compte, remises
      * au RH, rôles. Jamais un mot de passe.
      *

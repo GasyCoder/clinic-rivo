@@ -13,7 +13,7 @@ import PageHeader from '@/Components/UI/PageHeader.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
-import { hrUrl } from '@/utilities/hrUrl';
+import { hrContext, hrUrl } from '@/utilities/hrUrl';
 import { monthLabel, shiftMonth } from '@/utilities/bonus';
 
 /**
@@ -32,6 +32,14 @@ const props = defineProps({
 });
 
 const { can } = usePermissions();
+
+// ADR-229 — les dettes du personnel se gèrent dans Finance, au portail : le lien n'existe
+// que là, vers les dettes du même site.
+const staffDebtsUrl = computed(() => {
+    const context = hrContext();
+
+    return context && can('staff_debts.view') ? `/super-admin/sites/${encodeURIComponent(context.site.code)}/finance/dettes?vue=en-cours` : null;
+});
 
 const LINE_KINDS = {
     BASE: { label: 'Salaire de base', icon: Wallet },
@@ -79,7 +87,7 @@ const error = computed(() => Object.values(form.errors)[0] ?? '');
             :icon="Banknote"
         >
             <template #actions>
-                <Button v-if="can('staff_debts.view')" :as="Link" :href="hrUrl('/administration/dettes?vue=en-cours')" variant="outline">
+                <Button v-if="staffDebtsUrl" :as="Link" :href="staffDebtsUrl" variant="outline">
                     <Landmark class="h-4 w-4" />Dettes du personnel
                 </Button>
                 <Button v-if="can('advantage_entries.view')" :as="Link" :href="hrUrl(`/administration/bonus?onglet=saisis&mois=${month}`)" variant="outline">

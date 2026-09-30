@@ -3,7 +3,6 @@
 use App\Http\Controllers\Administration\AdvantageEntryController;
 use App\Http\Controllers\Administration\BonusController;
 use App\Http\Controllers\Administration\PayrollController;
-use App\Http\Controllers\Administration\StaffDebtController;
 use App\Http\Controllers\Administration\AttendanceController;
 use App\Http\Controllers\Administration\BankController;
 use App\Http\Controllers\Administration\EmployeeBadgeController;
@@ -188,15 +187,6 @@ Route::delete('/bonus/avantages/saisis/{entry}', [AdvantageEntryController::clas
 Route::get('/paie', [PayrollController::class, 'index'])->name('payroll.index')->middleware('can:salary_payments.view');
 Route::post('/paie/payer', [PayrollController::class, 'pay'])->name('payroll.pay')->middleware('can:salary_payments.pay');
 Route::post('/paie/{payment}/annuler', [PayrollController::class, 'cancel'])->name('payroll.cancel')->middleware('can:salary_payments.cancel');
-// ADR-228 — les dettes du personnel : le RH suit et marque versé, le DG (portail) décide.
-Route::get('/dettes', [StaffDebtController::class, 'index'])->name('staff-debts.index')->middleware('can:staff_debts.view');
-Route::get('/dettes/{staffDebt}', [StaffDebtController::class, 'show'])->name('staff-debts.show')->middleware('can:staff_debts.view');
-Route::post('/dettes/{staffDebt}/accorder', [StaffDebtController::class, 'approve'])->name('staff-debts.approve')->middleware('can:staff_debts.decide');
-Route::post('/dettes/{staffDebt}/refuser', [StaffDebtController::class, 'refuse'])->name('staff-debts.refuse')->middleware('can:staff_debts.decide');
-Route::post('/dettes/{staffDebt}/ajuster', [StaffDebtController::class, 'adjust'])->name('staff-debts.adjust')->middleware('can:staff_debts.decide');
-Route::post('/dettes/{staffDebt}/annuler', [StaffDebtController::class, 'cancel'])->name('staff-debts.cancel')->middleware('can:staff_debts.decide');
-Route::post('/dettes/{staffDebt}/remettre', [StaffDebtController::class, 'writeOff'])->name('staff-debts.write-off')->middleware('can:staff_debts.write_off');
-Route::post('/dettes/{staffDebt}/verser', [StaffDebtController::class, 'disburse'])->name('staff-debts.disburse')->middleware('can:staff_debts.disburse');
 
 Route::get('/staff-block-credits', [StaffBlockCreditController::class, 'index'])
     ->name('staff-block-credits.index')

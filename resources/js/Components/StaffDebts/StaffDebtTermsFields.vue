@@ -1,17 +1,21 @@
 <script setup>
 import { computed } from 'vue';
-import { CalendarDays, CalendarRange, Coins, Lock, Repeat } from 'lucide-vue-next';
+import { CalendarDays, CalendarRange, CircleAlert, Coins, Lock, Percent, Repeat } from 'lucide-vue-next';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import { formatMoney } from '@/utilities/money';
-import { debtPlan, installmentFor, periodOptions, planSummary, salaryShare, toMinor } from '@/utilities/staffDebts';
+import { debtPlan, fromMinor, installmentFor, periodOptions, planSummary, ruleIssues, salaryShare, toMinor, totalWithInterest } from '@/utilities/staffDebts';
 
 /**
  * ADR-228 — les conditions d'une dette, saisies de la même façon par l'employé qui la
  * demande et par le DG qui l'accorde ou l'ajuste : le montant, la mensualité et le mois
  * du premier remboursement. Le plan (nombre de mensualités, dernier mois) se lit en
  * direct ; le serveur le recalcule de toute façon.
+ *
+ * ADR-229 — avec les règles du site : l'intérêt de la tranche s'ajoute au montant, le
+ * plan porte sur le total, et les limites dépassées se disent pendant la saisie —
+ * un refus pour l'employé, une dérogation à confirmer pour le DG.
  */
 const props = defineProps({
     form: { type: Object, required: true },
@@ -23,21 +27,47 @@ const props = defineProps({
     /** Le salaire déclaré, pour dire quelle part la mensualité en prend (avec le droit de le voir). */
     salary: { type: String, default: null },
     disabled: { type: Boolean, default: false },
+    /** ADR-229 — les règles du site (limites, tranches d'intérêt), servies par le serveur. */
+    rules: { type: Object, default: null },
+    /** La mensualité que le salaire permet encore ; jamais le salaire lui-même. */
+    maxInstallment: { type: String, default: null },
+    /** L'intérêt remis par le DG : le total est le montant seul. */
+    waiveInterest: { type: Boolean, default: false },
+    /** Une dette versée garde l'intérêt figé à l'accord. */
+    fixedInterest: { type: String, default: null },
+    /** `refuse` : l'employé ne peut pas dépasser ; `derogation` : le DG peut, en le confirmant. */
+    limitMode: { type: String, default: 'refuse' },
 });
 
-const plan = computed(() => debtPlan(props.form.amount, props.form.installment_amount, props.form.first_period));
+const totals = computed(() => {
+    const amount = toMinor(props.form.amount);
+    if (! amount) return null;
+    if (props.fixedInterest !== null) {
+        const fixed = toMinor(props.fixedInterest) ?? 0;
+
+        return { interest: fixed > 0 ? { amount: props.fixedInterest } : null, total: fromMinor(amount + fixed) };
+    }
+    if (props.waiveInterest) return { interest: null, total: props.form.amount };
+
+    return totalWithInterest(props.form.amount, props.rules?.interest_tiers ?? []);
+});
+const interest = computed(() => totals.value?.interest ?? null);
+const plan = computed(() => debtPlan(totals.value?.total ?? props.form.amount, props.form.installment_amount, props.form.first_period));
+const issues = computed(() => ruleIssues(props.form.amount, props.form.installment_amount, props.lockAmount ? { ...props.rules, min_amount: null, max_amount: null } : props.rules, formatMoney, props.maxInstallment));
+const issueList = computed(() => Object.values(issues.value));
+defineExpose({ issues });
 const periods = computed(() => periodOptions(props.currentMonth, 18, props.keepPeriod));
 const share = computed(() => (props.salary ? salaryShare(props.form.installment_amount, props.salary) : null));
 const tooBig = computed(() => {
-    const amount = toMinor(props.form.amount);
+    const total = toMinor(totals.value?.total ?? props.form.amount);
     const installment = toMinor(props.form.installment_amount);
 
-    return amount !== null && installment !== null && installment > amount;
+    return total !== null && installment !== null && installment > total;
 });
 
 const QUICK = [3, 6, 10, 12];
 const pickMonths = (months) => {
-    const installment = installmentFor(props.form.amount, months);
+    const installment = installmentFor(totals.value?.total ?? props.form.amount, months);
     if (installment) props.form.installment_amount = installment.replace(/\.00$/, '');
 };
 </script>
@@ -58,6 +88,11 @@ const pickMonths = (months) => {
                     <span class="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">Ar</span>
                 </div>
                 <p v-if="lockAmount" class="mt-1 text-xs text-muted-foreground">Déjà versée : le montant est ce qui a été remis.</p>
+                <p v-else-if="rules && (rules.min_amount || rules.max_amount)" class="mt-1 text-xs text-muted-foreground">
+                    <template v-if="rules.min_amount && rules.max_amount">De {{ formatMoney(rules.min_amount) }} à {{ formatMoney(rules.max_amount) }}.</template>
+                    <template v-else-if="rules.min_amount">Au moins {{ formatMoney(rules.min_amount) }}.</template>
+                    <template v-else>Au plus {{ formatMoney(rules.max_amount) }}.</template>
+                </p>
             </FormField>
 
             <FormField label="Remboursement par mois" :icon="Repeat" required :error="form.errors.installment_amount">
@@ -91,8 +126,14 @@ const pickMonths = (months) => {
         >
             <CalendarRange :class="['mt-0.5 h-4 w-4 shrink-0', tooBig ? 'text-destructive' : 'text-primary']" />
             <div class="min-w-0">
-                <p v-if="tooBig" class="font-medium text-destructive">Le remboursement par mois ne peut pas dépasser le montant.</p>
+                <p v-if="tooBig" class="font-medium text-destructive">Le remboursement par mois ne peut pas dépasser ce qui est à rembourser.</p>
                 <template v-else-if="plan">
+                    <p v-if="interest" class="mb-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+                        <Percent class="h-3.5 w-3.5 text-primary" />
+                        {{ formatMoney(form.amount) }} + intérêt <strong class="tabular-nums text-foreground">{{ formatMoney(interest.amount) }}</strong>
+                        = <strong class="tabular-nums text-foreground">{{ formatMoney(totals.total) }}</strong> à rembourser
+                    </p>
+                    <p v-else-if="waiveInterest" class="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground"><Percent class="h-3.5 w-3.5" />Sans intérêt : remis par le DG.</p>
                     <p class="font-semibold text-foreground">{{ planSummary(plan) }}</p>
                     <p class="text-xs text-muted-foreground">
                         {{ formatMoney(plan.installment) }} par mois<template v-if="plan.count > 1 && plan.last_amount !== plan.installment">, puis {{ formatMoney(plan.last_amount) }} le dernier mois</template>.
@@ -100,6 +141,19 @@ const pickMonths = (months) => {
                     </p>
                 </template>
                 <p v-else class="text-muted-foreground">Indiquez le montant, le remboursement par mois et le premier mois : le plan s’affiche ici.</p>
+            </div>
+        </div>
+
+        <div
+            v-if="issueList.length"
+            :class="['flex items-start gap-3 rounded-xl border px-4 py-3 text-sm', limitMode === 'refuse' ? 'border-destructive/40 bg-destructive/5' : 'border-amber-300/70 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30']"
+            role="status"
+        >
+            <CircleAlert :class="['mt-0.5 h-4 w-4 shrink-0', limitMode === 'refuse' ? 'text-destructive' : 'text-amber-600']" />
+            <div class="min-w-0 space-y-1">
+                <p class="font-semibold text-foreground">{{ limitMode === 'refuse' ? 'Hors des limites du site' : 'Hors des limites du site : une dérogation' }}</p>
+                <p v-for="issue in issueList" :key="issue" class="text-foreground">{{ issue }}</p>
+                <p v-if="limitMode !== 'refuse'" class="text-xs text-muted-foreground">Vous pourrez accorder quand même en confirmant la dérogation : elle restera écrite sur la dette.</p>
             </div>
         </div>
     </div>

@@ -13,6 +13,7 @@ import {
     Hourglass,
     Layers,
     Medal,
+    Gift,
     Pencil,
     Plus,
     RotateCcw,
@@ -32,6 +33,7 @@ import TabsList from '@/Components/Shadcn/TabsList.vue';
 import TabsTrigger from '@/Components/Shadcn/TabsTrigger.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
+import AdvantagesPanel from '@/Components/Bonus/AdvantagesPanel.vue';
 import BonusCategoryDialog from '@/Components/Bonus/BonusCategoryDialog.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
@@ -58,11 +60,18 @@ const props = defineProps({
     /** `null` sans `bonus_categories.view` : l'onglet n'existe pas. */
     categories: { type: Array, default: null },
     staff: { type: Array, default: null },
+    /** Onglet ouvert à l'arrivée : « bonus » ou « advantages » (`?onglet=avantages`). */
+    tab: { type: String, default: 'bonus' },
+    /** Avantages à l'acte (ADR-226). */
+    advantages: { type: Object, required: true },
+    advantageSources: { type: Array, default: () => [] },
+    advantageArticles: { type: Array, default: null },
+    catalogChoices: { type: Array, default: null },
 });
 
 const { can } = usePermissions();
 
-const tab = ref(props.board.categories.length || ! props.categories ? 'month' : 'categories');
+const tab = ref(props.tab === 'advantages' ? 'advantages' : (props.board.categories.length || ! props.categories ? 'month' : 'categories'));
 const filter = ref('all');
 
 const FILTERS = [
@@ -155,21 +164,22 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
     <div class="w-full space-y-5">
         <PageHeader
             eyebrow="Ressources humaines · Pilotage"
-            title="Bonus du personnel"
-            description="Chaque catégorie compte un geste par mois. Qui atteint le seuil reçoit le montant, une fois validé par les RH ; le versement se fait hors RIVO."
+            title="Bonus et avantages du personnel"
+            description="Bonus : un seuil de patients par mois. Avantages : un prix par acte réalisé ou par patient référé. RIVO compte, les RH valident ; le versement se fait hors RIVO."
             :icon="Medal"
         >
             <template #actions>
-                <Button v-if="categories && can('bonus_categories.create')" type="button" @click="openCategory()">
+                <Button v-if="categories && tab !== 'advantages' && can('bonus_categories.create')" type="button" @click="openCategory()">
                     <Plus class="h-4 w-4" />Nouvelle catégorie
                 </Button>
             </template>
         </PageHeader>
 
         <Tabs v-model="tab">
-            <TabsList v-if="categories" aria-label="Bonus">
+            <TabsList aria-label="Bonus et avantages">
                 <TabsTrigger value="month"><Trophy class="h-4 w-4" />Bonus du mois</TabsTrigger>
-                <TabsTrigger value="categories"><Layers class="h-4 w-4" />Catégories · {{ activeCategories.length }}</TabsTrigger>
+                <TabsTrigger value="advantages"><Gift class="h-4 w-4" />Avantages à l’acte</TabsTrigger>
+                <TabsTrigger v-if="categories" value="categories"><Layers class="h-4 w-4" />Catégories · {{ activeCategories.length }}</TabsTrigger>
             </TabsList>
 
             <TabsContent value="month" class="space-y-5">
@@ -289,6 +299,17 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
                         </li>
                     </ul>
                 </Card>
+            </TabsContent>
+
+            <TabsContent value="advantages">
+                <AdvantagesPanel
+                    :month="month"
+                    :current-month="currentMonth"
+                    :board="advantages"
+                    :sources="advantageSources"
+                    :articles="advantageArticles"
+                    :catalog="catalogChoices"
+                />
             </TabsContent>
 
             <TabsContent v-if="categories" value="categories" class="space-y-4">

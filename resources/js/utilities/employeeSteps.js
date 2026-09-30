@@ -13,7 +13,7 @@ export const EMPLOYEE_STEPS = [
     { key: 'contact', label: 'Contact', hint: 'Comment la joindre ?', icon: Contact },
     { key: 'post', label: 'Poste', hint: 'Où travaille-t-elle ?', icon: Briefcase },
     { key: 'more', label: 'Compléments', hint: 'Famille, diplôme, matériel', icon: ListPlus },
-    { key: 'pay', label: 'Rémunération', hint: 'Salaire ou indemnité', icon: Wallet, payroll: true },
+    { key: 'pay', label: 'Rémunération', hint: 'Salaire, avantages, indemnité', icon: Wallet, payroll: true },
     { key: 'benefits', label: 'Avantages', hint: 'Montant et motif', icon: Gift, payroll: true },
     { key: 'bank', label: 'Banque', hint: 'Banque et compte', icon: Landmark, payroll: true },
     { key: 'done', label: 'Récapitulatif', hint: 'Vérifier et terminer', icon: CircleCheck },

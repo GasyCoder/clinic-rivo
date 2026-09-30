@@ -283,7 +283,7 @@ class EmployeeBanksAndBenefitsTest extends TestCase
         $nurse = $this->employee(['job_title_id' => $this->jobTitle('GENERAL_NURSE')->getKey()]);
 
         $this->actingAs($this->hr)->post("/administration/employees/{$nurse->uuid}/benefits", $this->benefitPayload())
-            ->assertSessionHasErrors(['benefit_type_uuid' => 'La fonction « Infirmier généraliste » n’ouvre pas droit aux avantages : cela se règle dans le module Fonctions.']);
+            ->assertSessionHasErrors(['benefit_type_uuid' => 'Les avantages ne sont pas ouverts pour cette personne : cochez « Avantages » à l’étape Rémunération.']);
 
         // Le module Fonctions l'ouvre : le même geste passe.
         $jobTitle = $this->jobTitle('GENERAL_NURSE');
@@ -294,6 +294,12 @@ class EmployeeBanksAndBenefitsTest extends TestCase
 
         $this->actingAs($this->hr)->post("/administration/employees/{$nurse->uuid}/benefits", $this->benefitPayload())
             ->assertSessionHasNoErrors();
+
+        // La case « Avantages » de l'étape Rémunération l'emporte sur la fonction, dans les deux sens.
+        $this->actingAs($this->hr)->put("/administration/employees/{$nurse->uuid}", ['benefits_enabled' => false, '_autosave' => true])->assertSessionHasNoErrors();
+        $this->actingAs($this->hr)->post("/administration/employees/{$nurse->uuid}/benefits", $this->benefitPayload())->assertSessionHasErrors('benefit_type_uuid');
+        $driver = $this->employee(['employee_number' => 'PAY-DRV', 'job_title_id' => $this->jobTitle('DRIVER')->getKey(), 'benefits_enabled' => true]);
+        $this->actingAs($this->hr)->post("/administration/employees/{$driver->uuid}/benefits", $this->benefitPayload())->assertSessionHasNoErrors();
     }
 
     public function test_a_benefit_is_corrected_by_autosave_and_retired_with_its_reason(): void

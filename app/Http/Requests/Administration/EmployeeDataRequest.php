@@ -89,6 +89,7 @@ abstract class EmployeeDataRequest extends FormRequest
 
         return [
             'remuneration_type' => ['nullable', new Enum(EmployeeRemunerationType::class)],
+            'benefits_enabled' => ['nullable', 'boolean'],
             'remuneration_amount' => [
                 'nullable',
                 // Un envoi partiel (une section de la fiche) sans le type relit le type enregistré.

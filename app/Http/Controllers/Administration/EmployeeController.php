@@ -258,8 +258,8 @@ class EmployeeController extends Controller
                 'frequencies' => collect(EmployeeBenefitFrequency::cases())->map(fn ($frequency) => [
                     'value' => $frequency->value, 'label' => $frequency->label(),
                 ])->all(),
-                // Une fonction ouvre droit aux avantages depuis le module Fonctions.
-                'eligible' => (bool) $employee->jobTitle?->grantsBenefits() && $employee->active && ! $employee->trashed(),
+                // La case « Avantages » de l'étape Rémunération, sinon la fonction (module Fonctions).
+                'eligible' => $employee->grantsBenefits() && $employee->active && ! $employee->trashed(),
                 'job_title' => $employee->jobTitle?->label,
             ] : null,
             // Ouvrir directement une section : ?section=pay depuis la fiche.

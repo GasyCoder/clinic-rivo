@@ -251,7 +251,7 @@ const finish = async () => {
                 </div>
                 <template v-if="payroll !== null && benefitOptions !== null">
                     <div id="section-pay" v-show="current === 'pay'">
-                        <PaySection :payroll="payroll" :url="url" :can-edit="canEditPayroll" />
+                        <PaySection :payroll="payroll" :url="url" :can-edit="canEditPayroll" :intern="Boolean(payroll?.is_intern) || internshipIntent" />
                     </div>
                     <div id="section-benefits" v-show="current === 'benefits'">
                         <BenefitsSection :benefits="benefits ?? []" :options="benefitOptions" :url="`${url}/benefits`" :can-edit="canEditPayroll" />

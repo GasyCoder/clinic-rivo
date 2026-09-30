@@ -170,6 +170,14 @@ Route::post('/bonus/categories/{category}/restore', [BonusController::class, 're
 Route::post('/bonus/awards', [BonusController::class, 'validateAward'])->name('bonus.awards.store')->middleware('can:bonus_awards.validate');
 Route::post('/bonus/awards/{award}/pay', [BonusController::class, 'payAward'])->name('bonus.awards.pay')->middleware('can:bonus_awards.pay');
 Route::post('/bonus/awards/{award}/cancel', [BonusController::class, 'cancelAward'])->name('bonus.awards.cancel')->middleware('can:bonus_awards.cancel');
+// Avantages à l'acte : articles (quantité × prix unitaire) et avantages du mois, mêmes droits que les bonus.
+Route::post('/bonus/avantages/articles', [BonusController::class, 'storeArticle'])->name('bonus.advantages.articles.store')->middleware('can:bonus_categories.create');
+Route::put('/bonus/avantages/articles/{article}', [BonusController::class, 'updateArticle'])->name('bonus.advantages.articles.update')->middleware('can:bonus_categories.update');
+Route::delete('/bonus/avantages/articles/{article}', [BonusController::class, 'destroyArticle'])->name('bonus.advantages.articles.destroy')->middleware('can:bonus_categories.archive');
+Route::post('/bonus/avantages/articles/{article}/restore', [BonusController::class, 'restoreArticle'])->name('bonus.advantages.articles.restore')->middleware('can:bonus_categories.restore')->withTrashed();
+Route::post('/bonus/avantages/awards', [BonusController::class, 'validateAdvantage'])->name('bonus.advantages.awards.store')->middleware('can:bonus_awards.validate');
+Route::post('/bonus/avantages/awards/{award}/pay', [BonusController::class, 'payAdvantage'])->name('bonus.advantages.awards.pay')->middleware('can:bonus_awards.pay');
+Route::post('/bonus/avantages/awards/{award}/cancel', [BonusController::class, 'cancelAdvantage'])->name('bonus.advantages.awards.cancel')->middleware('can:bonus_awards.cancel');
 
 Route::get('/staff-block-credits', [StaffBlockCreditController::class, 'index'])
     ->name('staff-block-credits.index')

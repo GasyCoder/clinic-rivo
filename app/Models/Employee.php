@@ -33,7 +33,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'address', 'address_entry_id', 'observation', 'active',
     'photo_path', 'photo_updated_at',
     // ADR-206 — rémunération déclarée et compte bancaire (droits employees.payroll.*).
-    'remuneration_type', 'remuneration_amount', 'bank_account_number', 'bank_account_holder',
+    'remuneration_type', 'remuneration_amount', 'benefits_enabled', 'bank_account_number', 'bank_account_holder',
     'salary_payment_mode', 'mobile_money_accounts',
     // ADR-221 — la banque du compte, choisie dans le référentiel des banques.
     'bank_id',
@@ -60,6 +60,7 @@ class Employee extends Model
             'marital_status' => MaritalStatus::class,
             'children_count' => 'integer',
             'children' => 'array',
+            'benefits_enabled' => 'boolean',
             'salary_payment_mode' => \App\Enums\SalaryPaymentMode::class,
             'mobile_money_accounts' => 'array',
             'active' => 'boolean',
@@ -96,6 +97,16 @@ class Employee extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(HrReferenceValue::class, 'department_id');
+    }
+
+    /**
+     * Les avantages sont ouverts pour cette personne : la case « Avantages » de l'étape
+     * Rémunération décide ; tant qu'elle n'a jamais été touchée, c'est sa fonction
+     * (module Fonctions). Un dossier inactif ou archivé n'en reçoit plus.
+     */
+    public function grantsBenefits(): bool
+    {
+        return $this->benefits_enabled ?? (bool) $this->jobTitle?->grantsBenefits();
     }
 
     public function jobTitle(): BelongsTo

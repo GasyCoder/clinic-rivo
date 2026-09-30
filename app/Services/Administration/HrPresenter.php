@@ -113,6 +113,12 @@ class HrPresenter
             'remuneration_type' => $employee->remuneration_type?->value,
             'remuneration_label' => $employee->remuneration_type?->label(),
             'remuneration_amount' => $employee->remuneration_amount,
+            // La case « Avantages » : true / false décidé, null = la fonction décide.
+            'benefits_enabled' => $employee->benefits_enabled,
+            'benefits_granted' => $employee->grantsBenefits(),
+            'benefits_by_job_title' => (bool) $employee->jobTitle?->grantsBenefits(),
+            'job_title' => $employee->jobTitle?->label,
+            'is_intern' => app(\App\Services\Administration\InternshipDirectory::class)->isIntern($employee),
             // ADR-221 — la banque, choisie dans le module Banques ; archivée depuis, elle reste lisible.
             'bank_uuid' => $employee->bank?->uuid,
             'bank' => $employee->bank ? $this->bank($employee->bank) : null,

@@ -22053,3 +22053,61 @@ règle                             une ligne remplie exige les trois : opérateu
 ```
 
 Lus sur la fiche (carte Rémunération et banque) et la fiche imprimée. Migration `2026_11_30_090000`, à jouer sur chaque site et sur le portail.
+
+---
+
+# ADR-226 — Salaire et avantages ensemble ; avantages à l'acte dans le module Bonus
+
+**Status:** ACCEPTED (2026-09-30 — demande du propriétaire, avec la feuille « Avantage_Reference » de la clinique : ECHO, ECG, CHIR, Chir Laparo, AUTO CHIR… en quantité × prix unitaire ; quatre arbitrages explicites)
+
+**Amende l'ADR-206** (la rémunération n'était qu'un seul choix Salaire / Indemnité / Non rémunéré) et **l'ADR-221** (les avantages n'étaient ouverts que par la fonction). **Complète l'ADR-212** (bonus du personnel). Le CDC ne décrit ni avantage, ni prime à l'acte : les règles ci-dessous sont celles du propriétaire. Aucune paie n'est calculée (ADR-066) : un avantage est compté, validé et tracé, jamais retenu ni ajouté à un net.
+
+## Les arbitrages
+
+```text
+case « Avantages »   elle ouvre les avantages de la personne et l'emporte sur la fonction ;
+                     vide, la fonction décide comme avant (ADR-221)
+quantité             comptée par RIVO, jamais saisie
+ce qui est compté    les deux : actes réalisés, et patients référés
+bénéficiaires        employés et partenaires (ADR-211)
+```
+
+## Rémunération : salaire et avantages ensemble
+
+À l'étape Rémunération, un employé coche **Salaire**, **Avantages**, ou les deux ; **Non rémunéré** (bénévole) les exclut. Un stagiaire garde **Indemnité** (choisie d'office si rien n'est encore noté) ou **Non rémunéré**. `employees.benefits_enabled` (booléen nullable) porte la case ; `Employee::grantsBenefits()` = la case, sinon la fonction (`JobTitleBenefits`). Même droit que la rémunération (`employees.payroll.update`, `EmployeePayroll::FIELDS`). Les avantages déclarés à la main (étape Avantages, ADR-221) et le refus d'en ajouter suivent `grantsBenefits()`.
+
+## Avantages à l'acte, dans le module Bonus
+
+Onglet **« Avantages à l'acte »** de `/administration/bonus` (`?onglet=avantages`), servi aussi au portail (ADR-187).
+
+```text
+article     advantage_articles : nom unique, ce qu'il compte (AdvantageSource PERFORMED | REFERRED),
+            prix unitaire, description, actes du catalogue regroupés (advantage_article_items) ;
+            archivé avec motif, restauré, jamais supprimé
+compté      AdvantageMeter, sur des faits déjà enregistrés, dans le mois :
+  réalisés    compte rendu d'imagerie, résultat d'analyse, intervention (via l'acte de la demande
+              chirurgicale), acte de soins, acte de maternité — lus sur le compte de connexion relié
+              à la fiche (ADR-188) ; employés dont les avantages sont ouverts
+  référés     chaque acte de l'article facturé (non annulé, quantité comprise) sur le passage où le
+              patient recommandé est arrivé (ADR-212) — jamais ses passages suivants ; employés dont
+              les avantages sont ouverts, partenaires en service
+tableau     AdvantageBoard : par personne, Article · Compte · Qté · PU · Total, passages comptés
+valider     ValidateAdvantageAwardAction recompte, fige lignes (quantité, prix, total) et total sur
+            advantage_awards ; un seul en vigueur par personne et par mois (active_key) ; refusé pour
+            un mois futur ou un total nul ; changer un prix ensuite ne réécrit rien
+versé       marqué versé (note) hors RIVO ; annulé avec motif tant qu'il n'est pas versé ; jamais supprimé
+```
+
+Droits : ceux des bonus, sans permission nouvelle — `bonus_categories.*` pour les articles, `bonus_awards.*` pour valider, verser, annuler. Audit par les modèles (`Auditable`), acteur distant signé depuis le portail.
+
+## Signalé, non tranché
+
+```text
+QTE saisie à la main        refusée par l'arbitrage : un acte hors RIVO ne compte pas
+un acte, deux articles      compté dans chacun ; à éviter en configurant les articles
+patient référé ensuite      seul le passage d'arrivée compte ; un retour du patient ne rapporte rien
+formulaire « Référence »    Nom, Grade, Genre, Adresse, Tel de la feuille : couverts par la fiche employé
+                            ou partenaire, rien n'est ajouté
+```
+
+Migration `2026_12_01_090000_create_advantages`, à jouer sur chaque site et sur le portail.

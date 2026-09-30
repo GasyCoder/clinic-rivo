@@ -81,12 +81,8 @@ class SaveEmployeeBenefitAction
             throw ValidationException::withMessages(['benefit_type_uuid' => 'Un dossier inactif ou archivé ne reçoit pas de nouvel avantage.']);
         }
 
-        if (! $employee->jobTitle?->grantsBenefits()) {
-            $jobTitle = $employee->jobTitle?->label;
-
-            throw ValidationException::withMessages(['benefit_type_uuid' => $jobTitle
-                ? "La fonction « {$jobTitle} » n’ouvre pas droit aux avantages : cela se règle dans le module Fonctions."
-                : 'Choisissez d’abord la fonction de cet employé : seules certaines fonctions ouvrent droit aux avantages (module Fonctions).']);
+        if (! $employee->grantsBenefits()) {
+            throw ValidationException::withMessages(['benefit_type_uuid' => 'Les avantages ne sont pas ouverts pour cette personne : cochez « Avantages » à l’étape Rémunération.']);
         }
     }
 

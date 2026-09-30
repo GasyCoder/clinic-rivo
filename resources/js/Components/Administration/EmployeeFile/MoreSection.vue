@@ -1,19 +1,20 @@
 <script setup>
 import { computed } from 'vue';
-import { BadgeCheck, GraduationCap, HeartHandshake, ListPlus, Plus, Shirt, Trash2 } from 'lucide-vue-next';
+import { Baby, BadgeCheck, Footprints, GraduationCap, HeartHandshake, ListPlus, NotebookPen, Plus, Shirt, Trash2 } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
-import { cn } from '@/lib/cn';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import ShadSelect from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { useSectionAutosave } from '@/composables/useSectionAutosave';
+import ChipChoice from './ChipChoice.vue';
 import EmployeeSectionCard from './EmployeeSectionCard.vue';
+import FieldGroup from './FieldGroup.vue';
 
 /**
- * ADR-221 — Famille, qualification et matériel : des informations déclaratives,
- * toutes facultatives, enregistrées toutes seules.
+ * ADR-221 / ADR-225 — famille, qualification, tenue et matériel remis : des
+ * informations déclaratives, toutes facultatives, enregistrées toutes seules.
  */
 const props = defineProps({
     employee: { type: Object, required: true },
@@ -43,102 +44,126 @@ const { form, state, savedAt, retry } = useSectionAutosave('more', {
     ready: () => form.children.every((child) => String(child.name).trim() !== '' || (String(child.sex) === '' && String(child.age) === '')),
 });
 
+const maritalOptions = computed(() => [{ value: '', label: 'Non renseignée' }, ...(props.options.marital_statuses ?? [])]);
+
 const childSexes = [{ value: 'F', label: 'Fille' }, { value: 'G', label: 'Garçon' }];
 const addChild = () => form.children.push({ name: '', sex: '', age: '' });
 const removeChild = (index) => form.children.splice(index, 1);
 const filledChildren = computed(() => form.children.filter((child) => String(child.name).trim() !== '').length);
-// Ancienne note libre, gardée lisible tant qu'elle n'a pas été reprise en liste.
+// Un nombre déclaré avant la liste, sans prénoms : signalé, jamais réécrit avant la liste.
 const legacyCount = computed(() => (form.children.length === 0 ? Number(props.employee.children_count ?? 0) : 0));
 
-const maritalOptions = computed(() => [{ value: '', label: 'Non renseignée' }, ...(props.options.marital_statuses ?? [])]);
+const sizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
+const yesNo = [{ value: 'Oui', label: 'Oui' }, { value: 'Non', label: 'Non', tone: 'negative' }];
+const handedOver = [
+    { key: 'blouse', label: 'Blouse' },
+    { key: 'bloc_outfit', label: 'Tenue bloc' },
+    { key: 'scrub_cap', label: 'Callot' },
+    { key: 'clog', label: 'Sabot' },
+];
 </script>
 
 <template>
     <EmployeeSectionCard
         :icon="ListPlus"
-        title="Famille et qualification"
+        title="Famille, qualification et tenue"
         description="Informations déclaratives, sans aucun calcul automatique. Tout est facultatif."
         tone="bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300"
         :state="state"
         :saved-at="savedAt"
+        incomplete-hint="Donnez un prénom à chaque enfant"
         :read-only="! canEdit"
         @retry="retry"
     >
-        <fieldset :disabled="! canEdit" class="grid gap-4 lg:grid-cols-3">
-            <section class="space-y-4 rounded-xl border border-border p-3.5">
-                <h3 class="flex items-center gap-2 text-sm font-bold text-foreground"><HeartHandshake class="h-4 w-4 text-rose-600" />Famille</h3>
-                <FormField as="div" label="Situation matrimoniale" :error="form.errors.marital_status">
-                    <ShadSelect id="marital_status" v-model="form.marital_status" :options="maritalOptions" placeholder="Non renseignée" class="w-full" aria-label="Situation matrimoniale" :disabled="! canEdit" />
-                </FormField>
-                <div class="flex items-center justify-between">
-                    <p class="text-xs font-semibold text-foreground">Enfants</p>
-                    <span class="rounded-full bg-muted px-2 py-0.5 text-xs font-bold text-muted-foreground" aria-live="polite">{{ filledChildren }} enfant{{ filledChildren > 1 ? 's' : '' }}</span>
+        <fieldset :disabled="! canEdit" class="grid gap-4">
+            <div class="grid gap-4 lg:grid-cols-5">
+                <FieldGroup :icon="HeartHandshake" title="Famille" tone="bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300" class="lg:col-span-3">
+                    <FormField as="div" label="Situation matrimoniale" :error="form.errors.marital_status">
+                        <ShadSelect id="marital_status" v-model="form.marital_status" :options="maritalOptions" placeholder="Non renseignée" class="w-full sm:max-w-xs" aria-label="Situation matrimoniale" :disabled="! canEdit" />
+                    </FormField>
+
+                    <div>
+                        <div class="mb-2 flex items-center justify-between gap-3">
+                            <p class="text-sm font-medium text-foreground">Enfants</p>
+                            <span class="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground" aria-live="polite">
+                                <Baby class="h-3.5 w-3.5" aria-hidden="true" />{{ filledChildren }} enfant{{ filledChildren > 1 ? 's' : '' }}
+                            </span>
+                        </div>
+
+                        <p v-if="legacyCount > 0" class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                            {{ legacyCount }} enfant{{ legacyCount > 1 ? 's' : '' }} déclaré{{ legacyCount > 1 ? 's' : '' }} avant la liste. Ajoutez-les ci-dessous : le nombre suivra la liste.
+                        </p>
+
+                        <ul v-if="form.children.length" class="divide-y divide-border overflow-hidden rounded-lg border border-border">
+                            <li v-for="(child, index) in form.children" :key="index" class="bg-background px-3 py-2.5">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary" aria-hidden="true">{{ index + 1 }}</span>
+                                    <Input v-model="child.name" :aria-label="`Prénom de l’enfant ${index + 1}`" placeholder="Prénom" class="h-9 min-w-[9rem] flex-1" />
+                                    <ChipChoice v-model="child.sex" :options="childSexes" :label="`Sexe de l’enfant ${index + 1}`" :disabled="! canEdit" size="sm" />
+                                    <div class="flex items-center gap-1.5">
+                                        <Input v-model="child.age" type="number" min="0" max="60" inputmode="numeric" :aria-label="`Âge de l’enfant ${index + 1}`" placeholder="Âge" class="h-9 w-16 text-center" />
+                                        <span class="text-xs text-muted-foreground">ans</span>
+                                    </div>
+                                    <Button type="button" variant="ghost" size="icon" class="ms-auto h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive" :aria-label="`Retirer l’enfant ${index + 1}`" :disabled="! canEdit" @click="removeChild(index)"><Trash2 class="h-4 w-4" /></Button>
+                                </div>
+                                <p v-if="form.errors[`children.${index}.name`] || form.errors[`children.${index}.age`]" class="mt-1.5 ps-9 text-xs text-destructive">{{ form.errors[`children.${index}.name`] || form.errors[`children.${index}.age`] }}</p>
+                            </li>
+                        </ul>
+                        <p v-else class="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">Aucun enfant déclaré.</p>
+
+                        <Button type="button" variant="outline" size="sm" class="mt-2" :disabled="! canEdit || form.children.length >= 20" @click="addChild"><Plus class="h-4 w-4" />Ajouter un enfant</Button>
+                    </div>
+
+                    <FormField v-if="employee.children_details" label="Ancienne note sur les enfants" hint="(saisie avant la liste)" :error="form.errors.children_details">
+                        <Textarea id="children_details" v-model="form.children_details" :rows="2" />
+                    </FormField>
+                </FieldGroup>
+
+                <div class="grid content-start gap-4 lg:col-span-2">
+                    <FieldGroup :icon="GraduationCap" title="Qualification" tone="bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-300">
+                        <FormField label="Diplôme" :error="form.errors.diploma">
+                            <Input id="diploma" v-model="form.diploma" placeholder="Ex. Diplôme d’État d’infirmier" />
+                        </FormField>
+                        <FormField label="Niveau d’études" :error="form.errors.education_level">
+                            <Input id="education_level" v-model="form.education_level" placeholder="Ex. Bac +3" />
+                        </FormField>
+                    </FieldGroup>
+                <FieldGroup :icon="NotebookPen" title="Observation RH" tone="bg-muted text-muted-foreground">
+                    <Textarea id="observation" v-model="form.observation" :rows="3" aria-label="Observation RH" placeholder="Information utile au suivi administratif" />
+                    <p v-if="form.errors.observation" class="text-xs text-destructive">{{ form.errors.observation }}</p>
+                </FieldGroup>
                 </div>
-                <p v-if="legacyCount > 0" class="rounded-lg bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                    {{ legacyCount }} enfant{{ legacyCount > 1 ? 's' : '' }} déclaré{{ legacyCount > 1 ? 's' : '' }} avant la liste : ajoutez-les ci-dessous, le nombre suivra la liste.
-                </p>
-                <ul v-if="form.children.length" class="space-y-2">
-                    <li v-for="(child, index) in form.children" :key="index" class="rounded-lg border border-border bg-muted/30 p-2.5">
-                        <div class="flex items-center gap-2">
-                            <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary" aria-hidden="true">{{ index + 1 }}</span>
-                            <Input v-model="child.name" :aria-label="`Prénom de l’enfant ${index + 1}`" placeholder="Prénom de l’enfant" class="min-w-0 flex-1" />
-                            <Button type="button" variant="ghost" size="icon" class="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive" :aria-label="`Retirer l’enfant ${index + 1}`" :disabled="! canEdit" @click="removeChild(index)"><Trash2 class="h-4 w-4" /></Button>
+            </div>
+
+            <FieldGroup :icon="Shirt" title="Tenue et équipement" description="Les tailles à commander et ce qui a été remis. Un second clic sur un choix le retire." tone="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-300">
+                <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_12rem]">
+                    <FormField as="div" label="Taille T-shirt" :error="form.errors.tshirt_size">
+                        <ChipChoice v-model="form.tshirt_size" :options="sizes" label="Taille T-shirt" :disabled="! canEdit" size="sm" />
+                    </FormField>
+                    <FormField as="div" label="Taille blouse" :error="form.errors.blouse_size">
+                        <ChipChoice v-model="form.blouse_size" :options="sizes" label="Taille blouse" :disabled="! canEdit" size="sm" />
+                    </FormField>
+                    <FormField label="Pointure" :error="form.errors.shoe_size">
+                        <IconInput id="shoe_size" v-model="form.shoe_size" :icon="Footprints" inputmode="numeric" placeholder="Ex. 38" />
+                    </FormField>
+                </div>
+
+                <div>
+                    <p class="mb-2 text-sm font-medium text-foreground">Remis à la personne</p>
+                    <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                        <div v-for="item in handedOver" :key="item.key" class="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                            <span class="text-sm font-medium text-foreground">{{ item.label }}</span>
+                            <ChipChoice v-model="form[item.key]" :options="yesNo" :label="`${item.label} remis`" :disabled="! canEdit" size="sm" />
                         </div>
-                        <div class="mt-2 flex items-center gap-2 pl-9">
-                            <div class="inline-flex rounded-md border border-border bg-background p-0.5" role="group" :aria-label="`Sexe de l’enfant ${index + 1}`">
-                                <button
-                                    v-for="option in childSexes"
-                                    :key="option.value"
-                                    type="button"
-                                    :disabled="! canEdit"
-                                    :aria-pressed="child.sex === option.value"
-                                    :class="cn('rounded px-3 py-1 text-xs font-semibold transition-colors', child.sex === option.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')"
-                                    @click="child.sex = child.sex === option.value ? '' : option.value"
-                                >{{ option.label }}</button>
-                            </div>
-                            <div class="flex items-center gap-1.5">
-                                <Input v-model="child.age" type="number" min="0" max="60" inputmode="numeric" :aria-label="`Âge de l’enfant ${index + 1}`" placeholder="Âge" class="w-20" />
-                                <span class="text-xs text-muted-foreground">ans</span>
-                            </div>
-                        </div>
-                        <p v-if="form.errors[`children.${index}.name`] || form.errors[`children.${index}.age`]" class="mt-1.5 pl-9 text-xs text-destructive">{{ form.errors[`children.${index}.name`] || form.errors[`children.${index}.age`] }}</p>
-                    </li>
-                </ul>
-                <p v-else class="rounded-lg border border-dashed border-border p-3 text-center text-xs text-muted-foreground">Aucun enfant déclaré.</p>
-                <Button type="button" variant="outline" size="sm" :disabled="! canEdit || form.children.length >= 20" @click="addChild"><Plus class="mr-1 h-4 w-4" />Ajouter un enfant</Button>
-                <FormField v-if="props.employee.children_details" label="Ancienne note sur les enfants" :error="form.errors.children_details">
-                    <Textarea id="children_details" v-model="form.children_details" :rows="3" />
-                </FormField>
-            </section>
-            <section class="space-y-4 rounded-xl border border-border p-3.5">
-                <h3 class="flex items-center gap-2 text-sm font-bold text-foreground"><GraduationCap class="h-4 w-4 text-amber-600" />Qualification</h3>
-                <FormField label="Diplôme" :error="form.errors.diploma">
-                    <Input id="diploma" v-model="form.diploma" />
-                </FormField>
-                <FormField label="Niveau d’études" :error="form.errors.education_level">
-                    <Input id="education_level" v-model="form.education_level" />
-                </FormField>
-                <FormField label="Observation RH" :error="form.errors.observation">
-                    <Textarea id="observation" v-model="form.observation" :rows="3" placeholder="Information utile au suivi administratif" />
-                </FormField>
-            </section>
-            <section class="space-y-4 rounded-xl border border-border p-3.5">
-                <h3 class="flex items-center gap-2 text-sm font-bold text-foreground"><Shirt class="h-4 w-4 text-emerald-600" />Matériel remis</h3>
-                <FormField label="Badge" :error="form.errors.badge">
+                    </div>
+                    <p v-if="['blouse', 'bloc_outfit', 'scrub_cap', 'clog'].some((key) => form.errors[key])" class="mt-1 text-xs text-destructive">{{ form.errors.blouse || form.errors.bloc_outfit || form.errors.scrub_cap || form.errors.clog }}</p>
+                </div>
+
+                <FormField label="N° de badge" hint="(vide : le matricule est imprimé)" :error="form.errors.badge" class="sm:max-w-xs">
                     <IconInput id="badge" v-model="form.badge" :icon="BadgeCheck" placeholder="Numéro ou référence" />
                 </FormField>
-                <FormField label="Blouse" :error="form.errors.blouse">
-                    <IconInput id="blouse" v-model="form.blouse" :icon="Shirt" placeholder="Oui, Non ou référence" />
-                </FormField>
-                <div class="grid grid-cols-2 gap-3">
-                    <FormField label="Taille T-shirt" :error="form.errors.tshirt_size"><Input id="tshirt_size" v-model="form.tshirt_size" placeholder="M, L…" /></FormField>
-                    <FormField label="Taille blouse" :error="form.errors.blouse_size"><Input id="blouse_size" v-model="form.blouse_size" placeholder="M, L…" /></FormField>
-                    <FormField label="Pointure" :error="form.errors.shoe_size"><Input id="shoe_size" v-model="form.shoe_size" inputmode="numeric" placeholder="37" /></FormField>
-                    <FormField label="Tenue bloc" :error="form.errors.bloc_outfit"><Input id="bloc_outfit" v-model="form.bloc_outfit" placeholder="Oui / taille" /></FormField>
-                    <FormField label="Callot" :error="form.errors.scrub_cap"><Input id="scrub_cap" v-model="form.scrub_cap" placeholder="Oui / Non" /></FormField>
-                    <FormField label="Sabot" :error="form.errors.clog"><Input id="clog" v-model="form.clog" placeholder="Oui / Non" /></FormField>
-                </div>
-            </section>
+            </FieldGroup>
+
         </fieldset>
     </EmployeeSectionCard>
 </template>

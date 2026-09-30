@@ -14,6 +14,7 @@ import {
     Layers,
     Medal,
     Gift,
+    HandCoins,
     Pencil,
     Plus,
     RotateCcw,
@@ -34,6 +35,8 @@ import TabsTrigger from '@/Components/Shadcn/TabsTrigger.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import AdvantagesPanel from '@/Components/Bonus/AdvantagesPanel.vue';
+import AdvantageEntriesDialog from '@/Components/Bonus/AdvantageEntriesDialog.vue';
+import AdvantageEntriesPanel from '@/Components/Bonus/AdvantageEntriesPanel.vue';
 import BonusCategoryDialog from '@/Components/Bonus/BonusCategoryDialog.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
@@ -67,12 +70,15 @@ const props = defineProps({
     advantageSources: { type: Array, default: () => [] },
     advantageArticles: { type: Array, default: null },
     catalogChoices: { type: Array, default: null },
+    /** Avantages saisis (ADR-227) ; `null` sans `advantage_entries.view`. */
+    entries: { type: Object, default: null },
 });
 
 const { can } = usePermissions();
 
-const tab = ref(props.tab === 'advantages' ? 'advantages' : (props.board.categories.length || ! props.categories ? 'month' : 'categories'));
+const tab = ref(props.tab === 'entries' && props.entries ? 'entries' : props.tab === 'advantages' ? 'advantages' : (props.board.categories.length || ! props.categories ? 'month' : 'categories'));
 const filter = ref('all');
+const entriesOpen = ref(false);
 
 const FILTERS = [
     { value: 'all', label: 'Tout le personnel' },
@@ -169,7 +175,10 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
             :icon="Medal"
         >
             <template #actions>
-                <Button v-if="categories && tab !== 'advantages' && can('bonus_categories.create')" type="button" @click="openCategory()">
+                <Button v-if="entries && can('advantage_entries.create')" type="button" variant="outline" @click="entriesOpen = true">
+                    <HandCoins class="h-4 w-4" />Saisir des avantages
+                </Button>
+                <Button v-if="categories && ['month', 'categories'].includes(tab) && can('bonus_categories.create')" type="button" @click="openCategory()">
                     <Plus class="h-4 w-4" />Nouvelle catégorie
                 </Button>
             </template>
@@ -179,6 +188,7 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
             <TabsList aria-label="Bonus et avantages">
                 <TabsTrigger value="month"><Trophy class="h-4 w-4" />Bonus du mois</TabsTrigger>
                 <TabsTrigger value="advantages"><Gift class="h-4 w-4" />Avantages à l’acte</TabsTrigger>
+                <TabsTrigger v-if="entries" value="entries"><HandCoins class="h-4 w-4" />Avantages saisis · {{ entries.summary.count }}</TabsTrigger>
                 <TabsTrigger v-if="categories" value="categories"><Layers class="h-4 w-4" />Catégories · {{ activeCategories.length }}</TabsTrigger>
             </TabsList>
 
@@ -312,6 +322,10 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
                 />
             </TabsContent>
 
+            <TabsContent v-if="entries" value="entries">
+                <AdvantageEntriesPanel :month="month" :current-month="currentMonth" :entries="entries" @add="entriesOpen = true" />
+            </TabsContent>
+
             <TabsContent v-if="categories" value="categories" class="space-y-4">
                 <Card v-if="! categories.length" class="px-6 py-10 text-center text-sm text-muted-foreground">Aucune catégorie pour l’instant.</Card>
                 <Card v-else class="overflow-hidden">
@@ -344,6 +358,14 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
             </TabsContent>
         </Tabs>
 
+        <AdvantageEntriesDialog
+            v-if="entries"
+            v-model:open="entriesOpen"
+            :month="month"
+            :current-month="currentMonth"
+            :doctors="entries.doctors"
+            :reasons="entries.reasons"
+        />
         <BonusCategoryDialog v-if="categories" v-model:open="categoryOpen" :category="editing" :measures="measures" :staff="staff ?? []" />
 
         <ConfirmModal

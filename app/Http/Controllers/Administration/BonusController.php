@@ -12,6 +12,7 @@ use App\Models\AdvantageAward;
 use App\Models\CatalogItem;
 use App\Models\PartnerOrganization;
 use App\Services\Bonus\AdvantageBoard;
+use App\Services\Payroll\AdvantageEntryDirectory;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
 use App\Actions\Bonus\SaveBonusCategoryAction;
@@ -38,7 +39,7 @@ use Inertia\Response;
  */
 class BonusController extends Controller
 {
-    public function index(Request $request, BonusBoard $board, AdvantageBoard $advantages): Response
+    public function index(Request $request, BonusBoard $board, AdvantageBoard $advantages, AdvantageEntryDirectory $entries): Response
     {
         $month = $this->month($request->query('mois')) ?? now()->startOfMonth();
         $canManage = $request->user()->can('bonus_categories.view');
@@ -48,7 +49,13 @@ class BonusController extends Controller
             'currentMonth' => now()->format('Y-m'),
             'board' => $board->month($month),
             // Onglet « Avantages à l'acte » : quantité × prix unitaire, comptés par RIVO.
-            'tab' => $request->query('onglet') === 'avantages' ? 'advantages' : 'bonus',
+            'tab' => match ($request->query('onglet')) {
+                'avantages' => 'advantages',
+                'saisis' => 'entries',
+                default => 'bonus',
+            },
+            // ADR-227 — avantages saisis pour les médecins (montant, motif, mois de paie).
+            'entries' => $request->user()->can('advantage_entries.view') ? $entries->month($month) : null,
             'advantages' => $advantages->month($month),
             'advantageSources' => AdvantageSource::options(),
             'advantageArticles' => $canManage ? AdvantageArticle::withTrashed()

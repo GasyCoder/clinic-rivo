@@ -1,4 +1,5 @@
 import {
+    Banknote,
     ChartPie,
     ListChecks,
     TestTube,
@@ -150,7 +151,7 @@ export const CLINIC_WORKSPACES = [
         // /administration/users stays with « Utilisateurs & accès ».
         exact: true,
         // ADR-066 — the sidebar is the HR space's only navigation (no tab bar).
-        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/internships', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/departments', '/administration/job-titles', '/administration/settings', '/administration/staff-access', '/administration/bonus'],
+        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/internships', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/departments', '/administration/job-titles', '/administration/settings', '/administration/staff-access', '/administration/bonus', '/administration/paie'],
         permission: 'employees.view',
         tone: 'navy',
         children: [
@@ -170,6 +171,8 @@ export const CLINIC_WORKSPACES = [
             { code: 'hr-block-credit', icon: Wallet, label: 'Crédit Bloc', link: '/administration/staff-block-credits', activeLinks: ['/administration/staff-block-credits'], permission: 'staff_block_credits.view' },
             // ADR-212 — les bonus du personnel : catégories, seuils, attributions.
             { code: 'hr-bonus', icon: Medal, label: 'Bonus', link: '/administration/bonus', activeLinks: ['/administration/bonus'], permission: 'bonus_awards.view' },
+            // ADR-227 — la paie du mois : salaire de base déclaré + avantages du mois, brut.
+            { code: 'hr-payroll', icon: Banknote, label: 'Paie du mois', link: '/administration/paie', activeLinks: ['/administration/paie'], permission: 'salary_payments.view' },
             // ADR-188 — les deux référentiels de structure ont leur module.
             { code: 'hr-departments', icon: Network, label: 'Départements', link: '/administration/departments', activeLinks: ['/administration/departments'], permission: 'hr_settings.view' },
             { code: 'hr-job-titles', icon: BriefcaseBusiness, label: 'Fonctions', link: '/administration/job-titles', activeLinks: ['/administration/job-titles'], permission: 'hr_settings.view' },

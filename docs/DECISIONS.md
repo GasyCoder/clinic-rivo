@@ -22111,3 +22111,66 @@ formulaire « Référence »    Nom, Grade, Genre, Adresse, Tel de la feuille : 
 ```
 
 Migration `2026_12_01_090000_create_advantages`, à jouer sur chaque site et sur le portail.
+
+---
+
+# ADR-227 — Avantages saisis pour les médecins et paie du mois
+
+**Status:** ACCEPTED (2026-09-30 — demande du propriétaire, deux arbitrages explicites : une page « Paie du
+mois » ; deux boutons dans le module Bonus, « Saisir des avantages » à côté de « Nouvel article »)
+
+**Amende l'ADR-066** (RIVO ne stockait aucune paie : il en garde désormais une trace brute), **complète
+l'ADR-206** (salaire de base déclaré), **l'ADR-221** (avantages déclarés sur la fiche) et **l'ADR-226**
+(avantages à l'acte). Le CDC ne décrit aucune paie : les règles ci-dessous sont celles du propriétaire.
+Aucune retenue, aucune cotisation, aucun net n'est calculé.
+
+## Saisir des avantages
+
+Module Bonus › « Saisir des avantages » : la liste des **médecins** — les personnes en poste dont les
+avantages sont ouverts (`Employee::grantsBenefits()`, ADR-221/226), jamais un nom libre —, plusieurs
+lignes par médecin (montant > 0, motif libre ou proposé — ECHO…), un mois de paie commun. Compteurs et
+totaux par médecin et au total, en direct. Tout part d'un geste, tout ou rien
+(`SaveAdvantageEntriesAction`) : une ligne refusée est nommée (`lines.N.*`) et n'en laisse passer aucune.
+
+```text
+advantage_entries   employé, mois, montant, motif, statut PENDING | PAID, paie qui l'a porté, auteur
+                    (local ou Super Admin distant) ; Soft Delete avec motif, jamais détruit
+onglet              « Avantages saisis » (?onglet=saisis) : par médecin, nombre, en attente, payé, total
+corriger/supprimer  seulement en attente, et tant que la paie du mois n'est pas marquée payée
+```
+
+## Paie du mois
+
+`/administration/paie` (rubrique RH, servie aussi au portail — ADR-187) : pour chaque personne en poste
+dont la rémunération a un montant, ou qui a des avantages ce mois-ci,
+
+```text
+salaire de base déclaré (ADR-206)
++ avantages déclarés sur la fiche, en vigueur ce mois (ADR-221)
++ avantages saisis en attente (ADR-227)
++ avantage à l'acte validé du mois (ADR-226)
+= montant à verser, brut
+```
+
+« Marquer payé » (`PaySalaryAction`) recompte côté serveur, fige lignes et total sur `salary_payments`
+(une seule paie en vigueur par personne et par mois, `active_key`), passe les avantages saisis « payé »
+et l'avantage à l'acte « versé ». Un mois à venir ne se paie pas. Le virement se fait **hors RIVO**.
+Annuler (motif obligatoire) garde la paie dans l'historique et remet ses avantages en attente.
+
+## Droits
+
+```text
+advantage_entries.view / create / update / delete   ADMINISTRATION
+salary_payments.view / pay / cancel                 ADMINISTRATION
+```
+
+Migration `2026_12_02_090000_create_advantage_entries_and_salary_payments`, sur chaque site et le portail.
+
+## Signalé, non tranché
+
+```text
+bonus ADR-212        les bonus par palier ne rejoignent pas la paie : ils restent versés à part
+retenues, net        aucun calcul (CNAPS, IRSA : règles non définies, ADR-066)
+« médecins »         la liste suit l'ouverture des avantages, pas un nom de fonction : une autre
+                     fonction cochée « Ouvre droit aux avantages » y figure aussi
+```

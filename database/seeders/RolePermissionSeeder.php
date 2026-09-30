@@ -37,6 +37,8 @@ class RolePermissionSeeder extends Seeder
             'bonus_categories.view', 'bonus_categories.create', 'bonus_categories.update',
             'bonus_categories.archive', 'bonus_categories.restore',
             'bonus_awards.view', 'bonus_awards.validate', 'bonus_awards.pay', 'bonus_awards.cancel',
+            'advantage_entries.view', 'advantage_entries.create', 'advantage_entries.update', 'advantage_entries.delete',
+            'salary_payments.view', 'salary_payments.pay', 'salary_payments.cancel',
             'patient_referrals.view', 'patient_referrals.gift',
             'employees.view', 'employees.create', 'employees.update',
             'employees.delete', 'employees.restore',

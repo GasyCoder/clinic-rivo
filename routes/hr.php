@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Controllers\Administration\AdvantageEntryController;
 use App\Http\Controllers\Administration\BonusController;
+use App\Http\Controllers\Administration\PayrollController;
 use App\Http\Controllers\Administration\AttendanceController;
 use App\Http\Controllers\Administration\BankController;
 use App\Http\Controllers\Administration\EmployeeBadgeController;
@@ -178,6 +180,13 @@ Route::post('/bonus/avantages/articles/{article}/restore', [BonusController::cla
 Route::post('/bonus/avantages/awards', [BonusController::class, 'validateAdvantage'])->name('bonus.advantages.awards.store')->middleware('can:bonus_awards.validate');
 Route::post('/bonus/avantages/awards/{award}/pay', [BonusController::class, 'payAdvantage'])->name('bonus.advantages.awards.pay')->middleware('can:bonus_awards.pay');
 Route::post('/bonus/avantages/awards/{award}/cancel', [BonusController::class, 'cancelAdvantage'])->name('bonus.advantages.awards.cancel')->middleware('can:bonus_awards.cancel');
+// ADR-227 — avantages saisis pour les médecins, et paie du mois qui les porte.
+Route::post('/bonus/avantages/saisis', [AdvantageEntryController::class, 'store'])->name('bonus.advantages.entries.store')->middleware('can:advantage_entries.create');
+Route::put('/bonus/avantages/saisis/{entry}', [AdvantageEntryController::class, 'update'])->name('bonus.advantages.entries.update')->middleware('can:advantage_entries.update');
+Route::delete('/bonus/avantages/saisis/{entry}', [AdvantageEntryController::class, 'destroy'])->name('bonus.advantages.entries.destroy')->middleware('can:advantage_entries.delete');
+Route::get('/paie', [PayrollController::class, 'index'])->name('payroll.index')->middleware('can:salary_payments.view');
+Route::post('/paie/payer', [PayrollController::class, 'pay'])->name('payroll.pay')->middleware('can:salary_payments.pay');
+Route::post('/paie/{payment}/annuler', [PayrollController::class, 'cancel'])->name('payroll.cancel')->middleware('can:salary_payments.cancel');
 
 Route::get('/staff-block-credits', [StaffBlockCreditController::class, 'index'])
     ->name('staff-block-credits.index')

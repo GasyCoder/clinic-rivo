@@ -281,6 +281,8 @@ export const PERMISSION_CATEGORIES = {
     // ADR-212 — les bonus du personnel.
     bonus_categories: { label: 'Catégories de bonus', module: 'hr', icon: Medal },
     bonus_awards: { label: 'Bonus du personnel', module: 'hr', icon: Trophy },
+    advantage_entries: { label: 'Avantages saisis (médecins)', module: 'hr', icon: HandCoins },
+    salary_payments: { label: 'Paie du mois', module: 'hr', icon: Banknote },
     hr_reports: { label: 'Rapports RH', module: 'hr', icon: ChartPie },
     hr_settings: { label: 'Paramètres RH (services, fonctions…)', module: 'hr', icon: SlidersHorizontal },
     professional_emails: { label: 'Adresses email professionnelles', module: 'hr', icon: AtSign },

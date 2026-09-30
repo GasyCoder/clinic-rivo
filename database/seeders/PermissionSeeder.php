@@ -143,6 +143,13 @@ class PermissionSeeder extends Seeder
         'bonus_awards.validate' => 'Valider un bonus atteint',
         'bonus_awards.pay' => 'Marquer un bonus versé',
         'bonus_awards.cancel' => 'Annuler un bonus validé',
+        'advantage_entries.view' => 'Voir les avantages saisis du personnel',
+        'advantage_entries.create' => 'Saisir des avantages pour le personnel',
+        'advantage_entries.update' => 'Modifier un avantage saisi non payé',
+        'advantage_entries.delete' => 'Supprimer un avantage saisi non payé',
+        'salary_payments.view' => 'Voir la paie du mois',
+        'salary_payments.pay' => 'Marquer une paie payée (avantages du mois compris)',
+        'salary_payments.cancel' => 'Annuler une paie marquée payée',
 
         'patient_coverages.view' => 'Voir la couverture administrative du patient',
         'patient_coverages.create' => 'Enregistrer une couverture mutuelle',

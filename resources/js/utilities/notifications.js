@@ -1,4 +1,4 @@
-import { Bell, FlaskConical, KeyRound, PartyPopper, RotateCcw, UserCheck, UserPlus } from 'lucide-vue-next';
+import { Ban, Banknote, Bell, CircleCheck, CircleX, FlaskConical, Gift, HandCoins, KeyRound, PartyPopper, Pencil, RotateCcw, UserCheck, UserPlus } from 'lucide-vue-next';
 
 /**
  * ADR-197 — ce que la cloche et la page « Notifications » partagent : l'icône
@@ -6,7 +6,11 @@ import { Bell, FlaskConical, KeyRound, PartyPopper, RotateCcw, UserCheck, UserPl
  */
 
 /** Le serveur nomme l'icône ; l'écran ne choisit jamais l'illustration d'une notification. */
-export const NOTIFICATION_ICONS = { 'user-plus': UserPlus, 'user-check': UserCheck, 'key-round': KeyRound, 'party-popper': PartyPopper, 'flask-conical': FlaskConical, 'rotate-ccw': RotateCcw, bell: Bell };
+export const NOTIFICATION_ICONS = {
+    'user-plus': UserPlus, 'user-check': UserCheck, 'key-round': KeyRound, 'party-popper': PartyPopper, 'flask-conical': FlaskConical, 'rotate-ccw': RotateCcw, bell: Bell,
+    // ADR-228 — les dettes du personnel.
+    'hand-coins': HandCoins, 'circle-check': CircleCheck, 'circle-x': CircleX, pencil: Pencil, ban: Ban, banknote: Banknote, gift: Gift,
+};
 
 export const notificationIcon = (name) => NOTIFICATION_ICONS[name] ?? Bell;
 

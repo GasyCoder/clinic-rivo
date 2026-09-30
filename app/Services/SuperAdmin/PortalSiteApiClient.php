@@ -207,6 +207,19 @@ class PortalSiteApiClient
     }
 
     /**
+     * ADR-228 — les demandes de dette du personnel qui attendent le DG, site par site.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function staffDebtsPendingForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/staff-debts/pending', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
      * ADR-197 — l'accès du personnel de chaque site : employés sans compte, remises
      * au RH, rôles. Jamais un mot de passe.
      *

@@ -22,6 +22,8 @@ class RolePermissionSeeder extends Seeder
         'ADMINISTRATION' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             // ADR-192 — une remise durable accordée à un patient est une dérogation habilitée.
@@ -39,6 +41,8 @@ class RolePermissionSeeder extends Seeder
             'bonus_awards.view', 'bonus_awards.validate', 'bonus_awards.pay', 'bonus_awards.cancel',
             'advantage_entries.view', 'advantage_entries.create', 'advantage_entries.update', 'advantage_entries.delete',
             'salary_payments.view', 'salary_payments.pay', 'salary_payments.cancel',
+            // ADR-228 — le RH suit les dettes du personnel et les marque versées ; le DG décide.
+            'staff_debts.view', 'staff_debts.disburse',
             'patient_referrals.view', 'patient_referrals.gift',
             'employees.view', 'employees.create', 'employees.update',
             'employees.delete', 'employees.restore',
@@ -99,6 +103,8 @@ class RolePermissionSeeder extends Seeder
         'LOGISTICS' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'logistics.view', 'logistics.manage',
@@ -117,6 +123,10 @@ class RolePermissionSeeder extends Seeder
         'RECEPTION' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
+            // ADR-228 — seule la Caisse encaisse un remboursement en espèces.
+            'staff_debts.collect',
             // Amendement ADR-216 quater — les résultats validés par le médecin, à remettre au patient.
             'laboratory_results.validated_view',
             // ADR-222 — l'assistant d'aide au logiciel.
@@ -175,6 +185,8 @@ class RolePermissionSeeder extends Seeder
         'MEDICINE' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'medical_record.view',
@@ -246,6 +258,8 @@ class RolePermissionSeeder extends Seeder
         'NURSE' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'care.view', 'care.create', 'care.update', 'care.complete',
@@ -277,6 +291,8 @@ class RolePermissionSeeder extends Seeder
         'SURGERY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule', 'surgery.reset',
@@ -297,6 +313,8 @@ class RolePermissionSeeder extends Seeder
         'PHARMACY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'pharmacy.view', 'pharmacy.dispense', 'pharmacy.dispense.prepare_invoice', 'pharmacy.dispense.print',
@@ -343,6 +361,8 @@ class RolePermissionSeeder extends Seeder
         'LABORATORY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'paraclinical_requests.view',

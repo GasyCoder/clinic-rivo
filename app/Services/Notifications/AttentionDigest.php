@@ -7,7 +7,10 @@ use App\Enums\EpisodeStatus;
 use App\Models\Episode;
 use App\Models\PharmacyStockAlert;
 use App\Models\User;
+use App\Enums\StaffDebtStatus;
+use App\Models\StaffDebt;
 use App\Services\StaffAccess\StaffAccessWatcher;
+use App\Services\StaffDebts\StaffDebtWatcher;
 
 /**
  * Ce qui attend réellement quelqu'un, agrégé pour l'en-tête.
@@ -35,8 +38,8 @@ class AttentionDigest
         // Le portail n'a ni passages ni stock : ce qui l'attend, ce sont les accès
         // du personnel à créer sur les sites (ADR-197).
         $items = collect(config('rivo.site.type') === 'admin'
-            ? [$this->staffAccess($user)]
-            : [$this->settlements($user), $this->stockAlerts($user)]
+            ? [$this->staffAccess($user), $this->staffDebtsToDecide($user)]
+            : [$this->settlements($user), $this->stockAlerts($user), $this->staffDebtsToDisburse($user)]
         )->filter()->values()->all();
 
         return [
@@ -99,6 +102,66 @@ class AttentionDigest
             'url' => '/super-admin/staff-access',
             'action' => 'Ouvrir l’accès du personnel',
             'icon' => 'user-plus',
+            'tone' => 'primary',
+        ];
+    }
+
+    /**
+     * ADR-228 — portail : les demandes de dette que le DG n'a pas encore décidées, telles
+     * que la dernière lecture des sites les a comptées. Un seul site concerné : sa liste ;
+     * plusieurs : les notifications de cette catégorie, une par demande.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function staffDebtsToDecide(User $user): ?array
+    {
+        if (! $user->can(StaffDebtWatcher::PERMISSION)) {
+            return null;
+        }
+
+        $counts = array_filter(StaffDebtWatcher::pendingCounts());
+        $count = array_sum($counts);
+        if ($count === 0) {
+            return null;
+        }
+
+        $url = count($counts) === 1
+            ? '/super-admin/sites/'.rawurlencode((string) array_key_first($counts)).'/rh/dettes?vue=a-decider'
+            : '/notifications?category=staff_debts';
+
+        return [
+            'key' => 'staff_debts',
+            'label' => 'Dette'.($count > 1 ? 's' : '').' à décider',
+            'description' => 'Des membres du personnel demandent une dette : à accorder, ajuster ou refuser.',
+            'count' => $count,
+            'url' => $url,
+            'action' => 'Ouvrir les demandes',
+            'icon' => 'hand-coins',
+            'tone' => 'warning',
+        ];
+    }
+
+    /**
+     * ADR-228 — sur le site : les dettes accordées par le DG que le RH doit verser.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function staffDebtsToDisburse(User $user): ?array
+    {
+        if (! $user->can('staff_debts.disburse')) {
+            return null;
+        }
+
+        $count = StaffDebt::query()->where('status', StaffDebtStatus::Approved->value)->count();
+
+        return $count === 0 ? null : [
+            'key' => 'staff_debts',
+            'label' => 'Dette'.($count > 1 ? 's' : '').' à verser',
+            'description' => 'Accordées par le DG : à remettre hors RIVO, puis à marquer versées.',
+            'count' => $count,
+            'url' => '/administration/dettes?vue=a-verser',
+            'action' => 'Ouvrir les dettes',
+            'icon' => 'hand-coins',
             'tone' => 'primary',
         ];
     }

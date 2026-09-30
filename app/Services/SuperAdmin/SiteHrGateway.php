@@ -38,6 +38,8 @@ class SiteHrGateway extends SiteScreenGateway
             'Administration/Payroll/',
             // ADR-221 — le module Banques.
             'Administration/Banks/',
+            // ADR-228 — les dettes du personnel, décidées par le DG depuis le portail.
+            'Administration/StaffDebts/',
         ];
     }
 

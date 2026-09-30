@@ -20,6 +20,8 @@ use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BrandingAssetController;
 use App\Http\Controllers\CareController;
 use App\Http\Controllers\CashController;
+use App\Http\Controllers\CashStaffDebtController;
+use App\Http\Controllers\StaffDebtController;
 use App\Http\Controllers\DeathRegisterController;
 use App\Http\Controllers\DiagnosticCatalogSearchController;
 use App\Http\Controllers\EpisodeController;
@@ -159,6 +161,11 @@ Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.
         ->middleware('throttle:6,1');
     // ADR-191 — taille du texte, animations et contraste propres à ce compte.
     Route::put('/profil/apparence', [ProfileController::class, 'updateAppearance'])->name('profile.appearance.update');
+
+    // ADR-228 — « Mes dettes » : chacun demande une dette au DG et suit la sienne.
+    Route::get('/mes-dettes', [StaffDebtController::class, 'index'])->name('my-debts.index')->middleware('can:staff_debts.request');
+    Route::post('/mes-dettes', [StaffDebtController::class, 'store'])->name('my-debts.store')->middleware(['can:staff_debts.request', 'throttle:10,1']);
+    Route::post('/mes-dettes/{staffDebt}/retirer', [StaffDebtController::class, 'withdraw'])->name('my-debts.withdraw')->middleware('can:staff_debts.request');
 });
 
 // ADR-222 — l'assistant d'aide au logiciel, sur un site comme sur le portail : une
@@ -791,6 +798,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/patients/{patient}/discounts', [PatientDiscountController::class, 'store'])->name('patients.discounts.store')->middleware('can:discounts.approve');
     Route::post('/patient-discounts/{patientDiscount}/cancel', [PatientDiscountController::class, 'cancel'])->name('patient-discounts.cancel')->middleware('can:discounts.approve');
     Route::get('/receipts/{receipt}', [ReceiptController::class, 'show'])->name('receipts.show')->middleware('can:receipts.view');
+    // ADR-228 — la Caisse encaisse le remboursement en espèces d'une dette du personnel.
+    Route::post('/cash/staff-debts/{staffDebt}/repayments', [CashStaffDebtController::class, 'collect'])->name('cash.staff-debts.collect')->middleware('can:staff_debts.collect');
+    Route::post('/cash/staff-debt-repayments/{staffDebtRepayment}/cancel', [CashStaffDebtController::class, 'reverse'])->name('cash.staff-debts.reverse')->middleware('can:staff_debts.collect');
+    Route::get('/cash/staff-debt-repayments/{staffDebtRepayment}/recu', [CashStaffDebtController::class, 'receipt'])->name('cash.staff-debts.receipt')->middleware('can:staff_debts.collect');
 
     Route::post('/patients/{patient}/episodes', [EpisodeController::class, 'store'])->name('episodes.store')->middleware('can:episodes.create');
 

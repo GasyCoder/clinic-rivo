@@ -258,6 +258,8 @@ class CashController extends Controller
             'recentPayments' => $recentPayments,
             'recentSessions' => $recentSessions,
             'pharmacyLookup' => $this->pharmacyLookup($request),
+            // ADR-228 — les remboursements en espèces des dettes du personnel : seule la Caisse encaisse.
+            'staffDebts' => $request->user()->can('staff_debts.collect') ? app(StaffDebtDirectory::class)->forCash($request->user()) : null,
         ]);
     }
 

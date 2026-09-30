@@ -5,6 +5,7 @@ import {
     Bell,
     CheckCircle2,
     ChevronRight,
+    HandCoins,
     Loader2,
     Package,
     UserPlus,
@@ -36,7 +37,7 @@ const items = ref([]);
 const refreshedAt = ref(null);
 
 /** L'icône est nommée par le serveur : l'écran ne choisit pas l'illustration. */
-const ICONS = { wallet: Wallet, package: Package, 'user-plus': UserPlus };
+const ICONS = { wallet: Wallet, package: Package, 'user-plus': UserPlus, 'hand-coins': HandCoins };
 
 const iconFor = (item) => ICONS[item.icon] ?? Bell;
 

@@ -5,12 +5,18 @@ namespace App\Actions\Payroll;
 use App\Enums\AdvantageEntryStatus;
 use App\Enums\BonusAwardStatus;
 use App\Enums\SalaryPaymentStatus;
+use App\Enums\StaffDebtRepaymentSource;
 use App\Models\AdvantageAward;
 use App\Models\AdvantageEntry;
 use App\Models\Employee;
 use App\Models\SalaryPayment;
+use App\Models\StaffDebt;
+use App\Models\StaffDebtRepayment;
 use App\Models\User;
 use App\Services\Payroll\PayrollBoard;
+use App\Services\StaffDebts\StaffDebtLedger;
+use App\Services\StaffDebts\StaffDebtNotifier;
+use App\Support\Money;
 use App\Support\Authorization\RemoteActorAttribution;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Carbon;
@@ -24,10 +30,19 @@ use Illuminate\Validation\ValidationException;
  * validés). Les lignes et le total sont figés ; les avantages saisis passent « payé » et
  * l'avantage à l'acte « versé » — aucun ne pourra être payé une seconde fois. Le virement
  * se fait hors RIVO. Annuler remet les avantages en attente.
+ *
+ * ADR-228 — les dettes à retenue sur salaire se retranchent du brut (au plus le brut) :
+ * chaque retenue devient un remboursement de la dette, lié à cette paie. Annuler la
+ * paie annule ses retenues — la dette redevient due d'autant, et rouverte si elle
+ * était soldée.
  */
 class PaySalaryAction
 {
-    public function __construct(private readonly PayrollBoard $board) {}
+    public function __construct(
+        private readonly PayrollBoard $board,
+        private readonly StaffDebtLedger $ledger,
+        private readonly StaffDebtNotifier $notifier,
+    ) {}
 
     public function execute(Employee $employee, Carbon $month, ?string $note, User $actor): SalaryPayment
     {
@@ -41,7 +56,7 @@ class PaySalaryAction
             throw ValidationException::withMessages(['period' => 'Un mois à venir ne se paie pas encore.']);
         }
 
-        return DB::transaction(function () use ($employee, $month, $note, $actor): SalaryPayment {
+        [$payment, $settled] = DB::transaction(function () use ($employee, $month, $note, $actor): array {
             $activeKey = SalaryPayment::activeKey($employee->getKey(), $month->format('Y-m'));
 
             if (SalaryPayment::query()->where('active_key', $activeKey)->lockForUpdate()->exists()) {
@@ -55,9 +70,15 @@ class PaySalaryAction
                 ->whereDate('period', $month->toDateString())->where('status', BonusAwardStatus::Validated)
                 ->lockForUpdate()->first();
             $lines = $this->board->lines($employee, $entries, $this->board->declaredBenefits($month, $employee->getKey()), $award);
+            $debts = $this->board->salaryDebts($employee->getKey(), lock: true);
+            $deductions = $this->ledger->salaryDeductions($debts, $month, Money::toMinor(number_format(PayrollBoard::grossOf($lines), 2, '.', '')));
+            foreach ($deductions as $deduction) {
+                $lines[] = $this->ledger->payrollLine($deduction['debt'], $deduction['amount_minor'], $deduction['due_minor']);
+            }
 
             $base = array_sum(array_map(fn ($line) => $line['kind'] === 'BASE' ? (float) $line['amount'] : 0, $lines));
-            $total = array_sum(array_map(fn ($line) => (float) $line['amount'], $lines));
+            $total = PayrollBoard::grossOf($lines);
+            $deductionsTotal = PayrollBoard::deductionsOf($lines);
 
             if ($total <= 0) {
                 throw ValidationException::withMessages(['period' => 'Rien à payer ce mois-ci pour cette personne : ni salaire déclaré, ni avantage.']);
@@ -71,6 +92,7 @@ class PaySalaryAction
                 'remuneration_type' => $employee->remuneration_type?->value,
                 'base_amount' => number_format($base, 2, '.', ''),
                 'advantages_amount' => number_format($total - $base, 2, '.', ''),
+                'deductions_amount' => number_format($deductionsTotal, 2, '.', ''),
                 'total_amount' => number_format($total, 2, '.', ''),
                 'lines' => $lines,
                 'advantage_award_id' => $award?->getKey(),
@@ -92,8 +114,36 @@ class PaySalaryAction
                 'payment_note' => 'Payé avec la paie de '.$month->translatedFormat('F Y').'.',
             ])->save();
 
-            return $payment;
+            $settled = [];
+            foreach ($deductions as $deduction) {
+                /** @var StaffDebt $debt */
+                $debt = $deduction['debt'];
+                StaffDebtRepayment::query()->create([
+                    'staff_debt_id' => $debt->getKey(),
+                    'employee_id' => $employee->getKey(),
+                    'source' => StaffDebtRepaymentSource::Salary,
+                    'period' => $month->toDateString(),
+                    'amount' => Money::fromMinor($deduction['amount_minor']),
+                    'salary_payment_id' => $payment->getKey(),
+                    'note' => $deduction['amount_minor'] < $deduction['due_minor'] ? 'Retenue partielle : le brut du mois ne couvrait pas la mensualité.' : null,
+                    'recorded_at' => now(),
+                    'recorded_by' => $actor->getKey(),
+                    ...RemoteActorAttribution::fields('recorded', $actor),
+                ]);
+
+                if ($this->ledger->refreshStatus($debt)) {
+                    $settled[] = $debt;
+                }
+            }
+
+            return [$payment, $settled];
         });
+
+        foreach ($settled as $debt) {
+            $this->notifier->employee($debt, 'settled', 'Votre dette '.$debt->number.' est soldée', 'La dernière retenue a été faite sur la paie de '.$month->translatedFormat('F Y').'.');
+        }
+
+        return $payment;
     }
 
     public function cancel(SalaryPayment $payment, string $reason, User $actor): SalaryPayment
@@ -125,6 +175,17 @@ class PaySalaryAction
                     'external_paid_by_uuid' => null, 'external_paid_by_name' => null, 'payment_note' => null,
                 ])->save();
             }
+
+            // ADR-228 — les retenues de cette paie n'ont pas eu lieu : la dette redevient due d'autant.
+            StaffDebtRepayment::query()->where('salary_payment_id', $payment->getKey())->whereNull('reversed_at')->lockForUpdate()->get()
+                ->each(function (StaffDebtRepayment $repayment) use ($actor, $payment): void {
+                    $repayment->forceFill([
+                        'reversed_at' => now(), 'reversed_by' => $actor->getKey(),
+                        ...RemoteActorAttribution::fields('reversed', $actor),
+                        'reverse_reason' => 'Paie annulée : '.$payment->cancel_reason,
+                    ])->save();
+                    $this->ledger->refreshStatus(StaffDebt::query()->lockForUpdate()->findOrFail($repayment->staff_debt_id));
+                });
 
             return $payment;
         });

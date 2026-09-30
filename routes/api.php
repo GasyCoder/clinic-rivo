@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\ProfessionalMailboxController;
 use App\Http\Controllers\Api\V1\SuperAdmin\ReportController as SuperAdminReportController;
 use App\Http\Controllers\Api\V1\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\Api\V1\SuperAdmin\StaffAccessController;
+use App\Http\Controllers\Api\V1\SuperAdmin\StaffDebtController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
 use App\Http\Controllers\Api\V1\SuperAdmin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -78,6 +79,9 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/staff-access/handovers/{handoverUuid}/send', [StaffAccessController::class, 'send'])->name('staff-access.send');
         // ADR-199 — confier la remise à un compte du site quand personne ne le peut.
         Route::post('/staff-access/receivers', [StaffAccessController::class, 'designateReceiver'])->name('staff-access.receivers');
+
+        // ADR-228 — les demandes de dette qui attendent le DG, relues par le portail pour le prévenir.
+        Route::get('/staff-debts/pending', [StaffDebtController::class, 'pending'])->name('staff-debts.pending');
 
         Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
         Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore');

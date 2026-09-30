@@ -7,6 +7,7 @@ import {
     CircleDollarSign,
     Coins,
     FileText,
+    HandCoins,
     LockKeyhole,
     ReceiptText,
     ShieldCheck,
@@ -29,6 +30,7 @@ import FormLabel from '@/Components/UI/FormLabel.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import IconInput from '@/Components/UI/IconInput.vue';
 import CashOriginFilter from '@/Pages/Cash/Partials/CashOriginFilter.vue';
+import StaffDebtCollectionPanel from '@/Components/Cash/StaffDebtCollectionPanel.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
@@ -47,6 +49,8 @@ const props = defineProps({
     recentPayments: Array,
     recentSessions: Array,
     pharmacyLookup: Object,
+    // ADR-228 — les dettes du personnel à rembourser en espèces ; absent sans le droit d'encaisser.
+    staffDebts: { type: Object, default: null },
 });
 
 const { can } = usePermissions();
@@ -719,7 +723,7 @@ onBeforeUnmount(() => {
 
         <Card class="overflow-hidden">
             <div class="border-b border-border p-2">
-                <div class="grid grid-cols-3 items-stretch gap-1" role="tablist" aria-label="Opérations de la caisse">
+                <div :class="['grid items-stretch gap-1', staffDebts ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3']" role="tablist" aria-label="Opérations de la caisse">
                     <button
                         v-if="can('billing.view')"
                         id="cash-invoices-tab"
@@ -761,6 +765,20 @@ onBeforeUnmount(() => {
                         <CircleDollarSign class="h-4 w-4" />
                         <span class="truncate">Paiements</span>
                         <span class="border-s border-gray-200 ps-2 tabular-nums text-slate-400 dark:border-gray-800">{{ recentPayments.length }}</span>
+                    </button>
+                    <button
+                        v-if="staffDebts"
+                        id="cash-staff-debts-tab"
+                        type="button"
+                        role="tab"
+                        :aria-selected="activeLedgerTab === 'staff-debts'"
+                        aria-controls="cash-staff-debts-panel"
+                        :class="['flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30', activeLedgerTab === 'staff-debts' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground']"
+                        @click="activeLedgerTab = 'staff-debts'"
+                    >
+                        <HandCoins class="h-4 w-4" />
+                        <span class="truncate">Dettes du personnel</span>
+                        <span class="rounded-full bg-background px-1.5 py-0.5 tabular-nums text-muted-foreground ring-1 ring-border">{{ staffDebts.debts.length }}</span>
                     </button>
                 </div>
             </div>
@@ -942,6 +960,10 @@ onBeforeUnmount(() => {
                         </tbody>
                     </table>
                 </div>
+            </div>
+
+            <div v-if="activeLedgerTab === 'staff-debts' && staffDebts" id="cash-staff-debts-panel" role="tabpanel" aria-labelledby="cash-staff-debts-tab">
+                <StaffDebtCollectionPanel :staff-debts="staffDebts" :cash-register-uuid="cashRegister?.uuid ?? null" :operational="cashOperational" />
             </div>
         </Card>
 

@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
-import { BadgeCheck, GraduationCap, HeartHandshake, ListPlus, Shirt } from 'lucide-vue-next';
+import { BadgeCheck, GraduationCap, HeartHandshake, ListPlus, Plus, Shirt, Trash2 } from 'lucide-vue-next';
+import Button from '@/Components/Shadcn/Button.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
@@ -22,7 +23,7 @@ const props = defineProps({
 
 const { form, state, savedAt, retry } = useSectionAutosave('more', {
     marital_status: props.employee.marital_status ?? '',
-    children_count: props.employee.children_count ?? '',
+    children: (props.employee.children ?? []).map((child) => ({ name: child.name ?? '', sex: child.sex ?? '', age: child.age ?? '' })),
     children_details: props.employee.children_details ?? '',
     diploma: props.employee.diploma ?? '',
     education_level: props.employee.education_level ?? '',
@@ -35,7 +36,18 @@ const { form, state, savedAt, retry } = useSectionAutosave('more', {
     scrub_cap: props.employee.scrub_cap ?? '',
     clog: props.employee.clog ?? '',
     observation: props.employee.observation ?? '',
-}, () => props.url, { canEdit: () => props.canEdit });
+}, () => props.url, {
+    canEdit: () => props.canEdit,
+    // Une ligne qui a un sexe ou un âge mais pas de prénom n'est pas encore enregistrable.
+    ready: () => form.children.every((child) => String(child.name).trim() !== '' || (String(child.sex) === '' && String(child.age) === '')),
+});
+
+const sexOptions = [{ value: '', label: '—' }, { value: 'F', label: 'Fille' }, { value: 'G', label: 'Garçon' }];
+const addChild = () => form.children.push({ name: '', sex: '', age: '' });
+const removeChild = (index) => form.children.splice(index, 1);
+const filledChildren = computed(() => form.children.filter((child) => String(child.name).trim() !== '').length);
+// Ancienne note libre, gardée lisible tant qu'elle n'a pas été reprise en liste.
+const legacyCount = computed(() => (form.children.length === 0 ? Number(props.employee.children_count ?? 0) : 0));
 
 const maritalOptions = computed(() => [{ value: '', label: 'Non renseignée' }, ...(props.options.marital_statuses ?? [])]);
 </script>
@@ -57,11 +69,24 @@ const maritalOptions = computed(() => [{ value: '', label: 'Non renseignée' }, 
                 <FormField as="div" label="Situation matrimoniale" :error="form.errors.marital_status">
                     <ShadSelect id="marital_status" v-model="form.marital_status" :options="maritalOptions" placeholder="Non renseignée" class="w-full" aria-label="Situation matrimoniale" :disabled="! canEdit" />
                 </FormField>
-                <FormField label="Nombre d’enfants" :error="form.errors.children_count">
-                    <Input id="children_count" v-model="form.children_count" type="number" min="0" inputmode="numeric" />
-                </FormField>
-                <FormField label="Note sur les enfants" :error="form.errors.children_details">
-                    <Textarea id="children_details" v-model="form.children_details" :rows="3" placeholder="Prénoms, dates de naissance…" />
+                <div class="flex items-center justify-between">
+                    <p class="text-xs font-semibold text-foreground">Enfants</p>
+                    <span class="rounded-full bg-muted px-2 py-0.5 text-xs font-bold text-muted-foreground" aria-live="polite">{{ filledChildren }} enfant{{ filledChildren > 1 ? 's' : '' }}</span>
+                </div>
+                <p v-if="legacyCount > 0" class="rounded-lg bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                    {{ legacyCount }} enfant{{ legacyCount > 1 ? 's' : '' }} déclaré{{ legacyCount > 1 ? 's' : '' }} avant la liste : ajoutez-les ci-dessous, le nombre suivra la liste.
+                </p>
+                <ul class="space-y-2">
+                    <li v-for="(child, index) in form.children" :key="index" class="grid grid-cols-[1fr_5.5rem_4rem_auto] items-start gap-2">
+                        <FormField as="div" :error="form.errors[`children.${index}.name`]"><Input v-model="child.name" :aria-label="`Prénom de l’enfant ${index + 1}`" placeholder="Prénom" /></FormField>
+                        <ShadSelect v-model="child.sex" :options="sexOptions" :aria-label="`Sexe de l’enfant ${index + 1}`" class="w-full" :disabled="! canEdit" />
+                        <FormField as="div" :error="form.errors[`children.${index}.age`]"><Input v-model="child.age" type="number" min="0" max="60" inputmode="numeric" :aria-label="`Âge de l’enfant ${index + 1}`" placeholder="Âge" /></FormField>
+                        <Button type="button" variant="ghost" size="icon" :aria-label="`Retirer l’enfant ${index + 1}`" :disabled="! canEdit" @click="removeChild(index)"><Trash2 class="h-4 w-4" /></Button>
+                    </li>
+                </ul>
+                <Button type="button" variant="outline" size="sm" :disabled="! canEdit || form.children.length >= 20" @click="addChild"><Plus class="mr-1 h-4 w-4" />Ajouter un enfant</Button>
+                <FormField v-if="props.employee.children_details" label="Ancienne note sur les enfants" :error="form.errors.children_details">
+                    <Textarea id="children_details" v-model="form.children_details" :rows="3" />
                 </FormField>
             </section>
             <section class="space-y-4 rounded-xl border border-border p-3.5">

@@ -110,6 +110,7 @@ const identityFacts = computed(() => [
     { key: 'issued', icon: CalendarClock, label: 'Délivrée', value: identityIssued.value },
     { key: 'diploma', icon: GraduationCap, label: 'Diplôme / niveau', value: [props.employee.diploma, props.employee.education_level].filter(Boolean).join(' · ') || null },
     { key: 'children', icon: Users, label: 'Enfants', value: props.employee.children_count != null ? String(props.employee.children_count) : null },
+    { key: 'children_list', icon: NotebookPen, label: 'Prénoms et âges', value: (props.employee.children ?? []).map((c) => `${c.name ?? 'Enfant'}${[c.sex === 'F' ? 'fille' : c.sex === 'G' ? 'garçon' : null, c.age != null ? `${c.age} ans` : null].filter(Boolean).length ? ` (${[c.sex === 'F' ? 'fille' : c.sex === 'G' ? 'garçon' : null, c.age != null ? `${c.age} ans` : null].filter(Boolean).join(', ')})` : ''}`).join(' · ') || null, wide: true, hideEmpty: true },
     { key: 'children_details', icon: NotebookPen, label: 'Détails des enfants', value: props.employee.children_details, wide: true, multiline: true },
 ]);
 const contactFacts = computed(() => [

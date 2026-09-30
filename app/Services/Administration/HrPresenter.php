@@ -61,6 +61,7 @@ class HrPresenter
             'diploma' => $employee->diploma,
             'education_level' => $employee->education_level,
             'children_details' => $includePrivate ? $employee->children_details : null,
+            'children' => $includePrivate ? \App\Support\Hr\EmployeeChildren::normalize($employee->children) : [],
             'badge' => $employee->badge,
             'blouse' => $employee->blouse,
             'profession' => $employee->profession,

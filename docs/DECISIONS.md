@@ -21976,3 +21976,22 @@ Le modèle passe de 23 à 29 colonnes. Les en-têtes de la feuille sont reconnus
 tenue bloc, callot, sabot   taille ou Oui/Non : texte libre, jamais contraint — à resserrer si la clinique choisit
 matricule de la feuille     H/F + année d'entrée + jour et mois de naissance : saisi à la main, non généré (ADR-191 propose EMP-0001)
 ```
+
+## Amendement du 2026-09-30 — les enfants forment une liste, et leur nombre en est la longueur
+
+Constat du propriétaire, sur l'étape « Compléments » : un nombre d'enfants et une note libre pouvaient se contredire (« 3 » et deux prénoms). Les deux sont fusionnés.
+
+```text
+employees.children     liste JSON (nullable) de {prénom, F/G, âge}, jusqu'à 20 enfants
+children_count         ne se saisit plus : c'est la longueur de la liste, posée par le serveur
+                       (EmployeeDataRequest), jamais celle que le navigateur enverrait
+children_details       l'ancienne note libre reste lisible et modifiable tant qu'elle existe ;
+                       elle n'est plus proposée à un dossier qui n'en a pas
+```
+
+- **Écran** : lignes « Prénom · Fille/Garçon · Âge » avec « Ajouter un enfant » et une corbeille par ligne, et un compteur « N enfants » qui suit la liste. Enregistrement automatique comme le reste (ADR-221). Une ligne restée vide est ignorée ; une ligne avec un sexe ou un âge mais sans prénom est refusée, et l'autosave attend qu'elle soit complète.
+- **Dossiers existants** : un nombre d'enfants déclaré sans liste est signalé (« N enfants déclarés avant la liste »). Il devient celui de la liste au premier enregistrement de la liste ; rien n'est réécrit avant.
+- **Import Excel** : la note de la feuille (« Mayrah(F, 3ans) Malyah(F, 3ans) ») est relue en liste quand elle se lit entièrement (`EmployeeChildren::parse`), et le nombre suit ; sinon elle reste une note, rien n'est deviné. Une note du type « Lucianah(F9ans, … » n'est donc pas transformée.
+- **Fiche, impression, export** : la liste est lue partout (prénoms et âges).
+
+Migration `2026_11_28_090000_add_children_list_to_employees`, à jouer sur chaque site et sur le portail. Aucune permission nouvelle.

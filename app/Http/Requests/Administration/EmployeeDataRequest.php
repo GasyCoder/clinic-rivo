@@ -20,6 +20,13 @@ abstract class EmployeeDataRequest extends FormRequest
     {
         $normalized = [];
 
+        // Les lignes d'enfants restées vides ne comptent pas.
+        if ($this->exists('children')) {
+            $normalized['children'] = \App\Support\Hr\EmployeeChildren::normalize($this->input('children'));
+            // Le nombre d'enfants est la longueur de la liste : les deux ne se contredisent jamais.
+            $normalized['children_count'] = count($normalized['children']);
+        }
+
         foreach ([
             'employee_number', 'first_name', 'last_name',
             'identity_document_number', 'phone',
@@ -170,6 +177,10 @@ abstract class EmployeeDataRequest extends FormRequest
             'identity_document_issued_at' => ['nullable', 'string', 'max:255'],
             'marital_status' => ['nullable', new Enum(MaritalStatus::class)],
             'children_count' => ['nullable', 'integer', 'min:0', 'max:65535'],
+            'children' => ['nullable', 'array', 'max:20'],
+            'children.*.name' => ['required', 'string', 'max:100'],
+            'children.*.sex' => ['nullable', 'in:F,G'],
+            'children.*.age' => ['nullable', 'integer', 'min:0', 'max:60'],
             'diploma' => ['nullable', 'string', 'max:255'],
             'education_level' => ['nullable', 'string', 'max:255'],
             'children_details' => ['nullable', 'string', 'max:5000'],
@@ -276,6 +287,10 @@ abstract class EmployeeDataRequest extends FormRequest
             'identity_document_issued_at' => 'lieu de délivrance de la pièce',
             'marital_status' => 'situation matrimoniale',
             'children_count' => 'nombre d’enfants',
+            'children' => 'enfants',
+            'children.*.name' => 'prénom de l’enfant',
+            'children.*.sex' => 'sexe de l’enfant',
+            'children.*.age' => 'âge de l’enfant',
             'diploma' => 'diplôme',
             'education_level' => 'niveau',
             'children_details' => 'détails des enfants',

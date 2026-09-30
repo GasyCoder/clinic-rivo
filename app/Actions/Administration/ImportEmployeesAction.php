@@ -201,7 +201,7 @@ class ImportEmployeesAction
             'children_count' => $this->value($row, 'nombre_enfants', 'nbre_enfants'),
             'diploma' => $this->value($row, 'diplome'),
             'education_level' => $this->value($row, 'niveau'),
-            'children_details' => $this->value($row, 'details_enfants', 'prenom_enfants_naissance_sex'),
+            ...$this->children($row),
             'badge' => $this->value($row, 'badge'),
             'blouse' => $this->value($row, 'blouse'),
             'profession' => $job?->label,
@@ -218,6 +218,25 @@ class ImportEmployeesAction
             'active' => $this->active($this->value($row, 'statut', 'status')),
             'contract_type_id' => $contract?->getKey(),
         ];
+    }
+
+    /**
+     * Les enfants : la note de la feuille est relue en liste quand elle se lit
+     * entièrement, et le nombre suit alors la liste ; sinon elle reste une note.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    private function children(array $row): array
+    {
+        $details = $this->value($row, 'details_enfants', 'prenom_enfants_naissance_sex');
+        $list = \App\Support\Hr\EmployeeChildren::parse(is_string($details) ? $details : null);
+
+        if ($list !== null) {
+            return ['children' => $list, 'children_details' => null, 'children_count' => count($list)];
+        }
+
+        return ['children_details' => $details];
     }
 
     /** @param array<string, mixed> $row */

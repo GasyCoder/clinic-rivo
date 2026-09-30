@@ -400,7 +400,7 @@ class EmployeeController extends Controller
                 $employee->hire_date?->toDateString(), $employee->birth_date?->toDateString(),
                 $employee->birth_place, $employee->identity_document_number,
                 $employee->identity_document_issued_on?->toDateString(), $employee->identity_document_issued_at,
-                $employee->address, $employee->children_count, $employee->children_details,
+                $employee->address, $employee->children_count, trim(\App\Support\Hr\EmployeeChildren::label($employee->children).' '.$employee->children_details),
                 $employee->badge, $employee->blouse, $employee->email, $employee->phone,
                 $employee->phone_secondary, $employee->tshirt_size, $employee->blouse_size,
                 $employee->bloc_outfit, $employee->shoe_size, $employee->scrub_cap, $employee->clog,

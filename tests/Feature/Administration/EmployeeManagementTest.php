@@ -352,6 +352,34 @@ class EmployeeManagementTest extends TestCase
         $this->assertSame('soa.rabe@cliniquesaintgeorges.mg', $employee->fresh()->email);
     }
 
+    public function test_the_number_of_children_is_the_length_of_the_children_list(): void
+    {
+        $actor = $this->userWithRole('ADMINISTRATION');
+        $this->actingAs($actor)->post('/administration/employees', $this->validPayload())->assertSessionHasNoErrors();
+        $employee = Employee::query()->sole();
+
+        // Une ligne vide est ignorée ; un nombre envoyé à côté ne contredit jamais la liste.
+        $this->actingAs($actor)
+            ->put("/administration/employees/{$employee->uuid}", [
+                ...$this->validPayload(),
+                'children_count' => 9,
+                'children' => [
+                    ['name' => 'Mayrah', 'sex' => 'F', 'age' => 3],
+                    ['name' => 'Tiavina', 'sex' => 'G', 'age' => 15],
+                    ['name' => '', 'sex' => '', 'age' => ''],
+                ],
+            ])->assertSessionHasNoErrors();
+
+        $employee->refresh();
+        $this->assertSame(2, $employee->children_count);
+        $this->assertSame('Tiavina', $employee->children[1]['name']);
+
+        // Un âge sans prénom est refusé.
+        $this->actingAs($actor)
+            ->put("/administration/employees/{$employee->uuid}", [...$this->validPayload(), 'children' => [['name' => '', 'sex' => 'F', 'age' => 3]]])
+            ->assertSessionHasErrors('children.0.name');
+    }
+
     /** @return array<string, mixed> */
     private function validPayload(): array
     {

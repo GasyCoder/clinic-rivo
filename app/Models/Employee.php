@@ -27,7 +27,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'identity_document_type', 'identity_document_number',
     'identity_document_issued_on', 'identity_document_issued_at',
     'marital_status', 'children_count', 'diploma', 'education_level',
-    'children_details', 'badge', 'blouse', 'profession', 'phone', 'email',
+    'children_details', 'children', 'badge', 'blouse', 'profession', 'phone', 'email',
     // Fiche du personnel : second contact, tailles de tenue et matériel remis.
     'phone_secondary', 'tshirt_size', 'blouse_size', 'bloc_outfit', 'shoe_size', 'scrub_cap', 'clog',
     'address', 'address_entry_id', 'observation', 'active',
@@ -58,6 +58,7 @@ class Employee extends Model
             'identity_document_issued_on' => 'date',
             'marital_status' => MaritalStatus::class,
             'children_count' => 'integer',
+            'children' => 'array',
             'active' => 'boolean',
             'photo_updated_at' => 'datetime',
             'remuneration_type' => EmployeeRemunerationType::class,

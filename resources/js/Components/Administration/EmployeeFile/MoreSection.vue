@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { BadgeCheck, GraduationCap, HeartHandshake, ListPlus, Plus, Shirt, Trash2 } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
+import { cn } from '@/lib/cn';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
@@ -42,7 +43,7 @@ const { form, state, savedAt, retry } = useSectionAutosave('more', {
     ready: () => form.children.every((child) => String(child.name).trim() !== '' || (String(child.sex) === '' && String(child.age) === '')),
 });
 
-const sexOptions = [{ value: '', label: '—' }, { value: 'F', label: 'Fille' }, { value: 'G', label: 'Garçon' }];
+const childSexes = [{ value: 'F', label: 'Fille' }, { value: 'G', label: 'Garçon' }];
 const addChild = () => form.children.push({ name: '', sex: '', age: '' });
 const removeChild = (index) => form.children.splice(index, 1);
 const filledChildren = computed(() => form.children.filter((child) => String(child.name).trim() !== '').length);
@@ -76,14 +77,34 @@ const maritalOptions = computed(() => [{ value: '', label: 'Non renseignée' }, 
                 <p v-if="legacyCount > 0" class="rounded-lg bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
                     {{ legacyCount }} enfant{{ legacyCount > 1 ? 's' : '' }} déclaré{{ legacyCount > 1 ? 's' : '' }} avant la liste : ajoutez-les ci-dessous, le nombre suivra la liste.
                 </p>
-                <ul class="space-y-2">
-                    <li v-for="(child, index) in form.children" :key="index" class="grid grid-cols-[1fr_5.5rem_4rem_auto] items-start gap-2">
-                        <FormField as="div" :error="form.errors[`children.${index}.name`]"><Input v-model="child.name" :aria-label="`Prénom de l’enfant ${index + 1}`" placeholder="Prénom" /></FormField>
-                        <ShadSelect v-model="child.sex" :options="sexOptions" :aria-label="`Sexe de l’enfant ${index + 1}`" class="w-full" :disabled="! canEdit" />
-                        <FormField as="div" :error="form.errors[`children.${index}.age`]"><Input v-model="child.age" type="number" min="0" max="60" inputmode="numeric" :aria-label="`Âge de l’enfant ${index + 1}`" placeholder="Âge" /></FormField>
-                        <Button type="button" variant="ghost" size="icon" :aria-label="`Retirer l’enfant ${index + 1}`" :disabled="! canEdit" @click="removeChild(index)"><Trash2 class="h-4 w-4" /></Button>
+                <ul v-if="form.children.length" class="space-y-2">
+                    <li v-for="(child, index) in form.children" :key="index" class="rounded-lg border border-border bg-muted/30 p-2.5">
+                        <div class="flex items-center gap-2">
+                            <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary" aria-hidden="true">{{ index + 1 }}</span>
+                            <Input v-model="child.name" :aria-label="`Prénom de l’enfant ${index + 1}`" placeholder="Prénom de l’enfant" class="min-w-0 flex-1" />
+                            <Button type="button" variant="ghost" size="icon" class="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive" :aria-label="`Retirer l’enfant ${index + 1}`" :disabled="! canEdit" @click="removeChild(index)"><Trash2 class="h-4 w-4" /></Button>
+                        </div>
+                        <div class="mt-2 flex items-center gap-2 pl-9">
+                            <div class="inline-flex rounded-md border border-border bg-background p-0.5" role="group" :aria-label="`Sexe de l’enfant ${index + 1}`">
+                                <button
+                                    v-for="option in childSexes"
+                                    :key="option.value"
+                                    type="button"
+                                    :disabled="! canEdit"
+                                    :aria-pressed="child.sex === option.value"
+                                    :class="cn('rounded px-3 py-1 text-xs font-semibold transition-colors', child.sex === option.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')"
+                                    @click="child.sex = child.sex === option.value ? '' : option.value"
+                                >{{ option.label }}</button>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <Input v-model="child.age" type="number" min="0" max="60" inputmode="numeric" :aria-label="`Âge de l’enfant ${index + 1}`" placeholder="Âge" class="w-20" />
+                                <span class="text-xs text-muted-foreground">ans</span>
+                            </div>
+                        </div>
+                        <p v-if="form.errors[`children.${index}.name`] || form.errors[`children.${index}.age`]" class="mt-1.5 pl-9 text-xs text-destructive">{{ form.errors[`children.${index}.name`] || form.errors[`children.${index}.age`] }}</p>
                     </li>
                 </ul>
+                <p v-else class="rounded-lg border border-dashed border-border p-3 text-center text-xs text-muted-foreground">Aucun enfant déclaré.</p>
                 <Button type="button" variant="outline" size="sm" :disabled="! canEdit || form.children.length >= 20" @click="addChild"><Plus class="mr-1 h-4 w-4" />Ajouter un enfant</Button>
                 <FormField v-if="props.employee.children_details" label="Ancienne note sur les enfants" :error="form.errors.children_details">
                     <Textarea id="children_details" v-model="form.children_details" :rows="3" />

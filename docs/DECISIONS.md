@@ -18520,6 +18520,94 @@ hébergé près du serveur de mail (même centre de données qu'o2switch), l'all
 devient instantané, processus ou pas. En local, `php artisan serve` n'a qu'un processus : un préchargement au
 survol y bloque le clic suivant ; `PHP_CLI_SERVER_WORKERS=4 php artisan serve --no-reload` l'évite.
 
+## Amendement du 2026-09-30 — une connexion oubliée par le routeur n'est plus gardée
+
+Constat du propriétaire, sur le portail : « Messagerie momentanément indisponible — Impossible de lire les
+dossiers : le serveur de messagerie ne répond pas » pour dg@cliniquesaintgeorges.mg, à chaque clic, après 40 s
+d'attente. Le serveur (kitty.o2switch.net) et le mot de passe étaient bons : une connexion neuve répondait en
+0,25 s.
+
+La cause était le processus de l'amendement quater. Lancé à la connexion, il avait gardé sa connexion IMAP
+muette sept minutes ; la box du poste l'avait oubliée sans prévenir aucun des deux bouts (aucune fin de flux,
+paquets jamais acquittés). `alive()` la croyait donc ouverte, chaque lecture attendait les 20 s du délai, et
+après l'échec la connexion était **gardée** — `dropIfDead()` interrogeait encore `alive()`, qui disait oui.
+Tous les clics suivants retombaient sur la même connexion morte.
+
+```text
+entretien       entre deux clics, un NOOP toutes les 60 s (RIVO_WEBMAIL_KEEP_ALIVE_HEARTBEAT, 15 au moins) :
+                la box ne l'oublie plus, et un NOOP qui ne revient pas (5 s) la fait rouvrir aussitôt,
+                jamais au moment du clic ; le processus s'arrête toujours après 10 min sans clic
+vérification    une connexion restée muette plus d'un battement (poste en veille) est éprouvée d'un
+                NOOP avant d'être réutilisée — quelques centaines de ms, au lieu du délai entier
+après un échec  la connexion n'est jamais réutilisée : l'état du flux est inconnu ; la demande suivante,
+                même dans la même requête, en ouvre une neuve
+```
+
+`KeepsConnectionOpen::probe()` / `ImapMailServer::probe()` : un NOOP avec un délai court, le délai d'origine
+rétabli ensuite. Le TCP keepalive n'est pas utilisable : PHP ne l'expose pas sur un flux TLS
+(`socket_import_stream` échoue, les options `socket` du contexte sont ignorées). Vérifié contre le vrai serveur
+(NOOP en 0,23 s, lecture suivante normale), contre un faux serveur muet (`alive()` vrai, NOOP faux en 2 s) et
+contre GreenMail. Aucune permission, aucune migration.
+
+**Descripteurs hérités, corrigé le même jour.** Le processus héritait de ceux de la requête qui le lance :
+sous `php artisan serve`, la prise d'écoute du port (8010 pour le portail) restait occupée dix minutes après un
+redémarrage, et un script qui attendait la fin de la requête attendait aussi la sienne.
+`MailboxConnectionPool::descriptors()` lui donne son tube d'entrée, `/dev/null` pour ses sorties, et `/dev/null`
+à la place de tout autre descripteur ouvert (`/proc/self/fd`).
+
+**Un processus par installation, corrigé le même jour.** Le portail affichait de nouveau « le serveur de
+messagerie ne répond pas » à chaque clic, alors que la boîte répondait en direct. Le processus qui gardait sa
+connexion avait été lancé par un serveur de vérification démarré sur un clone de la base du portail : même code,
+même clé, même boîte, donc même nom de prise. Le clone supprimé, ce processus ne pouvait plus écrire son cache
+(« attempt to write a readonly database ») et le portail, qui le rejoignait, recevait son erreur. Le nom de la
+prise et le jeton tiennent désormais compte de la base de l'installation (connexion, hôte, port, base) : une
+copie sur une autre base a son propre processus et ne rejoint jamais celui du portail.
+
+## Amendement du 2026-09-30 (bis) — une fenêtre de rédaction de messagerie, et une messagerie qui s'ouvre au clic
+
+Demande du propriétaire, capture de « Nouveau message » à l'appui : une fenêtre de rédaction comme dans une vraie
+messagerie, en shadcn, et une ouverture de la messagerie plus rapide.
+
+**La fenêtre de rédaction n'est plus une boîte de dialogue modale.** `ComposeDialog` est une fenêtre ancrée en bas
+à droite, sans voile : on lit, on change de dossier et on revient pendant qu'on écrit.
+
+```text
+trois tailles   ancrée (42 rem, bas à droite), agrandie (voile, Échap la ramène), réduite (barre de 20 rem
+                avec l'objet) ; le texte, les pièces et l'historique d'annulation survivent à la réduction ;
+                plein écran sur téléphone
+en-têtes        lignes sans cadre : De (l'adresse de la boîte), À, Cc / Cci à la demande, Objet ; le sujet
+                devient le titre de la fenêtre dès qu'il est écrit
+texte           occupe la place ; la mise en forme se range au-dessus des boutons et se replie (Aa),
+                choix gardé sur le poste
+pied            « Envoyer » d'abord (jamais un bouton submit : Entrée dans l'objet n'envoie rien), pièce
+                jointe, modèles, brouillon, corbeille ; Ctrl+Entrée envoie ; ce qui manque est dit à côté
+pièces          glisser-déposer sur toute la fenêtre, pastilles avec l'icône du type de fichier
+destinataires   Échap ferme les propositions sans effacer ce qui est tapé (il l'effaçait)
+quitter         changer de dossier garde la fenêtre ; quitter la messagerie avec un message commencé
+                demande confirmation (composeLeavesMessaging), fermer l'onglet aussi
+un seul à la    une nouvelle demande (Répondre, Transférer…) sur un message commencé demande s'il faut
+fois            le remplacer
+assistant       son bouton flottant s'efface tant que la fenêtre est ouverte : il en occupe le coin
+```
+
+Rien ne change côté serveur : les champs envoyés, l'envoi en arrière-plan de l'amendement du 2026-09-26, ses
+refus et le brouillon restent ceux d'avant.
+
+**La messagerie s'ouvre au clic.** Le temps perdu n'était pas dans Vue, mais avant : la connexion au serveur de
+messagerie (≈ 1 s depuis Madagascar), et l'éditeur de texte (tiptap/ProseMirror, 332 Ko) chargé avec la page.
+
+```text
+survol du menu     l'entrée « Messagerie » (site et portail) précharge sa page au survol et au focus, et
+                   son code dès le survol (utilities/menuPreload.js, menuWarm.js) ; gardée 30 s
+éditeur à part     la fenêtre de rédaction et les modèles sont chargés à part (defineAsyncComponent),
+                   pendant un temps mort après l'affichage de la boîte (requestIdleCallback), au plus tard
+                   au premier « Nouveau message »
+connexion          celle du processus de l'amendement quater, entretenue par le battement ci-dessus
+```
+
+Mesuré sur une copie du portail : la boîte s'affiche 80 ms après le clic quand le lien a été survolé. Aucune
+permission, aucune route, aucune migration.
+
 # ADR-196 — Navigation compacte et sidebar redimensionnable du portail
 
 **Status:** ACCEPTED (2026-09-26 — demande explicite du propriétaire)

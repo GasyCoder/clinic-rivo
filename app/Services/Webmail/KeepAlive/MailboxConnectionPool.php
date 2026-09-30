@@ -200,7 +200,7 @@ final class MailboxConnectionPool
             : ['/bin/sh', '-c', 'exec 3<&0; "$@" <&3 >/dev/null 2>&1 &', 'sh', ...$worker];
 
         try {
-            $process = @proc_open($command, [0 => ['pipe', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, base_path());
+            $process = @proc_open($command, self::descriptors(), $pipes, base_path());
 
             if (! is_resource($process)) {
                 return false;
@@ -221,6 +221,28 @@ final class MailboxConnectionPool
         } catch (Throwable) {
             return false;
         }
+    }
+
+    /**
+     * Ce que reçoit le processus : son tube d'entrée, `/dev/null` pour ses sorties — et
+     * `/dev/null` à la place de tout autre descripteur de la requête qui le lance. Sinon
+     * il en hérite et les garde dix minutes : la prise d'écoute du serveur (le port de
+     * `php artisan serve` resté occupé après un redémarrage), la connexion du navigateur,
+     * le tube d'un script qui attend sa fin (constaté le 2026-09-30).
+     *
+     * @return array<int, array{0: string, 1: string, 2?: string}>
+     */
+    private static function descriptors(): array
+    {
+        $descriptors = [0 => ['pipe', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+
+        foreach (@scandir('/proc/self/fd') ?: [] as $entry) {
+            if (ctype_digit($entry) && (int) $entry > 2) {
+                $descriptors[(int) $entry] = ['file', '/dev/null', 'r'];
+            }
+        }
+
+        return $descriptors;
     }
 
     private function php(): string
@@ -272,9 +294,25 @@ final class MailboxConnectionPool
             $purpose,
             (string) config('rivo.site.type'),
             (string) config('rivo.site.code'),
+            $this->database(),
             mb_strtolower(trim($address)),
             $password,
         ]), (string) config('app.key'));
+    }
+
+    /**
+     * La base de l'installation. Deux serveurs qui partagent le code, la clé et la boîte
+     * — le portail et une copie lancée sur un clone de sa base — ne partagent jamais un
+     * processus : celui de la copie garde son cache dans une base qui peut disparaître, et
+     * le portail recevait alors « le serveur de messagerie ne répond pas » à chaque clic
+     * (constaté le 2026-09-30).
+     */
+    private function database(): string
+    {
+        $name = (string) config('database.default');
+        $connection = (array) config('database.connections.'.$name, []);
+
+        return implode('|', [$name, $connection['host'] ?? '', $connection['port'] ?? '', $connection['database'] ?? '']);
     }
 
     private function markBroken(string $reason): void

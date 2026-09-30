@@ -1,3 +1,4 @@
+import { WEBMAIL_MENU_WARM } from './menuWarm.js';
 import { Mail, TrendingUp } from 'lucide-vue-next';
 import { CLINIC_WORKSPACES, ROLE_FOCUS, SIDEBAR_GROUPS, WORKSPACE_GROUPS } from './clinicWorkspaces.js';
 import { normalizeOrder } from '../composables/useSidebarOrder.js';
@@ -147,7 +148,7 @@ export function buildClinicMenu({ roleCode, can, stored = {}, overviewLabel = 'V
     return [
         { heading: 'Principal' },
         { icon: TrendingUp, text: overviewLabel, link: '/' },
-        ...(webmail ? [{ key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie' }] : []),
+        ...(webmail ? [{ key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', warm: WEBMAIL_MENU_WARM }] : []),
         ...Object.entries(WORKSPACE_GROUPS).flatMap(([group, heading]) => [
             { heading, group },
             ...orderGroup(items.filter((item) => item.group === group), stored[group]),

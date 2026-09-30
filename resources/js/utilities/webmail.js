@@ -461,6 +461,28 @@ export const WEBMAIL_CACHE_TAG = 'webmail';
  */
 export const WEBMAIL_NAVIGATION = Object.freeze({ preserveState: true, except: WEBMAIL_STATIC_PROPS });
 
+/**
+ * Une visite détruirait-elle la fenêtre de rédaction ? Oui si elle quitte la
+ * messagerie, ou si elle y recharge la page sans la garder (preserveState) ; non pour
+ * un préchargement, un envoi (POST…) ou une navigation dans la messagerie — on lit un
+ * autre message pendant qu'on écrit (amendement ADR-195 du 2026-09-30).
+ */
+export function composeLeavesMessaging(visit) {
+    if (!visit || visit.prefetch) return false;
+    if (String(visit.method ?? 'get').toLowerCase() !== 'get') return false;
+
+    let pathname;
+    try {
+        pathname = new URL(String(visit.url?.href ?? visit.url ?? ''), 'http://rivo.local').pathname;
+    } catch {
+        return true;
+    }
+
+    const inside = pathname === WEBMAIL_BASE || pathname.startsWith(`${WEBMAIL_BASE}/`);
+
+    return !inside || visit.preserveState !== true;
+}
+
 /** Le dossier et, s'il y en a un, le message d'une adresse de la messagerie. */
 export function parseWebmailPath(pathname) {
     const match = /^\/messagerie\/dossier\/([^/?#]+)(?:\/(\d+))?\/?$/.exec(String(pathname ?? ''));

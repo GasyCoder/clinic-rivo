@@ -18,13 +18,27 @@ use Throwable;
  * Chaque requête HTTP ouvre sa propre prise : ce qu'une requête a lu d'avance ne sert
  * pas à la suivante (`beginRequest`). Avant de réutiliser la connexion, il vérifie
  * qu'elle tient toujours (`alive`), sans aller-retour ; sinon il se reconnecte.
+ *
+ * Un routeur (NAT, box, veille du poste) oublie une connexion muette au bout de
+ * quelques minutes sans prévenir aucun des deux bouts : `alive` la croit ouverte, et
+ * chaque lecture attendrait tout le délai avant d'échouer (constaté le 2026-09-30).
+ * Entre deux clics, il l'entretient donc d'un NOOP chaque minute (`heartbeat`) et la
+ * rouvre aussitôt si le NOOP ne revient pas ; une connexion restée muette plus
+ * longtemps (poste en veille) est vérifiée avant d'être réutilisée ; et après un
+ * échec, elle n'est jamais gardée : l'état du flux est inconnu.
  */
 final class MailboxWorker
 {
     /** Ce que la messagerie peut demander : les méthodes de lecture et d'écriture de la boîte. */
     private const METHODS = ['folders', 'messages', 'uids', 'message', 'attachment', 'raw', 'flag', 'move', 'delete', 'append', 'createFolder', 'quota'];
 
+    /** Le délai laissé à un NOOP de vérification : un aller-retour tient en moins d'une seconde. */
+    private const PROBE_TIMEOUT = 5.0;
+
     private ?MailServer $mail = null;
+
+    /** La dernière réponse du serveur de messagerie (microtime). */
+    private float $lastContact = 0.0;
 
     /** @var resource|null */
     private $server = null;
@@ -38,6 +52,7 @@ final class MailboxWorker
         private readonly string $tokenHash,
         private readonly int $idleSeconds,
         private readonly bool $prime = false,
+        private readonly int $heartbeatSeconds = 60,
     ) {}
 
     public function run(): int
@@ -78,13 +93,25 @@ final class MailboxWorker
                 // Le serveur ne répond pas : la requête suivante réessaiera.
             }
 
+            $lastRequest = microtime(true);
+
             while (true) {
+                $idleLeft = $this->idleSeconds - (microtime(true) - $lastRequest);
+
+                if ($idleLeft <= 0) {
+                    return 0;
+                }
+
                 $readable = [$this->server];
                 $none = null;
-                $ready = @stream_select($readable, $none, $none, $this->idleSeconds);
+                $ready = @stream_select($readable, $none, $none, (int) max(1, ceil(min($idleLeft, max(1, $this->heartbeatSeconds)))));
 
                 if ($ready === 0) {
-                    return 0;
+                    if (! $this->heartbeat()) {
+                        return 0;
+                    }
+
+                    continue;
                 }
 
                 if ($ready === false) {
@@ -99,6 +126,7 @@ final class MailboxWorker
 
                 $keepGoing = $this->serve($client);
                 @fclose($client);
+                $lastRequest = microtime(true);
 
                 if (! $keepGoing) {
                     return 0;
@@ -154,6 +182,7 @@ final class MailboxWorker
                 }
 
                 $value = $mail->{$method}(...array_values((array) ($request['args'] ?? [])));
+                $this->lastContact = microtime(true);
                 WorkerProtocol::write($client, ['ok' => true, 'value' => $value]);
             } catch (WebmailAuthenticationFailed) {
                 // Mot de passe changé chez l'hébergeur : ce processus ne sert plus à rien.
@@ -163,37 +192,105 @@ final class MailboxWorker
                 return false;
             } catch (WebmailUnavailable $exception) {
                 WorkerProtocol::write($client, ['ok' => false, 'error' => 'unavailable', 'message' => $exception->getMessage()]);
-                $this->dropIfDead();
+                $this->drop();
             } catch (Throwable $exception) {
                 Log::warning('Messagerie : processus de connexion — '.$method, [
                     'address' => $this->address,
                     'error' => $exception::class.': '.mb_substr($exception->getMessage(), 0, 300),
                 ]);
                 WorkerProtocol::write($client, ['ok' => false, 'error' => 'unavailable', 'message' => 'Le serveur de messagerie ne répond pas. Réessayez dans un instant.']);
-                $this->dropIfDead();
+                $this->drop();
             }
         }
 
         return true;
     }
 
-    /** La connexion, ouverte ou rouverte si le serveur l'a fermée entre-temps. */
+    /** La connexion, ouverte ou rouverte si elle ne répond plus. */
     private function mail(bool $checkAlive = false): MailServer
     {
-        if ($this->mail !== null && $checkAlive && $this->mail instanceof KeepsConnectionOpen && ! $this->mail->alive()) {
-            $this->mail->disconnect();
-            $this->mail = null;
+        if ($this->mail !== null && $checkAlive && ! $this->answering()) {
+            $this->drop();
         }
 
-        return $this->mail ??= $this->factory->connect($this->address, $this->password);
+        if ($this->mail === null) {
+            $this->mail = $this->factory->connect($this->address, $this->password);
+            $this->lastContact = microtime(true);
+        }
+
+        return $this->mail;
     }
 
-    private function dropIfDead(): void
+    /**
+     * La connexion tient, sans aller-retour ; restée muette plus d'un battement (poste
+     * en veille, battement manqué), un NOOP le vérifie : quelques centaines de
+     * millisecondes plutôt que tout le délai d'une lecture qui ne reviendra pas.
+     */
+    private function answering(): bool
     {
-        if ($this->mail instanceof KeepsConnectionOpen && ! $this->mail->alive()) {
-            $this->mail->disconnect();
-            $this->mail = null;
+        if (! $this->mail instanceof KeepsConnectionOpen) {
+            return true;
         }
+
+        if (! $this->mail->alive()) {
+            return false;
+        }
+
+        if (microtime(true) - $this->lastContact < $this->heartbeatSeconds) {
+            return true;
+        }
+
+        if (! $this->mail->probe(self::PROBE_TIMEOUT)) {
+            return false;
+        }
+
+        $this->lastContact = microtime(true);
+
+        return true;
+    }
+
+    /**
+     * Entre deux clics : un NOOP garde la connexion connue du routeur, et s'il ne
+     * revient pas, elle est rouverte tout de suite — jamais au moment du clic.
+     *
+     * @return bool false : le serveur refuse désormais le mot de passe
+     */
+    private function heartbeat(): bool
+    {
+        if ($this->mail !== null && ! $this->mail instanceof KeepsConnectionOpen) {
+            return true;
+        }
+
+        if ($this->mail instanceof KeepsConnectionOpen && $this->mail->alive() && $this->mail->probe(self::PROBE_TIMEOUT)) {
+            $this->lastContact = microtime(true);
+
+            return true;
+        }
+
+        $this->drop();
+
+        try {
+            $this->mail();
+        } catch (WebmailAuthenticationFailed) {
+            $this->pool->rememberRefusal($this->path);
+
+            return false;
+        } catch (Throwable) {
+            // Le serveur ne répond pas : le battement suivant, ou la requête suivante, réessaiera.
+        }
+
+        return true;
+    }
+
+    /** Après un échec, l'état du flux est inconnu : la connexion n'est jamais réutilisée. */
+    private function drop(): void
+    {
+        try {
+            $this->mail?->disconnect();
+        } catch (Throwable) {
+        }
+
+        $this->mail = null;
     }
 
     /** Écoute sur sa prise — sauf si un autre processus sert déjà cette boîte. */

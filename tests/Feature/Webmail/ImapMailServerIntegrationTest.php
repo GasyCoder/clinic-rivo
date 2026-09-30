@@ -152,7 +152,9 @@ class ImapMailServerIntegrationTest extends TestCase
         $this->assertSame(0, $prefetched(), 'une première page demande ses en-têtes à part');
 
         // La requête suivante, sur la même connexion : les en-têtes partent avec les compteurs.
+        // Le NOOP de vérification (connexion restée muette) ne dérange pas la suite.
         $this->assertTrue($server->alive());
+        $this->assertTrue($server->probe(5));
         $server->beginRequest();
         $second = $page();
         $this->assertSame(2, $prefetched(), 'la page déjà servie part dans le même envoi');

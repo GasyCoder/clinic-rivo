@@ -45,6 +45,7 @@ class RunWebmailWorker extends Command
             $init['token_hash'],
             max(60, (int) ($init['idle_seconds'] ?? 600)),
             (bool) ($init['prime'] ?? false),
+            max(15, (int) config('rivo.webmail.keep_alive.heartbeat_seconds', 60)),
         ))->run();
     }
 }

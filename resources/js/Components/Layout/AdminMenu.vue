@@ -11,6 +11,7 @@ import {
     Wallet,
 } from 'lucide-vue-next';
 import { menuMatchDepth } from '@/utilities/menuActivation';
+import { menuLinkPrefetch, warmMenuItem } from '@/utilities/menuPreload';
 import { lucideIcon } from '@/lib/icons';
 
 /**
@@ -193,12 +194,16 @@ const isChildActive = (item, child) => {
                         <Link
                             v-else
                             :href="item.link"
+                            v-bind="menuLinkPrefetch(item)"
                             :aria-current="isActive(item) ? 'page' : undefined"
                             :class="[
                                 'group relative flex items-center gap-2 rounded-md px-2 py-2 transition-colors',
                                 isActive(item) ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
                             ]"
                             @click="emit('navigate')"
+                            @mouseenter="warmMenuItem(item)"
+                            @focus="warmMenuItem(item, { data: true })"
+                            @touchstart.passive="warmMenuItem(item, { data: true })"
                         >
                             <span v-if="isActive(item)" class="absolute inset-y-1 start-0 w-0.5 rounded-e-full bg-primary" aria-hidden="true" />
                             <span class="grid size-7 shrink-0 place-items-center"><component :is="item.icon" class="size-4" /></span>

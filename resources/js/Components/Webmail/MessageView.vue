@@ -122,8 +122,8 @@ const allowRemote = computed(() => props.message.remote_images === true);
 </script>
 
 <template>
-    <article class="flex min-h-0 flex-col" :aria-label="message.subject || 'Message sans objet'">
-        <div class="flex flex-wrap items-center gap-1 border-b border-border px-3 py-2">
+    <article class="flex min-h-full flex-col bg-muted/5" :aria-label="message.subject || 'Message sans objet'">
+        <div class="sticky top-0 z-20 flex flex-wrap items-center gap-1 border-b border-border bg-card/95 px-3 py-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/90">
             <Link :href="back" v-bind="WEBMAIL_NAVIGATION" class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground" :on-before="goBack">
                 <ArrowLeft class="h-4 w-4" aria-hidden="true" /> <span class="hidden sm:inline">{{ folder.name }}</span>
             </Link>
@@ -156,7 +156,7 @@ const allowRemote = computed(() => props.message.remote_images === true);
             </div>
         </div>
 
-        <div class="space-y-5 px-4 py-5 sm:px-6">
+        <div class="mx-auto w-full max-w-6xl space-y-5 px-4 py-5 sm:px-6 lg:py-7">
             <div class="flex items-start gap-3">
                 <h2 class="min-w-0 flex-1 text-xl font-bold leading-snug text-foreground">{{ message.subject || '(Sans objet)' }}</h2>
                 <button
@@ -214,7 +214,7 @@ const allowRemote = computed(() => props.message.remote_images === true);
                 <Button type="button" size="sm" @click="emit('compose', 'draft')"><SquarePen class="h-4 w-4" aria-hidden="true" /> Reprendre le brouillon</Button>
             </div>
 
-            <div class="rounded-xl border border-border bg-white p-3 sm:p-4">
+            <div class="rounded-xl border border-border bg-white p-3 shadow-sm sm:p-4">
                 <EmailBodyFrame ref="body" :html="message.body_html" :allow-remote="allowRemote" :print-header="printHeader" :title="`Contenu du message ${message.subject || ''}`" />
             </div>
 

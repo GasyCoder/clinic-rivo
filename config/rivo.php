@@ -283,6 +283,10 @@ return [
         'keep_alive' => [
             'enabled' => (bool) env('RIVO_WEBMAIL_KEEP_ALIVE', true),
             'idle_minutes' => (int) env('RIVO_WEBMAIL_KEEP_ALIVE_MINUTES', 10),
+            // Entre deux clics, un NOOP toutes les N secondes : un routeur (NAT, box) oublie
+            // une connexion muette sans prévenir, et elle serait rouverte au clic suivant
+            // après tout le délai d'attente. 15 secondes au moins.
+            'heartbeat_seconds' => (int) env('RIVO_WEBMAIL_KEEP_ALIVE_HEARTBEAT', 60),
             // Le PHP en ligne de commande qui lance ce processus (sous PHP-FPM, PHP_BINARY
             // désigne php-fpm) : déduit s'il est vide.
             'php' => env('RIVO_WEBMAIL_KEEP_ALIVE_PHP'),

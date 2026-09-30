@@ -23,6 +23,7 @@ import {
 import Button from '@/Components/Shadcn/Button.vue';
 import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import DropdownMenu from '@/Components/Shadcn/DropdownMenu.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
 import RefreshIcon from '@/Components/Shadcn/RefreshIcon.vue';
 import { folderIcon } from '@/Components/Webmail/folderIcons';
 import { cn } from '@/lib/cn';
@@ -183,8 +184,9 @@ const emptyText = computed(() => {
 </script>
 
 <template>
-    <section class="flex min-h-0 flex-col" :aria-label="folder.name">
-        <header class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+    <section class="flex min-h-full flex-col" :aria-label="folder.name">
+        <div class="sticky top-0 z-20 border-b border-border bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/90">
+        <header class="flex flex-wrap items-center gap-3 px-4 py-3">
             <Button type="button" variant="ghost" size="sm" icon class="lg:hidden" aria-label="Afficher les dossiers" @click="emit('open-folders')">
                 <Menu class="h-4 w-4" aria-hidden="true" />
             </Button>
@@ -204,23 +206,23 @@ const emptyText = computed(() => {
                     <template v-else>{{ list.total }} message{{ list.total > 1 ? 's' : '' }}<template v-if="folder.unseen"> · {{ folder.unseen }} non lu{{ folder.unseen > 1 ? 's' : '' }}</template></template>
                 </p>
             </div>
-            <form class="relative w-full sm:w-72" role="search" @submit.prevent="search">
-                <Search class="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                <input
+            <form class="relative w-full sm:w-80" role="search" @submit.prevent="search">
+                <IconInput
                     v-model="query"
+                    :icon="Search"
                     type="search"
                     :aria-label="`Rechercher dans ${folder.name}`"
-                    placeholder="Rechercher (objet, expéditeur, texte)"
-                    class="h-[var(--control-h)] w-full rounded-lg border border-input bg-card ps-9 pe-8 text-sm placeholder:text-muted-foreground focus:border-primary/60 focus:outline-none focus:ring-2 focus:ring-ring/25"
-                    @input="onSearchInput"
-                >
+                    placeholder="Objet, expéditeur ou contenu…"
+                    class="pe-9"
+                    @update:model-value="onSearchInput"
+                />
                 <button v-if="query" type="button" class="absolute end-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:text-foreground" aria-label="Effacer la recherche" @click="clearSearch">
                     <X class="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
             </form>
         </header>
 
-        <div class="flex flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-4 py-2">
+        <div class="flex min-h-11 flex-wrap items-center gap-2 border-t border-border bg-muted/30 px-4 py-2">
             <Checkbox :model-value="allState" :disabled="!list.items.length" aria-label="Tout sélectionner sur cette page" @update:model-value="toggleAll" />
 
             <template v-if="selected.length">
@@ -293,16 +295,17 @@ const emptyText = computed(() => {
                 <span v-else class="grid h-7 w-7 place-items-center opacity-40" aria-hidden="true"><ChevronRight class="h-4 w-4" /></span>
             </div>
         </div>
+        </div>
 
         <p v-if="error" role="alert" class="m-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">{{ error }}</p>
         <p v-if="list.truncated" class="mx-4 mt-3 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">Seuls les 200 favoris les plus récents de chaque dossier sont réunis ici.</p>
 
-        <ul v-if="list.items.length" class="divide-y divide-border">
+        <ul v-if="list.items.length" class="divide-y divide-border" aria-label="Messages">
             <li
                 v-for="item in list.items"
                 :key="keyOf(item)"
                 :class="cn(
-                    'group relative flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/50',
+                    'group relative flex min-h-[4.25rem] items-center gap-2.5 px-4 py-3 transition-colors hover:bg-accent/50 focus-within:bg-accent/40 sm:gap-3',
                     !item.seen && 'bg-primary/[0.04]',
                     selected.includes(keyOf(item)) && 'bg-primary/10 hover:bg-primary/10',
                 )"
@@ -320,7 +323,7 @@ const emptyText = computed(() => {
                     <Star :class="cn('h-4 w-4', item.flagged && 'fill-current')" aria-hidden="true" />
                 </button>
 
-                <Link :href="hrefOf(item)" v-bind="WEBMAIL_NAVIGATION" class="flex min-w-0 flex-1 items-center gap-3 focus:outline-none" :aria-label="`${item.seen ? '' : 'Non lu. '}${partyText(item)} — ${item.subject || 'Sans objet'}`">
+                <Link :href="hrefOf(item)" v-bind="WEBMAIL_NAVIGATION" class="flex min-w-0 flex-1 items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" :aria-label="`${item.seen ? '' : 'Non lu. '}${partyText(item)} — ${item.subject || 'Sans objet'}`">
                     <span :class="cn('hidden h-9 w-9 shrink-0 place-items-center rounded-full text-xs font-bold sm:grid', avatarTone(partyOf(item)?.email))" aria-hidden="true">{{ initialsOf(partyOf(item)) }}</span>
                     <span class="min-w-0 flex-1">
                         <span class="flex items-center gap-2">
@@ -338,10 +341,10 @@ const emptyText = computed(() => {
                         </span>
                     </span>
                     <Paperclip v-if="item.has_attachments" class="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Pièce jointe" />
-                    <time :datetime="item.date" :title="formatFullDate(item.date)" :class="cn('w-16 shrink-0 text-end text-xs tabular-nums group-hover:invisible', item.seen ? 'text-muted-foreground' : 'font-bold text-foreground')">{{ formatListDate(item.date) }}</time>
+                    <time :datetime="item.date" :title="formatFullDate(item.date)" :class="cn('w-16 shrink-0 text-end text-xs tabular-nums sm:group-hover:invisible sm:group-focus-within:invisible', item.seen ? 'text-muted-foreground' : 'font-bold text-foreground')">{{ formatListDate(item.date) }}</time>
                 </Link>
 
-                <div class="invisible absolute end-3 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-border bg-card p-0.5 shadow-sm group-hover:visible">
+                <div class="invisible absolute end-3 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded-lg border border-border bg-card p-0.5 shadow-sm group-hover:visible group-focus-within:visible sm:flex">
                     <button v-if="available.includes('archive')" type="button" class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="Archiver" aria-label="Archiver" :disabled="processing" @click="act('archive', [item])"><Archive class="h-4 w-4" aria-hidden="true" /></button>
                     <button type="button" class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" :title="item.seen ? 'Marquer comme non lu' : 'Marquer comme lu'" :aria-label="item.seen ? 'Marquer comme non lu' : 'Marquer comme lu'" :disabled="processing" @click="act(item.seen ? 'unread' : 'read', [item])">
                         <component :is="item.seen ? Mail : MailOpen" class="h-4 w-4" aria-hidden="true" />

@@ -34,6 +34,8 @@ import { usePermissions } from '@/composables/usePermissions';
 import { useSidebarOrder } from '@/composables/useSidebarOrder';
 import { buildClinicMenu, visibleMenu } from '@/utilities/clinicMenu';
 import { menuMatchDepth } from '@/utilities/menuActivation';
+import { menuLinkPrefetch, warmMenuItem } from '@/utilities/menuPreload';
+import { WEBMAIL_MENU_WARM } from '@/utilities/menuWarm';
 import AdminMenu from './AdminMenu.vue';
 
 const visibility = defineModel('visibility');
@@ -137,7 +139,7 @@ const adminMenu = computed(() => [
     { icon: Briefcase, text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },
     { icon: AtSign, text: 'Emails professionnels', link: '/super-admin/professional-emails', permission: 'professional_emails.view' },
     // ADR-195 — la boîte du portail, réglée dans son .env : le Super Admin y arrive directement.
-    { key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', permission: 'webmail.view' },
+    { key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', permission: 'webmail.view', warm: WEBMAIL_MENU_WARM },
     { icon: Package, text: 'Logistique & équipements', link: '/super-admin/workspaces/logistics', permission: 'logistics.view' },
     { icon: ShieldCheck, text: 'Gardiennage', link: '/super-admin/workspaces/guarding', permission: 'guarding.view' },
     { heading: 'Accès & système' },
@@ -373,6 +375,7 @@ const closeMobile = () => {
                 <Link
                     v-else-if="item.link"
                     :href="item.link"
+                    v-bind="menuLinkPrefetch(item)"
                     :aria-current="isActive(item) ? 'page' : undefined"
                     :title="item.text"
                     :class="[
@@ -382,6 +385,9 @@ const closeMobile = () => {
                         !isActive(item) ? 'hover:bg-accent/60' : '',
                     ]"
                     @click="closeMobile"
+                    @mouseenter="warmMenuItem(item)"
+                    @focus="warmMenuItem(item, { data: true })"
+                    @touchstart.passive="warmMenuItem(item, { data: true })"
                 >
                     <!-- L'état actif se repère à sa **position**, pas à sa
                          teinte. En thème sombre, le survol (`accent`, clarté

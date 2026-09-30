@@ -1,16 +1,18 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { X } from 'lucide-vue-next';
+import { Mail, Menu, SquarePen } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
-import ComposeDialog from '@/Components/Webmail/ComposeDialog.vue';
+import Sheet from '@/Components/Shadcn/Sheet.vue';
 import LabelDialog from '@/Components/Webmail/LabelDialog.vue';
 import MessageList from '@/Components/Webmail/MessageList.vue';
 import MessageView from '@/Components/Webmail/MessageView.vue';
 import PendingList from '@/Components/Webmail/PendingList.vue';
 import PendingMessage from '@/Components/Webmail/PendingMessage.vue';
-import TemplatesDialog from '@/Components/Webmail/TemplatesDialog.vue';
 import WebmailSidebar from '@/Components/Webmail/WebmailSidebar.vue';
 import { useToastStore } from '@/stores/toast';
 import {
@@ -62,8 +64,14 @@ const pageTitle = computed(() => {
     return `${inboxUnseen.value ? `(${inboxUnseen.value}) ` : ''}${base} · Messagerie`;
 });
 
-// Rédaction
-const compose = ref({ open: false, mode: 'new', message: null, to: '' });
+// Rédaction — l'éditeur (ProseMirror, ~100 Ko compressés) ne retarde plus l'ouverture
+// de la messagerie : la fenêtre se charge quand on écrit, ou en arrière-plan une fois
+// la liste affichée. Les modèles, qui l'utilisent aussi, de même.
+const ComposeDialog = defineAsyncComponent(() => import('@/Components/Webmail/ComposeDialog.vue'));
+const TemplatesDialog = defineAsyncComponent(() => import('@/Components/Webmail/TemplatesDialog.vue'));
+const composeReady = ref(false);
+const templatesReady = ref(false);
+const compose = ref({ open: false, mode: 'new', message: null, to: '', request: 0 });
 // Un envoi part en arrière-plan (ComposeDialog) : pendant ces quelques secondes, la
 // fenêtre garde le message pour le rendre en cas d'échec — on n'en commence pas un autre.
 const sending = ref(false);
@@ -72,13 +80,15 @@ const openCompose = (mode = 'new', options = {}) => {
         toast.info('Un message est en cours d’envoi : un instant, puis vous pourrez en écrire un autre.');
         return;
     }
-    compose.value = { open: true, mode, message: options.message ?? null, to: options.to ?? '' };
+    composeReady.value = true;
+    compose.value = { open: true, mode, message: options.message ?? null, to: options.to ?? '', request: compose.value.request + 1 };
 };
 const writeTo = (contact) => openCompose('new', { to: `${contact.name} <${contact.email}>` });
 
 // Libellés et modèles
 const labelDialog = ref({ open: false, label: null });
 const templatesOpen = ref(false);
+watch(templatesOpen, (open) => { if (open) templatesReady.value = true; });
 
 // Colonne des dossiers sur petit écran
 const foldersOpen = ref(false);
@@ -120,6 +130,11 @@ watch(() => props.list, (list) => {
 let pendingHref = null;
 const stops = [];
 onMounted(() => {
+    // La fenêtre de rédaction se charge en arrière-plan, sans retarder la liste.
+    const prepareCompose = () => { composeReady.value = true; };
+    if ('requestIdleCallback' in window) window.requestIdleCallback(prepareCompose, { timeout: 3000 });
+    else window.setTimeout(prepareCompose, 1200);
+
     // Arrivé depuis « Écrire » d'un autre écran : le message s'ouvre adressé, jamais envoyé.
     const target = composeTarget(new URL(page.url, window.location.origin).search);
     if (target) {
@@ -214,86 +229,131 @@ const logout = () => router.post(`${WEBMAIL_BASE}/deconnexion`);
 <template>
     <Head :title="pageTitle" />
 
-    <div class="relative flex min-h-[calc(100vh-10rem)] overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <!-- Colonne des dossiers : fixe sur grand écran, tiroir sur petit écran. -->
-        <div
-            v-if="foldersOpen"
-            class="fixed inset-0 z-[1030] bg-slate-950/40 lg:hidden"
-            aria-hidden="true"
-            @click="foldersOpen = false"
-        />
-        <aside
-            :class="[
-                'z-[1031] w-72 shrink-0 overflow-y-auto border-e border-border bg-card p-4',
-                'fixed inset-y-0 start-0 transition-transform duration-200 lg:static lg:translate-x-0',
-                foldersOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
-            ]"
-        >
-            <button type="button" class="mb-3 ms-auto grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:bg-accent lg:hidden" aria-label="Fermer les dossiers" @click="foldersOpen = false">
-                <X class="h-4 w-4" aria-hidden="true" />
-            </button>
-            <WebmailSidebar
-                :folders="folders"
-                :labels="labels"
-                :contacts="contacts"
-                :templates-count="templates.length"
-                :quota="quota"
-                :current="current"
-                :pending-folder="pendingFolder"
-                :active-label="filters.label"
-                :mailbox="mailbox"
-                @compose="openCompose('new')"
-                @write-to="writeTo"
-                @new-label="labelDialog = { open: true, label: null }"
-                @edit-label="(label) => (labelDialog = { open: true, label })"
-                @manage-templates="templatesOpen = true"
-                @logout="logoutConfirm = true"
-                @navigate="foldersOpen = false"
-            />
-        </aside>
-
-        <main class="relative min-w-0 flex-1">
-            <PendingMessage v-if="pending?.kind === 'message'" :item="pending.item" :folder-name="pendingFolderName || folder?.name" />
-            <PendingList v-else-if="pending?.kind === 'list' && !pending.sameFolder" :folder-name="pendingFolderName" />
-            <template v-else>
-                <!-- Même dossier (page, filtre, recherche) : la liste reste, atténuée, sous une barre de chargement. -->
-                <div v-if="pending" class="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/15" data-webmail-pending role="status" aria-label="Chargement…">
-                    <div class="h-full w-1/3 animate-[webmail-progress_1s_ease-in-out_infinite] bg-primary" />
+    <div class="mx-auto w-full max-w-[1600px] space-y-4">
+        <header class="rounded-xl border border-border bg-card shadow-sm">
+            <div class="flex min-h-14 items-center gap-2.5 px-3 py-2 sm:gap-3 sm:px-4">
+                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15" aria-hidden="true">
+                    <Mail class="h-4.5 w-4.5" />
+                </span>
+                <div class="min-w-0 flex-1">
+                    <h1 class="truncate font-heading text-lg font-bold leading-5 tracking-tight text-foreground">Messagerie professionnelle</h1>
+                    <p class="mt-0.5 truncate text-xs text-muted-foreground">
+                        <span class="font-medium text-foreground">{{ mailbox.owner }}</span>
+                        <span aria-hidden="true"> · </span>{{ mailbox.address }}
+                    </p>
                 </div>
-                <MessageView
-                    v-if="message"
-                    :message="message"
-                    :folder="folder"
+                <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
+                    <Badge v-if="inboxUnseen" variant="destructive" class="hidden px-2 py-0.5 text-[11px] sm:inline-flex" :aria-label="`${inboxUnseen} message${inboxUnseen > 1 ? 's' : ''} non lu${inboxUnseen > 1 ? 's' : ''}`">
+                        {{ inboxUnseen }} non lu{{ inboxUnseen > 1 ? 's' : '' }}
+                    </Badge>
+                    <Badge v-else tone="success" class="hidden px-2 py-0.5 text-[11px] sm:inline-flex">À jour</Badge>
+                    <Button type="button" variant="outline" size="sm" icon class="lg:hidden" aria-label="Afficher les dossiers" title="Dossiers" @click="foldersOpen = true">
+                        <Menu class="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                    <Button type="button" size="sm" :icon="true" class="sm:!w-auto sm:!px-3" aria-label="Nouveau message" @click="openCompose('new')">
+                        <SquarePen class="h-4 w-4" aria-hidden="true" /> <span class="hidden sm:inline">Nouveau message</span>
+                    </Button>
+                </div>
+            </div>
+        </header>
+
+        <Card class="flex min-h-[36rem] overflow-clip">
+            <!-- Navigation permanente sur ordinateur. Sur mobile, Sheet garde le focus et se ferme à Échap. -->
+            <aside class="hidden w-72 shrink-0 self-stretch border-e border-border bg-muted/10 p-3 lg:block">
+                <WebmailSidebar
                     :folders="folders"
                     :labels="labels"
+                    :contacts="contacts"
+                    :templates-count="templates.length"
+                    :quota="quota"
+                    :current="current"
+                    :pending-folder="pendingFolder"
+                    :active-label="filters.label"
                     :mailbox="mailbox"
-                    :processing="processing"
-                    @act="act"
-                    @back="onBack"
-                    @compose="(mode) => openCompose(mode, { message })"
+                    @compose="openCompose('new')"
+                    @write-to="writeTo"
+                    @new-label="labelDialog = { open: true, label: null }"
+                    @edit-label="(label) => (labelDialog = { open: true, label })"
+                    @manage-templates="templatesOpen = true"
+                    @logout="logoutConfirm = true"
                 />
-                <MessageList
-                    v-else-if="displayedList"
-                    :class="pending ? 'pointer-events-none opacity-60 transition-opacity' : 'transition-opacity'"
-                    :list="displayedList"
-                    :folder="folder"
-                    :folders="folders"
-                    :labels="labels"
-                    :filters="filters"
-                    :error="error"
-                    :processing="processing"
-                    @act="act"
-                    @open-folders="foldersOpen = true"
-                />
-            </template>
-        </main>
+            </aside>
+
+            <main class="relative min-w-0 flex-1 bg-card">
+                <PendingMessage v-if="pending?.kind === 'message'" :item="pending.item" :folder-name="pendingFolderName || folder?.name" />
+                <PendingList v-else-if="pending?.kind === 'list' && !pending.sameFolder" :folder-name="pendingFolderName" />
+                <template v-else>
+                    <!-- Même dossier (page, filtre, recherche) : la liste reste, atténuée, sous une barre de chargement. -->
+                    <div v-if="pending" class="absolute inset-x-0 top-0 z-30 h-0.5 overflow-hidden bg-primary/15" data-webmail-pending role="status" aria-label="Chargement…">
+                        <div class="h-full w-1/3 animate-[webmail-progress_1s_ease-in-out_infinite] bg-primary" />
+                    </div>
+                    <MessageView
+                        v-if="message"
+                        :message="message"
+                        :folder="folder"
+                        :folders="folders"
+                        :labels="labels"
+                        :mailbox="mailbox"
+                        :processing="processing"
+                        @act="act"
+                        @back="onBack"
+                        @compose="(mode) => openCompose(mode, { message })"
+                    />
+                    <MessageList
+                        v-else-if="displayedList"
+                        :class="pending ? 'pointer-events-none opacity-60 transition-opacity' : 'transition-opacity'"
+                        :list="displayedList"
+                        :folder="folder"
+                        :folders="folders"
+                        :labels="labels"
+                        :filters="filters"
+                        :error="error"
+                        :processing="processing"
+                        @act="act"
+                        @open-folders="foldersOpen = true"
+                    />
+                </template>
+            </main>
+        </Card>
     </div>
 
+    <Sheet
+        :open="foldersOpen"
+        title="Dossiers de messagerie"
+        :description="`${mailbox.owner} · ${mailbox.address}`"
+        side="left"
+        content-class="max-w-[19rem]"
+        body-class="p-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        @update:open="foldersOpen = $event"
+    >
+        <template #icon><Mail class="mt-0.5 h-5 w-5 text-primary" aria-hidden="true" /></template>
+        <WebmailSidebar
+            :folders="folders"
+            :labels="labels"
+            :contacts="contacts"
+            :templates-count="templates.length"
+            :quota="quota"
+            :current="current"
+            :pending-folder="pendingFolder"
+            :active-label="filters.label"
+            :mailbox="mailbox"
+            @compose="openCompose('new'); foldersOpen = false"
+            @write-to="(contact) => { writeTo(contact); foldersOpen = false; }"
+            @new-label="labelDialog = { open: true, label: null }; foldersOpen = false"
+            @edit-label="(label) => { labelDialog = { open: true, label }; foldersOpen = false; }"
+            @manage-templates="templatesOpen = true; foldersOpen = false"
+            @logout="logoutConfirm = true; foldersOpen = false"
+            @navigate="foldersOpen = false"
+        />
+    </Sheet>
+
     <ComposeDialog
+        v-if="composeReady"
         v-model:open="compose.open"
         :mode="compose.mode"
         :message="compose.message"
         :to="compose.to"
+        :request="compose.request"
         :address="mailbox.address"
         :owner="mailbox.owner"
         :contacts="contacts"
@@ -303,7 +363,7 @@ const logout = () => router.post(`${WEBMAIL_BASE}/deconnexion`);
         @sending="(value) => (sending = value)"
     />
     <LabelDialog v-model:open="labelDialog.open" :label="labelDialog.label" :colors="labelColors" />
-    <TemplatesDialog v-model:open="templatesOpen" :templates="templates" />
+    <TemplatesDialog v-if="templatesReady" v-model:open="templatesOpen" :templates="templates" />
 
     <ConfirmModal
         :open="Boolean(confirmDelete)"

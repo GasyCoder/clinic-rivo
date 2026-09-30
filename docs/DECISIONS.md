@@ -21995,3 +21995,40 @@ children_details       l'ancienne note libre reste lisible et modifiable tant qu
 - **Fiche, impression, export** : la liste est lue partout (prénoms et âges).
 
 Migration `2026_11_28_090000_add_children_list_to_employees`, à jouer sur chaque site et sur le portail. Aucune permission nouvelle.
+
+## Amendement du 2026-09-30 (bis) — le dossier RH de la clinique relu contre ses fichiers
+
+Le propriétaire a partagé le dossier Drive du personnel (Liste Personnel_AMB, Info personnels, Salaire, Avantage_Reference, formulaire de demande de congé). Chaque fichier a été comparé au module RH ; ce qui existait déjà n'est pas retouché, ce qui manquait est ajouté.
+
+```text
+déjà couvert        départements, fonctions (dont Pharmacien, Lingerie, Serveur, Gérant, Dentiste, Assistant Dentisterie),
+                    types de contrat (CDI, CDD, Consultant, Stagiaire, Bénévole), statuts Actif / Inactif, tous les champs
+                    d'identité, la demande de congé (adresse pendant le congé, téléphone d'urgence, intérim, reste à prendre,
+                    motif, dates), les primes (module Bonus)
+ajouté              fonction « Tsarashop » (elle figurait dans la liste des fonctions de la feuille, pas dans RIVO) ;
+                    banque ACCESS ; mode de paiement du salaire (virement bancaire, Mobile Money, espèces) avec le numéro
+                    Mobile Money — les colonnes BNI, BOA, ACCESS, MOBILE MONEY, ESPECE de la feuille de paie
+import Excel           la ligne d'en-têtes est trouvée même quand la première ligne n'est qu'une légende (la feuille du
+                    personnel en porte une) ; un téléphone numérique retrouve son 0 initial ; le sexe est lu dans la lettre
+                    H/F du matricule quand la colonne Genre est vide ; le statut « Bénévole » est accepté (en poste, non
+                    rémunéré) ; une ligne sans matricule reçoit celui de la clinique quand la fiche le permet
+matricule clinique  H (homme) ou F (femme) + année d'entrée + jour et mois de naissance : F20151808
+                    (EmployeeNumberAllocator::fromProfile). Rien n'est deviné : sans sexe, date d'entrée ou date de naissance,
+                    ou si le numéro est déjà pris, le matricule du modèle du site s'applique (ADR-191)
+```
+
+Le mode de paiement suit le droit de la rémunération (`employees.payroll.*`, ADR-206). Migration `2026_11_29_090000`, à jouer sur chaque site et sur le portail.
+
+**Signalé, non tranché**
+
+```text
+paie (feuille « Salaire »)   la feuille donne CNAPS = 1 % du brut et IRSA = 20 % de (brut − CNAPS − 350 000 Ar),
+                             soit 0,198 × brut − 70 000 ; net = 0,792 × brut + 70 000. Ces formules sont cohérentes entre elles,
+                             mais ni le plancher de l'IRSA, ni son arrondi, ni la période d'application ne sont
+                             donnés : ADR-066 tient toujours, aucune paie n'est calculée
+matricule                    la feuille l'annonce « 1 lettre + 6 chiffres » mais ses exemples en portent 8 (H20181007) ;
+                             l'ancien format « Site-Sexe-numéro » (M10001, stagiaires MS10001) de « Info personnels »
+                             est plus ancien : non repris
+genre                        RIVO l'exige ; 26 lignes de la feuille n'ont ni genre ni matricule : à compléter avant l'import
+sage-femme                   une ligne la classe au département Médecine ; la fonction n'existe qu'en Maternité (ADR-194)
+```

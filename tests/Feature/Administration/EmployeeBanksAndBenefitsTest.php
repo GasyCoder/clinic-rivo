@@ -43,13 +43,13 @@ class EmployeeBanksAndBenefitsTest extends TestCase
     /* Module Banques                                                      */
     /* ------------------------------------------------------------------ */
 
-    public function test_the_four_named_banks_are_in_the_referential(): void
+    public function test_the_five_named_banks_are_in_the_referential(): void
     {
-        $this->assertSame(['BMOI', 'BNI', 'BOA', 'SBM'], Bank::query()->orderBy('code')->pluck('code')->all());
+        $this->assertSame(['ACCESS', 'BMOI', 'BNI', 'BOA', 'SBM'], Bank::query()->orderBy('code')->pluck('code')->all());
 
         $this->actingAs($this->hr)->get('/administration/banks')
             ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page->component('Administration/Banks/Index')->has('banks', 4));
+            ->assertInertia(fn (Assert $page) => $page->component('Administration/Banks/Index')->has('banks', 5));
     }
 
     public function test_hr_adds_corrects_archives_and_restores_a_bank(): void
@@ -88,7 +88,7 @@ class EmployeeBanksAndBenefitsTest extends TestCase
 
         // Une banque réellement différente passe, même quand son nom partage un mot.
         $this->actingAs($this->hr)->post('/administration/banks', ['code' => 'BFV', 'name' => 'BFV Société Générale'])->assertSessionHasNoErrors();
-        $this->assertSame(5, Bank::query()->count());
+        $this->assertSame(6, Bank::query()->count());
     }
 
     public function test_an_archived_bank_is_proposed_to_be_restored_rather_than_recreated(): void
@@ -201,7 +201,7 @@ class EmployeeBanksAndBenefitsTest extends TestCase
         $this->actingAs($this->hr)->get("/administration/employees/{$employee->uuid}/edit")
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page->component('Administration/Employees/Edit')
-                ->has('banks', 4)
+                ->has('banks', 5)
                 ->where('benefitOptions.eligible', false)
                 ->has('benefitOptions.types', 7));
     }

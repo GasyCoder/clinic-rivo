@@ -94,6 +94,8 @@ abstract class EmployeeDataRequest extends FormRequest
             'bank_uuid' => ['nullable', 'uuid'],
             'bank_account_number' => ['nullable', 'string', 'max:50', 'regex:/^[A-Z0-9][A-Z0-9 -]*$/'],
             'bank_account_holder' => ['nullable', 'required_with:bank_account_number', 'string', 'max:150'],
+            'salary_payment_mode' => ['nullable', new Enum(\App\Enums\SalaryPaymentMode::class)],
+            'mobile_money_number' => ['nullable', 'string', 'max:50'],
         ];
     }
 
@@ -298,6 +300,8 @@ abstract class EmployeeDataRequest extends FormRequest
             'blouse' => 'blouse',
             'phone' => 'téléphone',
             'phone_secondary' => 'second téléphone',
+            'salary_payment_mode' => 'mode de paiement',
+            'mobile_money_number' => 'numéro Mobile Money',
             'tshirt_size' => 'taille de T-shirt',
             'blouse_size' => 'taille de blouse',
             'bloc_outfit' => 'tenue bloc',

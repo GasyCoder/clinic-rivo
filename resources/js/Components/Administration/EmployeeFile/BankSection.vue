@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
-import { CreditCard, Landmark, UserRound } from 'lucide-vue-next';
+import { CreditCard, Landmark, Smartphone, UserRound } from 'lucide-vue-next';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import ShadSelect from '@/Components/Shadcn/Select.vue';
@@ -28,11 +28,20 @@ const { form, state, savedAt, retry } = useSectionAutosave('bank', {
     bank_uuid: props.payroll?.bank_uuid ?? '',
     bank_account_number: props.payroll?.bank_account_number ?? '',
     bank_account_holder: props.payroll?.bank_account_holder ?? '',
+    salary_payment_mode: props.payroll?.salary_payment_mode ?? '',
+    mobile_money_number: props.payroll?.mobile_money_number ?? '',
 }, () => props.url, {
     canEdit: () => props.canEdit,
     // Un numéro de compte part avec son titulaire.
     ready: () => ! String(form.bank_account_number ?? '').trim() || String(form.bank_account_holder ?? '').trim() !== '',
 });
+
+const paymentModes = [
+    { value: '', label: 'Non renseigné' },
+    { value: 'BANK', label: 'Virement bancaire' },
+    { value: 'MOBILE_MONEY', label: 'Mobile Money' },
+    { value: 'CASH', label: 'Espèces' },
+];
 
 const bankOptions = computed(() => [
     { value: '', label: 'Non renseignée' },
@@ -59,6 +68,12 @@ const useNameAsHolder = () => {
         @retry="retry"
     >
         <fieldset :disabled="! canEdit" class="grid gap-4 sm:grid-cols-2">
+            <FormField as="div" label="Mode de paiement" :error="form.errors.salary_payment_mode">
+                <ShadSelect id="salary_payment_mode" v-model="form.salary_payment_mode" :options="paymentModes" placeholder="Non renseigné" class="w-full" aria-label="Mode de paiement" :disabled="! canEdit" />
+            </FormField>
+            <FormField v-if="form.salary_payment_mode === 'MOBILE_MONEY'" label="Numéro Mobile Money" :error="form.errors.mobile_money_number">
+                <IconInput id="mobile_money_number" v-model="form.mobile_money_number" :icon="Smartphone" type="tel" autocomplete="off" placeholder="03X XX XXX XX" />
+            </FormField>
             <FormField as="div" label="Banque" class="sm:col-span-2" :error="form.errors.bank_uuid">
                 <ShadSelect id="bank_uuid" v-model="form.bank_uuid" :options="bankOptions" :icon="Landmark" placeholder="Non renseignée" class="w-full sm:max-w-md" aria-label="Banque" :disabled="! canEdit" />
                 <p class="mt-1.5 text-xs text-muted-foreground">

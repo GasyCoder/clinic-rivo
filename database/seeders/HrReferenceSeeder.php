@@ -43,6 +43,7 @@ class HrReferenceSeeder extends Seeder
             'MANAGER' => 'Gérant',
             'DENTIST' => 'Dentiste',
             'DENTAL_ASSISTANT' => 'Assistant Dentisterie',
+            'TSARASHOP' => 'Tsarashop',
         ],
         'CONTRACT_TYPE' => [
             'CDI' => 'CDI',

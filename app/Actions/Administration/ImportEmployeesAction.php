@@ -64,7 +64,9 @@ class ImportEmployeesAction
             $data = $this->prepareRow($row, $references, $line, $errors);
 
             if (trim((string) ($data['employee_number'] ?? '')) === '') {
-                $data['employee_number'] = $this->numbers->sequence(1, $reserved)[0];
+                // Matricule de la clinique (H/F + année d'entrée + jour et mois de naissance) quand la fiche le permet.
+                $data['employee_number'] = $this->numbers->fromProfile($data['sex'] ?? null, $data['hire_date'] ?? null, $data['birth_date'] ?? null, $reserved)
+                    ?? $this->numbers->sequence(1, $reserved)[0];
                 $reserved[] = $data['employee_number'];
             }
 
@@ -167,7 +169,7 @@ class ImportEmployeesAction
 
         // ADR-190 : aucun email n'est importé — celui d'un employé est son adresse
         // professionnelle, créée après son enregistrement. Une colonne « Email » est ignorée.
-        $phone = $this->value($row, 'telephone', 'tel', 'contact');
+        $phone = $this->phoneText($this->value($row, 'telephone', 'tel', 'contact'));
         // La feuille du personnel peut porter deux numéros dans la même cellule.
         $secondPhone = null;
         if (is_string($phone) && preg_match('/^(\+?[\d .-]{6,}?)\s*(?:[\/;,]|\s{2,})\s*(\+?[\d .-]{6,})$/', $phone, $m)) {
@@ -190,7 +192,7 @@ class ImportEmployeesAction
             'job_title_id' => $job?->getKey(),
             'first_name' => $firstName,
             'last_name' => $lastName,
-            'sex' => $this->sex($this->value($row, 'genre', 'sexe')),
+            'sex' => $this->sex($this->value($row, 'genre', 'sexe')) ?? $this->sexFromNumber($this->value($row, 'matricule', 'immatricule')),
             'birth_date' => $this->date($this->value($row, 'date_naissance')),
             'hire_date' => $hireDate,
             'birth_place' => $this->value($row, 'lieu_naissance'),
@@ -216,6 +218,8 @@ class ImportEmployeesAction
             'address' => $this->value($row, 'adresse'),
             'observation' => $this->value($row, 'observation'),
             'active' => $this->active($this->value($row, 'statut', 'status')),
+            // Un « Bénévole » est en poste mais non rémunéré (ADR-206).
+            ...($this->isVolunteer($this->value($row, 'statut', 'status')) ? ['remuneration_type' => 'UNPAID'] : []),
             'contract_type_id' => $contract?->getKey(),
         ];
     }
@@ -256,6 +260,33 @@ class ImportEmployeesAction
         return Str::lower(Str::ascii(Str::squish($value)));
     }
 
+    /** Une cellule numérique perd son 0 initial : 324387865 se relit 0324387865. */
+    private function phoneText(mixed $value): mixed
+    {
+        if (is_int($value) || is_float($value)) {
+            $digits = (string) (int) $value;
+
+            return strlen($digits) === 9 && $digits[0] === '3' ? '0'.$digits : $digits;
+        }
+
+        return $value;
+    }
+
+    /** La feuille du personnel écrit le sexe en tête du matricule : H (homme) ou F (femme). */
+    private function sexFromNumber(mixed $number): ?string
+    {
+        return match (Str::upper(substr(trim((string) $number), 0, 1))) {
+            'H' => 'M',
+            'F' => 'F',
+            default => null,
+        };
+    }
+
+    private function isVolunteer(mixed $status): bool
+    {
+        return in_array(Str::upper(Str::ascii(trim((string) $status))), ['BENEVOLE', 'BENEVOLAT'], true);
+    }
+
     private function sex(mixed $value): ?string
     {
         return match (Str::upper(Str::ascii(trim((string) $value)))) {
@@ -272,7 +303,7 @@ class ImportEmployeesAction
         }
 
         return match (Str::upper(Str::ascii(trim((string) $value)))) {
-            '1', 'OUI', 'YES', 'ACTIF', 'ACTIVE' => true,
+            '1', 'OUI', 'YES', 'ACTIF', 'ACTIVE', 'BENEVOLE', 'BENEVOLAT' => true,
             '0', 'NON', 'NO', 'INACTIF', 'INACTIVE' => false,
             default => null,
         };

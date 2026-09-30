@@ -98,9 +98,10 @@ class ExcelWorkbook
             return [];
         }
 
-        $headers = collect($values[0])->map(fn ($header) => $this->normalizeHeader((string) $header))->all();
+        $headerIndex = $this->headerRowIndex($values);
+        $headers = collect($values[$headerIndex])->map(fn ($header) => $this->normalizeHeader((string) $header))->all();
 
-        return collect(array_slice($values, 1))
+        return collect(array_slice($values, $headerIndex + 1))
             ->map(function (array $row) use ($headers): array {
                 $result = [];
 
@@ -115,6 +116,30 @@ class ExcelWorkbook
             ->filter(fn (array $row) => collect($row)->contains(fn ($value) => trim((string) $value) !== ''))
             ->values()
             ->all();
+    }
+
+    /**
+     * La ligne d'en-têtes. C'est la première, sauf quand elle ne porte qu'une remarque
+     * (une seule cellule, comme la légende d'une feuille du personnel) et que l'une
+     * des cinq suivantes porte plusieurs colonnes : c'est alors celle-là.
+     *
+     * @param  array<int, array<int, mixed>>  $values
+     */
+    private function headerRowIndex(array $values): int
+    {
+        $filled = fn (array $row): int => count(array_filter($row, fn ($cell) => trim((string) $cell) !== ''));
+
+        if ($filled($values[0]) > 1) {
+            return 0;
+        }
+
+        foreach (array_slice($values, 1, 5, true) as $index => $row) {
+            if ($filled($row) >= 3) {
+                return $index;
+            }
+        }
+
+        return 0;
     }
 
     public function normalizeHeader(string $header): string

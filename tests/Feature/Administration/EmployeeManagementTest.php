@@ -380,6 +380,19 @@ class EmployeeManagementTest extends TestCase
             ->assertSessionHasErrors('children.0.name');
     }
 
+    public function test_the_clinic_staff_number_is_built_from_the_profile_and_never_guessed(): void
+    {
+        $numbers = app(\App\Services\Administration\EmployeeNumberAllocator::class);
+
+        // H/F + année d'entrée + jour et mois de naissance (feuille du personnel).
+        $this->assertSame('F20151808', $numbers->fromProfile('F', '2015-03-14', '1987-08-18'));
+        $this->assertSame('H20181007', $numbers->fromProfile('M', '2018-10-01', '1997-07-10'));
+        // Rien n'est deviné quand une information manque, ni redonné quand il est pris.
+        $this->assertNull($numbers->fromProfile(null, '2015-03-14', '1987-08-18'));
+        $this->assertNull($numbers->fromProfile('F', null, '1987-08-18'));
+        $this->assertNull($numbers->fromProfile('F', '2015-03-14', '1987-08-18', ['f20151808']));
+    }
+
     /** @return array<string, mixed> */
     private function validPayload(): array
     {

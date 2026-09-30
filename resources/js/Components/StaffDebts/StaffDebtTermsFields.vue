@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { CalendarDays, CalendarRange, CircleAlert, Coins, Lock, Percent, Repeat } from 'lucide-vue-next';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
+import { cn } from '@/lib/cn';
 import Select from '@/Components/Shadcn/Select.vue';
 import { formatMoney } from '@/utilities/money';
 import { debtPlan, fromMinor, installmentFor, periodOptions, planSummary, ruleIssues, salaryShare, toMinor, totalWithInterest } from '@/utilities/staffDebts';
@@ -55,6 +56,8 @@ const interest = computed(() => totals.value?.interest ?? null);
 const plan = computed(() => debtPlan(totals.value?.total ?? props.form.amount, props.form.installment_amount, props.form.first_period));
 const issues = computed(() => ruleIssues(props.form.amount, props.form.installment_amount, props.lockAmount ? { ...props.rules, min_amount: null, max_amount: null } : props.rules, formatMoney, props.maxInstallment));
 const issueList = computed(() => Object.values(issues.value));
+// Le montant hors de la fourchette se voit sur le champ lui-même : refus pour le personnel, dérogation pour le DG.
+const amountOff = computed(() => (issues.value.amount ? (props.limitMode === 'refuse' ? 'refuse' : 'derogation') : null));
 defineExpose({ issues });
 const periods = computed(() => periodOptions(props.currentMonth, 18, props.keepPeriod));
 const share = computed(() => (props.salary ? salaryShare(props.form.installment_amount, props.salary) : null));
@@ -83,12 +86,16 @@ const pickMonths = (months) => {
                         inputmode="decimal"
                         placeholder="Ex. 300000"
                         :disabled="disabled || lockAmount"
-                        class="pe-10 tabular-nums"
+                        :aria-invalid="amountOff ? 'true' : undefined"
+                        :class="cn('pe-10 tabular-nums', amountOff === 'refuse' && 'border-destructive', amountOff === 'derogation' && 'border-amber-400')"
                     />
                     <span class="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">Ar</span>
                 </div>
                 <p v-if="lockAmount" class="mt-1 text-xs text-muted-foreground">Déjà versée : le montant est ce qui a été remis.</p>
-                <p v-else-if="rules && (rules.min_amount || rules.max_amount)" class="mt-1 text-xs text-muted-foreground">
+                <p
+                    v-else-if="rules && (rules.min_amount || rules.max_amount)"
+                    :class="cn('mt-1 text-xs', amountOff === 'refuse' ? 'font-medium text-destructive' : amountOff === 'derogation' ? 'font-medium text-amber-700 dark:text-amber-300' : 'text-muted-foreground')"
+                >
                     <template v-if="rules.min_amount && rules.max_amount">De {{ formatMoney(rules.min_amount) }} à {{ formatMoney(rules.max_amount) }}.</template>
                     <template v-else-if="rules.min_amount">Au moins {{ formatMoney(rules.min_amount) }}.</template>
                     <template v-else>Au plus {{ formatMoney(rules.max_amount) }}.</template>

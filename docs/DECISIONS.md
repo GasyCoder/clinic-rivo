@@ -22439,6 +22439,32 @@ intérêt annuel / par mois        non retenu : l'intérêt est un montant uniqu
                                  temps — un retard ne coûte rien de plus
 ```
 
+## Amendement du 2026-09-30 — pas de demande sans montant minimum et maximum
+
+Constat du propriétaire : sur Ambondromamy, qui n'avait rien réglé, un employé a demandé une dette de
+500 000 000 Ar ; la demande est partie au DG. C'était la règle écrite plus haut (« une valeur vide ne pose
+aucune limite »). Arbitrage explicite : **les demandes restent fermées au personnel tant que le site n'a pas
+réglé le montant minimum et le montant maximum**. Divergence signalée avec le texte d'origine de cette ADR.
+
+```text
+blocage          StaffDebtRules::requestBlocker() : demandes fermées par le Super Admin (son message
+                 d'abord), puis montants non réglés — « le DG doit d'abord régler le montant minimum
+                 et le montant maximum » (LIMITS_MISSING) ; refus serveur, bouton masqué à l'écran
+réglages         ouvrir les demandes exige le minimum et le maximum, chacun supérieur à 0 Ar
+                 (UpdateStaffDebtSettingsAction, refus nommé par champ) ; fermées, elles se règlent
+                 sans eux ; les autres limites restent facultatives
+présenté         present() sert amount_limits_set et accepting_requests ; la page du portail dit
+                 « Demandes fermées au personnel : montant minimum et maximum à régler » ou affiche la
+                 fourchette (« De 50 000 Ar à 10 000 000 Ar par dette ») ; la vue de tous les sites
+                 marque « Montants à régler »
+inchangé         la fourchette réglée s'applique à la demande (refus) et à la décision du DG
+                 (dérogation écrite) ; une demande déjà faite avant le réglage se décide normalement
+```
+
+Aucun montant n'est inventé à la place du site. La page « Dettes du personnel » du portail range aussi ses
+cinq compteurs en une seule bande compacte (`QueueCounters compact`, cinq colonnes sur grand écran) au lieu
+de deux rangées de grandes cartes. Aucune permission ni migration.
+
 ---
 
 # ADR-230 — Dettes du personnel : pénalité de retard, règlement au départ, documents à signer

@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Models\UserNotification;
 use App\Notifications\StaffDebtUpdated;
 use App\Services\StaffDebts\StaffDebtReminder;
+use App\Services\StaffDebts\StaffDebtRules;
 use App\Services\SuperAdmin\SiteHrGateway;
 use App\Services\SuperAdmin\SiteStaffDebtGateway;
 use Database\Seeders\PermissionSeeder;
@@ -449,6 +450,56 @@ class StaffDebtTest extends TestCase
             ->where('space.can_request', false)->where('space.request_blocker', 'Reprise en janvier.')->etc());
     }
 
+    public function test_requests_stay_closed_to_the_staff_until_the_site_sets_a_minimum_and_a_maximum(): void
+    {
+        [$user] = $this->staff(salary: 400000);
+        StaffDebtSetting::query()->delete();
+
+        // Aucun réglage : le personnel ne peut pas demander, et l'écran dit pourquoi.
+        $this->actingAs($user)->get('/mes-dettes')->assertInertia(fn (Assert $page) => $page
+            ->where('space.can_request', false)
+            ->where('space.request_blocker', StaffDebtRules::LIMITS_MISSING)
+            ->where('space.rules.amount_limits_set', false)
+            ->where('space.rules.accepting_requests', false)
+            ->etc());
+        $this->actingAs($user)->post('/mes-dettes', [
+            'amount' => '500000000', 'installment_amount' => '166666700', 'first_period' => '2026-10', 'reason' => 'Besoin personnel',
+        ])->assertSessionHasErrors(['employee' => StaffDebtRules::LIMITS_MISSING]);
+        $this->assertSame(0, StaffDebt::query()->count());
+
+        $this->portal('GET', '')->assertOk()
+            ->assertJsonPath('props.rules.amount_limits_set', false)
+            ->assertJsonPath('props.rules.accepting_requests', false);
+        $this->withHeaders($this->headers(['staff_debts.view']))->getJson('/api/v1/super-admin/staff-debts/overview')
+            ->assertOk()->assertJsonPath('data.rules.amount_limits_set', false);
+
+        // Ouvrir les demandes exige les deux montants, au-dessus de 0.
+        $this->portal('PUT', 'reglages', $this->settings(['min_amount' => null, 'max_amount' => null]))
+            ->assertStatus(422)->assertJsonValidationErrors(['min_amount', 'max_amount']);
+        $this->portal('PUT', 'reglages', $this->settings(['min_amount' => '0']))
+            ->assertStatus(422)->assertJsonValidationErrors(['min_amount' => 'Le montant minimum doit être supérieur à 0 Ar.']);
+        $this->assertSame(0, StaffDebtSetting::query()->count());
+
+        // Fermées, les demandes se règlent sans montants : le message du site passe en premier.
+        $this->portal('PUT', 'reglages', $this->settings(['requests_open' => false, 'closed_message' => 'Bientôt.', 'min_amount' => null, 'max_amount' => null]))->assertOk();
+        $this->actingAs($user)->get('/mes-dettes')->assertInertia(fn (Assert $page) => $page
+            ->where('space.request_blocker', 'Bientôt.')->etc());
+
+        // Réglés : la fourchette s'applique à la demande, et la page du portail l'affiche.
+        $this->configure($this->settings(['max_months' => null, 'max_salary_share' => null, 'interest_tiers' => []]));
+        $this->actingAs($user)->get('/mes-dettes')->assertInertia(fn (Assert $page) => $page
+            ->where('space.can_request', true)->where('space.rules.accepting_requests', true)->etc());
+        $this->actingAs($user)->post('/mes-dettes', [
+            'amount' => '500000000', 'installment_amount' => '166666700', 'first_period' => '2026-10', 'reason' => 'Besoin personnel',
+        ])->assertSessionHasErrors(['amount' => 'Le montant maximum est de 10 000 000 Ar.']);
+        $this->assertSame(0, StaffDebt::query()->count());
+
+        $this->portal('GET', '')->assertOk()
+            ->assertJsonPath('props.rules.accepting_requests', true)
+            ->assertJsonPath('props.rules.min_amount', '50000.00')
+            ->assertJsonPath('props.rules.max_amount', '10000000.00');
+    }
+
     public function test_the_dg_can_grant_beyond_the_limits_only_by_confirming_a_written_derogation(): void
     {
         [$user] = $this->staff(salary: 400000);
@@ -642,6 +693,12 @@ class StaffDebtTest extends TestCase
     /** @return array{0: User, 1: Employee} */
     private function staff(?int $salary, string $number = 'EMP-1'): array
     {
+        // ADR-229 (amendement du 2026-09-30) — sans montant minimum et maximum, le site
+        // n'ouvre pas les demandes : le site de test en règle de larges, s'il n'a rien réglé.
+        if (! StaffDebtSetting::query()->exists()) {
+            StaffDebtSetting::query()->create(['requests_open' => true, 'min_amount' => '1000', 'max_amount' => '100000000']);
+        }
+
         $user = $this->user(['staff_debts.request'], 'NURSE');
         $employee = Employee::query()->create([
             'employee_number' => $number, 'first_name' => 'Vola', 'last_name' => 'RABE '.$number, 'sex' => 'F', 'active' => true,

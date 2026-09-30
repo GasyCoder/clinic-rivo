@@ -843,6 +843,7 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] « Mes dettes » refait en pleine largeur : prochain remboursement, déjà remboursé et retard servis par le serveur, avancement de chaque dette en quatre étapes, détail replié pour une dette close, déroulé expliqué à côté (ADR-228, amendement du 2026-09-30)
 - [x] Dettes du personnel déplacées dans Finance au portail : aperçu de tous les sites, liste, fiche et réglages d'un site par son API ; rubrique RH retirée, le RH ne verse plus, anciennes adresses redirigées (ADR-229)
 - [x] Réglages par site : demandes suspendues avec message, montant min/max, durée max, mensualité ≤ % du salaire, dettes en cours max, ancienneté min, stagiaires exclus (ADR-229)
+- [x] Demandes fermées au personnel tant que le montant minimum et maximum ne sont pas réglés ; réglages qui les exigent pour ouvrir les demandes ; fourchette affichée au portail, compteurs en bande compacte (ADR-229, amendement du 2026-09-30)
 - [x] Intérêt par tranche de montant (fixe ou %), figé à l'accord, remboursé avec le montant ; remise de l'intérêt par le DG (ADR-229)
 - [x] Limite dépassée : refus à la demande, dérogation confirmée et écrite à la décision du DG (ADR-229)
 - [x] Relance des remboursements en espèces en retard (automatique une fois par mois, et à la main au portail) ; export Excel audité (ADR-229)

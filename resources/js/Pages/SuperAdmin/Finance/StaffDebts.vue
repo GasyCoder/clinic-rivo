@@ -73,6 +73,7 @@ const offline = computed(() => props.sites.filter((site) => ! site.overview));
                     </div>
                     <template v-if="site.overview">
                         <Badge v-if="! site.overview.rules.requests_open" variant="destructive" class="gap-1"><Lock class="h-3 w-3" />Demandes fermées</Badge>
+                        <Badge v-else-if="site.overview.rules.amount_limits_set === false" variant="warning" class="gap-1" title="Le personnel ne peut pas demander tant que le montant minimum et maximum ne sont pas réglés."><Lock class="h-3 w-3" />Montants à régler</Badge>
                         <Badge v-if="site.overview.rules.has_interest" variant="secondary" class="gap-1"><Percent class="h-3 w-3" />Intérêts</Badge>
                     </template>
                 </header>

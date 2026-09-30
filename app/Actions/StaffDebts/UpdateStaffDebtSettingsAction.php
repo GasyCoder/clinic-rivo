@@ -15,8 +15,10 @@ use Illuminate\Validation\ValidationException;
 /**
  * ADR-229 — le Super Admin règle les dettes du personnel d'un site depuis le portail
  * (Finance › Dettes du personnel › Réglages), par l'API du site. Une valeur vide ne pose
- * aucune limite. Les nouvelles règles valent pour les demandes et décisions à venir :
- * aucune dette déjà accordée n'est recalculée. Audité par le modèle, au nom de l'acteur.
+ * aucune limite, sauf le montant minimum et maximum : ils sont exigés pour ouvrir les
+ * demandes (amendement du 2026-09-30). Les nouvelles règles valent pour les demandes et
+ * décisions à venir : aucune dette déjà accordée n'est recalculée. Audité par le modèle,
+ * au nom de l'acteur.
  */
 class UpdateStaffDebtSettingsAction
 {
@@ -30,13 +32,28 @@ class UpdateStaffDebtSettingsAction
         $min = filled($data['min_amount'] ?? null) ? Money::normalize((string) $data['min_amount']) : null;
         $max = filled($data['max_amount'] ?? null) ? Money::normalize((string) $data['max_amount']) : null;
 
+        $open = (bool) ($data['requests_open'] ?? true);
+
+        // ADR-229 (amendement du 2026-09-30) — des demandes ouvertes sont bornées : sans
+        // minimum et maximum, le personnel pourrait demander n'importe quel montant.
+        $missing = [];
+        foreach (['min_amount' => [$min, 'minimum'], 'max_amount' => [$max, 'maximum']] as $field => [$value, $word]) {
+            if ($value !== null && Money::toMinor($value) <= 0) {
+                $missing[$field] = "Le montant {$word} doit être supérieur à 0 Ar.";
+            } elseif ($value === null && $open) {
+                $missing[$field] = "Réglez le montant {$word} pour ouvrir les demandes, ou fermez-les.";
+            }
+        }
+        if ($missing !== []) {
+            throw ValidationException::withMessages($missing);
+        }
+
         if ($min !== null && $max !== null && Money::toMinor($max) < Money::toMinor($min)) {
             throw ValidationException::withMessages(['max_amount' => 'Le montant maximum ne peut pas être inférieur au minimum.']);
         }
 
         $tiers = StaffDebtInterest::normalize(is_array($data['interest_tiers'] ?? null) ? $data['interest_tiers'] : []);
         $penalty = $this->penalty($data);
-        $open = (bool) ($data['requests_open'] ?? true);
 
         return DB::transaction(function () use ($data, $actor, $min, $max, $tiers, $open, $penalty): StaffDebtSetting {
             $setting = StaffDebtSetting::query()->lockForUpdate()->first() ?? new StaffDebtSetting;

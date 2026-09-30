@@ -340,6 +340,8 @@ final class StaffDebtDirectory
             'rules' => [
                 'configured' => $present['configured'],
                 'requests_open' => $present['requests_open'],
+                'amount_limits_set' => $present['amount_limits_set'],
+                'accepting_requests' => $present['accepting_requests'],
                 'has_interest' => $present['interest_tiers'] !== [],
                 'has_penalty' => $present['penalty_rate'] !== null,
             ],

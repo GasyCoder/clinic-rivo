@@ -10,6 +10,7 @@ use App\Services\Administration\InternshipDirectory;
 use App\Support\Money;
 use App\Support\StaffDebts\StaffDebtInterest;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * ADR-229 — les règles des dettes du personnel sur ce site, écrites une fois : qui peut
@@ -19,11 +20,16 @@ use Illuminate\Support\Carbon;
  *
  * À la demande de l'employé, une limite dépassée est un refus. À la décision du DG, c'est
  * une dérogation : il la voit, doit la confirmer, et elle reste écrite sur la dette.
+ *
+ * ADR-229 (amendement du 2026-09-30) — sans montant minimum et maximum réglés, le
+ * personnel ne peut pas demander : aucun montant n'est inventé à la place du site.
  */
 final class StaffDebtRules
 {
     /** Les dettes qui engagent des mensualités : accordées ou en remboursement. */
     public const ENGAGED = [StaffDebtStatus::Approved, StaffDebtStatus::Active];
+
+    public const LIMITS_MISSING = 'Les demandes de dette ne sont pas encore ouvertes sur ce site : le DG doit d’abord régler le montant minimum et le montant maximum.';
 
     private ?StaffDebtSetting $setting = null;
 
@@ -86,12 +92,12 @@ final class StaffDebtRules
         $today ??= now();
         $setting = $this->setting();
 
-        if ($setting === null) {
-            return null;
+        if ($setting !== null && ! $setting->requests_open) {
+            return filled($setting->closed_message) ? $setting->closed_message : 'Les demandes de dette sont fermées pour le moment.';
         }
 
-        if (! $setting->requests_open) {
-            return filled($setting->closed_message) ? $setting->closed_message : 'Les demandes de dette sont fermées pour le moment.';
+        if (! $this->amountLimitsSet()) {
+            return self::LIMITS_MISSING;
         }
 
         if ($setting->exclude_interns && $this->interns->isIntern($employee)) {
@@ -114,6 +120,14 @@ final class StaffDebtRules
         }
 
         return null;
+    }
+
+    /** Le minimum et le maximum d'une dette sont réglés : la condition pour ouvrir les demandes. */
+    public function amountLimitsSet(): bool
+    {
+        $setting = $this->setting();
+
+        return $setting !== null && $setting->min_amount !== null && $setting->max_amount !== null;
     }
 
     /**
@@ -194,6 +208,9 @@ final class StaffDebtRules
         return [
             'configured' => $setting !== null,
             'requests_open' => $setting?->requests_open ?? true,
+            'amount_limits_set' => $this->amountLimitsSet(),
+            // Ce que vit le personnel : ouvertes par le Super Admin ET bornées par un minimum et un maximum.
+            'accepting_requests' => ($setting?->requests_open ?? true) && $this->amountLimitsSet(),
             'closed_message' => $setting?->closed_message,
             'min_amount' => $setting?->min_amount !== null ? (string) $setting->min_amount : null,
             'max_amount' => $setting?->max_amount !== null ? (string) $setting->max_amount : null,
@@ -210,7 +227,7 @@ final class StaffDebtRules
         ];
     }
 
-    /** @return \Illuminate\Support\Collection<int, StaffDebt> */
+    /** @return Collection<int, StaffDebt> */
     public function engagedDebts(Employee $employee, ?int $ignoreDebtId = null)
     {
         return StaffDebt::query()

@@ -25,7 +25,7 @@ defineOptions({ layout: AppLayout });
 
 const props = defineProps({
     listing: { type: Object, required: true },
-    rules: { type: Object, default: () => ({ configured: false, requests_open: true, has_interest: false }) },
+    rules: { type: Object, default: () => ({ configured: false, requests_open: true, amount_limits_set: false, has_interest: false }) },
     can: { type: Object, required: true },
 });
 
@@ -89,13 +89,16 @@ const exportUrl = computed(() => {
 
         <div class="flex flex-wrap items-center gap-2 text-sm">
             <Badge v-if="! rules.requests_open" variant="destructive" class="gap-1.5"><Lock class="h-3.5 w-3.5" />Demandes fermées</Badge>
+            <!-- ADR-229 (amendement du 2026-09-30) — sans minimum ni maximum, le personnel ne peut pas demander. -->
+            <Badge v-else-if="! rules.amount_limits_set" variant="warning" class="gap-1.5"><Lock class="h-3.5 w-3.5" />Demandes fermées au personnel : montant minimum et maximum à régler</Badge>
             <Badge v-else variant="secondary" class="gap-1.5"><HandCoins class="h-3.5 w-3.5" />Demandes ouvertes</Badge>
-            <Badge variant="secondary" class="gap-1.5"><Scale class="h-3.5 w-3.5" />{{ rules.configured ? 'Limites du site réglées' : 'Aucune limite réglée' }}</Badge>
+            <Badge v-if="rules.amount_limits_set" variant="secondary" class="gap-1.5 tabular-nums"><Scale class="h-3.5 w-3.5" />De {{ formatMoney(rules.min_amount) }} à {{ formatMoney(rules.max_amount) }} par dette</Badge>
             <Badge variant="secondary" class="gap-1.5"><Percent class="h-3.5 w-3.5" />{{ rules.has_interest ? 'Intérêts par tranche' : 'Sans intérêt' }}</Badge>
-            <Link v-if="can.settings" :href="staffDebtUrl('/finance/dettes/reglages')" class="text-xs font-semibold text-primary hover:underline">Modifier</Link>
+            <Link v-if="can.settings" :href="staffDebtUrl('/finance/dettes/reglages')" class="text-xs font-semibold text-primary hover:underline">{{ rules.amount_limits_set ? 'Modifier' : 'Régler les montants' }}</Link>
         </div>
 
-        <QueueCounters :tiles="tiles" @select="selectView" />
+        <!-- Cinq vues sur une seule bande : les compteurs ne repoussent pas la liste. -->
+        <QueueCounters compact :tiles="tiles" class="sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-5" @select="selectView" />
 
         <div class="flex flex-wrap items-center gap-3">
             <div class="min-w-64 flex-1">

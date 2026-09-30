@@ -150,16 +150,17 @@ const LIMITS = [
                         <div class="min-w-0">
                             <h2 class="text-sm font-semibold text-foreground">Limites</h2>
                             <p class="text-xs text-muted-foreground">Le personnel ne peut pas les dépasser. Le DG le peut, par dérogation écrite sur la dette.</p>
+                            <p v-if="form.requests_open" class="mt-1 text-xs text-muted-foreground">Le montant minimum et maximum sont exigés pour ouvrir les demandes : sans eux, le personnel ne peut pas demander.</p>
                         </div>
                     </div>
                     <div class="grid gap-4 sm:grid-cols-2">
-                        <FormField label="Montant minimum" :icon="Coins" :error="form.errors.min_amount">
+                        <FormField label="Montant minimum" :icon="Coins" :required="form.requests_open" :error="form.errors.min_amount">
                             <div class="relative">
                                 <IconInput v-model="form.min_amount" :icon="Coins" inputmode="decimal" placeholder="Ex. 50000" class="pe-10 tabular-nums" />
                                 <span class="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">Ar</span>
                             </div>
                         </FormField>
-                        <FormField label="Montant maximum" :icon="Coins" :error="form.errors.max_amount">
+                        <FormField label="Montant maximum" :icon="Coins" :required="form.requests_open" :error="form.errors.max_amount">
                             <div class="relative">
                                 <IconInput v-model="form.max_amount" :icon="Coins" inputmode="decimal" placeholder="Ex. 10000000" class="pe-10 tabular-nums" />
                                 <span class="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">Ar</span>

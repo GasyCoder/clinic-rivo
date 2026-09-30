@@ -17496,6 +17496,28 @@ code et tests   plus aucune mention du domaine de test ; les tests écrivent @cl
 Piège constaté : le portail local tourne avec `php artisan serve --env=admin --no-reload`, qui garde en mémoire
 les valeurs de `.env.admin` lues au démarrage. Changer le domaine exige de redémarrer ce serveur.
 
+## Amendement du 2026-09-30 — un nom trop long donne une adresse brève
+
+Constat du propriétaire, sur « Créer l'accès » : « Latifah Olsen Lee Park » donnait
+`latifah.olsen.lee.park` (22 caractères). La proposition reste modifiable ; seule sa forme change
+(`ProfessionalEmailAddress::localPartFor()`, lue par `suggest()`, donc partout où une adresse est proposée).
+
+```text
+tant que ça tient   tous les mots, comme avant : zephyr.andrianina, jean.paul.rabe
+au-delà de 20       la première forme qui tient en 20 caractères (PREFERRED_LENGTH), dans cet ordre :
+caractères            latifah.lee        premier prénom . premier nom
+                      t.rakotondrazaka   initiale du prénom . premier nom
+                      fanomezantsoa.a    premier prénom . initiale du nom
+                    si aucune ne tient : la plus courte
+un seul nom         tous les mots, puis les deux premiers, puis le premier
+homonyme            chiffre ajouté, comme avant (latifah.lee2) — jamais pour sa propre boîte déjà ouverte,
+                    qui comptait jusqu'ici comme « prise » par quelqu'un d'autre
+```
+
+Même jour, même fenêtre : « Compte RIVO » et « Rôle dans RIVO » deviennent « Compte » et « Rôle » ; les
+textes de la page « Accès du personnel » ne nomment plus l'application. Aucune permission, route ni
+migration ; aucune adresse existante n'est réécrite.
+
 ---
 
 # ADR-191 — Thème, réglages avancés et numérotation propres à chaque site

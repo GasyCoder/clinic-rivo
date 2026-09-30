@@ -237,7 +237,7 @@ const canCreate = computed(() => props.can.create && props.hosting.ready);
                     <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Utilisateurs</p>
                     <h1 class="font-heading text-2xl font-bold text-foreground">Accès du personnel</h1>
                     <p class="mt-1 max-w-3xl text-sm text-muted-foreground">
-                        L’arrivée d’un employé : le RH l’ajoute, vous créez ici son adresse professionnelle et son compte RIVO en un geste — le rôle proposé par sa fonction, aucun mot de passe —, puis le RH du site le prévient : il se connecte avec son adresse et choisit son mot de passe. Les comptes existants se gèrent dans l’onglet « Comptes ».
+                        L’arrivée d’un employé : le RH l’ajoute, vous créez ici son adresse professionnelle et son compte en un geste — le rôle proposé par sa fonction, aucun mot de passe —, puis le RH du site le prévient : il se connecte avec son adresse et choisit son mot de passe. Les comptes existants se gèrent dans l’onglet « Comptes ».
                     </p>
                 </div>
             </div>
@@ -425,7 +425,7 @@ const canCreate = computed(() => props.can.create && props.hosting.ready);
                 <div v-else class="flex flex-col items-center gap-2 px-6 py-16 text-center">
                     <span class="grid h-12 w-12 place-items-center rounded-full bg-muted text-muted-foreground"><Users class="h-5 w-5" aria-hidden="true" /></span>
                     <p class="text-sm font-semibold text-foreground">Aucun employé sans accès</p>
-                    <p class="max-w-sm text-xs text-muted-foreground">Un employé qui n’a besoin ni de RIVO ni d’une adresse (entretien, gardiennage…) se range ici, sans rien effacer.</p>
+                    <p class="max-w-sm text-xs text-muted-foreground">Un employé qui n’a besoin ni d’un compte ni d’une adresse (entretien, gardiennage…) se range ici, sans rien effacer.</p>
                 </div>
             </div>
         </section>

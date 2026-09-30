@@ -9,6 +9,7 @@ use App\Models\Permission;
 use App\Models\ProfessionalMailbox;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\ProfessionalEmailAddress;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -66,6 +67,28 @@ class ProfessionalMailboxTest extends TestCase
 
         $this->actingAs($this->hr)->get("/administration/employees/{$second->uuid}")
             ->assertInertia(fn (Assert $page) => $page->where('professionalEmail.suggestion', 'hery.rabe2'));
+    }
+
+    public function test_a_long_name_is_proposed_short_and_its_own_mailbox_is_not_taken(): void
+    {
+        $employee = $this->employee('RH-001', ['first_name' => 'Latifah Olsen', 'last_name' => 'Lee Park']);
+
+        $this->actingAs($this->hr)->get("/administration/employees/{$employee->uuid}")
+            ->assertInertia(fn (Assert $page) => $page->where('professionalEmail.suggestion', 'latifah.lee'));
+
+        // Sa propre boîte ouverte ne le fait pas passer à « latifah.lee2 ».
+        ProfessionalMailbox::query()->create([
+            'employee_id' => $employee->id,
+            'address' => 'latifah.lee@cliniquesaintgeorges.mg',
+            'status' => ProfessionalMailboxStatus::Requested,
+            'requested_at' => now(),
+            'requested_by' => $this->hr->id,
+        ]);
+        $this->assertSame('latifah.lee', ProfessionalEmailAddress::suggest($employee));
+
+        // Celle d'une autre personne, si.
+        $homonym = $this->employee('RH-002', ['first_name' => 'Latifah', 'last_name' => 'Lee']);
+        $this->assertSame('latifah.lee2', ProfessionalEmailAddress::suggest($homonym));
     }
 
     public function test_hr_requests_an_address_and_nothing_is_created_at_the_host(): void

@@ -74,7 +74,9 @@ test('ADR-199 — the grant dialog is a narrow form that says nothing is wrong b
     assert.doesNotMatch(picker, /password/i);
     // Libellés au-dessus des champs, rôle prérempli par la fonction.
     assert.match(dialog, /label="Adresse professionnelle"/);
-    assert.match(dialog, /label="Rôle dans RIVO"/);
+    assert.match(dialog, /label="Rôle"/);
+    // Ni « Rôle dans RIVO » ni « Compte RIVO » : juste Rôle et Compte.
+    assert.doesNotMatch(dialog, /RIVO/);
     assert.match(dialog, /proposedSelection\(employee, rolesOf\(employee\.site_code\)\)/);
     assert.match(dialog, /Proposé par sa fonction/);
     assert.match(dialog, /selon sa fonction/);

@@ -106,6 +106,10 @@ const clinicMenu = computed(() => buildClinicMenu({
     webmail: page.props.webmail?.available === true,
 }));
 
+/** Les pages relayées d'un module appartiennent à son entrée autonome. */
+const moduleSitePaths = (segment) => (page.props.adminNavigation ?? [])
+    .map((site) => `/super-admin/sites/${site.code}/${segment}`);
+
 const adminMenu = computed(() => [
     { heading: 'Vue centrale' },
     { icon: TrendingUp, text: overviewLabel.value, link: '/' },
@@ -134,18 +138,44 @@ const adminMenu = computed(() => [
     { icon: FileText, text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
     { icon: FileText, text: 'Canevas de documents', link: '/super-admin/workspaces/document-templates', permission: 'document_templates.view' },
     { icon: Activity, text: 'Catalogue des analyses', link: '/super-admin/analyses', permission: 'analysis_catalog.view' },
-    // ADR-215 — le Laboratoire de chaque site, lu par son API ; ses référentiels s'y gèrent.
-    { icon: FlaskConical, text: 'Laboratoire des sites', link: '/super-admin/laboratory', permission: 'laboratory_results.view' },
     { icon: MapPin, text: 'Adresses & localités', link: '/super-admin/addresses', permission: 'address_entries.view' },
     { icon: BedDouble, text: 'Services, chambres & lits', link: '/super-admin/hospital-beds', permission: 'hospital_beds.view' },
     { icon: Crown, text: 'Patients VIP', link: '/super-admin/patient-vip', permission: 'patient_vip.view' },
     // ADR-211 — les partenaires de chaque site, gérés par son API.
-    { icon: Handshake, text: 'Partenaires', link: '/super-admin/partners', permission: 'partner_organizations.view' },
+    {
+        icon: Handshake,
+        text: 'Partenaires',
+        link: '/super-admin/partners',
+        activeLinks: ['/super-admin/partners', ...moduleSitePaths('partenaires')],
+        permission: 'partner_organizations.view',
+    },
+    { heading: 'Laboratoire' },
+    // ADR-215 — le Laboratoire de chaque site, lu par son API ; ses référentiels s'y gèrent.
+    {
+        icon: FlaskConical,
+        text: 'Laboratoires des sites',
+        link: '/super-admin/laboratory',
+        activeLinks: ['/super-admin/laboratory', ...moduleSitePaths('laboratoire')],
+        permission: 'laboratory_results.view',
+    },
     { heading: 'Pharmacie & stocks' },
+    {
+        icon: Pill,
+        text: 'Pharmacies des sites',
+        link: '/super-admin/pharmacy',
+        activeLinks: ['/super-admin/pharmacy', ...moduleSitePaths('pharmacie')],
+        permission: 'pharmacy.view',
+    },
     { icon: Pill, text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
     { icon: Building2, text: 'Fournisseurs pharmacie', link: '/super-admin/pharmacy-suppliers', permission: 'medicine_suppliers.view' },
     { heading: 'Organisation' },
-    { icon: Briefcase, text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },
+    {
+        icon: Briefcase,
+        text: 'Ressources humaines',
+        link: '/super-admin/workspaces/hr',
+        activeLinks: ['/super-admin/workspaces/hr', ...moduleSitePaths('rh')],
+        permission: 'employees.view',
+    },
     { icon: AtSign, text: 'Emails professionnels', link: '/super-admin/professional-emails', permission: 'professional_emails.view' },
     // ADR-195 — la boîte du portail, réglée dans son .env : le Super Admin y arrive directement.
     { key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', permission: 'webmail.view', warm: WEBMAIL_MENU_WARM },

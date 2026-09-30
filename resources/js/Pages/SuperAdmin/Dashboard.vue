@@ -521,7 +521,7 @@ const debts = computed(() => ({
                         </Badge>
                     </div>
                     <h3 class="mt-3 font-heading text-base font-bold text-foreground">{{ site.name }}</h3>
-                    <p class="mt-1 text-xs text-muted-foreground">{{ site.modules?.length ?? 0 }} module(s) accessibles depuis le portail.</p>
+                    <p class="mt-1 text-xs text-muted-foreground">{{ site.modules?.length ?? 0 }} espace(s) opérationnel(s) propre(s) au site.</p>
                     <Button :as="Link" :href="`/super-admin/sites/${site.code}`" variant="outline" size="sm" class="mt-4">
                         Ouvrir<ArrowRight class="h-4 w-4" />
                     </Button>

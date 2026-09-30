@@ -6,6 +6,7 @@ import {
     Building2,
     ChevronDown,
     FileText,
+    FlaskConical,
     Pill,
     ShieldCheck,
     Wallet,
@@ -36,6 +37,7 @@ const sectionIcons = {
     Établissements: Building2,
     Finances: Wallet,
     Référentiels: FileText,
+    Laboratoire: FlaskConical,
     'Pharmacie & stocks': Pill,
     Organisation: Briefcase,
     'Accès & système': ShieldCheck,
@@ -89,9 +91,7 @@ const isChildActive = (item, child) => {
     const childPath = child.link.split('?')[0];
 
     return page.url === child.link
-        || (child.code === 'OVERVIEW' && currentPath.value === childPath && !hasModuleQuery.value)
-        || (['HR', 'PHARMACY'].includes(child.code)
-            && (currentPath.value === childPath || currentPath.value.startsWith(`${childPath}/`)));
+        || (child.code === 'OVERVIEW' && currentPath.value === childPath && !hasModuleQuery.value);
 };
 </script>
 

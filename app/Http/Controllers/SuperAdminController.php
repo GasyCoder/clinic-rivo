@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Dashboard\SiteReportService;
 use App\Services\SuperAdmin\PortalDirectory;
+use App\Services\SuperAdmin\PortalSiteApiClient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -10,32 +12,50 @@ use Inertia\Response;
 
 class SuperAdminController extends Controller
 {
-    public function site(Request $request, string $site, PortalDirectory $directory): Response|RedirectResponse
-    {
+    public function site(
+        Request $request,
+        string $site,
+        PortalDirectory $directory,
+        PortalSiteApiClient $client,
+    ): Response|RedirectResponse {
         $siteData = $directory->site($site);
         $requestedModule = mb_strtoupper((string) $request->query('module', 'OVERVIEW'));
-        $module = collect($siteData['modules'])->firstWhere('code', $requestedModule);
+        // Le registre complet permet de conserver les anciens favoris
+        // `?module=`. Le menu du site, lui, ne porte que les espaces dont le
+        // domicile canonique est l'établissement (ADR-231).
+        $module = collect($directory->modules())->firstWhere('code', $requestedModule);
 
         abort_unless($module, 404);
+        abort_unless($request->user()->can($module['permission']), 403);
 
-        // ADR-187 / ADR-189 — un ancien lien vers la vitrine RH ou Pharmacie
-        // mène aux écrans du site.
-        if ($module['code'] === 'HR') {
-            return redirect()->route('super-admin.sites.hr', ['site' => $siteData['code']]);
+        if ($module['navigation_scope'] === 'module') {
+            return match ($module['code']) {
+                'HR' => redirect()->route('super-admin.sites.hr', ['site' => $siteData['code']]),
+                'PHARMACY' => redirect()->route('super-admin.sites.pharmacy', ['site' => $siteData['code']]),
+                'LABORATORY' => redirect()->route('super-admin.sites.laboratory', ['site' => $siteData['code']]),
+                'PARTNERS' => redirect()->route('super-admin.sites.partners', ['site' => $siteData['code']]),
+                'CATALOG' => redirect()->route('super-admin.tariffs.index', ['site' => $siteData['code']]),
+                'LOGISTICS' => redirect()->route('super-admin.workspaces.show', ['workspace' => 'logistics', 'site' => $siteData['code']]),
+                'GUARDING' => redirect()->route('super-admin.workspaces.show', ['workspace' => 'guarding', 'site' => $siteData['code']]),
+                default => abort(500, "Le module {$module['code']} n'a pas de route canonique dans le portail."),
+            };
         }
 
-        if ($module['code'] === 'PHARMACY') {
-            return redirect()->route('super-admin.sites.pharmacy', ['site' => $siteData['code']]);
-        }
+        $siteData['modules'] = collect($siteData['modules'])
+            ->filter(fn (array $siteModule): bool => $request->user()->can($siteModule['permission']))
+            ->values()
+            ->all();
 
-        // ADR-215 — le Laboratoire aussi.
-        if ($module['code'] === 'LABORATORY') {
-            return redirect()->route('super-admin.sites.laboratory', ['site' => $siteData['code']]);
-        }
+        $days = max(
+            SiteReportService::MIN_DAYS,
+            min(SiteReportService::MAX_DAYS, (int) $request->integer('days', SiteReportService::DEFAULT_DAYS)),
+        );
 
         return Inertia::render('SuperAdmin/Sites/Show', [
             'clinic' => $siteData,
             'selectedModule' => $module,
+            'siteReport' => $client->reportForSite($siteData['code'], $request->user(), $days),
+            'days' => $days,
         ]);
     }
 

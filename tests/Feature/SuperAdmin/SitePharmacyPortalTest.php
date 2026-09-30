@@ -66,7 +66,7 @@ class SitePharmacyPortalTest extends TestCase
                 ->where('note', 'Voir /pharmacy-historique, sans lien')
                 ->where('pharmacyContext.base', '/super-admin/sites/A/pharmacie')
                 ->where('pharmacyContext.site.name', 'Ambondromamy')
-                ->where('pharmacyContext.overview_url', route('super-admin.stock.index'))
+                ->where('pharmacyContext.overview_url', route('super-admin.pharmacy.index'))
                 ->where('pharmacyContext.sites.2.configured', false)
                 ->missing('hrContext'));
 

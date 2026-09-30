@@ -24,6 +24,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Sélecteur de date compact (242 × 296 px au lieu de ~390 × 317) : cases de 28 px, ligne Heure : Minutes sous le calendrier, bouton « Maintenant » ; cartes Voie veineuse / Sonde urinaire placées par requêtes de conteneur, plus aucun champ qui déborde ni date tronquée (ADR-099)
 - [x] Menu latéral fidèle au rendu serveur : l'ordre personnel et les vues liste/grille ne sont plus lus pendant le rendu, plus aucune ligne portant le libellé d'un module et le lien d'un autre (ADR-115)
 - [x] Entrées mères par module (Médecine, Réception, Référentiels) ; un seul enfant actif à la fois ; icônes revues (ADR-115)
+- [x] Portail Super Admin sans doublons de navigation : un module vit soit sous le site, soit dans son espace multi-sites ; anciennes adresses redirigées, entrée Pharmacies des sites ajoutée (ADR-231)
 - [x] Marque de l'application unifiée dans la navigation : pastille d'initiales dérivées de `rivo.brand` et enseigne en majuscules, écrites une seule fois pour le bandeau latéral et la barre du haut
 - [x] Authentification locale avec comptes actifs et rôle obligatoire
 - [x] RBAC dynamique
@@ -1058,6 +1059,8 @@ admin.rivo.mg
 - [x] Espace Fournisseurs pharmacie entièrement en shadcn (ADR-099) : index en dossiers avec vue liste, création et import en fenêtres, et les quatorze pages de détail migrées avec leurs composants partagés
 - [x] Portail Super Administration entièrement en shadcn (ADR-099) : les 36 écrans et les composants partagés (`PageHeader`, `IconInput`, `Card`, `Breadcrumb`, `EmptyState`, `Explorer*`, `FolderCard`, `FormSection`, `ValidationErrorSummary`) quittent la police d'icônes et la palette DashWind, sans changer aucun contrat de props
 - [x] Navigation du portail regroupée en six blocs repliables (un seul ouvert), destinations et permissions inchangées ; sidebar redimensionnable à la souris, au tactile et au clavier, largeur conservée sur le poste (ADR-196)
+- [x] Modules rattachés au site alimentés par son rapport API réel : activité, caisse, patients et files Médecine/Soins/Chirurgie, période 7–90 jours, état ONLINE/OFFLINE sans faux zéro (ADR-232)
+- [x] Banc local distribué activable pour les trois sites, avec une API HTTP et une base SQLite indépendantes par site ; le portail ne lit jamais directement ces bases (ADR-043, ADR-232)
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste
 - [ ] Action « appliquer aux deux sites »
 - [ ] Résultat et reprise séparés en cas d’échec partiel

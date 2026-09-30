@@ -18,7 +18,11 @@ class PortalDirectory
             'code' => $site['code'],
             'name' => $site['name'],
             'integration_status' => filled($site['api_url'] ?? null) && filled($site['api_token'] ?? null) ? 'CONFIGURED' : 'PENDING',
-            'modules' => $this->modules(),
+            // ADR-231 — un espace présent dans la navigation par module ne
+            // réapparaît pas sous chacun des sites. Les quinze modules restent
+            // dans le registre canonique `modules()` ; seuls les espaces dont
+            // le domicile est le site composent son arbre de navigation.
+            'modules' => $this->siteModules(),
         ])->values();
     }
 
@@ -38,82 +42,113 @@ class PortalDirectory
         return [
             [
                 'code' => 'OVERVIEW', 'label' => 'Vue du site', 'icon' => 'growth',
+                'navigation_scope' => 'site', 'permission' => 'sites.view',
                 'description' => 'Activité et indicateurs du site.',
                 'areas' => ['Activité du jour', 'Alertes', 'Services ouverts', 'État de l’API'],
             ],
             [
                 'code' => 'RECEPTION', 'label' => 'Réception', 'icon' => 'card-view',
+                'navigation_scope' => 'site', 'permission' => 'episodes.view',
                 'description' => 'Admissions patient et registre des visiteurs.',
                 'areas' => ['Arrivées patient', 'Passages urgents', 'Visiteurs', 'Orientations'],
             ],
             [
                 'code' => 'CASH', 'label' => 'Caisse', 'icon' => 'wallet',
+                'navigation_scope' => 'site', 'permission' => 'cash.view',
                 'description' => 'Unique point d’encaissement du site.',
                 'areas' => ['Session de caisse', 'Factures', 'Paiements', 'Reçus et clôtures'],
             ],
             [
                 'code' => 'PATIENTS', 'label' => 'Patients', 'icon' => 'users',
+                'navigation_scope' => 'site', 'permission' => 'patients.view',
                 'description' => 'Dossiers administratifs et passages.',
                 'areas' => ['Patients', 'Épisodes', 'Doublons', 'Transferts autorisés'],
             ],
             [
                 'code' => 'MEDICINE', 'label' => 'Médecine', 'icon' => 'user-list',
+                'navigation_scope' => 'site', 'permission' => 'consultations.view',
                 'description' => 'Consultations, diagnostics et prescriptions.',
                 'areas' => ['Consultations', 'Diagnostics', 'Prescriptions', 'Décisions médicales'],
             ],
             [
                 'code' => 'CARE', 'label' => 'Soins', 'icon' => 'user-check',
+                'navigation_scope' => 'site', 'permission' => 'care.view',
                 'description' => 'Soins infirmiers et constantes.',
                 'areas' => ['Ordres de soins', 'Constantes', 'Soins en cours', 'Soins réalisés'],
             ],
             [
                 'code' => 'SURGERY', 'label' => 'Chirurgie', 'icon' => 'grid-alt',
+                'navigation_scope' => 'site', 'permission' => 'surgery.view',
                 'description' => 'Programmation, intervention et suivi opératoire.',
                 'areas' => ['Programmation', 'Préopératoire', 'Interventions', 'Postopératoire'],
             ],
             [
                 'code' => 'LABORATORY', 'label' => 'Laboratoire', 'icon' => 'activity',
+                'navigation_scope' => 'module', 'permission' => 'laboratory_results.view',
                 'description' => 'Demandes, prélèvements, analyses et résultats.',
                 'areas' => ['Demandes', 'Prélèvements', 'Analyses', 'Résultats validés'],
             ],
             [
                 'code' => 'PHARMACY', 'label' => 'Pharmacie', 'icon' => 'bag',
+                'navigation_scope' => 'module', 'permission' => 'pharmacy.view',
                 'description' => 'Délivrance et gestion du stock de médicaments.',
                 'areas' => ['Médicaments', 'Lots et péremptions', 'Entrées et sorties', 'Inventaires', 'Délivrances', 'Retours et transferts'],
                 'notice' => 'Le stock de médicaments appartient à la Pharmacie. Aucun paiement ni encaissement n’est autorisé ici.',
             ],
             [
                 'code' => 'HR', 'label' => 'Ressources humaines', 'icon' => 'briefcase',
+                'navigation_scope' => 'module', 'permission' => 'employees.view',
                 'description' => 'Employés, contrats, présence et organisation.',
                 'areas' => ['Employés', 'Contrats', 'Présences et congés', 'Planning'],
             ],
             [
                 'code' => 'LOGISTICS', 'label' => 'Logistique', 'icon' => 'package',
+                'navigation_scope' => 'module', 'permission' => 'logistics.view',
                 'description' => 'Inventaire et suivi des équipements du site.',
                 'areas' => ['Inventaire des équipements', 'Affectations et localisations', 'État et suivi', 'Maintenances', 'Mises hors service', 'Stock administratif'],
             ],
             [
                 'code' => 'GUARDING', 'label' => 'Gardiennage', 'icon' => 'shield-check',
+                'navigation_scope' => 'module', 'permission' => 'guarding.view',
                 'description' => 'Traçabilité des entrées et sorties du site.',
                 'areas' => ['Nouvelle entrée', 'Présences en cours', 'Sorties', 'Observations et incidents', 'Historique'],
             ],
             [
                 'code' => 'REPORTS', 'label' => 'Rapports', 'icon' => 'reports',
+                'navigation_scope' => 'site', 'permission' => 'sites.view',
                 'description' => 'Rapports autorisés du site.',
                 'areas' => ['Activité', 'Finance', 'Stocks', 'Administration'],
             ],
             [
                 'code' => 'PARTNERS', 'label' => 'Partenaires', 'icon' => 'handshake',
+                'navigation_scope' => 'module', 'permission' => 'partner_organizations.view',
                 'description' => 'Partenaires médicaux et autres partenaires du site (ADR-211).',
                 'areas' => ['Partenaires médicaux', 'Autres partenaires', 'Archivés'],
             ],
             [
                 'code' => 'CATALOG', 'label' => 'Référentiels & tarifs', 'icon' => 'setting-alt',
+                'navigation_scope' => 'module', 'permission' => 'catalog.items.view',
                 'description' => 'Prestations et grilles tarifaires propres au site.',
                 'areas' => ['Désignations', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Mutuelles', 'Historique tarifaire'],
                 'notice' => 'Les montants restent propres au site. Le portail central les administre uniquement via l’API sécurisée du site sélectionné.',
             ],
         ];
+    }
+
+    /**
+     * Modules dont le domicile de navigation est l'établissement.
+     *
+     * Les espaces multi-sites restent dans `modules()` pour le tableau de bord
+     * et les anciennes URL, mais ne sont jamais dupliqués dans chaque arbre.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function siteModules(): array
+    {
+        return array_values(array_filter(
+            $this->modules(),
+            fn (array $module): bool => $module['navigation_scope'] === 'site',
+        ));
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -123,20 +158,9 @@ class PortalDirectory
             'code' => $site['code'],
             'name' => $site['name'],
             'integration_status' => $site['integration_status'],
-            'modules' => collect($this->modules())->map(fn (array $module) => [
+            'modules' => collect($this->siteModules())->map(fn (array $module) => [
                 ...$module,
-                // ADR-187 / ADR-189 — les RH et la Pharmacie d'un site se
-                // gèrent réellement depuis le portail : l'entrée mène à leurs
-                // écrans, pas à une vitrine.
-                'link' => match ($module['code']) {
-                    'HR' => '/super-admin/sites/'.$site['code'].'/rh',
-                    'PHARMACY' => '/super-admin/sites/'.$site['code'].'/pharmacie',
-                    // ADR-215 — le Laboratoire se consulte, ses référentiels se gèrent.
-                    'LABORATORY' => '/super-admin/sites/'.$site['code'].'/laboratoire',
-                    // ADR-211 — les Partenaires aussi.
-                    'PARTNERS' => '/super-admin/sites/'.$site['code'].'/partenaires',
-                    default => '/super-admin/sites/'.$site['code'].'?module='.$module['code'],
-                },
+                'link' => '/super-admin/sites/'.$site['code'].'?module='.$module['code'],
             ])->all(),
         ])->all();
     }

@@ -209,7 +209,7 @@ class AssistantKnowledge
             'any' => ['super_admin.portal.view'],
             'deployment' => 'admin',
             'prefixes' => ['settings.', 'ai_settings.', 'app_maintenance.', 'roles.', 'users.', 'staff_access.'],
-            'keywords' => ['portail', 'super admin', 'paramètres', 'assistant ia', 'clé api', 'fournisseur', 'rôles', 'permissions', 'maintenance', 'site', 'accès du personnel'],
+            'keywords' => ['portail', 'super admin', 'paramètres', 'assistant ia', 'clé api', 'fournisseur', 'rôles', 'permissions', 'maintenance', 'site', 'accès du personnel', 'établissement', 'navigation', 'menu'],
         ],
     ];
 

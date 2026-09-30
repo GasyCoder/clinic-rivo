@@ -115,5 +115,5 @@ test('the portal shows the laboratory navigation of the site, from the one list 
     assert.match(bar, /print:hidden/);
 
     const menu = read('resources/js/Components/Layout/Menu.vue');
-    assert.match(menu, /link: '\/super-admin\/laboratory', permission: 'laboratory_results\.view'/, 'le portail a son entrée « Laboratoire des sites »');
+    assert.match(menu, /link: '\/super-admin\/laboratory'[\s\S]*?permission: 'laboratory_results\.view'/, 'le portail a son entrée « Laboratoires des sites »');
 });

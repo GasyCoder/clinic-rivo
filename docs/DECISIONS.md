@@ -22517,3 +22517,84 @@ départ avant versement             une dette accordée non versée s'annule (AD
                                    au départ
 recouvrement forcé                 hors RIVO : aucun contentieux n'est modélisé
 ```
+
+---
+
+# ADR-231 — Un module a un seul domicile dans la navigation Super Admin
+
+**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire : éviter les doublons entre les modules
+d'un établissement et les mêmes modules affichés comme espaces indépendants dans le portail)
+
+## Le défaut
+
+Le même Laboratoire apparaissait sous chaque établissement et sous « Laboratoire des sites ». Le même schéma
+existait pour la Pharmacie, les RH, les Partenaires, la Logistique, le Gardiennage et les Référentiels. Ces
+liens menaient parfois aux mêmes écrans relayés, parfois à une vitrine et à un vrai écran : la navigation ne
+permettait plus de savoir quelle entrée était la bonne.
+
+## La règle
+
+Chaque module reçoit un seul domicile de navigation dans le portail :
+
+```text
+par site        Vue du site, Réception, Caisse, Patients, Médecine, Soins, Chirurgie, Rapports
+par module      Laboratoire, Pharmacie, Ressources humaines, Logistique, Gardiennage,
+                Partenaires, Référentiels & tarifs
+```
+
+`PortalDirectory::modules()` reste le registre canonique complet. `navigation_scope` et `permission` sont
+déclarés avec chaque module ; `siteModules()` alimente seul les arbres d'établissements. La page d'un site
+filtre encore ces entrées par permission et le contrôleur revérifie le droit demandé côté Laravel.
+
+Un espace par module reste bien propre à chaque base : son entrée autonome est un sélecteur de site ou un
+comparatif, puis les vrais écrans du site sont relayés par son API. Elle ne crée aucune base commune et aucune
+lecture SQL inter-site. `/super-admin/pharmacy` devient le point d'entrée des Pharmacies, comme
+`/super-admin/laboratory` pour les Laboratoires. Stock médicaments et Fournisseurs restent des sous-espaces
+de pilotage de la Pharmacie, pas une seconde Pharmacie.
+
+Le Laboratoire opérationnel possède son propre bloc « Laboratoire » dans le menu. Seul « Catalogue des
+analyses » reste dans « Référentiels » : gérer un référentiel et travailler dans le Laboratoire ne sont pas
+la même tâche.
+
+Les anciennes adresses `/super-admin/sites/{site}?module=...` restent valides : un module autonome redirige
+vers sa route canonique en conservant le site. Dans le menu, une page relayée (`.../{site}/laboratoire`,
+`.../{site}/pharmacie`, `.../{site}/rh`, `.../{site}/partenaires`) active l'entrée du module, jamais l'arbre de
+l'établissement. Aucune règle métier, permission distante ni restriction des gestes physiques ne change.
+
+---
+
+# ADR-232 — Les modules rattachés au site affichent les données réelles de son API
+
+**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire : rendre fonctionnelles les API de
+tous les sites actifs et supprimer les cartes génériques « API requise »)
+
+## Contrat
+
+Les huit modules dont le domicile est l'établissement (ADR-231) ne sont plus des vitrines. Leur route
+`/super-admin/sites/{site}?module=...` appelle le rapport du **site sélectionné** par
+`GET /api/v1/super-admin/reports/overview`, à travers `PortalSiteApiClient` : jamais la base clinique.
+
+```text
+Vue du site               activité, patients et file active des services
+Réception / Patients      passages, urgences, nouveaux patients et épisodes ouverts
+Caisse                    facturé, encaissé, reste dû et factures sur la période
+Médecine / Soins /
+Chirurgie                 orientations en attente, en cours et terminées du service
+Rapports                  activité, finance, pharmacie et personnel
+```
+
+La fenêtre est bornée à 7–90 jours avant l'appel. Le statut montré est celui de la **réponse réelle**
+(`ONLINE`, `OFFLINE`, `ERROR`, `UNCONFIGURED`), pas seulement la présence d'une URL dans la configuration.
+Un site injoignable ne produit aucun compteur. Une section refusée par les permissions affiche « — » et
+son motif ; elle ne devient jamais un faux zéro. Un zéro n'est affiché que si le site a répondu et a compté
+zéro.
+
+Ces pages sont des tableaux de lecture et de pilotage. Elles n'autorisent aucun geste physique distant :
+l'encaissement reste uniquement à Réception / Caisse, et les actes cliniques restent sur le site. Les
+modules indépendants Laboratoire, Pharmacie, RH et Partenaires conservent leurs écrans relayés dédiés.
+
+## Développement distribué
+
+Le banc local garde une base SQLite indépendante par clinique et des API sur les ports 8001, 8002 et 8003
+(`php artisan rivo:local-apis`). Le portail peut conserver une API de développement existante pour un site
+et utiliser le banc local pour les autres. Les jetons restent dans `.env.admin`, jamais dans Git.

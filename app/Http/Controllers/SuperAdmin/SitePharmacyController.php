@@ -4,6 +4,7 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Services\SuperAdmin\SitePharmacyGateway;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
@@ -21,6 +22,22 @@ class SitePharmacyController extends SiteScreenController
         return $this->relay($request, $site, $gateway, $path);
     }
 
+    /**
+     * Point d'entrée unique du module dans le portail. Chaque carte ouvre les
+     * vrais écrans du site par son API ; elle ne duplique ni stock ni données.
+     */
+    public function overview(SitePharmacyGateway $gateway): InertiaResponse
+    {
+        return Inertia::render('SuperAdmin/Pharmacy/Index', [
+            'sites' => collect(config('rivo.clinics', []))->map(fn (array $site) => [
+                'code' => $site['code'],
+                'name' => $site['name'],
+                'url' => $gateway->base($site),
+                'configured' => $gateway->configured($site),
+            ])->values(),
+        ]);
+    }
+
     protected function contextKey(): string
     {
         return 'pharmacyContext';
@@ -28,6 +45,6 @@ class SitePharmacyController extends SiteScreenController
 
     protected function overviewRoute(): string
     {
-        return 'super-admin.stock.index';
+        return 'super-admin.pharmacy.index';
     }
 }

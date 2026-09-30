@@ -21,7 +21,6 @@ use App\Http\Controllers\BrandingAssetController;
 use App\Http\Controllers\CareController;
 use App\Http\Controllers\CashController;
 use App\Http\Controllers\CashStaffDebtController;
-use App\Http\Controllers\StaffDebtController;
 use App\Http\Controllers\DeathRegisterController;
 use App\Http\Controllers\DiagnosticCatalogSearchController;
 use App\Http\Controllers\EpisodeController;
@@ -64,6 +63,7 @@ use App\Http\Controllers\Reception\ReferralController;
 use App\Http\Controllers\Reception\ReferrerLookupController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\RobotsTxtController;
+use App\Http\Controllers\StaffDebtController;
 use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
 use App\Http\Controllers\SuperAdmin\AnalysisCatalogController as SuperAdminAnalysisCatalogController;
 use App\Http\Controllers\SuperAdmin\AppSettingsController as SuperAdminAppSettingsController;
@@ -84,8 +84,8 @@ use App\Http\Controllers\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\SuperAdmin\SiteHumanResourcesController;
 use App\Http\Controllers\SuperAdmin\SiteLaboratoryController;
 use App\Http\Controllers\SuperAdmin\SitePartnersController;
-use App\Http\Controllers\SuperAdmin\SiteStaffDebtsController;
 use App\Http\Controllers\SuperAdmin\SitePharmacyController;
+use App\Http\Controllers\SuperAdmin\SiteStaffDebtsController;
 use App\Http\Controllers\SuperAdmin\StaffAccessController as SuperAdminStaffAccessController;
 use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
 use App\Http\Controllers\SuperAdmin\UserController as SuperAdminUserController;
@@ -504,6 +504,9 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         // ADR-189 — la Pharmacie d'un site, vue et administrée depuis le portail :
         // les écrans et les règles de /pharmacy, relayés ; les actes physiques
         // restent au site.
+        Route::get('/pharmacy', [SitePharmacyController::class, 'overview'])
+            ->name('pharmacy.index')
+            ->middleware('can:pharmacy.view');
         Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/sites/{site}/pharmacie/{path?}', SitePharmacyController::class)
             ->where('path', '.*')
             ->name('sites.pharmacy')

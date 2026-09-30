@@ -592,6 +592,24 @@ class PortalSiteApiClient
     }
 
     /**
+     * Le rapport d'un site précis, utilisé par son espace opérationnel dans le
+     * portail. La résolution du site et la normalisation ONLINE/OFFLINE restent
+     * centralisées ici : le contrôleur ne connaît ni URL ni jeton.
+     *
+     * @return array<string, mixed>
+     */
+    public function reportForSite(string $siteCode, User $actor, int $days): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'GET',
+            'super-admin/reports/overview',
+            ['days' => $days],
+            $actor,
+        );
+    }
+
+    /**
      * Le référentiel des rôles d'un site (ADR-100) — jamais une lecture SQL
      * directe : le portail passe par l'API du site comme pour le reste du
      * domaine catalogue (ADR-004, ADR-027).

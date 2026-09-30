@@ -24,6 +24,21 @@ La consommation du jour et du mois s'affiche dans le même module. Droits : `ai_
 - Menu Utilisateurs › **Accès du personnel** : créer d'un geste l'adresse professionnelle et le compte RIVO des nouveaux employés, puis envoyer l'annonce au RH du site.
 - **Rôles & permissions** : socle de chaque rôle, exceptions par compte, rôles du site, catalogue des droits. Un brouillon s'enregistre d'un seul geste.
 
+## Établissements
+
+Menu **Établissements** › un site : Vue du site, Réception, Caisse, Patients, Médecine, Soins, Chirurgie, Rapports. Chaque page lit le rapport du site par son API, sur 7, 30 ou 90 jours (boutons en haut à droite), et « Actualiser » le relit. Si le site ne répond pas, la page le dit et n'affiche aucun chiffre ; une donnée que les droits masquent s'affiche « — » avec son motif, jamais 0. Ces pages se lisent seulement : l'encaissement reste à la Caisse du site.
+
+## Espaces par module
+
+Un module n'a qu'une seule entrée dans le menu. On choisit d'abord le site, puis on travaille dans ses vrais écrans :
+
+- **Laboratoire** › Laboratoires des sites (`/super-admin/laboratory`) ;
+- **Pharmacie & stocks** › Pharmacies des sites (`/super-admin/pharmacy`), Stock médicaments, Fournisseurs pharmacie ;
+- **Organisation** › Ressources humaines, Emails professionnels, Messagerie, Logistique & équipements, Gardiennage ;
+- **Référentiels** › Tarifs & mutuelles, Canevas de documents, Catalogue des analyses, Adresses & localités, Services, chambres & lits, Patients VIP, Partenaires.
+
+Les gestes physiques (délivrer, réceptionner, inventaire, saisir ou valider un résultat d'analyse) restent réservés au site : le portail les montre verrouillés.
+
 ## Autres espaces
 
-Établissements (RH et Pharmacie d'un site vus depuis le portail), Tarifs & mutuelles, Stock médicaments, Fournisseurs pharmacie, Services, chambres et lits, Patients VIP, Emails professionnels, Messagerie, Corbeille multi-sites, Maintenance d'un site. Les gestes physiques (délivrer, réceptionner, inventaire) restent réservés au site.
+Finances (Caisses des sites, Modes de paiement, Rapports financiers, Dettes du personnel), Corbeille multi-sites, Audit & APIs, Maintenance d'un site (Paramètres › Maintenance).

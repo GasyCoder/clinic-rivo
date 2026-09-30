@@ -34,7 +34,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'photo_path', 'photo_updated_at',
     // ADR-206 — rémunération déclarée et compte bancaire (droits employees.payroll.*).
     'remuneration_type', 'remuneration_amount', 'bank_account_number', 'bank_account_holder',
-    'salary_payment_mode', 'mobile_money_number',
+    'salary_payment_mode', 'mobile_money_accounts',
     // ADR-221 — la banque du compte, choisie dans le référentiel des banques.
     'bank_id',
 ])]
@@ -61,6 +61,7 @@ class Employee extends Model
             'children_count' => 'integer',
             'children' => 'array',
             'salary_payment_mode' => \App\Enums\SalaryPaymentMode::class,
+            'mobile_money_accounts' => 'array',
             'active' => 'boolean',
             'photo_updated_at' => 'datetime',
             'remuneration_type' => EmployeeRemunerationType::class,

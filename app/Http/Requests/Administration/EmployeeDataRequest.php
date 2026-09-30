@@ -20,6 +20,11 @@ abstract class EmployeeDataRequest extends FormRequest
     {
         $normalized = [];
 
+        // Les comptes Mobile Money restés vides ne comptent pas.
+        if ($this->exists('mobile_money_accounts')) {
+            $normalized['mobile_money_accounts'] = \App\Support\Hr\MobileMoneyAccounts::normalize($this->input('mobile_money_accounts'));
+        }
+
         // Les lignes d'enfants restées vides ne comptent pas.
         if ($this->exists('children')) {
             $normalized['children'] = \App\Support\Hr\EmployeeChildren::normalize($this->input('children'));
@@ -95,7 +100,10 @@ abstract class EmployeeDataRequest extends FormRequest
             'bank_account_number' => ['nullable', 'string', 'max:50', 'regex:/^[A-Z0-9][A-Z0-9 -]*$/'],
             'bank_account_holder' => ['nullable', 'required_with:bank_account_number', 'string', 'max:150'],
             'salary_payment_mode' => ['nullable', new Enum(\App\Enums\SalaryPaymentMode::class)],
-            'mobile_money_number' => ['nullable', 'string', 'max:50'],
+            'mobile_money_accounts' => ['nullable', 'array', 'max:'.\App\Support\Hr\MobileMoneyAccounts::MAX],
+            'mobile_money_accounts.*.operator' => ['required', new Enum(\App\Enums\MobileMoneyOperator::class)],
+            'mobile_money_accounts.*.number' => ['required', 'string', 'max:20', 'regex:/^\+?[0-9][0-9 ]{7,18}$/'],
+            'mobile_money_accounts.*.holder' => ['required', 'string', 'max:150'],
         ];
     }
 
@@ -301,7 +309,10 @@ abstract class EmployeeDataRequest extends FormRequest
             'phone' => 'téléphone',
             'phone_secondary' => 'second téléphone',
             'salary_payment_mode' => 'mode de paiement',
-            'mobile_money_number' => 'numéro Mobile Money',
+            'mobile_money_accounts' => 'comptes Mobile Money',
+            'mobile_money_accounts.*.operator' => 'opérateur',
+            'mobile_money_accounts.*.number' => 'numéro Mobile Money',
+            'mobile_money_accounts.*.holder' => 'nom du titulaire Mobile Money',
             'tshirt_size' => 'taille de T-shirt',
             'blouse_size' => 'taille de blouse',
             'bloc_outfit' => 'tenue bloc',

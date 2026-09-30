@@ -120,7 +120,7 @@ class HrPresenter
             'bank_account_holder' => $employee->bank_account_holder,
             'salary_payment_mode' => $employee->salary_payment_mode?->value,
             'salary_payment_label' => $employee->salary_payment_mode?->label(),
-            'mobile_money_number' => $employee->mobile_money_number,
+            'mobile_money_accounts' => \App\Support\Hr\MobileMoneyAccounts::present($employee->mobile_money_accounts),
         ];
     }
 

@@ -22032,3 +22032,24 @@ matricule                    la feuille l'annonce « 1 lettre + 6 chiffres » ma
 genre                        RIVO l'exige ; 26 lignes de la feuille n'ont ni genre ni matricule : à compléter avant l'import
 sage-femme                   une ligne la classe au département Médecine ; la fonction n'existe qu'en Maternité (ADR-194)
 ```
+
+## Amendement du 2026-09-30 (ter) — plusieurs comptes Mobile Money, chacun avec son opérateur et son titulaire
+
+Demande du propriétaire : un seul numéro Mobile Money ne suffisait pas. Une personne peut avoir un compte Orange et un compte Yas, et le nom enregistré chez l'opérateur doit être noté.
+
+```text
+employees.mobile_money_accounts   liste JSON de {opérateur, numéro, titulaire}, 5 au plus ;
+                                  remplace mobile_money_number (le numéro déjà noté est repris tel quel,
+                                  sans opérateur ni titulaire : rien n'est deviné)
+opérateurs                        MVola (Yas), Orange Money, Airtel Money (MobileMoneyOperator)
+règle                             une ligne remplie exige les trois : opérateur, numéro, nom sur le compte ;
+                                  une ligne restée vide est ignorée ; mêmes droits que la rémunération
+                                  (employees.payroll.*, ADR-206)
+écran                             étape Banque : « Ajouter un numéro » ; l'opérateur est proposé d'après le
+                                  préfixe (034/038 Yas, 032/037 Orange, 033 Airtel) tant que le RH n'en a pas
+                                  choisi un ; le nom de l'employé est proposé comme titulaire ; le numéro
+                                  s'écrit « 034 12 345 67 » ; les comptes restent affichés même si le mode
+                                  de paiement change
+```
+
+Lus sur la fiche (carte Rémunération et banque) et la fiche imprimée. Migration `2026_11_30_090000`, à jouer sur chaque site et sur le portail.

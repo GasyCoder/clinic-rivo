@@ -22,7 +22,7 @@ use Illuminate\Validation\ValidationException;
  */
 final class EmployeePayroll
 {
-    public const FIELDS = ['remuneration_type', 'remuneration_amount', 'bank_uuid', 'bank_account_number', 'bank_account_holder', 'salary_payment_mode', 'mobile_money_number'];
+    public const FIELDS = ['remuneration_type', 'remuneration_amount', 'bank_uuid', 'bank_account_number', 'bank_account_holder', 'salary_payment_mode', 'mobile_money_accounts'];
 
     /**
      * @param  array<string, mixed>  $data

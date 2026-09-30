@@ -69,7 +69,12 @@ const amount = computed(() => (props.payroll.remuneration_amount !== null && pro
                 <Landmark class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 <div class="min-w-0">
                     <dt class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mode de paiement</dt>
-                    <dd class="mt-0.5 text-sm text-foreground">{{ payroll.salary_payment_label || 'Non renseigné' }}<span v-if="payroll.mobile_money_number" class="font-mono"> · {{ payroll.mobile_money_number }}</span></dd>
+                    <dd class="mt-0.5 text-sm text-foreground">
+                        {{ payroll.salary_payment_label || 'Non renseigné' }}
+                        <span v-for="(account, index) in payroll.mobile_money_accounts ?? []" :key="index" class="mt-0.5 block text-xs text-muted-foreground">
+                            {{ account.operator_label || 'Mobile Money' }} · <span class="font-mono text-foreground">{{ account.number }}</span><template v-if="account.holder"> · {{ account.holder }}</template>
+                        </span>
+                    </dd>
                 </div>
             </div>
             <div class="flex items-start gap-2.5">

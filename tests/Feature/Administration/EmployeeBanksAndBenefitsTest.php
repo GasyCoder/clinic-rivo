@@ -177,6 +177,35 @@ class EmployeeBanksAndBenefitsTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page->where('payroll.bank.code', 'BOA')->where('payroll.bank.available', false));
     }
 
+    public function test_several_mobile_money_accounts_each_with_operator_number_and_holder(): void
+    {
+        $employee = $this->employee();
+
+        $this->actingAs($this->hr)->put("/administration/employees/{$employee->uuid}", [
+            'salary_payment_mode' => 'MOBILE_MONEY',
+            'mobile_money_accounts' => [
+                ['operator' => 'ORANGE', 'number' => '032 12 345 67', 'holder' => 'RAKOTO Jean'],
+                ['operator' => 'YAS', 'number' => '034  98 765 43', 'holder' => 'RAKOTO Jean'],
+                ['operator' => '', 'number' => '', 'holder' => ''],
+            ],
+            '_autosave' => true,
+        ])->assertSessionHasNoErrors();
+
+        $accounts = $employee->refresh()->mobile_money_accounts;
+        $this->assertCount(2, $accounts, 'une ligne restée vide ne compte pas');
+        $this->assertSame('034 98 765 43', $accounts[1]['number']);
+
+        $this->actingAs($this->hr)->get("/administration/employees/{$employee->uuid}")
+            ->assertInertia(fn (Assert $page) => $page->where('payroll.mobile_money_accounts.0.operator_label', 'Orange Money')->where('payroll.salary_payment_label', 'Mobile Money'));
+
+        // Un numéro sans opérateur ni titulaire est refusé, jamais enregistré à moitié.
+        $this->actingAs($this->hr)->put("/administration/employees/{$employee->uuid}", [
+            'mobile_money_accounts' => [['operator' => '', 'number' => '0321234567', 'holder' => '']],
+            '_autosave' => true,
+        ])->assertSessionHasErrors(['mobile_money_accounts.0.operator', 'mobile_money_accounts.0.holder']);
+        $this->assertCount(2, $employee->refresh()->mobile_money_accounts);
+    }
+
     public function test_without_the_payroll_right_the_bank_is_refused(): void
     {
         $employee = $this->employee();

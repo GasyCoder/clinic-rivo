@@ -238,6 +238,32 @@ class StaffDebtTest extends TestCase
         $this->assertSame('10000.00', $session->fresh()->computeExpectedClosingAmount());
     }
 
+    public function test_my_debts_summary_reads_the_next_repayment_what_is_repaid_and_what_is_late(): void
+    {
+        [$user] = $this->staff(salary: null);
+        $debt = $this->approved($user, 30000, 10000, '2026-09', mode: 'CASH');
+        $this->disburse($debt);
+
+        // Rien remis en septembre : la mensualité du mois est en retard.
+        $this->actingAs($user)->get('/mes-dettes')->assertInertia(fn (Assert $page) => $page
+            ->where('space.summary.balance', '30000.00')
+            ->where('space.summary.repaid', '0.00')
+            ->where('space.summary.arrears', '10000.00')
+            ->where('space.summary.next', ['period' => '2026-09', 'amount' => '10000.00'])
+            ->where('space.debts.0.timeline.0.key', 'requested')
+            ->etc());
+
+        $this->openSession($this->cashier);
+        $this->actingAs($this->cashier)->post("/cash/staff-debts/{$debt->uuid}/repayments", ['amount' => '10000'])->assertSessionHasNoErrors();
+
+        $this->actingAs($user)->get('/mes-dettes')->assertInertia(fn (Assert $page) => $page
+            ->where('space.summary.balance', '20000.00')
+            ->where('space.summary.repaid', '10000.00')
+            ->where('space.summary.arrears', '0.00')
+            ->where('space.summary.next', ['period' => '2026-10', 'amount' => '10000.00'])
+            ->etc());
+    }
+
     public function test_the_cash_desk_needs_an_open_session_and_a_disbursed_debt(): void
     {
         [$user] = $this->staff(salary: null);

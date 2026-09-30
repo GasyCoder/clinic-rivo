@@ -59,6 +59,11 @@ final class StaffDebtDirectory
         };
 
         $owing = $debts->filter(fn (StaffDebt $debt) => $debt->status === StaffDebtStatus::Active);
+        $today = now();
+
+        // Le prochain mois où quelque chose se rembourse, toutes dettes en cours confondues.
+        $firsts = $owing->map(fn (StaffDebt $debt) => $this->ledger->projection($debt, $today)[0] ?? null)->filter();
+        $nextPeriod = $firsts->min('period');
 
         return [
             'employee' => $employee === null ? null : [
@@ -73,6 +78,12 @@ final class StaffDebtDirectory
                 'balance' => Money::fromMinor((int) $owing->sum(fn (StaffDebt $debt) => $debt->balanceMinor())),
                 'active' => $owing->count(),
                 'pending' => $debts->where('status', StaffDebtStatus::Requested)->count(),
+                'repaid' => Money::fromMinor((int) $debts->sum(fn (StaffDebt $debt) => $debt->repaidMinor())),
+                'arrears' => Money::fromMinor((int) $owing->sum(fn (StaffDebt $debt) => $this->ledger->arrearsMinor($debt, $today))),
+                'next' => $nextPeriod === null ? null : [
+                    'period' => $nextPeriod,
+                    'amount' => Money::fromMinor((int) $firsts->where('period', $nextPeriod)->sum(fn (array $month) => Money::toMinor($month['amount']))),
+                ],
             ],
             'debts' => $debts->map(fn (StaffDebt $debt) => $this->detail($debt, $user, withEmployee: false))->values()->all(),
         ];

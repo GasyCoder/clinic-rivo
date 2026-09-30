@@ -1,7 +1,10 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { Head, useForm } from '@inertiajs/vue3';
-import { Ban, CalendarRange, CircleAlert, FileText, HandCoins, Hourglass, Info, Landmark, Plus, Send, Wallet } from 'lucide-vue-next';
+import {
+    Ban, BellRing, CalendarClock, CalendarRange, Check, ChevronDown, CircleAlert, CircleX, FileText, Gavel, Gift, HandCoins,
+    Hash, Hourglass, Info, Landmark, ListChecks, Lock, Plus, Send, UserRound, Wallet,
+} from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
@@ -13,14 +16,15 @@ import PageHeader from '@/Components/UI/PageHeader.vue';
 import StaffDebtRepayments from '@/Components/StaffDebts/StaffDebtRepayments.vue';
 import StaffDebtStatusBadge from '@/Components/StaffDebts/StaffDebtStatusBadge.vue';
 import StaffDebtTermsFields from '@/Components/StaffDebts/StaffDebtTermsFields.vue';
-import { formatDate, formatDateTime } from '@/utilities/date';
+import { formatDate, formatDateTime, monthLabel } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
-import { debtPlan, planSummary, toMinor } from '@/utilities/staffDebts';
+import { STATUS_ICONS, debtPlan, debtSteps, isOpenDebt, planSummary, repaidShare, toMinor } from '@/utilities/staffDebts';
 
 /**
  * ADR-228 — « Mes dettes » : demander une dette au DG (montant, remboursement par mois,
  * premier mois, motif), suivre sa décision, son versement et ses remboursements. Une
- * demande se retire tant que le DG n'a pas décidé.
+ * demande se retire tant que le DG n'a pas décidé. Pleine largeur : les dettes à gauche,
+ * chacune avec son avancement en quatre étapes ; à droite, la fiche et le déroulé.
  */
 defineOptions({ layout: AppLayout });
 
@@ -48,18 +52,73 @@ const withdraw = () => withdrawForm.post(`/mes-dettes/${withdrawing.value.uuid}/
     onSuccess: () => { withdrawing.value = null; },
 });
 
-const progress = (debt) => {
-    const amount = toMinor(debt.amount ?? 0) || 0;
-    if (! amount) return 0;
+const summary = computed(() => props.space.summary);
+const tiles = computed(() => [
+    {
+        key: 'balance', icon: Landmark, label: 'Reste à rembourser', value: formatMoney(summary.value.balance), tone: 'bg-primary/10 text-primary',
+        hint: summary.value.active ? `${summary.value.active} dette${summary.value.active > 1 ? 's' : ''} en remboursement` : 'Rien à rembourser',
+    },
+    {
+        key: 'next', icon: CalendarClock, label: 'Prochain remboursement', value: summary.value.next ? formatMoney(summary.value.next.amount) : '—', tone: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
+        hint: summary.value.next ? monthLabel(summary.value.next.period) : 'Aucun remboursement prévu',
+    },
+    {
+        key: 'repaid', icon: Wallet, label: 'Déjà remboursé', value: formatMoney(summary.value.repaid), tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
+        hint: 'Toutes vos dettes',
+    },
+    {
+        key: 'pending', icon: Hourglass, label: 'Demande en attente', value: summary.value.pending, tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+        hint: summary.value.pending ? 'Attend la décision du DG' : 'Aucune demande en attente',
+    },
+]);
+const hasArrears = computed(() => (toMinor(summary.value.arrears) ?? 0) > 0);
 
-    return Math.min(100, Math.round(((toMinor(debt.repaid) + toMinor(debt.written_off_amount)) / amount) * 100));
+// Les dettes qui attendent encore quelque chose d'abord, puis les closes ; les plus récentes en tête.
+const openDebts = computed(() => props.space.debts.filter(isOpenDebt));
+const closedDebts = computed(() => props.space.debts.filter((debt) => ! isOpenDebt(debt)));
+const FILTERS = [
+    { key: 'toutes', label: 'Toutes' },
+    { key: 'en-cours', label: 'En cours' },
+    { key: 'closes', label: 'Closes' },
+];
+const filter = ref('toutes');
+const counts = computed(() => ({ toutes: props.space.debts.length, 'en-cours': openDebts.value.length, closes: closedDebts.value.length }));
+const shown = computed(() => ({ toutes: [...openDebts.value, ...closedDebts.value], 'en-cours': openDebts.value, closes: closedDebts.value }[filter.value]));
+
+// Une dette en cours s'ouvre d'office ; une dette close se replie sur son avancement.
+const expanded = ref(new Set(props.space.debts.filter((debt) => isOpenDebt(debt) || debt.uuid === props.focus).map((debt) => debt.uuid)));
+const isExpanded = (debt) => expanded.value.has(debt.uuid);
+const toggle = (debt) => {
+    const next = new Set(expanded.value);
+    next.has(debt.uuid) ? next.delete(debt.uuid) : next.add(debt.uuid);
+    expanded.value = next;
 };
 
-const tiles = computed(() => [
-    { key: 'balance', icon: Landmark, label: 'Reste à rembourser', value: formatMoney(props.space.summary.balance), tone: 'bg-primary/10 text-primary' },
-    { key: 'active', icon: Wallet, label: 'En remboursement', value: props.space.summary.active, tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' },
-    { key: 'pending', icon: Hourglass, label: 'Demande en attente', value: props.space.summary.pending, tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' },
-]);
+const STEP_ICONS = { request: FileText, decision: Gavel, disbursement: Wallet, repayment: Landmark };
+const STEP_STYLES = {
+    done: { bar: 'bg-emerald-500', dot: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300', text: 'text-foreground' },
+    current: { bar: 'bg-primary', dot: 'bg-primary text-primary-foreground ring-4 ring-primary/15', text: 'text-foreground' },
+    stopped: { bar: 'bg-destructive', dot: 'bg-destructive/10 text-destructive', text: 'text-destructive' },
+    upcoming: { bar: 'bg-muted', dot: 'border border-dashed border-border text-muted-foreground', text: 'text-muted-foreground' },
+    skipped: { bar: 'bg-muted/60', dot: 'bg-muted text-muted-foreground/60', text: 'text-muted-foreground/70' },
+};
+const STEP_STATE_LABELS = { done: 'fait', current: 'en cours', stopped: 'arrêtée ici', upcoming: 'à venir', skipped: 'sans objet' };
+const stepIcon = (step) => (step.state === 'done' ? Check : step.state === 'stopped' ? CircleX : STEP_ICONS[step.key]);
+const stepDetail = (step) => {
+    if (step.note) return step.note;
+    if (step.at) return formatDate(step.at) + (step.by && step.key !== 'request' ? ` · ${step.by}` : '');
+    return step.state === 'upcoming' ? 'À venir' : step.state === 'skipped' ? 'Sans objet' : '';
+};
+
+const nextRepayment = (debt) => (['ACTIVE', 'APPROVED'].includes(debt.status) ? debt.schedule[0] ?? null : null);
+const owesArrears = (debt) => (toMinor(debt.arrears) ?? 0) > 0;
+
+const HOW_IT_WORKS = [
+    { icon: FileText, title: 'Vous demandez', text: 'Montant, remboursement par mois, premier mois et motif. Retirable tant que le DG n’a pas décidé.' },
+    { icon: Gavel, title: 'Le DG décide', text: 'Il accorde, ajuste ou refuse, et choisit le remboursement : retenue sur la paie ou espèces à la Caisse.' },
+    { icon: Wallet, title: 'Le RH vous la verse', text: 'L’argent est remis hors RIVO. Rien n’est retenu avant le versement.' },
+    { icon: Landmark, title: 'Vous remboursez', text: 'Chaque mois, retenu sur votre paie ou remis à la Caisse contre un reçu.' },
+];
 
 onMounted(async () => {
     if (! props.focus) return;
@@ -70,11 +129,11 @@ onMounted(async () => {
 
 <template>
     <Head title="Mes dettes" />
-    <div class="mx-auto w-full max-w-5xl space-y-5">
+    <div class="w-full space-y-5">
         <PageHeader
             eyebrow="Mon compte"
             title="Mes dettes"
-            description="Demandez une dette au DG, puis suivez sa décision, son versement et vos remboursements (retenus sur votre paie ou remis en espèces à la Caisse)."
+            description="Demandez une dette au DG, puis suivez sa décision, son versement et vos remboursements, retenus sur votre paie ou remis en espèces à la Caisse."
             :icon="HandCoins"
         >
             <template #actions>
@@ -87,75 +146,192 @@ onMounted(async () => {
             <p class="text-foreground">{{ space.request_blocker }}</p>
         </div>
 
-        <div v-if="space.employee" class="grid gap-3 sm:grid-cols-3">
-            <div v-for="tile in tiles" :key="tile.key" class="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
-                <span :class="['grid h-10 w-10 shrink-0 place-items-center rounded-lg', tile.tone]"><component :is="tile.icon" class="h-5 w-5" /></span>
-                <span>
-                    <span class="block text-xl font-bold leading-none tabular-nums text-foreground">{{ tile.value }}</span>
-                    <span class="mt-1 block text-xs font-semibold text-muted-foreground">{{ tile.label }}</span>
+        <div v-if="space.employee && hasArrears" class="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm" role="status">
+            <CircleAlert class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <p class="text-foreground"><strong class="tabular-nums text-destructive">{{ formatMoney(summary.arrears) }}</strong> en retard : remettez-les à la Caisse, qui vous délivre un reçu.</p>
+        </div>
+
+        <div v-if="space.employee" class="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <div v-for="tile in tiles" :key="tile.key" class="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-3 shadow-sm sm:px-4">
+                <span :class="['hidden h-10 w-10 shrink-0 place-items-center rounded-lg sm:grid', tile.tone]"><component :is="tile.icon" class="h-5 w-5" /></span>
+                <span class="min-w-0">
+                    <span class="block text-xs font-semibold text-muted-foreground">{{ tile.label }}</span>
+                    <span class="mt-0.5 block truncate text-xl font-bold leading-tight tabular-nums text-foreground">{{ tile.value }}</span>
+                    <span class="block truncate text-xs text-muted-foreground first-letter:uppercase">{{ tile.hint }}</span>
                 </span>
             </div>
         </div>
 
-        <Card v-if="space.employee && ! space.debts.length" class="flex flex-col items-center gap-3 px-6 py-12 text-center">
-            <span class="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary"><HandCoins class="h-6 w-6" /></span>
-            <p class="text-sm font-semibold text-foreground">Aucune dette pour l’instant</p>
-            <p class="max-w-md text-sm text-muted-foreground">Une demande part au DG, qui l’accorde, l’ajuste ou la refuse. Vous êtes prévenu à chaque étape.</p>
-            <Button v-if="space.can_request" type="button" variant="outline" @click="openRequest"><Plus class="h-4 w-4" />Faire une demande</Button>
-        </Card>
-
-        <Card v-for="debt in space.debts" :id="`dette-${debt.uuid}`" :key="debt.uuid" :class="['scroll-mt-24 overflow-hidden', focus === debt.uuid ? 'ring-2 ring-primary/40' : '']">
-            <header class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-3">
-                <div class="min-w-0 flex-1">
-                    <p class="text-sm font-bold text-foreground">Dette {{ debt.number }}</p>
-                    <p class="text-xs text-muted-foreground">Demandée le {{ formatDateTime(debt.requested_at) }}</p>
-                </div>
-                <StaffDebtStatusBadge :status="debt.status" :label="debt.status_label" :tone="debt.status_tone" />
-                <span class="rounded-lg bg-primary/5 px-3 py-1.5 text-sm font-bold tabular-nums text-primary">{{ formatMoney(debt.amount ?? debt.requested_amount) }}</span>
-            </header>
-
-            <div class="space-y-4 px-4 py-4">
-                <div class="grid gap-3 text-sm sm:grid-cols-2">
-                    <div class="rounded-lg border border-border px-3 py-2">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Votre demande</p>
-                        <p class="mt-1 text-foreground">{{ formatMoney(debt.requested.amount) }} · {{ formatMoney(debt.requested.installment_amount) }} par mois</p>
-                        <p class="text-xs text-muted-foreground">{{ planSummary(debt.requested.plan) }}</p>
-                        <p class="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground"><FileText class="mt-0.5 h-3 w-3 shrink-0" />{{ debt.reason }}</p>
-                    </div>
-                    <div v-if="debt.granted" class="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-primary">Accordé par le DG<template v-if="debt.granted.adjusted"> · ajusté</template></p>
-                        <p class="mt-1 text-foreground">{{ formatMoney(debt.granted.amount) }} · {{ formatMoney(debt.granted.installment_amount) }} par mois</p>
-                        <p class="text-xs text-muted-foreground">{{ planSummary(debt.granted.plan) }} · {{ debt.granted.repayment_mode_label }}</p>
-                        <p v-if="debt.decision_note" class="mt-1 text-xs text-muted-foreground">« {{ debt.decision_note }} »</p>
-                    </div>
-                    <div v-else-if="debt.status === 'REQUESTED'" class="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-muted-foreground">
-                        <Hourglass class="h-4 w-4 shrink-0" />Attend la décision du DG.
+        <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+            <div class="min-w-0 space-y-4">
+                <div v-if="space.debts.length" class="flex flex-wrap items-center gap-3">
+                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><ListChecks class="h-4 w-4 text-muted-foreground" />Mes demandes</h2>
+                    <div v-if="openDebts.length && closedDebts.length" class="ms-auto inline-flex rounded-lg border border-border bg-muted/40 p-0.5" role="group" aria-label="Filtrer mes dettes">
+                        <button
+                            v-for="item in FILTERS"
+                            :key="item.key"
+                            type="button"
+                            :aria-pressed="filter === item.key"
+                            :class="[
+                                'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                filter === item.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                            ]"
+                            @click="filter = item.key"
+                        >
+                            {{ item.label }}<span class="rounded-full bg-muted px-1.5 text-[11px] tabular-nums text-muted-foreground">{{ counts[item.key] }}</span>
+                        </button>
                     </div>
                 </div>
 
-                <p v-if="debt.refusal_reason" class="flex items-start gap-2 rounded-lg bg-destructive/5 px-3 py-2 text-sm text-destructive"><CircleAlert class="mt-0.5 h-4 w-4 shrink-0" />Refusée : {{ debt.refusal_reason }}</p>
-                <p v-if="debt.status === 'CANCELLED' && debt.cancel_reason" class="flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"><Ban class="mt-0.5 h-4 w-4 shrink-0" />{{ debt.cancel_reason }}</p>
-                <p v-if="debt.status === 'APPROVED'" class="flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-foreground"><Wallet class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />Accordée : le RH vous la verse, puis les remboursements commencent.</p>
-                <p v-if="debt.disbursement" class="flex items-start gap-2 text-sm text-muted-foreground"><Wallet class="mt-0.5 h-4 w-4 shrink-0" />Versée le {{ formatDate(debt.disbursement.on) }} · {{ debt.disbursement.mode_label }}</p>
-                <p v-if="debt.write_off_reason" class="text-sm text-muted-foreground">Reste remis par le DG ({{ formatMoney(debt.written_off_amount) }}) : {{ debt.write_off_reason }}</p>
+                <Card v-if="space.employee && ! space.debts.length" class="flex flex-col items-center gap-3 px-6 py-14 text-center">
+                    <span class="grid h-14 w-14 place-items-center rounded-2xl bg-primary/10 text-primary"><HandCoins class="h-7 w-7" /></span>
+                    <p class="text-base font-semibold text-foreground">Aucune dette pour l’instant</p>
+                    <p class="max-w-lg text-sm text-muted-foreground">Une demande part au DG, qui l’accorde, l’ajuste ou la refuse. Vous êtes prévenu à chaque étape dans la cloche des notifications.</p>
+                    <Button v-if="space.can_request" type="button" @click="openRequest"><Plus class="h-4 w-4" />Faire une demande</Button>
+                </Card>
 
-                <div v-if="debt.granted && debt.disbursement" class="space-y-1.5">
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="text-muted-foreground">Remboursé {{ formatMoney(debt.repaid) }} sur {{ formatMoney(debt.amount) }}</span>
-                        <span class="font-semibold tabular-nums text-foreground">Reste {{ formatMoney(debt.balance) }}</span>
-                    </div>
-                    <div class="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" :aria-valuenow="progress(debt)" aria-valuemin="0" aria-valuemax="100" :aria-label="`${progress(debt)} % remboursé`">
-                        <div class="h-full rounded-full bg-primary transition-all" :style="{ width: `${progress(debt)}%` }" />
-                    </div>
-                </div>
+                <Card v-else-if="! space.employee" class="flex flex-col items-center gap-3 px-6 py-14 text-center">
+                    <span class="grid h-14 w-14 place-items-center rounded-2xl bg-muted text-muted-foreground"><Lock class="h-7 w-7" /></span>
+                    <p class="text-base font-semibold text-foreground">Aucune fiche du personnel reliée</p>
+                    <p class="max-w-lg text-sm text-muted-foreground">Vos dettes s’affichent ici une fois votre compte relié à votre fiche par le RH.</p>
+                </Card>
 
-                <StaffDebtRepayments v-if="debt.disbursement || debt.repayments.length" :debt="debt" />
+                <Card
+                    v-for="debt in shown"
+                    :id="`dette-${debt.uuid}`"
+                    :key="debt.uuid"
+                    :class="['scroll-mt-24 overflow-hidden', focus === debt.uuid ? 'ring-2 ring-primary/40' : '']"
+                >
+                    <header class="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
+                        <span class="hidden h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary sm:grid"><component :is="STATUS_ICONS[debt.status] ?? HandCoins" class="h-5 w-5" /></span>
+                        <div class="min-w-[14rem] flex-1">
+                            <p class="flex flex-wrap items-center gap-2 text-base font-bold text-foreground">
+                                Dette {{ debt.number }}
+                                <StaffDebtStatusBadge :status="debt.status" :label="debt.status_label" :tone="debt.status_tone" />
+                            </p>
+                            <p class="text-xs text-muted-foreground">
+                                Demandée le {{ formatDateTime(debt.requested_at) }}<template v-if="debt.repayment_mode_label"> · {{ debt.repayment_mode_label }}</template>
+                            </p>
+                        </div>
+                        <div class="ms-auto text-end">
+                            <p class="text-lg font-bold leading-tight tabular-nums text-foreground">{{ formatMoney(debt.amount ?? debt.requested_amount) }}</p>
+                            <p class="text-xs text-muted-foreground">{{ debt.granted ? 'accordé' : 'demandé' }}</p>
+                        </div>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            :aria-expanded="isExpanded(debt)"
+                            :aria-controls="`dette-detail-${debt.uuid}`"
+                            @click="toggle(debt)"
+                        >
+                            {{ isExpanded(debt) ? 'Replier' : 'Détail' }}
+                            <ChevronDown :class="['h-4 w-4 transition-transform', isExpanded(debt) ? 'rotate-180' : '']" />
+                        </Button>
+                    </header>
+
+                    <ol class="grid gap-x-4 gap-y-3 border-t border-border px-5 py-4 sm:grid-cols-2 lg:grid-cols-4" :aria-label="`Avancement de la dette ${debt.number}`">
+                        <li v-for="step in debtSteps(debt)" :key="step.key" class="min-w-0">
+                            <span :class="['block h-1 rounded-full', STEP_STYLES[step.state].bar]" aria-hidden="true" />
+                            <div class="mt-2.5 flex items-start gap-2.5">
+                                <span :class="['grid h-7 w-7 shrink-0 place-items-center rounded-full', STEP_STYLES[step.state].dot]">
+                                    <component :is="stepIcon(step)" class="h-3.5 w-3.5" aria-hidden="true" />
+                                </span>
+                                <div class="min-w-0">
+                                    <p :class="['text-sm font-semibold leading-tight', STEP_STYLES[step.state].text]">
+                                        {{ step.label }}<span class="sr-only"> — {{ STEP_STATE_LABELS[step.state] }}</span>
+                                    </p>
+                                    <p class="mt-0.5 truncate text-xs text-muted-foreground" :title="stepDetail(step)">{{ stepDetail(step) }}</p>
+                                </div>
+                            </div>
+                        </li>
+                    </ol>
+
+                    <div v-show="isExpanded(debt)" :id="`dette-detail-${debt.uuid}`" class="space-y-4 border-t border-border bg-muted/20 px-5 py-4">
+                        <div class="grid gap-3 text-sm lg:grid-cols-3">
+                            <div class="rounded-lg border border-border bg-card px-4 py-3">
+                                <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><FileText class="h-3.5 w-3.5" />Votre demande</p>
+                                <p class="mt-1.5 font-semibold tabular-nums text-foreground">{{ formatMoney(debt.requested.amount) }} · {{ formatMoney(debt.requested.installment_amount) }} par mois</p>
+                                <p class="text-xs text-muted-foreground first-letter:uppercase">{{ planSummary(debt.requested.plan) }}</p>
+                                <p class="mt-2 rounded-md bg-muted/60 px-2.5 py-1.5 text-xs text-foreground">{{ debt.reason }}</p>
+                            </div>
+
+                            <div v-if="debt.granted" class="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
+                                <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary"><Gavel class="h-3.5 w-3.5" />Accordé par le DG<template v-if="debt.granted.adjusted"> · ajusté</template></p>
+                                <p class="mt-1.5 font-semibold tabular-nums text-foreground">{{ formatMoney(debt.granted.amount) }} · {{ formatMoney(debt.granted.installment_amount) }} par mois</p>
+                                <p class="text-xs text-muted-foreground first-letter:uppercase">{{ planSummary(debt.granted.plan) }}</p>
+                                <p class="mt-1 text-xs text-muted-foreground">{{ debt.granted.repayment_mode_label }}</p>
+                                <p v-if="debt.decision_note" class="mt-2 rounded-md bg-card px-2.5 py-1.5 text-xs text-muted-foreground">« {{ debt.decision_note }} »</p>
+                            </div>
+                            <div v-else-if="debt.status === 'REQUESTED'" class="flex items-start gap-2.5 rounded-lg border border-dashed border-border bg-card px-4 py-3 text-muted-foreground">
+                                <Hourglass class="mt-0.5 h-4 w-4 shrink-0" />
+                                <p>Attend la décision du DG. Vous êtes prévenu dès qu’il accorde, ajuste ou refuse.</p>
+                            </div>
+
+                            <div v-if="debt.disbursement" class="rounded-lg border border-border bg-card px-4 py-3">
+                                <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Landmark class="h-3.5 w-3.5" />Remboursement</p>
+                                <div class="mt-1.5 flex items-baseline justify-between gap-2">
+                                    <span class="font-semibold tabular-nums text-foreground">Reste {{ formatMoney(debt.balance) }}</span>
+                                    <span class="text-xs tabular-nums text-muted-foreground">{{ repaidShare(debt) }} %</span>
+                                </div>
+                                <div class="mt-1.5 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" :aria-valuenow="repaidShare(debt)" aria-valuemin="0" aria-valuemax="100" :aria-label="`${repaidShare(debt)} % remboursé`">
+                                    <div class="h-full rounded-full bg-primary transition-all" :style="{ width: `${repaidShare(debt)}%` }" />
+                                </div>
+                                <p class="mt-1.5 text-xs text-muted-foreground">Remboursé {{ formatMoney(debt.repaid) }} sur {{ formatMoney(debt.amount) }} · versée le {{ formatDate(debt.disbursement.on) }}</p>
+                                <p v-if="nextRepayment(debt)" class="mt-1 flex items-start gap-1.5 text-xs text-foreground">
+                                    <CalendarClock class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <span>Prochain : {{ monthLabel(nextRepayment(debt).period) }} · <span class="tabular-nums">{{ formatMoney(nextRepayment(debt).amount) }}</span></span>
+                                </p>
+                                <p v-if="owesArrears(debt)" class="mt-1 flex items-center gap-1.5 text-xs font-medium text-destructive"><CircleAlert class="h-3.5 w-3.5" />{{ formatMoney(debt.arrears) }} en retard à la Caisse</p>
+                            </div>
+                            <div v-else-if="debt.status === 'APPROVED'" class="flex items-start gap-2.5 rounded-lg border border-dashed border-primary/40 bg-card px-4 py-3 text-foreground">
+                                <Wallet class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                <p>Le RH vous la verse ; les remboursements commencent ensuite<template v-if="nextRepayment(debt)">, à partir de <span class="font-medium">{{ monthLabel(nextRepayment(debt).period) }}</span></template>.</p>
+                            </div>
+                        </div>
+
+                        <p v-if="debt.refusal_reason" class="flex items-start gap-2 rounded-lg bg-destructive/5 px-3 py-2 text-sm text-destructive"><CircleX class="mt-0.5 h-4 w-4 shrink-0" />Refusée : {{ debt.refusal_reason }}</p>
+                        <p v-if="debt.status === 'CANCELLED' && debt.cancel_reason" class="flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"><Ban class="mt-0.5 h-4 w-4 shrink-0" />{{ debt.cancel_reason }}</p>
+                        <p v-if="debt.write_off_reason" class="flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"><Gift class="mt-0.5 h-4 w-4 shrink-0" />Reste remis par le DG ({{ formatMoney(debt.written_off_amount) }}) : {{ debt.write_off_reason }}</p>
+
+                        <div v-if="debt.disbursement || debt.repayments.length" class="rounded-lg border border-border bg-card px-4 py-3">
+                            <StaffDebtRepayments :debt="debt" />
+                        </div>
+                    </div>
+
+                    <footer v-if="debt.can.withdraw" class="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3">
+                        <p class="me-auto text-xs text-muted-foreground">Vous pouvez la retirer tant que le DG n’a pas décidé.</p>
+                        <Button type="button" size="sm" variant="ghost" class="text-destructive hover:text-destructive" @click="withdrawing = debt"><Ban class="h-4 w-4" />Retirer ma demande</Button>
+                    </footer>
+                </Card>
             </div>
 
-            <footer v-if="debt.can.withdraw" class="flex justify-end border-t border-border px-4 py-3">
-                <Button type="button" size="sm" variant="ghost" class="text-destructive hover:text-destructive" @click="withdrawing = debt"><Ban class="h-4 w-4" />Retirer ma demande</Button>
-            </footer>
-        </Card>
+            <aside class="space-y-5 xl:sticky xl:top-20 xl:self-start">
+                <Card v-if="space.employee" class="space-y-3 px-5 py-4 text-sm">
+                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><UserRound class="h-4 w-4 text-muted-foreground" />Ma fiche</h2>
+                    <p class="font-semibold text-foreground">{{ space.employee.name }}</p>
+                    <p class="flex items-center gap-2 text-muted-foreground"><Hash class="h-4 w-4 shrink-0" />{{ space.employee.employee_number ?? 'Sans matricule' }}</p>
+                    <p v-if="! space.employee.in_post" class="flex items-center gap-1.5 text-xs font-medium text-destructive"><CircleAlert class="h-3.5 w-3.5" />N’est plus en poste.</p>
+                </Card>
+
+                <Card class="space-y-4 px-5 py-4">
+                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><CalendarRange class="h-4 w-4 text-muted-foreground" />Comment ça se passe</h2>
+                    <ol class="relative space-y-4 border-s border-border ps-5">
+                        <li v-for="(item, index) in HOW_IT_WORKS" :key="item.title" class="relative">
+                            <span class="absolute -start-[1.95rem] top-0 grid h-6 w-6 place-items-center rounded-full border border-border bg-card text-primary">
+                                <component :is="item.icon" class="h-3.5 w-3.5" aria-hidden="true" />
+                            </span>
+                            <p class="text-sm font-semibold text-foreground"><span class="text-muted-foreground">{{ index + 1 }}.</span> {{ item.title }}</p>
+                            <p class="mt-0.5 text-xs leading-5 text-muted-foreground">{{ item.text }}</p>
+                        </li>
+                    </ol>
+                    <div class="space-y-2 border-t border-border pt-3 text-xs text-muted-foreground">
+                        <p class="flex items-start gap-2"><BellRing class="mt-0.5 h-3.5 w-3.5 shrink-0" />Vous êtes prévenu à chaque étape dans la cloche des notifications.</p>
+                        <p class="flex items-start gap-2"><Lock class="mt-0.5 h-3.5 w-3.5 shrink-0" />Votre motif n’est lu que par le DG et le RH ; la Caisse ne voit que le montant.</p>
+                    </div>
+                </Card>
+            </aside>
+        </div>
 
         <Dialog :open="requesting" title="Demander une dette" description="Votre demande part au DG, qui l’accorde, l’ajuste ou la refuse." size="lg" :dismissible="! form.processing" @update:open="(value) => form.processing || (requesting = value)">
             <form class="space-y-4" @submit.prevent="submit">

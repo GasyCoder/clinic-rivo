@@ -21,7 +21,7 @@ import StaffDebtTermsFields from '@/Components/StaffDebts/StaffDebtTermsFields.v
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
 import { hrUrl } from '@/utilities/hrUrl';
-import { debtPlan, planSummary, toMinor } from '@/utilities/staffDebts';
+import { debtPlan, planSummary, repaidShare as debtRepaidShare } from '@/utilities/staffDebts';
 
 /**
  * ADR-228 — une dette du personnel. Le DG (portail) l'accorde en ajustant montant,
@@ -99,12 +99,7 @@ const disbursing = ref(false);
 const disbursement = useForm({ disbursed_on: props.today, disbursement_mode: 'CASH', reference: '', note: '' });
 const disburse = () => disbursement.post(`${base.value}/verser`, { preserveScroll: true, onSuccess: () => { disbursing.value = false; } });
 
-const repaidShare = computed(() => {
-    const amount = toMinor(props.debt.amount ?? 0);
-    if (! amount) return 0;
-
-    return Math.min(100, Math.round(((toMinor(props.debt.repaid) + toMinor(props.debt.written_off_amount)) / amount) * 100));
-});
+const repaidShare = computed(() => debtRepaidShare(props.debt));
 
 const TIMELINE_ICONS = { requested: FileText, approved: CircleCheck, refused: CircleX, disbursed: Wallet, written_off: Gift, cancelled: Ban, settled: CircleCheck };
 const firstError = (form) => Object.values(form.errors)[0] ?? '';

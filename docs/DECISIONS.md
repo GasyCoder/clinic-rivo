@@ -22285,3 +22285,26 @@ plafond        aucun plafond de montant ni de nombre de dettes en cours : c'est 
 intérêts       aucun
 départ         un employé qui quitte son poste avec une dette en cours : rien d'automatique
 ```
+
+## Amendement du 2026-09-30 — « Mes dettes » en pleine largeur
+
+Demande du propriétaire : refaire l'écran `/mes-dettes` (UI et UX) en pleine largeur. Présentation, et
+trois chiffres de plus servis par le serveur ; aucune règle, route ni permission ne change.
+
+```text
+largeur        la page occupe toute la largeur ; les dettes à gauche, à droite « Ma fiche » et
+               « Comment ça se passe » (demande → décision du DG → versement par le RH →
+               remboursement, prévenu à chaque étape, motif lu par le DG et le RH seulement)
+repères        Reste à rembourser · Prochain remboursement (mois et montant) · Déjà remboursé ·
+               Demande en attente ; un bandeau dit le retard à remettre à la Caisse
+serveur        `space.summary` reçoit `next` (premier mois de l'échéancier des dettes en cours,
+               montants de ce mois additionnés), `repaid` et `arrears` — l'écran n'additionne rien
+avancement     chaque dette montre ses quatre étapes (fait, en cours, arrêtée, à venir, sans objet),
+               lues sur son état et son historique par `debtSteps()` (utilities/staffDebts.js) ;
+               une dette retirée, refusée ou dont l'accord est annulé dit où elle s'est arrêtée
+détail         demande, accord, remboursement (part, reste, prochain mois, retard) et échéancier ;
+               ouvert d'office pour une dette en cours, replié pour une dette close ;
+               filtre Toutes / En cours / Closes quand il y a des deux
+```
+
+`repaidShare()` est partagé avec la fiche d'une dette du RH. Test : `tests/JavaScript/staffDebts.test.js`.

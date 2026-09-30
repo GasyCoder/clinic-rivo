@@ -839,6 +839,7 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Paie du mois : salaire de base + avantages du mois = montant brut à verser, « Marquer payé » fige et empêche un second paiement, annulation motivée ; virement hors RIVO (ADR-227)
 - [ ] Bonus par palier (ADR-212) dans la paie, retenues et net — à décider (ADR-227)
 - [x] Dettes du personnel : demande depuis son compte, décision du DG au portail (accord ajusté, refus, remise), versement constaté par le RH, remboursement retenu sur la paie ou encaissé à la Caisse avec reçu (ADR-228)
+- [x] « Mes dettes » refait en pleine largeur : prochain remboursement, déjà remboursé et retard servis par le serveur, avancement de chaque dette en quatre étapes, détail replié pour une dette close, déroulé expliqué à côté (ADR-228, amendement du 2026-09-30)
 - [ ] Dettes du personnel : plafond, intérêts, départ d'un employé endetté — à décider (ADR-228)
 - [x] Dossier employé : le parcours à étapes reste (Identité, Contact, Poste, Compléments, Rémunération, Avantages, Banque, Récapitulatif), chaque étape s'enregistre seule (~1 s après la dernière saisie), plus aucun bouton « Enregistrer » ; Précédent / Continuer, clic direct dans la barre (ADR-221)
 - [x] Création : l'étape Identité seule, « Continuer » crée le dossier et poursuit dans la fiche ; même parcours pour un stagiaire, qui finit sur son contrat de stage (ADR-221)

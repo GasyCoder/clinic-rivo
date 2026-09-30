@@ -85,6 +85,51 @@ export function salaryShare(installment, salary) {
     return Math.round((installmentMinor / salaryMinor) * 100);
 }
 
+/** La part remboursée d'une dette (remboursements et reste remis), en pour cent. */
+export function repaidShare(debt) {
+    const amount = toMinor(debt?.amount ?? 0);
+    if (! amount) return 0;
+
+    return Math.min(100, Math.round((((toMinor(debt.repaid) ?? 0) + (toMinor(debt.written_off_amount) ?? 0)) / amount) * 100));
+}
+
+/** Les dettes qui attendent encore quelque chose : une décision, un versement, des remboursements. */
+export const OPEN_STATUSES = ['REQUESTED', 'APPROVED', 'ACTIVE'];
+export const isOpenDebt = (debt) => OPEN_STATUSES.includes(debt?.status);
+
+/**
+ * Où en est une dette, en quatre étapes : la demande, la décision du DG, le versement
+ * par le RH, le remboursement. Chaque étape est `done`, `current`, `stopped` (la dette
+ * s'est arrêtée là), `upcoming` ou `skipped` (elle n'aura pas lieu). Tout est lu sur
+ * l'état et l'historique servis par le serveur : rien n'est décidé ici.
+ */
+export function debtSteps(debt) {
+    const events = debt?.timeline ?? [];
+    const event = (key) => events.find((item) => item.key === key) ?? null;
+    const step = (key, label, state, source = null, note = null) => ({ key, label, state, at: source?.at ?? null, by: source?.by ?? null, note });
+    const status = debt?.status;
+    const granted = debt?.granted != null;
+
+    const steps = [step('request', 'Demandée', 'done', event('requested') ?? { at: debt?.requested_at })];
+
+    if (status === 'REQUESTED') steps.push(step('decision', 'Décision du DG', 'current', null, 'En attente de sa décision'));
+    else if (status === 'REFUSED') steps.push(step('decision', 'Refusée par le DG', 'stopped', event('refused')));
+    else if (! granted) steps.push(step('decision', 'Demande retirée', 'stopped', event('cancelled')));
+    else steps.push(step('decision', debt.granted.adjusted ? 'Accordée · ajustée' : 'Accordée', 'done', event('approved')));
+
+    if (debt?.disbursement) steps.push(step('disbursement', 'Versée', 'done', event('disbursed') ?? { at: debt.disbursement.on }));
+    else if (status === 'APPROVED') steps.push(step('disbursement', 'Versement par le RH', 'current', null, 'Le RH vous la verse'));
+    else if (status === 'CANCELLED' && granted) steps.push(step('disbursement', 'Accord annulé', 'stopped', event('cancelled')));
+    else steps.push(step('disbursement', 'Versement par le RH', status === 'REQUESTED' ? 'upcoming' : 'skipped'));
+
+    if (status === 'SETTLED') steps.push(step('repayment', 'Soldée', 'done', event('settled')));
+    else if (status === 'WRITTEN_OFF') steps.push(step('repayment', 'Reste remis par le DG', 'done', event('written_off')));
+    else if (status === 'ACTIVE') steps.push(step('repayment', 'Remboursement', 'current', null, `${repaidShare(debt)} % remboursé`));
+    else steps.push(step('repayment', 'Remboursement', status === 'REQUESTED' || status === 'APPROVED' ? 'upcoming' : 'skipped'));
+
+    return steps;
+}
+
 export const STATUS_ICONS = {
     REQUESTED: Hourglass,
     APPROVED: Wallet,

@@ -3,11 +3,13 @@
 namespace Tests\Feature\Assistant;
 
 use App\Ai\Agents\ClinicAssistant;
+use App\Ai\AssistantSuggestions;
 use App\Models\AssistantSetting;
 use App\Models\AssistantUsage;
 use App\Models\Permission;
 use App\Models\User;
 use App\Services\Assistant\AssistantConfiguration;
+use App\Services\Assistant\AssistantKnowledge;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -45,7 +47,13 @@ class AssistantChatTest extends TestCase
         ClinicAssistant::fake(['Ouvrez **Pharmacie › Médicaments & stock**.']);
         $user = $this->userWith(['ai_assistant.use', 'pharmacy.view', 'stock.view']);
 
-        $events = $this->events($this->ask($user, 'Comment consulter le stock ?', ['path' => '/pharmacy/stock', 'component' => 'Pharmacy/Stock/Index']));
+        $response = $this->ask($user, 'Comment consulter le stock ?', ['path' => '/pharmacy/stock', 'component' => 'Pharmacy/Stock/Index']);
+        $events = $this->events($response);
+
+        // Un commentaire de 2 Ko ouvre le flux : un proxy qui retient les premiers octets
+        // (o2switch, compression) laisse ensuite passer chaque morceau dès qu'il arrive.
+        $this->assertMatchesRegularExpression('/^: {2048}\n\n/', $response->streamedContent());
+        $this->assertSame('no', $response->headers->get('X-Accel-Buffering'));
 
         $text = collect($events)->where('type', 'delta')->pluck('text')->implode('');
         $this->assertSame('Ouvrez **Pharmacie › Médicaments & stock**.', $text);
@@ -53,6 +61,16 @@ class AssistantChatTest extends TestCase
         $done = collect($events)->firstWhere('type', 'done');
         $this->assertNotNull($done['conversation_id']);
         $this->assertTrue(Conversation::query()->whereKey($done['conversation_id'])->where('participant_id', $user->id)->exists());
+
+        // Deux ou trois questions de suivi, prises dans l'aide des modules ouverts à ce compte,
+        // jamais la question qui vient d'être posée.
+        $this->assertNotEmpty($done['follow_ups']);
+        $this->assertLessThanOrEqual(3, count($done['follow_ups']));
+        $this->assertNotContains('Comment consulter le stock ?', $done['follow_ups']);
+        $offered = [...AssistantSuggestions::for('pharmacy'), ...AssistantSuggestions::for('general')];
+        foreach ($done['follow_ups'] as $followUp) {
+            $this->assertContains($followUp, $offered);
+        }
 
         $usage = AssistantUsage::sole();
         $this->assertSame(AssistantUsage::STATUS_COMPLETED, $usage->status);
@@ -62,10 +80,16 @@ class AssistantChatTest extends TestCase
         ClinicAssistant::assertPrompted(function (AgentPrompt $prompt) {
             $instructions = (string) $prompt->agent->instructions();
 
+            // Les règles viennent du fichier de l'invite système : langue, avis médical, secours.
             return str_contains($instructions, 'Tu n’es pas un professionnel de santé')
+                && str_contains($instructions, 'dans la langue de la question')
+                && str_contains($instructions, 'Réponse de secours')
                 && str_contains($instructions, 'Page ouverte : /pharmacy/stock')
                 && str_contains($instructions, 'Module de la page : Pharmacie')
-                && str_contains($instructions, 'Consulter le stock');
+                && str_contains($instructions, 'Consulter le stock')
+                // Il se présente sous la marque, jamais sous le nom du fournisseur ou du modèle.
+                && str_contains($instructions, 'Ton nom : GasyCoder AI')
+                && ! str_contains($instructions, 'gpt-test-model');
         });
     }
 
@@ -169,8 +193,14 @@ class AssistantChatTest extends TestCase
         $this->configure();
         $this->actingAs($user)->get('/profil')->assertInertia(fn ($page) => $page
             ->where('assistant.available', true)
+            // Le nom affiché par la bulle : la marque, jamais le fournisseur ni le modèle.
+            ->where('assistant.name', 'GasyCoder AI')
             ->missing('assistant.provider')
+            ->missing('assistant.model')
             ->missing('assistant.key'));
+
+        config(['rivo.assistant.brand' => 'Mon assistant']);
+        $this->actingAs($user)->get('/profil')->assertInertia(fn ($page) => $page->where('assistant.name', 'Mon assistant'));
 
         $this->actingAs($this->userWith([]))->get('/profil')->assertInertia(fn ($page) => $page->where('assistant.available', false));
     }
@@ -241,20 +271,55 @@ class AssistantChatTest extends TestCase
         $this->assertStringNotContainsString('sk-secret', json_encode($error));
     }
 
-    public function test_suggestions_follow_the_page_and_the_rights(): void
+    public function test_suggestions_come_grouped_by_module_page_first_and_only_where_the_account_goes(): void
     {
-        $user = $this->userWith(['ai_assistant.use', 'pharmacy.view']);
+        $user = $this->userWith(['ai_assistant.use', 'pharmacy.view', 'stock.view', 'stock.entry', 'patients.view']);
 
-        $this->actingAs($user)->getJson('/assistant/suggestions?path=/pharmacy/stock')
+        $groups = $this->actingAs($user)->getJson('/assistant/suggestions?path=/patients')
             ->assertOk()
-            ->assertJsonPath('module', 'Pharmacie')
-            ->assertJsonFragment(['Comment enregistrer une sortie de pharmacie ?']);
+            ->assertJsonPath('module', 'Patients')
+            ->json('groups');
 
-        // Un module que le compte ne peut pas ouvrir : les questions générales, jamais les siennes.
+        // La page d'où l'on vient d'abord, la navigation générale en dernier.
+        $this->assertSame('patients', $groups[0]['key']);
+        $this->assertSame('general', end($groups)['key']);
+        $this->assertLessThanOrEqual(AssistantKnowledge::SUGGESTION_GROUPS, count($groups));
+        $this->assertContains('pharmacy', array_column($groups, 'key'), 'le métier du compte');
+        foreach ($groups as $group) {
+            $this->assertNotSame([], $group['questions']);
+            $this->assertLessThanOrEqual(AssistantKnowledge::SUGGESTIONS_PER_GROUP, count($group['questions']));
+        }
+
+        // Un module que le compte ne peut pas ouvrir n'est jamais proposé, même s'il en vient.
         $this->actingAs($user)->getJson('/assistant/suggestions?path=/surgery')
             ->assertOk()
             ->assertJsonPath('module', null)
             ->assertJsonMissing(['Comment programmer une intervention ?']);
+    }
+
+    /**
+     * ADR-222 (amendement bis) — l'assistant tient dans une bulle posée sur chaque page :
+     * il n'a plus de page à lui. La bulle lit l'historique en JSON, seulement celui du compte.
+     */
+    public function test_the_assistant_has_no_page_of_its_own_the_bubble_reads_json(): void
+    {
+        $this->configure();
+        ClinicAssistant::fake(['Réponse A.', 'Réponse B.']);
+        $mine = $this->userWith(['ai_assistant.use']);
+        $other = $this->userWith(['ai_assistant.use']);
+
+        $ownId = collect($this->events($this->ask($mine, 'Où trouver une fonctionnalité ?')))->firstWhere('type', 'done')['conversation_id'];
+        $this->events($this->ask($other, 'Comment changer mon mot de passe ?'));
+
+        $this->actingAs($mine)->get('/assistant')->assertNotFound();
+
+        $this->actingAs($mine)->getJson('/assistant/conversations')
+            ->assertOk()
+            ->assertJsonCount(1, 'conversations')
+            ->assertJsonPath('conversations.0.id', $ownId);
+
+        // Sans le droit, la bulle n'a rien à lire.
+        $this->actingAs($this->userWith([]))->getJson('/assistant/conversations')->assertForbidden();
     }
 
     /** @param array<string, mixed> $overrides */

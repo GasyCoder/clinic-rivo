@@ -15,13 +15,19 @@ use Throwable;
  * Aucun nom de modèle n'est écrit dans RIVO. Quand le SDK est mis à jour, les
  * propositions suivent ; un modèle absent de la liste reste saisissable à la main
  * dans les paramètres. Construire un fournisseur ne fait aucun appel réseau.
+ *
+ * GasyCoder AI propose ses propres types (GasyCoder AI, Mini, Pro), chacun avec le
+ * moteur qu'il appelle : par défaut les paliers ChatGPT du SDK (GasyCoderModels).
  */
 class AssistantModelCatalog
 {
-    /** @var array<string, array{default: ?string, options: list<array{value: string, label: string}>}> */
+    /** @var array<string, array{default: ?string, options: list<array<string, string>>}> */
     private array $memo = [];
 
-    /** @return array{default: ?string, options: list<array{value: string, label: string}>} */
+    /** @var array<string, array{default: ?string, cheapest: ?string, smartest: ?string}> */
+    private array $tiers = [];
+
+    /** @return array{default: ?string, options: list<array<string, string>>} */
     public function for(AssistantProvider $provider): array
     {
         return $this->memo[$provider->value] ??= $this->read($provider);
@@ -32,6 +38,23 @@ class AssistantModelCatalog
         return $this->for($provider)['default'];
     }
 
+    /**
+     * Le modèle réellement envoyé au fournisseur : un type GasyCoder AI devient son
+     * moteur ; tout autre nom part tel quel.
+     */
+    public function engineFor(AssistantProvider $provider, string $model): string
+    {
+        return $provider === AssistantProvider::GasyCoder
+            ? GasyCoderModels::engineFor($model, $this->tiers(AssistantProvider::OpenAi))
+            : $model;
+    }
+
+    /** Le nom lisible d'un modèle proposé (« GasyCoder AI Pro ») ; null pour un nom saisi à la main. */
+    public function labelFor(AssistantProvider $provider, ?string $model): ?string
+    {
+        return $provider === AssistantProvider::GasyCoder ? GasyCoderModels::label($model) : null;
+    }
+
     /** @return array<string, array{default: ?string, options: list<array{value: string, label: string}>}> */
     public function all(): array
     {
@@ -40,22 +63,14 @@ class AssistantModelCatalog
             ->all();
     }
 
-    /** @return array{default: ?string, options: list<array{value: string, label: string}>} */
+    /** @return array{default: ?string, options: list<array<string, string>>} */
     private function read(AssistantProvider $provider): array
     {
-        try {
-            $instance = app(AiManager::class)->{'create'.Str::studly($provider->value).'Driver'}([
-                ...(array) config('ai.providers.'.$provider->value, []),
-                'name' => 'rivo-model-catalog',
-                'driver' => $provider->value,
-                'key' => 'unused',
-            ]);
-        } catch (Throwable) {
-            return ['default' => null, 'options' => []];
-        }
-
-        if (! $instance instanceof TextProvider) {
-            return ['default' => null, 'options' => []];
+        if ($provider === AssistantProvider::GasyCoder) {
+            return [
+                'default' => GasyCoderModels::DEFAULT,
+                'options' => GasyCoderModels::options($this->tiers(AssistantProvider::OpenAi)),
+            ];
         }
 
         $labels = [
@@ -63,11 +78,7 @@ class AssistantModelCatalog
             'cheapest' => 'Le plus économique',
             'smartest' => 'Le plus capable',
         ];
-        $models = [
-            'default' => rescue(fn () => $instance->defaultTextModel(), null, report: false),
-            'cheapest' => rescue(fn () => $instance->cheapestTextModel(), null, report: false),
-            'smartest' => rescue(fn () => $instance->smartestTextModel(), null, report: false),
-        ];
+        $models = $this->tiers($provider);
 
         $options = [];
 
@@ -86,5 +97,45 @@ class AssistantModelCatalog
         }
 
         return ['default' => $models['default'] ?: null, 'options' => array_values($options)];
+    }
+
+    /**
+     * Les trois paliers que le SDK connaît pour un fournisseur : recommandé, le plus
+     * économique, le plus capable. Construire le fournisseur ne fait aucun appel réseau.
+     *
+     * @return array{default: ?string, cheapest: ?string, smartest: ?string}
+     */
+    private function tiers(AssistantProvider $provider): array
+    {
+        return $this->tiers[$provider->value] ??= $this->readTiers($provider);
+    }
+
+    /** @return array{default: ?string, cheapest: ?string, smartest: ?string} */
+    private function readTiers(AssistantProvider $provider): array
+    {
+        $none = ['default' => null, 'cheapest' => null, 'smartest' => null];
+
+        try {
+            $instance = app(AiManager::class)->{'create'.Str::studly($provider->driver()).'Driver'}([
+                ...(array) config('ai.providers.'.$provider->value, []),
+                'name' => 'rivo-model-catalog',
+                'driver' => $provider->driver(),
+                'key' => 'unused',
+            ]);
+        } catch (Throwable) {
+            return $none;
+        }
+
+        if (! $instance instanceof TextProvider) {
+            return $none;
+        }
+
+        $read = fn (callable $model): ?string => ($value = rescue($model, null, report: false)) && is_string($value) ? $value : null;
+
+        return [
+            'default' => $read(fn () => $instance->defaultTextModel()),
+            'cheapest' => $read(fn () => $instance->cheapestTextModel()),
+            'smartest' => $read(fn () => $instance->smartestTextModel()),
+        ];
     }
 }

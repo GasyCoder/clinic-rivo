@@ -37,7 +37,7 @@ const displayInitials = computed(() => props.initials || props.text);
 <template>
     <AvatarRoot :class="componentClass">
         <AvatarFallback class="flex h-full w-full items-center justify-center text-xs font-bold">
-            {{ displayInitials }}
+            <slot>{{ displayInitials }}</slot>
         </AvatarFallback>
     </AvatarRoot>
 </template>

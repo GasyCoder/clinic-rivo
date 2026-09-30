@@ -161,8 +161,10 @@ Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.
     Route::put('/profil/apparence', [ProfileController::class, 'updateAppearance'])->name('profile.appearance.update');
 });
 
-// ADR-222 — l'assistant d'aide au logiciel, sur un site comme sur le portail. Il
-// explique l'application, ne modifie rien et ne voit aucune donnée de patient.
+// ADR-222 — l'assistant d'aide au logiciel, sur un site comme sur le portail : une
+// bulle déplaçable posée sur chaque page (AssistantWidget), qui n'appelle que ces
+// routes JSON. Il explique l'application, ne modifie rien et ne voit aucune donnée
+// de patient.
 Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.deployment', 'can:ai_assistant.use'])
     ->prefix('assistant')
     ->name('assistant.')

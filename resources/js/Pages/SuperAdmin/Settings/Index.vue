@@ -58,7 +58,8 @@ const props = defineProps({
     themePresets: { type: Object, default: () => ({}) },
     numberingOptions: { type: Object, default: () => ({}) },
     // ADR-222 — les réglages de l'assistant IA de chaque cible (seulement sur son module).
-    assistant: { type: Object, default: null },
+    // Pas `assistant` : la prop partagée de ce nom fait apparaître la bulle.
+    assistantSettings: { type: Object, default: null },
 });
 
 const page = usePage();
@@ -409,7 +410,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                         />
                         <AssistantSettings
                             v-else-if="current.id === 'assistant'"
-                            :assistant="assistant"
+                            :assistant="assistantSettings"
                             :site-code="selectedCode"
                             :site-name="target.site.name"
                             :is-portal="isPortal"

@@ -4,8 +4,10 @@
  */
 
 /**
- * @typedef {{ role: 'user'|'assistant', content: string, status?: 'streaming'|'done'|'error'|'stopped', error?: string }} AssistantMessage
+ * @typedef {{ role: 'user'|'assistant', content: string, status?: 'streaming'|'done'|'error'|'stopped', error?: string, followUps?: string[] }} AssistantMessage
  * @typedef {{ type: string, [key: string]: any }} AssistantEvent
+ * @typedef {{ key: string, title: string, questions: string[] }} AssistantSuggestionGroup
+ * @typedef {{ id: string, title: string, updated_at: ?string }} AssistantConversation
  */
 
 export const ASSISTANT_BASE = '/assistant';
@@ -67,11 +69,15 @@ const inline = (escaped) => escaped
     .replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
     .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>');
 
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+const TABLE_SEPARATOR = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+const tableCells = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim());
+
 /**
  * Un Markdown réduit, sûr par construction : tout le texte est d'abord échappé,
  * puis seules les balises de cette fonction sont ajoutées (titres, paragraphes,
- * listes, gras, italique, code). Aucun lien, aucune image, aucun HTML du modèle :
- * une réponse ne peut ni exécuter un script ni envoyer le lecteur ailleurs.
+ * listes, tableaux, gras, italique, code). Aucun lien, aucune image, aucun HTML du
+ * modèle : une réponse ne peut ni exécuter un script ni envoyer le lecteur ailleurs.
  */
 export const renderAssistantMarkdown = (markdown) => {
     const lines = escapeHtml(markdown ?? '').replace(/\r\n/g, '\n').split('\n');
@@ -89,7 +95,9 @@ export const renderAssistantMarkdown = (markdown) => {
         list = null;
     };
 
-    for (const line of lines) {
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+
         if (code !== null) {
             if (/^\s*```/.test(line)) {
                 html.push(`<pre><code>${code.join('\n')}</code></pre>`);
@@ -104,6 +112,27 @@ export const renderAssistantMarkdown = (markdown) => {
             closeParagraph();
             closeList();
             code = [];
+            continue;
+        }
+
+        // Un tableau : une ligne d'en-tête, sa ligne de tirets, puis les lignes du corps.
+        if (TABLE_ROW.test(line) && TABLE_SEPARATOR.test(lines[index + 1] ?? '')) {
+            closeParagraph();
+            closeList();
+            const head = tableCells(line);
+            const rows = [];
+            index += 2;
+            while (index < lines.length && TABLE_ROW.test(lines[index])) {
+                rows.push(tableCells(lines[index]));
+                index += 1;
+            }
+            index -= 1;
+            html.push(
+                '<div class="assistant-table"><table>'
+                + `<thead><tr>${head.map((cell) => `<th>${inline(cell)}</th>`).join('')}</tr></thead>`
+                + `<tbody>${rows.map((row) => `<tr>${head.map((_, column) => `<td>${inline(row[column] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody>`
+                + '</table></div>',
+            );
             continue;
         }
 
@@ -135,6 +164,34 @@ export const renderAssistantMarkdown = (markdown) => {
     closeList();
 
     return html.join('');
+};
+
+/* ------------------------------------------------------------------ */
+/* Le texte qui arrive                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * La réponse arrive en flux, par morceaux de taille inégale : un fournisseur envoie
+ * un mot, un autre une phrase entière. L'écran les dévoile quelques caractères par
+ * image, et plus vite quand il en a davantage en attente : le texte coule sans
+ * jamais prendre de retard sur ce qui est reçu (≈ 6 images pour tout rattraper).
+ * Jamais la moitié d'un caractère (émoji, symbole hors du plan de base).
+ *
+ * @returns {[string, string]}  ce qui s'affiche maintenant, ce qui attend encore
+ */
+export const REVEAL_FRAMES = 6;
+export const REVEAL_MIN = 2;
+
+export const takeReveal = (pending) => {
+    const text = String(pending ?? '');
+    if (text === '') return ['', ''];
+
+    let cut = Math.min(text.length, Math.max(REVEAL_MIN, Math.ceil(text.length / REVEAL_FRAMES)));
+    const code = text.charCodeAt(cut - 1);
+    // Une moitié haute de paire de substitution : le caractère entier part ensemble.
+    if (code >= 0xd800 && code <= 0xdbff && cut < text.length) cut += 1;
+
+    return [text.slice(0, cut), text.slice(cut)];
 };
 
 /** Ce que l'écran dit d'une question refusée avant tout appel (HTTP d'erreur ordinaire). */
@@ -173,16 +230,43 @@ export const assistantFormValues = (payload) => {
         const value = values[field];
 
         if (field === 'enabled') return [field, Boolean(value)];
+        // Rien de réglé : le fournisseur par défaut du serveur (GasyCoder AI) est présélectionné.
+        if (field === 'provider' && (value === null || value === undefined || value === '')) return [field, payload?.fallbacks?.provider ?? ''];
         if (value === null || value === undefined) return [field, ''];
 
         return [field, typeof value === 'number' ? String(value) : value];
     }));
 };
 
-/** Les modèles proposés par le SDK pour un fournisseur, plus celui qui est saisi s'il n'y figure pas. */
+/**
+ * Le libellé d'un modèle proposé. Un type GasyCoder AI porte son nom, sa phrase et le
+ * moteur qu'il appelle (« GasyCoder AI Pro — le plus capable · gpt-… ») ; un modèle du
+ * SDK, son nom technique et son palier.
+ */
+export const modelOptionLabel = (option) => {
+    if (! option?.engine) return `${option?.value ?? ''} — ${option?.label ?? ''}`;
+
+    const hint = option.hint ? ` — ${option.hint.charAt(0).toLowerCase()}${option.hint.slice(1)}` : '';
+    const engine = option.engine !== option.value ? ` · ${option.engine}` : '';
+
+    return `${option.label}${hint}${engine}`;
+};
+
+/** La première ligne de la liste des modèles : ce qui s'applique quand aucun n'est choisi. */
+export const defaultModelLabel = (entry) => {
+    const model = entry?.default_model;
+    if (! model) return 'Par défaut';
+
+    const option = (entry.models ?? []).find((item) => item.value === model);
+    if (option?.engine) return `Par défaut — ${option.label}${option.engine !== option.value ? ` (${option.engine})` : ''}`;
+
+    return `Recommandé par le SDK (${model})`;
+};
+
+/** Les modèles proposés pour un fournisseur, plus celui qui est saisi s'il n'y figure pas. */
 export const modelOptionsFor = (providers, provider, current = '') => {
     const entry = (providers ?? []).find((item) => item.value === provider);
-    const options = [...(entry?.models ?? [])].map((option) => ({ value: option.value, label: `${option.value} — ${option.label}` }));
+    const options = [...(entry?.models ?? [])].map((option) => ({ value: option.value, label: modelOptionLabel(option) }));
 
     if (current && ! options.some((option) => option.value === current)) {
         options.push({ value: current, label: `${current} — saisi à la main` });

@@ -76,11 +76,16 @@ class TestAssistantConnectionAction
     /** @return array{ok: bool, message: string, reason: ?string, status: ?int, latency_ms: int} */
     private function probe(AssistantProvider $provider, string $key, string $model, int $timeout): array
     {
+        // Un type GasyCoder AI (« GasyCoder AI Pro ») : c'est son moteur qui répond.
+        $engine = $this->catalog->engineFor($provider, $model);
+        $label = $this->catalog->labelFor($provider, $model);
+        $named = $label !== null && $engine !== $model ? $label.' (moteur '.$engine.')' : ($label ?? $model);
+
         $name = $this->configuration->registerProvider($provider, $key, $model, self::PROVIDER_NAME);
         $started = hrtime(true);
 
         try {
-            (new AssistantConnectionCheck($name, $model, $timeout))->prompt(AssistantConnectionCheck::PROMPT);
+            (new AssistantConnectionCheck($name, $engine, $timeout))->prompt(AssistantConnectionCheck::PROMPT);
             $latency = (int) ((hrtime(true) - $started) / 1_000_000);
 
             return [
@@ -88,11 +93,11 @@ class TestAssistantConnectionAction
                 'reason' => null,
                 'status' => null,
                 'latency_ms' => $latency,
-                'message' => 'Connexion réussie : '.$provider->label().' a répondu avec le modèle '.$model.' en '.number_format($latency / 1000, 1, ',', ' ').' s.',
+                'message' => 'Connexion réussie : '.$provider->label().' a répondu avec le modèle '.$named.' en '.number_format($latency / 1000, 1, ',', ' ').' s.',
             ];
         } catch (Throwable $exception) {
             $error = AssistantErrors::describe($exception);
-            AssistantErrors::log($exception, $error, $provider->value, $model);
+            AssistantErrors::log($exception, $error, $provider->value, $engine);
 
             return [
                 'ok' => false,

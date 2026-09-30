@@ -24,7 +24,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class AssistantController extends Controller
 {
-    /** Les questions proposées pour la page ouverte : seulement les modules que le compte peut ouvrir. */
+    /**
+     * Les questions proposées, groupées par module : celui de la page d'où l'on
+     * vient, puis ceux du métier du compte — seulement ceux qu'il peut ouvrir.
+     */
     public function suggestions(Request $request, AssistantKnowledge $knowledge, AssistantPageContext $context): JsonResponse
     {
         $page = $context->normalize(['path' => (string) $request->query('path', '')]);
@@ -32,7 +35,7 @@ class AssistantController extends Controller
 
         return response()->json([
             'module' => $module !== null ? $knowledge->title($module) : null,
-            'suggestions' => $knowledge->suggestions($module, $request->user()),
+            'groups' => $knowledge->suggestionGroups($module, $request->user()),
         ]);
     }
 
@@ -76,6 +79,23 @@ class AssistantController extends Controller
             // L'arrêt de l'utilisateur se lit entre deux morceaux : la consommation est
             // enregistrée au lieu que le script soit interrompu en plein flux.
             ignore_user_abort(true);
+
+            // La réponse arrive mot à mot : rien ne doit la retenir en chemin. La compression
+            // (zlib, mod_deflate d'Apache chez o2switch) attend d'avoir assez de texte avant
+            // d'envoyer — elle est coupée pour ce flux seulement.
+            @ini_set('zlib.output_compression', '0');
+            if (function_exists('apache_setenv')) {
+                @apache_setenv('no-gzip', '1');
+            }
+
+            // Un commentaire SSE de 2 Ko, ignoré par le navigateur, pousse les tampons des
+            // serveurs et des proxys qui retiennent les petites réponses : le premier mot
+            // s'affiche dès qu'il est écrit.
+            echo ':'.str_repeat(' ', 2048)."\n\n";
+            if (ob_get_level() > 0) {
+                ob_flush();
+            }
+            flush();
 
             foreach ($events as $event) {
                 echo 'data: '.json_encode($event, JSON_UNESCAPED_UNICODE)."\n\n";

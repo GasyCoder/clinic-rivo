@@ -75,7 +75,9 @@ class AppSettingsController extends Controller
             'section' => $section,
             'targets' => [...$sites, $portal],
             // ADR-222 — les réglages de l'assistant, lus seulement sur leur module et avec leur droit.
-            'assistant' => $section === 'assistant' && $request->user()->can('ai_settings.view')
+            // Jamais sous le nom `assistant` : ce serait écraser la prop partagée qui fait
+            // apparaître la bulle de l'assistant, et elle disparaîtrait de tous les paramètres.
+            'assistantSettings' => $section === 'assistant' && $request->user()->can('ai_settings.view')
                 ? $this->assistantTargets($request, $client, $assistantPresenter)
                 : null,
             'limits' => [

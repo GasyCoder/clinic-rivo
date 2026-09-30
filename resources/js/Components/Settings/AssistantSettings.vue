@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useForm } from '@inertiajs/vue3';
 import {
-    Activity, Bot, CircleCheck, CircleSlash, ExternalLink, Gauge, KeyRound, Loader2, PlugZap, Save, ShieldCheck, Trash2, TriangleAlert, Users,
+    Activity, Bot, CircleCheck, CircleSlash, ExternalLink, Gauge, KeyRound, Link2, Loader2, PlugZap, Save, ShieldCheck, Trash2, TriangleAlert, Users,
 } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -16,7 +16,7 @@ import SettingsField from '@/Components/Settings/SettingsField.vue';
 import SettingsSection from '@/Components/Settings/SettingsSection.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
-import { assistantFormValues, formatTokens, keySourceLabel, modelOptionsFor } from '@/utilities/assistant';
+import { assistantFormValues, defaultModelLabel as defaultModelLabelFor, formatTokens, keySourceLabel, modelOptionsFor } from '@/utilities/assistant';
 
 /**
  * ADR-222 — les réglages de l'assistant d'aide au logiciel, pour un site (par son
@@ -68,19 +68,30 @@ const load = () => {
 
 watch(() => `${props.siteCode}|${data.value?.updated_at ?? ''}|${key.value?.masked ?? ''}|${key.value?.updated_at ?? ''}`, load);
 
+// GasyCoder AI en tête ; rien de réglé, il est présélectionné (assistantFormValues).
 const providerOptions = computed(() => [
-    { value: '', label: fallbacks.value.provider ? `Selon le .env du serveur (${fallbacks.value.provider})` : 'Aucun fournisseur' },
+    ...(form.provider === '' ? [{ value: '', label: 'Aucun fournisseur' }] : []),
     ...providers.value.map((provider) => ({ value: provider.value, label: provider.label })),
 ]);
 const providerEntry = computed(() => providers.value.find((provider) => provider.value === (form.provider || fallbacks.value.provider)) ?? null);
 
 const CUSTOM = '__custom__';
 const customModel = ref(false);
+const defaultModelLabel = computed(() => defaultModelLabelFor(providerEntry.value));
+/** GasyCoder AI propose ses propres types (GasyCoder AI, Mini, Pro), chacun avec son moteur. */
+const namedModels = computed(() => (providerEntry.value?.models ?? []).some((model) => model.engine));
+const modelDescription = computed(() => (namedModels.value
+    ? 'Les types GasyCoder AI, avec le moteur que chacun appelle ; un autre modèle se saisit à la main.'
+    : 'Les modèles proposés viennent du SDK ; un autre se saisit à la main.'));
 const modelOptions = computed(() => [
-    { value: '', label: providerEntry.value?.default_model ? `Recommandé par le SDK (${providerEntry.value.default_model})` : 'Par défaut' },
+    { value: '', label: defaultModelLabel.value },
     ...modelOptionsFor(providers.value, form.provider || fallbacks.value.provider, form.model),
     { value: CUSTOM, label: 'Autre modèle (saisir son nom)…' },
 ]);
+/** Aucun modèle proposé : le nom se saisit directement. */
+const typedModelOnly = computed(() => Boolean(providerEntry.value)
+    && ! providerEntry.value.default_model
+    && (providerEntry.value.models ?? []).length === 0);
 const pickModel = (value) => {
     if (value === CUSTOM) {
         customModel.value = true;
@@ -243,7 +254,7 @@ const generalError = computed(() => form.errors.assistant || form.errors.site_co
                         <component :is="state.icon" class="h-4 w-4" aria-hidden="true" />
                         {{ state.label }}
                         <Badge v-if="effective.provider_label" tone="neutral">{{ effective.provider_label }}</Badge>
-                        <Badge v-if="effective.model" tone="neutral" class="font-mono">{{ effective.model }}</Badge>
+                        <Badge v-if="effective.model" tone="neutral" :class="effective.model_label ? '' : 'font-mono'">{{ effective.model_label ?? effective.model }}</Badge>
                     </p>
                     <p class="text-sm text-muted-foreground">{{ state.text }}</p>
                     <p v-if="data.updated_at" class="text-xs text-muted-foreground">
@@ -268,10 +279,20 @@ const generalError = computed(() => form.errors.assistant || form.errors.site_co
             <div class="grid gap-6 cq-2xl:grid-cols-2">
                 <SettingsField label="Fournisseur" for="reglage-assistant-provider" :error="form.errors.provider" description="Celui qui répond aux questions, par le SDK Laravel AI.">
                     <Select id="reglage-assistant-provider" v-model="form.provider" :options="providerOptions" class="w-full" :disabled="readonly" />
+                    <!-- GasyCoder AI : une API de type ChatGPT — celle de ChatGPT, ou la vôtre (GASYCODER_AI_URL). -->
+                    <p v-if="providerEntry?.api_url" class="mt-2 flex min-w-0 items-start gap-1.5 text-[0.8rem] text-muted-foreground" data-assistant-api-url>
+                        <Link2 class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span class="min-w-0">
+                            <template v-if="providerEntry.own_api">Votre API : </template>
+                            <template v-else>Type ChatGPT — API de ChatGPT : </template>
+                            <span class="break-all font-mono">{{ providerEntry.api_url }}</span>
+                            <template v-if="! providerEntry.own_api">. La clé est une clé OpenAI (ChatGPT) ; <span class="font-mono">GASYCODER_AI_URL</span> dans le .env la remplace par votre propre API.</template>
+                        </span>
+                    </p>
                 </SettingsField>
-                <SettingsField label="Modèle" for="reglage-assistant-model" :error="form.errors.model" description="Les modèles proposés viennent du SDK ; un autre se saisit à la main.">
+                <SettingsField label="Modèle" for="reglage-assistant-model" :error="form.errors.model" :description="modelDescription">
                     <Select
-                        v-if="! customModel"
+                        v-if="! customModel && ! typedModelOnly"
                         id="reglage-assistant-model"
                         :model-value="form.model"
                         :options="modelOptions"
@@ -281,7 +302,7 @@ const generalError = computed(() => form.errors.assistant || form.errors.site_co
                     />
                     <div v-else class="flex gap-2">
                         <Input id="reglage-assistant-model" v-model="form.model" placeholder="ex. nom-exact-du-modele" class="font-mono" maxlength="150" autocomplete="off" :disabled="readonly" />
-                        <Button type="button" variant="outline" @click="customModel = false">Liste</Button>
+                        <Button v-if="! typedModelOnly" type="button" variant="outline" @click="customModel = false">Liste</Button>
                     </div>
                 </SettingsField>
             </div>

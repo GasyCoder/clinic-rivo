@@ -18,7 +18,8 @@ use Throwable;
  *      joints aux consignes, jamais à la conversation ;
  *   3. le fournisseur réglé est déclaré au SDK, clé comprise, pour cette requête ;
  *   4. la réponse est relayée morceau par morceau ;
- *   5. la consommation est enregistrée, réussie, arrêtée ou non.
+ *   5. la consommation est enregistrée, réussie, arrêtée ou non ;
+ *   6. deux ou trois questions de suivi sont proposées.
  *
  * Les vérifications qui refusent sans rien appeler (assistant désactivé, quota,
  * conversation d'un autre compte) sont faites avant, par le contrôleur : une
@@ -57,7 +58,8 @@ class AssistantResponder
         $conversationId === null ? $agent->forUser($user) : $agent->continue($conversationId, $user);
 
         $provider = (string) $this->configuration->provider()?->value;
-        $model = (string) $this->configuration->model();
+        // Le moteur réellement facturé par le fournisseur (un type GasyCoder AI est résolu).
+        $model = (string) $this->configuration->engineModel();
         $started = hrtime(true);
         $elapsed = fn (): int => (int) ((hrtime(true) - $started) / 1_000_000);
 
@@ -90,6 +92,9 @@ class AssistantResponder
             yield [
                 'type' => 'done',
                 'conversation_id' => $response->conversationId,
+                // Deux ou trois questions de suivi, prises dans l'aide des modules que le
+                // compte peut ouvrir : l'assistant sait y répondre.
+                'follow_ups' => $this->knowledge->followUps($redacted['text'], $page['module'], $user),
                 'usage' => [
                     'input_tokens' => (int) ($response->usage?->inputTokens ?? 0),
                     'output_tokens' => (int) ($response->usage?->outputTokens ?? 0),

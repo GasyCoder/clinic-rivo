@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Assistant;
 
+use App\Ai\Agents\ClinicAssistant;
+use App\Ai\AssistantSuggestions;
 use App\Ai\Tools\GetModuleAccess;
 use App\Ai\Tools\ListAccessibleModules;
 use App\Ai\Tools\SearchApplicationHelp;
@@ -42,6 +44,43 @@ class AssistantKnowledgeTest extends TestCase
         }
     }
 
+    public function test_every_module_proposes_questions_from_the_suggestions_file(): void
+    {
+        $knowledge = app(AssistantKnowledge::class);
+
+        $this->assertSame([], array_diff(array_keys(AssistantSuggestions::BY_MODULE), $knowledge->moduleKeys()), 'une clé de suggestions ne désigne aucun module');
+
+        foreach ($knowledge->moduleKeys() as $module) {
+            $questions = AssistantSuggestions::for($module);
+            $this->assertGreaterThanOrEqual(2, count($questions), "{$module} propose au moins deux questions");
+            $this->assertSame($questions, array_values(array_unique($questions)), "{$module} : une question en double");
+
+            foreach ($questions as $question) {
+                $this->assertStringEndsWith('?', $question, "« {$question} » est une question");
+            }
+        }
+    }
+
+    public function test_the_system_prompt_lives_in_its_own_file_with_the_absolute_rules(): void
+    {
+        $prompt = ClinicAssistant::systemPrompt();
+
+        $this->assertFileExists(resource_path(ClinicAssistant::SYSTEM_PROMPT));
+        foreach ([
+            'Tu n’es pas un professionnel de santé',
+            'Aucune donnée de patient',
+            'Ne jamais inventer',
+            'Hors sujet',
+            'une seule** question de clarification',
+            'dans la langue de la question',
+            'français, malgache ou anglais',
+            'Réponse de secours',
+            'Seule la **Caisse** encaisse',
+        ] as $rule) {
+            $this->assertStringContainsString($rule, $prompt);
+        }
+    }
+
     public function test_help_and_search_are_limited_to_the_modules_the_account_opens(): void
     {
         $knowledge = app(AssistantKnowledge::class);
@@ -66,7 +105,52 @@ class AssistantKnowledgeTest extends TestCase
         $this->assertSame('reception', $knowledge->moduleForPath('/reception/patients'));
         $this->assertSame('paraclinical', $knowledge->moduleForPath('/medicine/demandes-examens'));
         $this->assertSame('medicine', $knowledge->moduleForPath('/medicine/orientations/{id}/examen'));
+        $this->assertSame('laboratory', $knowledge->moduleForPath('/laboratory/requests/{id}'));
+        $this->assertSame('laboratory', $knowledge->moduleForPath('/laboratory/paillasse'));
+        $this->assertSame('paraclinical', $knowledge->moduleForPath('/reception/resultats-analyses'), 'plus long que /reception');
+        $this->assertSame('paraclinical', $knowledge->moduleForPath('/resultats-analyses/{id}'));
         $this->assertNull($knowledge->moduleForPath('/inconnu'));
+    }
+
+    /**
+     * La fiche du module ouvert part entière : tronquée, elle ferait répondre l'assistant
+     * sur une procédure à moitié décrite.
+     */
+    public function test_every_help_sheet_fits_the_budget_of_the_open_module(): void
+    {
+        $knowledge = app(AssistantKnowledge::class);
+        $budget = (new \ReflectionClassConstant(AssistantKnowledge::class, 'CURRENT_MODULE_BUDGET'))->getValue();
+
+        foreach ($knowledge->moduleKeys() as $module) {
+            $this->assertLessThanOrEqual($budget, mb_strlen($knowledge->document($module)), "{$module}.md dépasse le budget et serait tronquée");
+        }
+    }
+
+    /**
+     * ADR-213 à 220 — le Laboratoire a été refait : l'aide décrit le parcours actuel
+     * (Traiter, Terminer, Envoyer au médecin, validation par le médecin), jamais l'ancien.
+     */
+    public function test_the_laboratory_help_describes_the_current_workflow(): void
+    {
+        $knowledge = app(AssistantKnowledge::class);
+        $technician = $this->userWith(['laboratory_results.view', 'laboratory_results.create']);
+        $doctor = $this->userWith(['paraclinical_requests.view', 'laboratory_orders.view', 'laboratory_results.approve']);
+        $reception = $this->userWith(['laboratory_results.validated_view']);
+
+        $laboratory = $knowledge->document('laboratory');
+        foreach (['**Traiter**', '**Terminer l\'analyse**', '**Envoyer au médecin**', '**Renvoyer à refaire**', '**Aucun médecin — patient externe**'] as $step) {
+            $this->assertStringContainsString($step, $laboratory);
+        }
+        $this->assertStringNotContainsString('À analyser', $laboratory.$knowledge->document('paraclinical'), 'l’ancienne file n’existe plus');
+
+        $paraclinical = $knowledge->document('paraclinical');
+        $this->assertStringContainsString('**Vérifier et valider**', $paraclinical);
+        $this->assertStringContainsString('**Résultats à remettre**', $paraclinical);
+
+        $this->assertTrue($knowledge->accessible('laboratory', $technician));
+        $this->assertFalse($knowledge->accessible('laboratory', $doctor), 'le médecin n’ouvre pas la paillasse');
+        $this->assertTrue($knowledge->accessible('paraclinical', $doctor));
+        $this->assertTrue($knowledge->accessible('paraclinical', $reception), 'la Réception remet les résultats validés');
     }
 
     public function test_the_redactor_masks_identifiers_but_keeps_the_question(): void

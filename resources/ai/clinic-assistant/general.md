@@ -39,6 +39,10 @@ Le menu **Messagerie** ouvre la boîte email professionnelle reliée à votre fi
 
 Les éléments supprimés d'un site (patients, prestations, adresses, organismes, caisses…) vont dans la **Corbeille** (droit `trash.view`). Une restauration demande en plus le droit de restauration de la catégorie. Les données médicales et financières critiques ne se suppriment pas : elles s'annulent ou se corrigent.
 
+## Assistant GasyCoder AI
+
+La bulle au petit robot, en bas à droite de chaque page, ouvre **GasyCoder AI**. On la glisse où l'on veut ; sa fenêtre s'agrandit ou passe en plein écran, et se réduit à nouveau en bulle (Échap). On y pose une question sur le logiciel, en français, en malgache ou en anglais ; les réponses arrivent au fil de l'eau, avec des questions proposées selon la page d'où l'on vient et le métier du compte, puis des questions de suivi. **Nouvelle conversation** repart de zéro ; l'**historique** garde vos conversations, que vous seul voyez et pouvez supprimer. L'assistant n'apparaît qu'une fois activé et configuré par l'administrateur.
+
 ## Confidentialité avec l'assistant
 
 L'assistant aide à utiliser le logiciel. Il n'a pas besoin du nom, du téléphone ni des informations médicales d'un patient : posez la question de façon générale (« le patient ouvert », « ce passage »). Il ne fait aucune action à votre place et ne remplace jamais une décision médicale.

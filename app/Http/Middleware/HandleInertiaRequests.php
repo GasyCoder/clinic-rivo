@@ -135,7 +135,7 @@ class HandleInertiaRequests extends Middleware
      * avant tout réglage : le panneau lui dit ce qui manque et où le régler. Sans cela,
      * rien dans l'interface ne laisse deviner que l'assistant existe.
      *
-     * @return array{available: bool, max_length: int, setup: ?array{state: string, url: string}}
+     * @return array{available: bool, name: string, max_length: int, setup: ?array{state: string, url: string}}
      */
     private function assistant(?User $user): array
     {
@@ -147,6 +147,8 @@ class HandleInertiaRequests extends Middleware
 
         return [
             'available' => $available,
+            // Le nom affiché dans la bulle et sa fenêtre (« GasyCoder AI ») : jamais le fournisseur.
+            'name' => AssistantConfiguration::brand(),
             'max_length' => AssistantConfiguration::MAX_QUESTION_LENGTH,
             'setup' => ! $available && $configurable ? [
                 // `unconfigured` : ni fournisseur, ni modèle, ni clé ; `disabled` : prêt mais éteint.

@@ -61,6 +61,7 @@ class AssistantSettingsPresenter
                 'provider' => $provider?->value,
                 'provider_label' => $provider?->label(),
                 'model' => $this->configuration->model(),
+                'model_label' => $this->configuration->modelLabel(),
                 'enabled' => $this->configuration->enabled(),
                 'configured' => $this->configuration->configured(),
                 'available' => $this->configuration->available(),
@@ -76,6 +77,9 @@ class AssistantSettingsPresenter
                 'value' => $item->value,
                 'label' => $item->label(),
                 'key_url' => $item->keyConsoleUrl(),
+                // GasyCoder AI : API de type ChatGPT — celle de ChatGPT, ou la vôtre (GASYCODER_AI_URL).
+                'api_url' => $item->apiUrl(),
+                'own_api' => $item === AssistantProvider::GasyCoder ? GasyCoderModels::ownApi() : null,
                 'environment_key' => $item->environmentKey(),
                 'models' => $this->catalog->for($item)['options'],
                 'default_model' => $this->catalog->defaultFor($item),

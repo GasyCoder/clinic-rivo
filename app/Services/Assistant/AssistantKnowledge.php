@@ -2,6 +2,7 @@
 
 namespace App\Services\Assistant;
 
+use App\Ai\AssistantSuggestions;
 use App\Models\User;
 use Illuminate\Support\Str;
 
@@ -12,7 +13,8 @@ use Illuminate\Support\Str;
  * modèle.
  *
  * Chaque module déclare ici ses adresses (pour reconnaître la page ouverte), les
- * droits qui l'ouvrent (au moins un), ses mots-clés et ses questions proposées.
+ * droits qui l'ouvrent (au moins un) et ses mots-clés ; ses questions proposées
+ * vivent à part, dans App\Ai\AssistantSuggestions.
  * Un compte ne reçoit jamais la fiche d'un module qu'il ne peut pas ouvrir : le
  * filtre se fait ici, côté serveur, pour les suggestions, l'aide jointe à la
  * question et chaque outil de l'agent.
@@ -28,7 +30,7 @@ class AssistantKnowledge
      * `any` : au moins un de ces droits ouvre la fiche ; vide = tout compte.
      * `prefixes` : les droits qui comptent sur ces pages (contexte, GetModuleAccess).
      *
-     * @var array<string, array{title: string, paths: list<string>, any: list<string>, deployment: string, prefixes: list<string>, keywords: list<string>, suggestions: list<string>}>
+     * @var array<string, array{title: string, paths: list<string>, any: list<string>, deployment: string, prefixes: list<string>, keywords: list<string>}>
      */
     private const MODULES = [
         'general' => [
@@ -37,8 +39,7 @@ class AssistantKnowledge
             'any' => [],
             'deployment' => 'any',
             'prefixes' => [],
-            'keywords' => ['menu', 'trouver', 'recherche', 'bouton', 'grisé', 'verrouillé', 'droit', 'permission', 'accès', 'refusé', 'profil', 'mot de passe', 'notification', 'messagerie', 'email', 'thème', 'corbeille', 'maintenance'],
-            'suggestions' => ['Où trouver une fonctionnalité ?', 'Pourquoi un bouton est grisé ou verrouillé ?', 'Comment changer mon mot de passe ?'],
+            'keywords' => ['menu', 'trouver', 'recherche', 'bouton', 'grisé', 'verrouillé', 'droit', 'permission', 'accès', 'refusé', 'profil', 'mot de passe', 'notification', 'messagerie', 'email', 'thème', 'corbeille', 'maintenance', 'assistant', 'conversation', 'historique'],
         ],
         'reception' => [
             'title' => 'Réception',
@@ -47,7 +48,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['reception.', 'episodes.', 'patient_referrals.'],
             'keywords' => ['accueil', 'accueillir', 'arrivée', 'passage', 'nouveau patient', 'besoin', 'estimation', 'prestation', 'mutuelle', 'urgence', 'prise en charge', 'recommandation', 'cadeau', 'nouveau-né', 'bébé', 'enfant'],
-            'suggestions' => ['Comment accueillir un nouveau patient ?', 'Comment classer un passage en urgence ?', 'Comment vendre seulement des médicaments ?', 'Qui voit le patient après l’accueil ?'],
         ],
         'settlement' => [
             'title' => 'Sorties & règlements',
@@ -56,7 +56,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['episodes.settlement', 'episodes.administrative_exit', 'debts.'],
             'keywords' => ['sortie administrative', 'sortie', 'règlement', 'régler', 'dette', 'évadé', 'créance', 'solde', 'fiche de sortie', 'facturer'],
-            'suggestions' => ['Comment prononcer la sortie administrative ?', 'Pourquoi un passage n’est pas « À régler » ?', 'Que faire des prestations non facturées ?'],
         ],
         'cash' => [
             'title' => 'Caisse',
@@ -65,7 +64,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['cash.', 'payments.', 'billing.', 'receipts.', 'discounts.'],
             'keywords' => ['caisse', 'paiement', 'payer', 'encaisser', 'facture', 'reçu', 'ticket', 'remise', 'coupon', 'session', 'clôturer la caisse'],
-            'suggestions' => ['Comment enregistrer un paiement ?', 'Comment retrouver une facture ?', 'Comment encaisser un ticket Pharmacie ?', 'Comment clôturer la caisse ?'],
         ],
         'patients' => [
             'title' => 'Patients',
@@ -74,7 +72,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['patients.', 'treatment_journal.'],
             'keywords' => ['patient', 'dossier', 'répertoire', 'dossier médical', 'journal de traitement', 'parcours', 'passage', 'vip', 'export'],
-            'suggestions' => ['Comment retrouver un patient ?', 'Comment imprimer le dossier médical ?', 'Où voir le parcours d’un passage ?'],
         ],
         'care' => [
             'title' => 'Soins',
@@ -83,7 +80,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['care.', 'vitals.', 'care_consumables.'],
             'keywords' => ['soins', 'infirmier', 'infirmière', 'constantes', 'tension', 'acte', 'matériel', 'consommable', 'fiche de soins', 'transmettre', 'remettre en file', 'reprendre'],
-            'suggestions' => ['Comment prendre un patient en charge ?', 'Comment transmettre un patient au médecin ?', 'Comment déclarer le matériel utilisé ?', 'Comment remettre un patient en file ?'],
         ],
         'medicine' => [
             'title' => 'Médecine — consultation',
@@ -92,16 +88,24 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['consultations.', 'diagnoses.', 'prescriptions.', 'care_orders.', 'medical_discharge.', 'hospitalization.request', 'surgery.request', 'transfer.request', 'maternity.request', 'pediatrics.request', 'episodes.mark_emergency', 'laboratory_orders.create', 'imaging_orders.create', 'clinical_protocols.'],
             'keywords' => ['consultation', 'médecin', 'diagnostic', 'ordonnance', 'prescription', 'prescrire', 'interrogatoire', 'examen clinique', 'paraclinique', 'analyse', 'échographie', 'clôturer', 'clôture', 'conduite à tenir', 'hospitaliser', 'rouvrir', 'protocole'],
-            'suggestions' => ['Comment demander une analyse ?', 'Comment hospitaliser un patient ?', 'Comment enregistrer un diagnostic ?', 'Comment terminer la consultation ?'],
         ],
-        'paraclinical' => [
-            'title' => 'Examens — laboratoire et imagerie',
-            'paths' => ['/medicine/demandes-examens', '/laboratory'],
-            'any' => ['paraclinical_requests.view', 'laboratory_orders.view', 'imaging_orders.view', 'laboratory_results.create'],
+        // ADR-213 à 220 — la paillasse du technicien : son entrée suit le droit du menu.
+        'laboratory' => [
+            'title' => 'Laboratoire',
+            'paths' => ['/laboratory'],
+            'any' => ['laboratory_results.view'],
             'deployment' => 'any',
-            'prefixes' => ['paraclinical_requests.', 'laboratory_orders.', 'laboratory_results.', 'imaging_orders.', 'imaging_results.', 'imaging_templates.'],
-            'keywords' => ['laboratoire', 'analyse', 'résultat', 'imagerie', 'échographie', 'ecg', 'compte rendu', 'demande d’examen', 'paillasse', 'archiver'],
-            'suggestions' => ['Où voir les résultats d’analyse ?', 'Comment saisir un compte rendu d’échographie ?', 'Comment retirer une demande d’examen ?'],
+            'prefixes' => ['laboratory_results.', 'laboratory_orders.receive', 'laboratory_orders.send_out', 'laboratory_orders.update', 'laboratory_orders.archive', 'laboratory_orders.delete', 'laboratory_samples.', 'laboratory_reports.', 'lab_sample_types.', 'lab_microbiology.'],
+            'keywords' => ['laboratoire', 'paillasse', 'technicien', 'traiter', 'prélèvement', 'tube', 'étiquette', 'germe', 'antibiogramme', 'antibiotique', 'culture', 'nugent', 'envoyer au médecin', 'refaire', 'extérieur', 'bon d’envoi', 'critique', 'conclusion'],
+        ],
+        // ADR-216 — le médecin lit et valide ce qui lui est envoyé ; la Réception remet ce qui est validé.
+        'paraclinical' => [
+            'title' => 'Demandes d’examens et imagerie',
+            'paths' => ['/medicine/demandes-examens', '/resultats-analyses', '/reception/resultats-analyses'],
+            'any' => ['paraclinical_requests.view', 'laboratory_orders.view', 'imaging_orders.view', 'laboratory_results.validated_view'],
+            'deployment' => 'any',
+            'prefixes' => ['paraclinical_requests.', 'laboratory_orders.view', 'laboratory_orders.create', 'laboratory_results.approve', 'laboratory_results.validated_view', 'laboratory_results.return', 'imaging_orders.', 'imaging_results.', 'imaging_templates.'],
+            'keywords' => ['analyse', 'résultat', 'valider', 'validation', 'imagerie', 'échographie', 'ecg', 'compte rendu', 'demande d’examen', 'résultats à remettre', 'remettre', 'archiver'],
         ],
         'hospitalization' => [
             'title' => 'Hospitalisation',
@@ -110,7 +114,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['hospitalization.', 'hospital_diet.', 'hospital_notes.', 'vitals.', 'medical_discharge.'],
             'keywords' => ['hospitalisation', 'hospitaliser', 'séjour', 'lit', 'chambre', 'régime', 'surveillance', 'note du jour', 'sortie d’hospitalisation', 'bloc', 'transfert'],
-            'suggestions' => ['Comment attribuer un lit ?', 'Comment prononcer la sortie d’hospitalisation ?', 'Comment transférer le patient au bloc ?', 'Comment remplir la fiche de régime ?'],
         ],
         'surgery' => [
             'title' => 'Chirurgie — bloc opératoire',
@@ -119,7 +122,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['surgery.'],
             'keywords' => ['chirurgie', 'bloc', 'intervention', 'programmer', 'feu vert', 'checklist', 'incision', 'compte rendu', 'clôturer', 'chirurgien', 'réinitialiser'],
-            'suggestions' => ['Comment programmer une intervention ?', 'Pourquoi je ne peux pas démarrer l’intervention ?', 'Comment clôturer une intervention chirurgicale ?'],
         ],
         'anesthesia' => [
             'title' => 'Anesthésie',
@@ -128,7 +130,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['anesthesia.'],
             'keywords' => ['anesthésie', 'anesthésiste', 'pré-anesthésique', 'autorisation', 'autoriser', 'décision', 'conduite anesthésique', 'évaluation'],
-            'suggestions' => ['Comment valider l’évaluation pré-anesthésique ?', 'Comment autoriser le bloc ?', 'Quand valider le dossier d’anesthésie ?'],
         ],
         'maternity' => [
             'title' => 'Maternité',
@@ -137,7 +138,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['maternity.', 'newborns.'],
             'keywords' => ['maternité', 'sage-femme', 'grossesse', 'prénatale', 'accouchement', 'nouveau-né', 'bébé', 'acte', 'panier', 'césarienne', 'rendez-vous'],
-            'suggestions' => ['Comment commencer une consultation prénatale ?', 'Comment enregistrer des actes ?', 'Comment créer le dossier d’un nouveau-né ?'],
         ],
         'pharmacy' => [
             'title' => 'Pharmacie',
@@ -146,7 +146,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['pharmacy.', 'stock.', 'medicines.', 'care_consumables.', 'purchase_orders.', 'goods_receipts.', 'supplier_invoices.'],
             'keywords' => ['pharmacie', 'médicament', 'stock', 'délivrer', 'délivrance', 'sortie de pharmacie', 'ordonnance', 'lot', 'péremption', 'rupture', 'seuil', 'commande', 'réception', 'fournisseur', 'inventaire', 'ticket'],
-            'suggestions' => ['Comment enregistrer une sortie de pharmacie ?', 'Comment consulter le stock ?', 'Où voir les produits presque en rupture ?', 'Comment réceptionner une livraison ?'],
         ],
         'transfers' => [
             'title' => 'Transferts',
@@ -155,7 +154,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['transfers.', 'transfer.'],
             'keywords' => ['transfert', 'transférer', 'autre établissement', 'référence', 'départ', 'lettre'],
-            'suggestions' => ['Comment transférer un patient ?', 'Comment confirmer le départ du patient ?'],
         ],
         'pediatrics' => [
             'title' => 'Pédiatrie',
@@ -164,7 +162,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['pediatrics.'],
             'keywords' => ['pédiatrie', 'enfant', 'pédiatre'],
-            'suggestions' => ['Comment orienter un enfant vers la Pédiatrie ?', 'Comment faire sortir un enfant ?'],
         ],
         'deaths' => [
             'title' => 'Registre des décès',
@@ -173,7 +170,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['death_records.'],
             'keywords' => ['décès', 'décédé', 'acte de constatation', 'certificat'],
-            'suggestions' => ['Comment établir un acte de constatation de décès ?', 'Comment déclarer un décès ?'],
         ],
         'security' => [
             'title' => 'Gardiennage et visiteurs',
@@ -182,7 +178,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['guarding.', 'visitors.'],
             'keywords' => ['gardien', 'gardiennage', 'contrôle de sortie', 'visiteur', 'visite', 'qr'],
-            'suggestions' => ['Comment contrôler la sortie d’un patient ?', 'Comment enregistrer un visiteur ?'],
         ],
         'hr' => [
             'title' => 'Ressources humaines',
@@ -191,7 +186,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['employees.', 'contracts.', 'leave.', 'attendance.', 'planning.', 'hr_settings.', 'generated_documents.', 'staff_access.', 'bonus_', 'professional_emails.'],
             'keywords' => ['employé', 'personnel', 'rh', 'contrat', 'stage', 'stagiaire', 'congé', 'présence', 'planning', 'garde', 'attestation', 'document', 'badge', 'bonus', 'accès du personnel'],
-            'suggestions' => ['Comment ajouter un employé ?', 'Comment accepter une demande de congé ?', 'Comment générer une attestation ?', 'Comment imprimer les badges ?'],
         ],
         'referentials' => [
             'title' => 'Référentiels, tarifs et partenaires',
@@ -200,7 +194,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['catalog.', 'analysis_catalog.', 'partner_organizations.'],
             'keywords' => ['tarif', 'prix', 'désignation', 'prestation', 'référentiel', 'catalogue', 'analyses', 'valeur de référence', 'partenaire', 'mutuelle'],
-            'suggestions' => ['Comment modifier un tarif ?', 'Comment ajouter un partenaire ?', 'Où régler les valeurs de référence des analyses ?'],
         ],
         'access' => [
             'title' => 'Utilisateurs et accès',
@@ -209,7 +202,6 @@ class AssistantKnowledge
             'deployment' => 'any',
             'prefixes' => ['users.', 'roles.', 'permissions.'],
             'keywords' => ['utilisateur', 'compte', 'rôle', 'profil métier', 'droit', 'permission', 'désactiver', 'créer un compte'],
-            'suggestions' => ['Comment créer un compte utilisateur ?', 'Pourquoi un compte n’a pas accès à un module ?'],
         ],
         'superadmin' => [
             'title' => 'Portail Super Administration',
@@ -218,7 +210,6 @@ class AssistantKnowledge
             'deployment' => 'admin',
             'prefixes' => ['settings.', 'ai_settings.', 'app_maintenance.', 'roles.', 'users.', 'staff_access.'],
             'keywords' => ['portail', 'super admin', 'paramètres', 'assistant ia', 'clé api', 'fournisseur', 'rôles', 'permissions', 'maintenance', 'site', 'accès du personnel'],
-            'suggestions' => ['Comment régler l’assistant IA ?', 'Comment modifier les droits d’un rôle ?', 'Comment créer l’accès d’un nouvel employé ?', 'Comment mettre un site en maintenance ?'],
         ],
     ];
 
@@ -231,6 +222,14 @@ class AssistantKnowledge
     ];
 
     /** Taille maximale de la fiche du module courant jointe à la question. */
+    /** Les groupes proposés à l'ouverture (dont « Navigation et compte »), et leurs questions. */
+    public const SUGGESTION_GROUPS = 4;
+
+    public const SUGGESTIONS_PER_GROUP = 3;
+
+    /** Les questions de suivi sous une réponse. */
+    public const FOLLOW_UPS = 3;
+
     private const CURRENT_MODULE_BUDGET = 7000;
 
     /** Taille maximale des sections d'autres modules jointes à la question. */
@@ -328,7 +327,92 @@ class AssistantKnowledge
     {
         $module = $module !== null && $this->accessible($module, $user) ? $module : 'general';
 
-        return self::MODULES[$module]['suggestions'];
+        return AssistantSuggestions::for($module);
+    }
+
+    /**
+     * Les questions proposées à l'ouverture de l'assistant, groupées par module :
+     * celui de la page d'où l'on vient, puis ceux où le compte détient le plus de
+     * droits (son métier), puis la navigation générale. Seulement des modules que
+     * le compte peut ouvrir.
+     *
+     * @return list<array{key: string, title: string, questions: list<string>}>
+     */
+    public function suggestionGroups(?string $currentModule, User $user, int $groups = self::SUGGESTION_GROUPS, int $perGroup = self::SUGGESTIONS_PER_GROUP): array
+    {
+        $accessible = array_values(array_filter(
+            $this->accessibleModules($user),
+            fn (string $module) => $module !== 'general' && AssistantSuggestions::for($module) !== [],
+        ));
+
+        $granted = $user->effectivePermissionNames();
+        $affinity = [];
+
+        foreach ($accessible as $position => $module) {
+            // Les droits d'écriture disent le métier ; la lecture seule compte peu.
+            $weight = 0;
+
+            foreach ($granted as $permission) {
+                foreach ($this->prefixes($module) as $prefix) {
+                    if (str_starts_with($permission, $prefix)) {
+                        $weight += str_ends_with($permission, '.view') ? 1 : 3;
+                        break;
+                    }
+                }
+            }
+
+            $affinity[$module] = [$weight, -$position];
+        }
+
+        uasort($affinity, fn (array $left, array $right) => $right <=> $left);
+        $ordered = array_keys($affinity);
+
+        if ($currentModule !== null && in_array($currentModule, $ordered, true)) {
+            $ordered = [$currentModule, ...array_values(array_diff($ordered, [$currentModule]))];
+        }
+
+        $chosen = [...array_slice($ordered, 0, max(0, $groups - 1)), 'general'];
+
+        return array_map(fn (string $module) => [
+            'key' => $module,
+            'title' => $this->title($module),
+            'questions' => array_slice(AssistantSuggestions::for($module), 0, $perGroup),
+        ], $chosen);
+    }
+
+    /**
+     * Deux ou trois questions de suivi après une réponse : prises dans les modules
+     * que la question évoque (et celui de la page), jamais la question qui vient
+     * d'être posée ni une question voisine. Leurs réponses sont dans l'aide : on ne
+     * propose rien à quoi l'assistant ne saurait pas répondre.
+     *
+     * @return list<string>
+     */
+    public function followUps(string $question, ?string $currentModule, User $user, int $limit = self::FOLLOW_UPS): array
+    {
+        $modules = array_values(array_unique(array_merge(
+            array_column($this->search($question, $user, 6, $currentModule), 'module'),
+            $currentModule !== null && $this->accessible($currentModule, $user) ? [$currentModule] : [],
+        )));
+
+        $asked = $this->stems($question);
+        $picked = [];
+
+        foreach ($modules as $module) {
+            foreach (AssistantSuggestions::for($module) as $candidate) {
+                if (count($picked) >= $limit) {
+                    break 2;
+                }
+
+                if (in_array($candidate, $picked, true) || $this->overlaps($asked, $this->stems($candidate))) {
+                    continue;
+                }
+
+                $picked[] = $candidate;
+            }
+        }
+
+        return $picked;
     }
 
     /**
@@ -477,6 +561,24 @@ class AssistantKnowledge
         }
 
         return $stems;
+    }
+
+    /**
+     * Deux questions trop proches pour être proposées l'une après l'autre : plus de
+     * la moitié de leurs racines en commun.
+     *
+     * @param  array<string, true>  $left
+     * @param  array<string, true>  $right
+     */
+    private function overlaps(array $left, array $right): bool
+    {
+        if ($left === [] || $right === []) {
+            return false;
+        }
+
+        $common = count(array_intersect_key($left, $right));
+
+        return $common / min(count($left), count($right)) > 0.5;
     }
 
     private function truncate(string $text, int $limit): string

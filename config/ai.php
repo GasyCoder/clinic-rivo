@@ -155,6 +155,26 @@ return [
             'store' => env('OPENAI_STORE', true),
         ],
 
+        // ADR-222 — GasyCoder AI : une API de type ChatGPT (compatible OpenAI). Sans
+        // adresse, c'est celle de ChatGPT (App\Services\Assistant\GasyCoderModels::CHATGPT_URL) ;
+        // GASYCODER_AI_URL la remplace par votre propre API. Ses trois types de modèle —
+        // GasyCoder AI, GasyCoder AI Mini, GasyCoder AI Pro — s'appuient chacun sur un
+        // moteur : celui de ChatGPT par défaut, ou celui nommé ici. Le modèle et la clé
+        // se règlent aussi depuis le portail (Paramètres › Assistant IA).
+        'gasycoder' => [
+            'driver' => 'openai-compatible',
+            'url' => env('GASYCODER_AI_URL'),
+            'key' => env('GASYCODER_AI_API_KEY'),
+            'console_url' => env('GASYCODER_AI_CONSOLE_URL'),
+            'models' => [
+                'text' => array_filter([
+                    'default' => env('GASYCODER_AI_MODEL'),
+                    'cheapest' => env('GASYCODER_AI_MODEL_MINI'),
+                    'smartest' => env('GASYCODER_AI_MODEL_PRO'),
+                ]),
+            ],
+        ],
+
         'openai-compatible' => [
             'driver' => 'openai-compatible',
             'url' => env('OPENAI_COMPATIBLE_URL'),

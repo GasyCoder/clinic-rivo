@@ -11,7 +11,7 @@ Menu **Paramètres** (`/super-admin/settings`) : choisir la cible (un site ou le
 Paramètres › **Assistant IA**, pour chaque site :
 
 1. Activer l'assistant.
-2. Choisir le fournisseur (OpenAI, Anthropic, Gemini, OpenRouter…) et le modèle (liste proposée, ou saisie libre).
+2. Choisir le fournisseur — **GasyCoder AI** par défaut, ou OpenAI, Anthropic, Gemini, OpenRouter… — et le modèle (liste proposée, ou saisie libre). GasyCoder AI demande aussi son adresse d'API, réglée sur le serveur (`GASYCODER_AI_URL`) : l'écran dit si elle manque.
 3. Coller la clé API : elle est chiffrée et ne s'affiche plus ensuite que masquée (••••1234). Enregistrer sans toucher à la clé la garde.
 4. « Tester la connexion » fait un appel minimal au fournisseur.
 5. Régler les limites : tokens de réponse, délai, questions par heure et par utilisateur, quota journalier, budget de tokens mensuel.

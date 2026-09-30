@@ -3,11 +3,14 @@
 namespace Tests\Feature\Assistant;
 
 use App\Ai\Agents\AssistantConnectionCheck;
+use App\Enums\AssistantProvider;
 use App\Models\AssistantSetting;
 use App\Models\AuditLog;
 use App\Models\Permission;
 use App\Models\User;
 use App\Services\Assistant\AssistantConfiguration;
+use App\Services\Assistant\AssistantModelCatalog;
+use App\Services\Assistant\GasyCoderModels;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -121,6 +124,108 @@ class AssistantSettingsTest extends TestCase
             ->assertJsonPath('data.effective.configured', true);
     }
 
+    /**
+     * GasyCoder AI est un fournisseur comme les autres : en tête de la liste, présélectionné
+     * quand rien n'est réglé, avec son modèle et sa clé. Il est de type ChatGPT : sans
+     * GASYCODER_AI_URL, il appelle l'API de ChatGPT — plus rien ne manque que la clé.
+     */
+    public function test_gasycoder_ai_is_the_default_provider_with_its_model_and_key(): void
+    {
+        config(['rivo.assistant.provider' => 'gasycoder', 'ai.providers.gasycoder.url' => null, 'ai.providers.gasycoder.key' => null]);
+
+        $this->withHeaders($this->headers(['ai_settings.view']))->getJson(self::URL)
+            ->assertOk()
+            ->assertJsonPath('data.fallbacks.provider', 'gasycoder')
+            ->assertJsonPath('data.providers.0.value', 'gasycoder')
+            ->assertJsonPath('data.providers.0.label', 'GasyCoder AI')
+            ->assertJsonPath('data.providers.0.api_url', GasyCoderModels::CHATGPT_URL)
+            ->assertJsonPath('data.providers.0.own_api', false)
+            ->assertJsonPath('data.providers.0.key_url', GasyCoderModels::CHATGPT_CONSOLE_URL)
+            ->assertJsonPath('data.providers.0.environment_key', 'GASYCODER_AI_API_KEY')
+            ->assertJsonPath('data.providers.0.default_model', 'gasycoder-ai')
+            ->assertJsonPath('data.providers.1.api_url', null)
+            ->assertJsonPath('data.effective.provider', 'gasycoder')
+            ->assertJsonPath('data.effective.provider_label', 'GasyCoder AI')
+            ->assertJsonPath('data.effective.model', 'gasycoder-ai')
+            ->assertJsonPath('data.effective.model_label', 'GasyCoder AI');
+
+        // Sa clé et son type de modèle se règlent ici, comme pour les autres : rien d'autre ne manque.
+        $this->withHeaders($this->headers(['ai_settings.update']))
+            ->putJson(self::URL, $this->values(['provider' => 'gasycoder', 'model' => 'gasycoder-ai-pro', 'api_key' => self::KEY]))
+            ->assertOk()
+            ->assertJsonPath('data.values.provider', 'gasycoder')
+            ->assertJsonPath('data.values.model', 'gasycoder-ai-pro')
+            ->assertJsonPath('data.effective.model_label', 'GasyCoder AI Pro')
+            ->assertJsonPath('data.key.source', 'database')
+            ->assertJsonPath('data.effective.configured', true);
+
+        // Le SDK l'appelle par son pilote compatible OpenAI, à l'adresse de ChatGPT, avec le moteur du type.
+        $configuration = app(AssistantConfiguration::class);
+        $configuration->forget();
+        $engine = app(AssistantModelCatalog::class)->for(AssistantProvider::OpenAi)['options'];
+        $smartest = collect($engine)->first(fn (array $option) => str_contains($option['label'], 'capable'))['value'];
+
+        $name = $configuration->registerProvider();
+        $this->assertSame('openai-compatible', config("ai.providers.{$name}.driver"));
+        $this->assertSame(GasyCoderModels::CHATGPT_URL, config("ai.providers.{$name}.url"));
+        $this->assertSame(self::KEY, config("ai.providers.{$name}.key"));
+        $this->assertSame($smartest, config("ai.providers.{$name}.models.text.default"));
+        $this->assertSame($smartest, $configuration->engineModel());
+        $this->assertSame('gasycoder-ai-pro', $configuration->model());
+    }
+
+    /**
+     * Ses trois types — GasyCoder AI, Mini, Pro — s'appuient sur les paliers ChatGPT du
+     * SDK ; le .env peut nommer d'autres moteurs, et votre propre API (GASYCODER_AI_URL)
+     * reçoit le nom du type lui-même. Un modèle saisi à la main part tel quel.
+     */
+    public function test_gasycoder_ai_models_are_named_types_backed_by_an_engine(): void
+    {
+        config(['ai.providers.gasycoder.url' => null, 'ai.providers.gasycoder.models.text' => []]);
+        $catalog = new AssistantModelCatalog;
+        $options = collect($catalog->for(AssistantProvider::GasyCoder)['options']);
+
+        $this->assertSame(['gasycoder-ai', 'gasycoder-ai-mini', 'gasycoder-ai-pro'], $options->pluck('value')->all());
+        $this->assertSame(['GasyCoder AI', 'GasyCoder AI Mini', 'GasyCoder AI Pro'], $options->pluck('label')->all());
+        $this->assertSame($catalog->defaultFor(AssistantProvider::OpenAi), $options->firstWhere('value', 'gasycoder-ai')['engine']);
+        $options->each(fn (array $option) => $this->assertNotSame($option['value'], $option['engine']));
+        $this->assertSame('gpt-custom', $catalog->engineFor(AssistantProvider::GasyCoder, 'gpt-custom'));
+
+        // Le .env nomme le moteur d'un type.
+        config(['ai.providers.gasycoder.models.text' => ['smartest' => 'moteur-pro']]);
+        $this->assertSame('moteur-pro', (new AssistantModelCatalog)->engineFor(AssistantProvider::GasyCoder, 'gasycoder-ai-pro'));
+
+        // Votre propre API : le type part sous son nom, à votre adresse.
+        config(['ai.providers.gasycoder.url' => 'https://api.gasycoder.test/v1/', 'ai.providers.gasycoder.models.text' => []]);
+        $this->assertTrue(GasyCoderModels::ownApi());
+        $this->assertSame('https://api.gasycoder.test/v1', AssistantProvider::GasyCoder->apiUrl());
+        $this->assertNull(AssistantProvider::GasyCoder->keyConsoleUrl());
+        $this->assertSame('gasycoder-ai-mini', (new AssistantModelCatalog)->engineFor(AssistantProvider::GasyCoder, 'gasycoder-ai-mini'));
+    }
+
+    public function test_the_connection_test_of_gasycoder_ai_names_the_type_and_its_engine(): void
+    {
+        config(['ai.providers.gasycoder.url' => null, 'ai.providers.gasycoder.key' => null, 'ai.providers.gasycoder.models.text' => ['default' => 'moteur-standard']]);
+
+        $this->withHeaders($this->headers(['ai_settings.update']))
+            ->postJson(self::URL.'/test', ['provider' => 'gasycoder', 'model' => 'gasycoder-ai'])
+            ->assertOk()
+            ->assertJsonPath('data.ok', false)
+            ->assertJsonPath('data.reason', 'no_key');
+
+        AssistantConnectionCheck::fake(['OK']);
+
+        $response = $this->withHeaders($this->headers(['ai_settings.update']))
+            ->postJson(self::URL.'/test', ['provider' => 'gasycoder', 'model' => 'gasycoder-ai', 'api_key' => self::KEY])
+            ->assertOk()
+            ->assertJsonPath('data.ok', true)
+            ->assertJsonPath('data.model', 'gasycoder-ai')
+            ->assertJsonPath('data.key_source', 'typed');
+
+        $this->assertStringStartsWith('Connexion réussie : GasyCoder AI a répondu avec le modèle GasyCoder AI (moteur moteur-standard) en ', $response->json('data.message'));
+        $this->assertStringNotContainsString(self::KEY, $response->getContent());
+    }
+
     public function test_rights_are_rechecked_by_the_site(): void
     {
         $this->withHeaders($this->headers(['settings.update']))->putJson(self::URL, $this->values())->assertForbidden();
@@ -180,8 +285,10 @@ class AssistantSettingsTest extends TestCase
         $this->actingAs($admin)->get('/super-admin/settings/assistant?site=A')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('assistant.A.data.key.masked', '••••1234')
-                ->where('assistant.PORTAL.data.installed', true));
+                ->where('assistantSettings.A.data.key.masked', '••••1234')
+                ->where('assistantSettings.PORTAL.data.installed', true)
+                // La prop partagée de la bulle n'est pas écrasée par les réglages.
+                ->has('assistant.available'));
 
         $this->actingAs($admin)
             ->put('/super-admin/settings/assistant', $this->values(['site_code' => 'PORTAL', 'api_key' => self::KEY]))

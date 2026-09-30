@@ -21534,7 +21534,10 @@ rendu                   vérifié par le build et les tests (PHP et JS), pas dan
 
 > Numérotée **ADR-214** à sa rédaction ; renumérotée **ADR-222** au rebase sur `origin/dev` (2026-09-29), le numéro 214 étant déjà pris par le Laboratoire. Les références du code ont suivi.
 
-**Status:** ACCEPTED (2026-09-29 — spécification explicite du propriétaire)
+**Status:** ACCEPTED (2026-09-29 — spécification explicite du propriétaire) ; le bouton flottant devient une page
+du menu latéral (amendement du 2026-09-29), puis **une bulle déplaçable sur chaque page, qui remplace menu et page**
+(amendement bis du même jour) ; **« GasyCoder AI » : nom de l'assistant et fournisseur par défaut, comme les autres**
+(amendement bis) ; les règles fixes de l'agent vivent désormais dans `resources/ai/assistant-system-prompt.md`
 
 Le CDC ne décrit aucun assistant IA : les règles ci-dessous sont celles du propriétaire. L'assistant aide à
 **utiliser RIVO** — où cliquer, quel écran, quel droit, pourquoi un bouton est grisé, quelle étape vient
@@ -21711,6 +21714,126 @@ consommation centrale          chaque base compte la sienne ; aucun tableau cons
 fiches d'aide                  à tenir à jour à chaque évolution d'un workflow
 rendu                          vérifié par les tests et le build, pas dans un navigateur ni avec un vrai fournisseur
 ```
+
+## Amendement du 2026-09-29 — une page ouverte depuis le menu, plus de bouton flottant
+
+Demande du propriétaire, avec une spécification d'interface de chat (écrite pour Next.js / React / TypeScript,
+adaptée ici à la pile du projet : Laravel, Inertia, Vue 3 en JavaScript avec JSDoc, shadcn-vue — ADR-099).
+Constat de départ : l'assistant, réservé à un bouton flottant qui n'apparaissait qu'une fois tout configuré,
+n'était vu de personne.
+
+```text
+entrée         « Assistant IA » (icône Sparkles) dans le menu latéral, après la Messagerie, sur les sites
+               (buildClinicMenu) et le portail ; rail replié : l'icône et son libellé au survol ; montré si
+               l'assistant est prêt, ou au Super Admin qui peut le régler. Il ne compte pas comme un module
+               métier (« N modules » sous le nom du compte, en tête du menu)
+page           /assistant (AssistantController::index, mêmes droits que les messages : ai_assistant.use) :
+               historique à gauche (panneau Sheet sur téléphone), en-tête « Assistant IA » et
+               « Nouvelle conversation », messages, zone de saisie ; hauteur de la fenêtre, la page ne défile pas
+pas prêt       la page s'ouvre quand même et le dit (data-assistant-unavailable) : au Super Admin, les étapes
+               et le lien vers Paramètres › Assistant IA du portail ; aux autres, « prévenez l'administrateur »
+retiré         AssistantLauncher (bouton flottant et panneau latéral)
+```
+
+**L'écran.** Bulles distinctes avec avatar (initiales du compte, étincelle pour l'assistant), Markdown sûr —
+tableaux compris, chaque cellule échappée —, « Copier » sous chaque réponse, « L'assistant écrit… » pendant le
+flux, « Réessayer » sous une réponse en erreur (la question repart telle quelle), défilement automatique. La
+zone de saisie grandit avec le texte ; Entrée envoie, Maj + Entrée va à la ligne ; l'envoi est désactivé à vide
+ou pendant une réponse. Supprimer une conversation se confirme. La conversation en cours survit à un changement
+de page, mais elle est **liée au compte** (un autre compte sur le même poste repart d'un état vide) et n'est
+jamais partagée au rendu serveur. La page d'où l'on vient est retenue (`rememberAssistantOrigin`, adresse sans
+requête ni fragment, jamais `/assistant`) : elle oriente les questions proposées et le contexte envoyé.
+
+**Questions proposées.** Un seul fichier, facile à éditer : `app/Ai/AssistantSuggestions.php` (`BY_MODULE`),
+dont chaque question a sa réponse dans la fiche du module — aucune question qui supposerait de lire des données
+(« combien de patients… ») ni une fonctionnalité absente. À l'ouverture, l'état vide salue l'utilisateur et
+propose des questions **groupées par module** (`AssistantKnowledge::suggestionGroups`) : le module de la page
+d'où l'on vient d'abord, puis ceux où le compte détient le plus de droits — son métier —, puis la navigation
+générale ; seulement des modules qu'il peut ouvrir. Chaque groupe a l'icône de son module
+(`utilities/assistantModules.js`). Après chaque réponse, deux ou trois **questions de suivi** (`followUps`,
+calculées par le serveur, jamais celle qu'on vient de poser) s'affichent sous la dernière réponse.
+
+**Prompt système.** Les règles fixes quittent le code pour `resources/ai/assistant-system-prompt.md`
+(`ClinicAssistant::SYSTEM_PROMPT`) : rôle, le logiciel (sites, portail, modules, vocabulaire — passage, prise en
+charge, orientation, conduite à tenir, sorties médicale et administrative, « seule la Caisse encaisse », droits
+et rôles), règles absolues (aucun avis médical, aucune donnée de patient, ne jamais inventer, seulement les
+modules ouverts, aucune action, refus poli du hors sujet, **une seule** question de clarification), langue
+(réponse dans celle de la question : français, malgache ou anglais ; les libellés d'écran restent en français)
+et réponse de secours quand l'aide ne sait pas. Le fichier manquant arrête l'agent plutôt que de le laisser
+répondre sans règles.
+
+**Laboratoire.** L'aide décrivait l'ancien Laboratoire (file « À analyser », « Enregistrer »), refait par les
+ADR-213 à 220. La fiche « Examens » devient deux fiches — sinon celle du Laboratoire dépassait les 7 000
+caractères de la fiche du module ouvert et partait tronquée :
+
+```text
+laboratory     /laboratory (laboratory_results.view) : Traiter, saisie enregistrée seule, conclusion
+               partielle, Terminer l'analyse, Envoyer au médecin (un, plusieurs, tous, patient externe),
+               Autres actions (Rouvrir, Renvoyer à refaire, extérieur, Réinitialiser), prélèvements et
+               étiquettes, référentiels, compte rendu PDF, archive et corbeille
+paraclinical   Demandes d'examens, /resultats-analyses et Réception › Résultats à remettre : le médecin
+               valide ce qui lui est envoyé (Vérifier et valider, laboratory_results.approve), la Réception
+               remet ce qui est validé (laboratory_results.validated_view), imagerie inchangée
+```
+
+Un test vérifie que chaque fiche tient dans le budget de la fiche du module ouvert, et que celle du Laboratoire
+décrit le parcours actuel. 22 fiches au lieu de 21.
+
+Aucune permission, route métier ni migration nouvelle ; la route `GET /assistant` s'ajoute aux routes de
+l'assistant, sous les mêmes droits.
+
+**Signalé, non tranché.** Les exemples de la spécification qui supposaient de lire des données (« combien de
+patients aujourd'hui », « quels médecins sont disponibles ») ne sont pas proposés : l'assistant ne lit aucune
+donnée (V1). La langue malgache dépend du modèle choisi : aucune traduction des fiches n'est faite, l'aide reste
+en français. Rendu vérifié par les tests et le build, pas dans un navigateur ni avec un vrai fournisseur.
+
+## Amendement du 2026-09-29 (bis) — une bulle sur chaque page ; GasyCoder AI ; réponses qui coulent
+
+Trois demandes du propriétaire, le même jour. Aucune permission, route métier ni migration nouvelle.
+
+**Une bulle, plus de menu ni de page.** L'entrée « Assistant IA » du menu et la page `/assistant` (amendement
+précédent) sont retirées : l'assistant est une bulle ronde à petit robot (`AssistantRobot`), posée par
+`AppLayout` sur chaque page (`AssistantWidget`), comme une bulle de messagerie.
+
+```text
+bulle         glissée partout à la souris, au doigt ou au clavier (flèches), collée au bord le plus proche,
+              jamais hors de l'écran ; un glisser n'ouvre rien ; jamais à l'impression
+fenêtre       petite (400 × 620), grande (780 × 860) ou plein écran — plein écran d'office sur téléphone ;
+              ouverte à côté de la bulle, vers le centre ; déplaçable par son en-tête ; Échap la réduit
+gardé         place de la bulle et taille de la fenêtre sur le poste seulement (localStorage, try/catch) ;
+              conversations sur le serveur, jamais sur le poste
+état          partagé par toute la visite et lié au compte (useAssistantWidget, useAssistantChat) :
+              un autre compte sur le poste repart d'un état vide ; rien de partagé au rendu serveur
+couches       z-index 1200 : au-dessus de l'en-tête et du menu, sous les toasts et les confirmations
+```
+
+`GET /assistant` n'existe plus ; la bulle lit du JSON (`/assistant/messages`, `/suggestions`,
+`/conversations`), sous les mêmes droits. Défaut corrigé : la page des Paramètres servait une prop `assistant`
+qui masquait la prop partagée du même nom — la bulle y disparaissait. Elle s'appelle désormais
+`assistantSettings`.
+
+**« GasyCoder AI ».** Le titre de la bulle et de sa fenêtre est le nom de l'assistant, « GasyCoder AI »
+(`RIVO_AI_BRAND`, prop partagée `assistant.name`) ; l'agent se présente sous ce nom. **GasyCoder AI est aussi un
+fournisseur comme les autres** : en tête de la liste, présélectionné quand rien n'est réglé
+(`RIVO_AI_PROVIDER`, défaut `gasycoder`), avec son modèle (proposé si `GASYCODER_AI_MODEL`, sinon saisi) et sa
+clé (saisie au portail, chiffrée, ou `GASYCODER_AI_API_KEY`) — exactement comme OpenAI ou DeepSeek. Il est appelé
+par le pilote « compatible OpenAI » du SDK (`AssistantProvider::driver()`) ; son adresse est la seule chose que
+le SDK ne connaît pas : `GASYCODER_AI_URL` dans le `.env` (`config/ai.php`, fournisseur `gasycoder`). Sans elle,
+l'écran le dit, le test de connexion répond « adresse manquante » sans rien appeler, et l'assistant reste « à
+configurer ». Une première version en faisait un « mode géré » verrouillé (modèle et clé imposés par le serveur) :
+retirée à la demande du propriétaire.
+
+**Les réponses coulent à l'écran.** Le flux était déjà réel côté serveur ; il devient visible : le contrôleur
+coupe la compression (`zlib.output_compression`, `no-gzip`) et ouvre le flux par un commentaire de 2 Ko pour
+qu'un proxy qui retient les premiers octets laisse passer chaque morceau ; l'écran dévoile le texte reçu en
+quelques images (`takeReveal`, jamais un caractère coupé), avec un curseur qui clignote au bout du texte
+(arrêté par « Réduire les animations »). « Copier » et les questions de suivi n'apparaissent qu'une fois tout le
+texte affiché.
+
+**Signalé, non tranché.** L'API de GasyCoder AI est supposée compatible OpenAI (`/chat/completions`) : une autre
+forme demanderait un pilote. Son adresse, sa console de clés (`GASYCODER_AI_CONSOLE_URL`, facultative) et ses
+modèles sont à fournir. La bulle a été vérifiée dans un navigateur (tailles, glisser, Échap, préférences) ; le
+flux, avec un vrai fournisseur derrière le proxy d'o2switch, reste à vérifier.
 
 ---
 

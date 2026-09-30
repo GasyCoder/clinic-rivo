@@ -38,6 +38,9 @@ class AssistantConfiguration
 
     public const MAX_OUTPUT_TOKENS = 4000;
 
+    /** Le nom de l'assistant quand RIVO_AI_BRAND n'en donne pas d'autre. */
+    public const DEFAULT_BRAND = 'GasyCoder AI';
+
     private bool $loaded = false;
 
     private ?AssistantSetting $settings = null;
@@ -61,6 +64,14 @@ class AssistantConfiguration
         return $settings !== null ? (bool) $settings->enabled : (bool) config('rivo.assistant.enabled', false);
     }
 
+    /** Le nom de l'assistant dans sa bulle et sa fenêtre (RIVO_AI_BRAND). */
+    public static function brand(): string
+    {
+        $brand = trim((string) config('rivo.assistant.brand'));
+
+        return $brand !== '' ? $brand : self::DEFAULT_BRAND;
+    }
+
     public function provider(): ?AssistantProvider
     {
         return $this->settings()?->provider ?? AssistantProvider::tryFrom((string) config('rivo.assistant.provider'));
@@ -76,6 +87,26 @@ class AssistantConfiguration
         }
 
         return $provider ? $this->catalog->defaultFor($provider) : null;
+    }
+
+    /**
+     * Le modèle réellement envoyé au fournisseur : un type GasyCoder AI (« GasyCoder AI
+     * Pro ») devient son moteur ; tout autre nom part tel quel.
+     */
+    public function engineModel(): ?string
+    {
+        $provider = $this->provider();
+        $model = $this->model();
+
+        return $provider && filled($model) ? $this->catalog->engineFor($provider, (string) $model) : $model;
+    }
+
+    /** Le nom lisible du modèle choisi (« GasyCoder AI Pro ») ; null pour un nom saisi à la main. */
+    public function modelLabel(): ?string
+    {
+        $provider = $this->provider();
+
+        return $provider ? $this->catalog->labelFor($provider, $this->model()) : null;
     }
 
     /** D'où vient la clé : `database` (portail), `environment` (.env) ou null (aucune). */
@@ -103,7 +134,11 @@ class AssistantConfiguration
 
     public function configured(): bool
     {
-        return $this->provider() !== null && $this->apiKey() !== null && filled($this->model());
+        $provider = $this->provider();
+
+        return $provider !== null
+            && $this->apiKey() !== null
+            && filled($this->model());
     }
 
     public function available(): bool
@@ -182,6 +217,9 @@ class AssistantConfiguration
     /**
      * Déclare au SDK le fournisseur de l'assistant, avec sa clé, pour la durée de la
      * requête. Le nom est propre à RIVO : il ne touche pas aux fournisseurs du .env.
+     *
+     * `$model` peut être un type GasyCoder AI : c'est son moteur qui est déclaré, et
+     * l'adresse de GasyCoder AI (la vôtre, sinon celle de ChatGPT) l'accompagne.
      */
     public function registerProvider(?AssistantProvider $provider = null, ?string $key = null, ?string $model = null, string $name = self::PROVIDER_NAME): string
     {
@@ -189,10 +227,18 @@ class AssistantConfiguration
         $key ??= $this->apiKey();
         $model ??= $this->model();
 
+        if ($provider !== null && filled($model)) {
+            $model = $this->catalog->engineFor($provider, (string) $model);
+        }
+
         $base = (array) config('ai.providers.'.$provider?->value, []);
         $models = $model ? ['text' => ['default' => $model, 'cheapest' => $model, 'smartest' => $model]] : ($base['models'] ?? []);
 
-        config(['ai.providers.'.$name => [...$base, 'driver' => $provider?->value, 'key' => (string) $key, 'models' => $models]]);
+        if ($provider?->apiUrl() !== null) {
+            $base['url'] = $provider->apiUrl();
+        }
+
+        config(['ai.providers.'.$name => [...$base, 'driver' => $provider?->driver(), 'key' => (string) $key, 'models' => $models]]);
         app(AiManager::class)->forgetInstance($name);
 
         return $name;

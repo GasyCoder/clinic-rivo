@@ -318,7 +318,10 @@ return [
      */
     'assistant' => [
         'enabled' => (bool) env('RIVO_AI_ENABLED', false),
-        'provider' => env('RIVO_AI_PROVIDER'),
+        // Le nom de l'assistant dans sa bulle et sa fenêtre.
+        'brand' => env('RIVO_AI_BRAND', 'GasyCoder AI'),
+        // Le fournisseur par défaut, quand rien n'est réglé au portail : GasyCoder AI.
+        'provider' => env('RIVO_AI_PROVIDER', 'gasycoder'),
         'model' => env('RIVO_AI_MODEL'),
         'max_output_tokens' => (int) env('RIVO_AI_MAX_OUTPUT_TOKENS', 800),
         'timeout' => (int) env('RIVO_AI_TIMEOUT', 30),

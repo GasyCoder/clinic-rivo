@@ -12,7 +12,8 @@ ne modifie rien.
 
 ```text
 Navigateur (Vue)
-  bouton « Assistant » + panneau latéral         resources/js/Components/Assistant/*
+  bulle déplaçable sur chaque page (AppLayout)   resources/js/Components/Assistant/AssistantWidget.vue
+  messages, suggestions, suivi, historique       resources/js/Components/Assistant/*
   flux SSE lu par fetch                          resources/js/composables/useAssistantChat.js
         │  POST /assistant/messages  (session RIVO, CSRF, droit ai_assistant.use)
         ▼
@@ -24,6 +25,7 @@ Laravel
     AssistantConfiguration  fournisseur, modèle, clé (déchiffrée seulement ici)
         ▼
 ClinicAssistant (agent du Laravel AI SDK) + 3 outils en lecture seule
+  règles fixes : resources/ai/assistant-system-prompt.md
         ▼
 Fournisseur réglé : OpenAI, Anthropic, Gemini, OpenRouter, Mistral, DeepSeek, Groq, xAI
 ```
@@ -52,8 +54,19 @@ Le portail règle un site uniquement par l'API de ce site.
 5. **Tester la connexion** : une question minuscule (16 tokens au plus) avec les valeurs du formulaire,
    sans rien enregistrer.
 6. Cocher **Assistant activé**, régler les limites, **Enregistrer**.
-7. Recommencer pour chaque site. Le bouton « Assistant » apparaît alors pour les comptes qui ont
-   `ai_assistant.use`.
+7. Recommencer pour chaque site. La bulle **GasyCoder AI** apparaît alors sur chaque page des comptes
+   qui ont `ai_assistant.use`. Avant cela, le Super Admin du portail la voit déjà : sa fenêtre lui dit ce
+   qui manque et mène aux réglages.
+
+### Utiliser l'assistant
+
+La bulle au petit robot, en bas à droite de chaque page : on la glisse où l'on veut (souris, doigt ou flèches
+du clavier), elle se colle au bord le plus proche. Un clic ouvre la fenêtre **GasyCoder AI**, en petite, grande
+ou plein écran (plein écran d'office sur téléphone) ; Échap la réduit. Sa place et la taille de la fenêtre sont
+gardées sur le poste, jamais les conversations. La réponse s'écrit à l'écran au fil de l'eau. Une conversation vide propose des
+questions groupées par module — celui de la page d'où l'on vient d'abord, puis ceux du métier du compte.
+Après chaque réponse, deux ou trois questions de suivi. Entrée envoie, Maj + Entrée va à la ligne ; une
+réponse en erreur propose **Réessayer**. On peut écrire en français, en malgache ou en anglais.
 
 ### Secours par le `.env`
 
@@ -61,12 +74,19 @@ Si rien n'est réglé en base, l'assistant lit le `.env` du déploiement :
 
 ```dotenv
 RIVO_AI_ENABLED=true
-RIVO_AI_PROVIDER=anthropic          # openai, anthropic, gemini, openrouter, mistral, deepseek, groq, xai
+RIVO_AI_BRAND="GasyCoder AI"       # le nom de l'assistant dans sa bulle
+RIVO_AI_PROVIDER=gasycoder          # défaut ; ou openai, anthropic, gemini, openrouter, mistral, deepseek, groq, xai
 RIVO_AI_MODEL=                      # vide : modèle par défaut du SDK pour ce fournisseur
 RIVO_AI_MAX_OUTPUT_TOKENS=800
 RIVO_AI_TIMEOUT=30
 RIVO_AI_RATE_LIMIT_PER_HOUR=20
 ANTHROPIC_API_KEY=...               # la variable du SDK pour le fournisseur choisi
+
+# GasyCoder AI : une API compatible OpenAI, réglée comme les autres (modèle, clé) ; son adresse, ici
+GASYCODER_AI_URL=https://…/v1       # obligatoire pour GasyCoder AI
+GASYCODER_AI_API_KEY=               # secours de la clé saisie au portail
+GASYCODER_AI_MODEL=                 # facultatif : proposé par défaut dans la liste des modèles
+GASYCODER_AI_CONSOLE_URL=           # facultatif : lien « créer une clé » de l'écran
 ```
 
 Ordre : réglage en base → `.env` → « non configuré ». Dès qu'une ligne existe en base, elle l'emporte.
@@ -93,7 +113,7 @@ Elle n'apparaît jamais : ni à l'écran (seulement `••••ABCD`), ni dans
 
 | Droit | Donne | Par défaut |
 |---|---|---|
-| `ai_assistant.use` | le bouton et le panneau | rôles des sites (sauf SUPPORT, MAINTENANCE) ; Super Admin du portail |
+| `ai_assistant.use` | la bulle de l'assistant sur chaque page | rôles des sites (sauf SUPPORT, MAINTENANCE) ; Super Admin du portail |
 | `ai_settings.view` | lire les réglages et la consommation | Super Admin du portail |
 | `ai_settings.update` | régler, changer la clé, tester | Super Admin du portail |
 
@@ -147,9 +167,21 @@ Les réponses viennent de `resources/ai/clinic-assistant/*.md` : une fiche par m
 `## `. Quand un workflow, un bouton ou un droit change, **la fiche change dans la même modification** —
 sinon l'assistant décrit l'ancien écran.
 
-Un nouveau module : une fiche, puis son entrée dans `AssistantKnowledge::MODULES` (adresses, droits qui
-l'ouvrent, mots-clés, questions proposées). Le test `AssistantKnowledgeTest` vérifie que chaque module a sa
-fiche et ses sections.
+Un nouveau module : une fiche, son entrée dans `AssistantKnowledge::MODULES` (adresses, droits qui
+l'ouvrent, mots-clés), ses questions dans `app/Ai/AssistantSuggestions.php` et son icône dans
+`resources/js/utilities/assistantModules.js`. Les tests vérifient que chaque module a sa fiche, ses sections,
+au moins deux questions et une icône, et que chaque fiche tient dans les 7 000 caractères envoyés pour le
+module ouvert (au-delà, elle partirait tronquée : la découper en deux modules, comme Laboratoire et Demandes
+d'examens).
+
+| Fichier | Contenu |
+|---|---|
+| `resources/ai/assistant-system-prompt.md` | rôle, vocabulaire, règles absolues, langue, réponse de secours |
+| `resources/ai/clinic-assistant/*.md` | une fiche par module (22) |
+| `app/Ai/AssistantSuggestions.php` | les questions proposées, par module ; chacune a sa réponse dans la fiche |
+
+Une question proposée ne doit jamais supposer de lire des données (« combien de patients… ») : l'assistant
+n'en lit aucune.
 
 ---
 
@@ -157,7 +189,9 @@ fiche et ses sections.
 
 | Symptôme | Cause probable |
 |---|---|
-| Pas de bouton « Assistant » | assistant désactivé ou non configuré sur ce site, ou le compte n'a pas `ai_assistant.use` ; l'état est gardé 10 minutes en cache et oublié à chaque enregistrement |
+| Pas de bulle GasyCoder AI | assistant désactivé ou non configuré sur ce site, ou le compte n'a pas `ai_assistant.use` ; l'état est gardé 10 minutes en cache et oublié à chaque enregistrement. Le Super Admin qui peut le régler voit la bulle quand même, et sa fenêtre dit ce qui manque |
+| « Adresse de l'API manquante » (GasyCoder AI) | `GASYCODER_AI_URL` absent du `.env` du site |
+| La réponse arrive d'un bloc | un proxy retient le flux malgré l'en-tête `X-Accel-Buffering: no` et le commentaire de 2 Ko qui l'ouvre : sans autre effet |
 | « La clé d'API du fournisseur est refusée » | clé erronée, révoquée, ou d'un autre fournisseur |
 | « Le modèle réglé n'existe pas » | nom de modèle retiré ou mal saisi : en choisir un de la liste |
 | « n'a plus de crédit » | compte du fournisseur à recharger |

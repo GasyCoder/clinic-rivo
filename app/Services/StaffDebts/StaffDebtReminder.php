@@ -36,7 +36,7 @@ final class StaffDebtReminder
             ->where('status', StaffDebtStatus::Active->value)
             ->where('repayment_mode', StaffDebtRepaymentMode::Cash->value)
             ->where(fn ($query) => $query->whereNull('arrears_notified_for')->orWhere('arrears_notified_for', '!=', $month))
-            ->with(['repayments', 'employee'])
+            ->with(['repayments', 'penalties', 'employee'])
             ->get()
             ->each(function (StaffDebt $debt) use ($today, $month, &$reminded): void {
                 $arrears = $this->ledger->arrearsMinor($debt, $today);

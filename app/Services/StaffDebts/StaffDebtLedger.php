@@ -198,6 +198,11 @@ final class StaffDebtLedger
      * Le retard d'une dette remboursée en espèces : ce qui devait être remis depuis le
      * premier mois, moins ce qui l'a été. Une retenue sur salaire n'a pas de retard :
      * c'est la paie qui retient, mois après mois.
+     *
+     * ADR-230 — quand l'échéancier reprend (règlement au départ, nouveau mois de reprise),
+     * le retard se compte depuis cette reprise : `schedule_offset` est ce qui était déjà
+     * remboursé à ce moment-là. Les pénalités non remises se remboursent à la suite du
+     * montant et de son intérêt.
      */
     public function arrearsMinor(StaffDebt $debt, Carbon $today): int
     {
@@ -205,17 +210,51 @@ final class StaffDebtLedger
             return 0;
         }
 
-        $first = $debt->first_period->copy()->startOfMonth();
-        $current = $today->copy()->startOfMonth();
-        if ($first->gt($current)) {
+        $months = self::monthsThrough($debt->first_period, $today);
+        if ($months <= 0) {
             return 0;
         }
 
-        $months = ((int) $current->format('Y') - (int) $first->format('Y')) * 12 + ((int) $current->format('n') - (int) $first->format('n')) + 1;
-        $owed = $debt->totalDueMinor() - Money::toMinor((string) ($debt->written_off_amount ?? 0));
+        $offset = Money::toMinor((string) ($debt->schedule_offset ?? 0));
+        $owed = max(0, $debt->principalOwedMinor() + $debt->penaltiesMinor() - $offset);
         $expected = min($owed, $months * Money::toMinor((string) $debt->installment_amount));
 
-        return max(0, $expected - $debt->repaidMinor());
+        return max(0, $expected - ($debt->repaidMinor() - $offset));
+    }
+
+    /**
+     * ADR-230 — le montant encore en retard pour les mensualités jusqu'au mois `$period`
+     * inclus, compte tenu des remboursements faits avant `$at` (la fin du délai de grâce).
+     * Seuls le montant et son intérêt comptent : un remboursement les paie d'abord, et une
+     * pénalité ne porte jamais sur une pénalité.
+     */
+    public function overdueForPenaltyMinor(StaffDebt $debt, Carbon $period, Carbon $at): int
+    {
+        if ($debt->first_period === null) {
+            return 0;
+        }
+
+        $months = self::monthsThrough($debt->first_period, $period);
+        if ($months <= 0) {
+            return 0;
+        }
+
+        $offset = Money::toMinor((string) ($debt->schedule_offset ?? 0));
+        $expected = min(max(0, $debt->principalOwedMinor() - $offset), $months * Money::toMinor((string) $debt->installment_amount));
+        $repaid = (int) $this->repayments($debt)
+            ->filter(fn (StaffDebtRepayment $repayment) => $repayment->recorded_at !== null && $repayment->recorded_at->lt($at))
+            ->sum(fn (StaffDebtRepayment $repayment) => Money::toMinor((string) $repayment->amount));
+
+        return max(0, $expected - ($repaid - $offset));
+    }
+
+    /** Le nombre de mois de `$first` à `$month` inclus ; zéro (ou moins) avant le premier mois. */
+    public static function monthsThrough(Carbon $first, Carbon $month): int
+    {
+        $first = $first->copy()->startOfMonth();
+        $month = $month->copy()->startOfMonth();
+
+        return ((int) $month->format('Y') - (int) $first->format('Y')) * 12 + ((int) $month->format('n') - (int) $first->format('n')) + 1;
     }
 
     /** Ce qui a été remboursé dans un mois donné, toutes sources confondues. */

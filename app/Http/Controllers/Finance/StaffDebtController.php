@@ -4,15 +4,19 @@ namespace App\Http\Controllers\Finance;
 
 use App\Actions\StaffDebts\DecideStaffDebtAction;
 use App\Actions\StaffDebts\DisburseStaffDebtAction;
+use App\Actions\StaffDebts\SettleStaffDebtDepartureAction;
 use App\Actions\StaffDebts\UpdateStaffDebtSettingsAction;
 use App\Enums\SalaryPaymentMode;
 use App\Enums\StaffDebtRepaymentMode;
 use App\Http\Controllers\Controller;
 use App\Models\StaffDebt;
+use App\Models\StaffDebtPenalty;
 use App\Services\Audit\Auditor;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use App\Services\StaffDebts\StaffDebtDirectory;
+use App\Services\StaffDebts\StaffDebtDocuments;
 use App\Services\StaffDebts\StaffDebtNotifier;
+use App\Services\StaffDebts\StaffDebtPenalties;
 use App\Services\StaffDebts\StaffDebtReminder;
 use App\Services\StaffDebts\StaffDebtRules;
 use App\Support\Authorization\RemoteActorAttribution;
@@ -106,13 +110,17 @@ class StaffDebtController extends Controller
             'exclude_interns' => ['required', 'boolean'],
             'interest_tiers' => ['nullable', 'array', 'max:'.StaffDebtInterest::MAX_TIERS],
             'interest_tiers.*' => ['array'],
+            'penalty_rate' => ['nullable', 'numeric', 'min:0', 'max:10', 'decimal:0,2'],
+            'penalty_grace_days' => ['nullable', 'integer', 'min:0', 'max:60'],
+            'penalty_cap_rate' => ['nullable', 'numeric', 'min:0', 'max:100', 'decimal:0,2'],
         ], [], [
             'closed_message' => 'message', 'min_amount' => 'montant minimum', 'max_amount' => 'montant maximum',
             'max_months' => 'durée maximale', 'max_salary_share' => 'part du salaire', 'max_open_debts' => 'dettes en cours',
             'min_seniority_months' => 'ancienneté minimale', 'interest_tiers' => 'tranches d’intérêt',
+            'penalty_rate' => 'taux de pénalité', 'penalty_grace_days' => 'délai de grâce', 'penalty_cap_rate' => 'plafond des pénalités',
         ]);
 
-        foreach (['min_amount', 'max_amount'] as $key) {
+        foreach (['min_amount', 'max_amount', 'penalty_rate', 'penalty_cap_rate'] as $key) {
             $data[$key] = isset($data[$key]) ? (string) $data[$key] : null;
         }
 
@@ -148,6 +156,7 @@ class StaffDebtController extends Controller
             'repayment_mode' => ['required', Rule::enum(StaffDebtRepaymentMode::class)],
             'note' => ['nullable', 'string', 'max:1000'],
             'waive_interest' => ['sometimes', 'boolean'],
+            'waive_penalty' => ['sometimes', 'boolean'],
         ], [], self::NAMES);
 
         $debt = $action->approve($staffDebt, $this->strings($data), $request->user());
@@ -213,10 +222,54 @@ class StaffDebtController extends Controller
         return back()->with('status', 'Relance envoyée à '.$staffDebt->employee_name.' et au RH du site : '.StaffDebtNotifier::money($amount).' en retard.');
     }
 
-    /** Les montants arrivent parfois en nombres (JSON) : l'argent se lit toujours en texte. @param array<string, mixed> $data */
-    private function strings(array $data): array
+    /** ADR-230 — le DG remet une pénalité de retard, avec un motif. */
+    public function waivePenalty(Request $request, StaffDebt $staffDebt, StaffDebtPenalty $penalty, StaffDebtPenalties $penalties): RedirectResponse
     {
-        foreach (['amount', 'installment_amount'] as $key) {
+        abort_unless($penalty->staff_debt_id === $staffDebt->getKey(), 404);
+        $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']], [], self::NAMES);
+        $penalty = $penalties->waive($staffDebt, $penalty, $data['reason'], $request->user());
+
+        return back()->with('status', 'Pénalité de '.StaffDebtNotifier::money($penalty->amount).' remise à '.$staffDebt->employee_name.'.');
+    }
+
+    /** ADR-230 — le règlement au départ, négocié avec la personne. */
+    public function settleDeparture(Request $request, StaffDebt $staffDebt, SettleStaffDebtDepartureAction $action): RedirectResponse
+    {
+        $data = $request->validate([
+            'retained_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999.99', 'decimal:0,2'],
+            'retained_on' => ['nullable', 'date_format:Y-m-d'],
+            'write_off_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999.99', 'decimal:0,2'],
+            'waive_penalties' => ['sometimes', 'boolean'],
+            'installment_amount' => ['nullable', 'numeric', 'gt:0', 'max:999999999.99', 'decimal:0,2'],
+            'first_period' => ['nullable', 'string', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+            'keep_penalties' => ['sometimes', 'boolean'],
+            'note' => ['required', 'string', 'min:5', 'max:2000'],
+        ], [], [
+            ...self::NAMES, 'retained_amount' => 'retenue sur le solde de tout compte', 'retained_on' => 'date du solde de tout compte',
+            'write_off_amount' => 'remise', 'note' => 'accord convenu',
+        ]);
+
+        $debt = $action->execute($staffDebt, $this->strings($data, ['retained_amount', 'write_off_amount', 'installment_amount']), $request->user());
+
+        return back()->with('status', "Départ réglé pour la dette {$debt->number} : le protocole d’accord est prêt à imprimer.");
+    }
+
+    /** ADR-230 — la reconnaissance de dette, à signer par la personne ; jamais obligatoire. */
+    public function acknowledgement(StaffDebt $staffDebt, StaffDebtDocuments $documents): Response
+    {
+        return Inertia::render('Finance/StaffDebts/Document', ['document' => $documents->acknowledgement($staffDebt)]);
+    }
+
+    /** ADR-230 — le protocole d'accord du règlement au départ. */
+    public function departureAgreement(StaffDebt $staffDebt, StaffDebtDocuments $documents): Response
+    {
+        return Inertia::render('Finance/StaffDebts/Document', ['document' => $documents->departureAgreement($staffDebt)]);
+    }
+
+    /** Les montants arrivent parfois en nombres (JSON) : l'argent se lit toujours en texte. @param array<string, mixed> $data */
+    private function strings(array $data, array $keys = ['amount', 'installment_amount']): array
+    {
+        foreach ($keys as $key) {
             if (isset($data[$key])) {
                 $data[$key] = (string) $data[$key];
             }

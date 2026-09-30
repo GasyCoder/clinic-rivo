@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'requests_open', 'closed_message', 'min_amount', 'max_amount', 'max_months', 'max_salary_share',
     'max_open_debts', 'min_seniority_months', 'exclude_interns', 'interest_tiers',
+    'penalty_rate', 'penalty_grace_days', 'penalty_cap_rate',
     'updated_by', 'external_updated_by_uuid', 'external_updated_by_name',
 ])]
 class StaffDebtSetting extends Model
@@ -38,6 +39,9 @@ class StaffDebtSetting extends Model
             'min_seniority_months' => 'integer',
             'exclude_interns' => 'boolean',
             'interest_tiers' => 'array',
+            'penalty_rate' => 'decimal:2',
+            'penalty_grace_days' => 'integer',
+            'penalty_cap_rate' => 'decimal:2',
         ];
     }
 

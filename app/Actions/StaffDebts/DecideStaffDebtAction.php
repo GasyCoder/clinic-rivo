@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Audit\Auditor;
 use App\Services\StaffDebts\StaffDebtLedger;
 use App\Services\StaffDebts\StaffDebtNotifier;
+use App\Services\StaffDebts\StaffDebtPenalties;
 use App\Services\StaffDebts\StaffDebtRules;
 use App\Support\Authorization\RemoteActorAttribution;
 use App\Support\Money;
@@ -41,9 +42,10 @@ class DecideStaffDebtAction
         private readonly StaffDebtNotifier $notifier,
         private readonly Auditor $auditor,
         private readonly StaffDebtRules $rules,
+        private readonly StaffDebtPenalties $penalties,
     ) {}
 
-    /** @param  array{amount: string, installment_amount: string, first_period: string, repayment_mode: string, note?: ?string, waive_interest?: bool, accept_derogations?: bool}  $terms */
+    /** @param  array{amount: string, installment_amount: string, first_period: string, repayment_mode: string, note?: ?string, waive_interest?: bool, waive_penalty?: bool, accept_derogations?: bool}  $terms */
     public function approve(StaffDebt $debt, array $terms, User $actor): StaffDebt
     {
         $this->authorize($actor, 'staff_debts.decide', 'Seul le DG accorde une dette.');
@@ -61,6 +63,8 @@ class DecideStaffDebtAction
             }
 
             $waived = (bool) ($terms['waive_interest'] ?? false);
+            // ADR-230 — la règle de pénalité du site est figée sur la dette, sauf si le DG l'écarte.
+            $penalty = ($terms['waive_penalty'] ?? false) ? null : $this->rules->penaltyRule();
             [$amount, $installment, $first, $mode, $interest] = $this->terms($terms, $employee, interest: fn (int $amount) => $waived ? null : $this->rules->interest($amount));
             $derogations = $this->derogations($employee, $amount, $installment, $terms);
 
@@ -70,6 +74,9 @@ class DecideStaffDebtAction
                 'amount' => $amount,
                 'installment_amount' => $installment,
                 ...$this->interestFields($interest, $waived),
+                'penalty_rate' => $penalty['penalty_rate'] ?? null,
+                'penalty_grace_days' => $penalty['penalty_grace_days'] ?? null,
+                'penalty_cap_rate' => $penalty['penalty_cap_rate'] ?? null,
                 'first_period' => $first->toDateString(),
                 'repayment_mode' => $mode,
                 'decision_note' => filled($terms['note'] ?? null) ? Str::squish($terms['note']) : null,
@@ -167,6 +174,12 @@ class DecideStaffDebtAction
                 'repayment_mode' => $mode,
             ]);
 
+            // ADR-230 — une dette versée qui reprend à un autre mois : le retard se compte
+            // depuis la reprise, pas depuis le premier mois d'origine.
+            if ($disbursed && ! $keepsPeriod) {
+                $debt->schedule_offset = Money::fromMinor($debt->repaidMinor());
+            }
+
             if (! $debt->isDirty()) {
                 throw ValidationException::withMessages(['debt' => 'Rien n’a changé.']);
             }
@@ -234,10 +247,15 @@ class DecideStaffDebtAction
                 throw ValidationException::withMessages(['debt' => 'Seule une dette en remboursement, avec un reste dû, se remet.']);
             }
 
+            // ADR-230 — les pénalités encore dues sont remises avec le reste, chacune tracée ;
+            // le montant remis ne compte que le montant et son intérêt.
+            $reason = $this->reason($reason);
+            $this->penalties->waiveAllWithin($debt, 'Remise du reste de la dette : '.$reason, $actor);
+
             $debt->forceFill([
                 'status' => StaffDebtStatus::WrittenOff,
                 'written_off_amount' => Money::fromMinor(Money::toMinor((string) $debt->written_off_amount) + $debt->balanceMinor()),
-                'write_off_reason' => $this->reason($reason),
+                'write_off_reason' => $reason,
                 'written_off_at' => now(),
                 'written_off_by' => $actor->getKey(),
                 ...RemoteActorAttribution::fields('written_off', $actor),

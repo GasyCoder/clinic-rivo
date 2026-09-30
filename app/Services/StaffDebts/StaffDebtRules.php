@@ -60,6 +60,26 @@ final class StaffDebtRules
         return $this->interest($amountMinor)['amount_minor'] ?? 0;
     }
 
+    /**
+     * ADR-230 — la règle de pénalité de retard du site, figée sur une dette à son accord ;
+     * null quand le site n'en a pas.
+     *
+     * @return array{penalty_rate: string, penalty_grace_days: int, penalty_cap_rate: ?string}|null
+     */
+    public function penaltyRule(): ?array
+    {
+        $setting = $this->setting();
+        if ($setting?->penalty_rate === null || (float) $setting->penalty_rate <= 0) {
+            return null;
+        }
+
+        return [
+            'penalty_rate' => (string) $setting->penalty_rate,
+            'penalty_grace_days' => (int) ($setting->penalty_grace_days ?? 0),
+            'penalty_cap_rate' => $setting->penalty_cap_rate !== null ? (string) $setting->penalty_cap_rate : null,
+        ];
+    }
+
     /** Pourquoi cette personne ne peut pas demander maintenant ; null si elle le peut. */
     public function requestBlocker(Employee $employee, ?Carbon $today = null): ?string
     {
@@ -183,6 +203,10 @@ final class StaffDebtRules
             'min_seniority_months' => $setting?->min_seniority_months,
             'exclude_interns' => (bool) ($setting?->exclude_interns ?? false),
             'interest_tiers' => $this->tiers(),
+            // ADR-230 — la pénalité de retard, annoncée avant la demande.
+            'penalty_rate' => $setting?->penalty_rate !== null ? (string) $setting->penalty_rate : null,
+            'penalty_grace_days' => $setting?->penalty_grace_days,
+            'penalty_cap_rate' => $setting?->penalty_cap_rate !== null ? (string) $setting->penalty_cap_rate : null,
         ];
     }
 

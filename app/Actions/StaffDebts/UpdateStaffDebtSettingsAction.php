@@ -35,9 +35,10 @@ class UpdateStaffDebtSettingsAction
         }
 
         $tiers = StaffDebtInterest::normalize(is_array($data['interest_tiers'] ?? null) ? $data['interest_tiers'] : []);
+        $penalty = $this->penalty($data);
         $open = (bool) ($data['requests_open'] ?? true);
 
-        return DB::transaction(function () use ($data, $actor, $min, $max, $tiers, $open): StaffDebtSetting {
+        return DB::transaction(function () use ($data, $actor, $min, $max, $tiers, $open, $penalty): StaffDebtSetting {
             $setting = StaffDebtSetting::query()->lockForUpdate()->first() ?? new StaffDebtSetting;
 
             $setting->fill([
@@ -51,12 +52,49 @@ class UpdateStaffDebtSettingsAction
                 'min_seniority_months' => $this->count($data['min_seniority_months'] ?? null),
                 'exclude_interns' => (bool) ($data['exclude_interns'] ?? false),
                 'interest_tiers' => $tiers ?: null,
+                ...$penalty,
                 'updated_by' => $actor->getKey(),
                 ...RemoteActorAttribution::fields('updated', $actor),
             ])->save();
 
             return $setting;
         });
+    }
+
+    /**
+     * ADR-230 — la pénalité de retard : un taux mensuel (au plus 10 %) sur le seul montant
+     * en retard, un délai de grâce en jours et un plafond, obligatoire, en pourcentage du
+     * montant emprunté. Un taux vide : aucune pénalité.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array{penalty_rate: ?string, penalty_grace_days: ?int, penalty_cap_rate: ?string}
+     */
+    private function penalty(array $data): array
+    {
+        $rate = filled($data['penalty_rate'] ?? null) ? Money::normalize((string) $data['penalty_rate']) : null;
+
+        if ($rate === null || Money::toMinor($rate) <= 0) {
+            return ['penalty_rate' => null, 'penalty_grace_days' => null, 'penalty_cap_rate' => null];
+        }
+
+        if (Money::toMinor($rate) > 1_000) {
+            throw ValidationException::withMessages(['penalty_rate' => 'Une pénalité de retard ne dépasse pas 10 % par mois.']);
+        }
+
+        $cap = filled($data['penalty_cap_rate'] ?? null) ? Money::normalize((string) $data['penalty_cap_rate']) : null;
+        if ($cap === null || Money::toMinor($cap) <= 0) {
+            throw ValidationException::withMessages(['penalty_cap_rate' => 'Une pénalité de retard se plafonne : indiquez le plafond, en pourcentage du montant emprunté.']);
+        }
+
+        if (Money::toMinor($cap) > 10_000) {
+            throw ValidationException::withMessages(['penalty_cap_rate' => 'Le plafond ne dépasse pas 100 % du montant emprunté.']);
+        }
+
+        return [
+            'penalty_rate' => $rate,
+            'penalty_grace_days' => filled($data['penalty_grace_days'] ?? null) ? max(0, (int) $data['penalty_grace_days']) : 0,
+            'penalty_cap_rate' => $cap,
+        ];
     }
 
     /** Une limite vide (ou zéro) n'en est pas une. */

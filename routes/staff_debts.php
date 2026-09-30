@@ -24,3 +24,8 @@ Route::post('/{staffDebt}/annuler', [StaffDebtController::class, 'cancel'])->nam
 Route::post('/{staffDebt}/remettre', [StaffDebtController::class, 'writeOff'])->name('write-off')->middleware('can:staff_debts.write_off');
 Route::post('/{staffDebt}/verser', [StaffDebtController::class, 'disburse'])->name('disburse')->middleware('can:staff_debts.disburse');
 Route::post('/{staffDebt}/relancer', [StaffDebtController::class, 'remind'])->name('remind')->middleware('can:staff_debts.decide');
+// ADR-230 — pénalités de retard, règlement au départ, documents à signer.
+Route::post('/{staffDebt}/penalites/{penalty}/remettre', [StaffDebtController::class, 'waivePenalty'])->name('penalties.waive')->middleware('can:staff_debts.write_off');
+Route::post('/{staffDebt}/depart', [StaffDebtController::class, 'settleDeparture'])->name('departure.settle')->middleware('can:staff_debts.decide');
+Route::get('/{staffDebt}/reconnaissance', [StaffDebtController::class, 'acknowledgement'])->name('acknowledgement')->middleware('can:staff_debts.view');
+Route::get('/{staffDebt}/protocole-depart', [StaffDebtController::class, 'departureAgreement'])->name('departure.agreement')->middleware('can:staff_debts.view');

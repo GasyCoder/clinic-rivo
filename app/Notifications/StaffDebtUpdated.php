@@ -21,6 +21,10 @@ class StaffDebtUpdated extends InboxNotification
         'disbursed' => ['icon' => 'banknote', 'tone' => 'primary'],
         'settled' => ['icon' => 'circle-check', 'tone' => 'success'],
         'written_off' => ['icon' => 'gift', 'tone' => 'success'],
+        // ADR-230 — une pénalité de retard liquidée, remise ; un départ à régler, réglé.
+        'penalty' => ['icon' => 'triangle-alert', 'tone' => 'danger'],
+        'penalty_waived' => ['icon' => 'gift', 'tone' => 'success'],
+        'departure_settled' => ['icon' => 'handshake', 'tone' => 'primary'],
     ];
 
     public function __construct(

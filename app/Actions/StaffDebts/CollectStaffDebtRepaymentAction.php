@@ -57,7 +57,7 @@ class CollectStaffDebtRepaymentAction
 
         [$repayment, $settled] = DB::transaction(function () use ($debt, $data, $amountMinor, $actor): array {
             $session = $this->sessions->resolve($data['cash_register_uuid'] ?? null, $actor, 'Ouvrez la caisse avant d’encaisser un remboursement.');
-            $debt = StaffDebt::query()->with('repayments')->lockForUpdate()->findOrFail($debt->getKey());
+            $debt = StaffDebt::query()->with(['repayments', 'penalties'])->lockForUpdate()->findOrFail($debt->getKey());
 
             if ($debt->status !== StaffDebtStatus::Active) {
                 throw ValidationException::withMessages(['debt' => match ($debt->status) {

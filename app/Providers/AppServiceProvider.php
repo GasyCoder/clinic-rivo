@@ -3,11 +3,13 @@
 namespace App\Providers;
 
 use App\Actions\Role\SyncPortalSuperAdminPermissionsAction;
+use App\Models\Employee;
 use App\Models\Permission;
 use App\Models\User;
 use App\Services\Assistant\AssistantConfiguration;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\SiteMaintenanceState;
+use App\Services\StaffDebts\StaffDebtDeparture;
 use App\Services\Webmail\WebmailAccess;
 use App\Services\Webmail\WebmailSignOn;
 use Illuminate\Auth\Events\Login;
@@ -88,6 +90,20 @@ class AppServiceProvider extends ServiceProvider
             }
 
             $signOn->forgetDevice();
+        });
+
+        // ADR-230 — une fiche quitte le poste (désactivée ou archivée, par tout chemin) : ses
+        // demandes de dette se closent et ses accords pas encore versés s'annulent. Des
+        // closures qui ne renvoient rien, pour la même raison qu'au-dessus.
+        Employee::updated(function (Employee $employee): void {
+            if ($employee->wasChanged('active') && ! $employee->active) {
+                app(StaffDebtDeparture::class)->employeeLeft($employee);
+            }
+        });
+        Employee::deleted(function (Employee $employee): void {
+            if (! $employee->isForceDeleting()) {
+                app(StaffDebtDeparture::class)->employeeLeft($employee);
+            }
         });
 
         // ADR-222 — l'assistant : un nombre de questions par heure et par compte, réglé

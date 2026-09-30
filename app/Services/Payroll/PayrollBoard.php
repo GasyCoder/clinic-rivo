@@ -142,7 +142,7 @@ class PayrollBoard
             ->where('repayment_mode', StaffDebtRepaymentMode::Salary->value)
             ->when($employeeId !== null, fn ($query) => $query->where('employee_id', $employeeId))
             ->when($lock, fn ($query) => $query->lockForUpdate())
-            ->with('repayments')
+            ->with(['repayments', 'penalties'])
             ->orderBy('id')
             ->get();
     }

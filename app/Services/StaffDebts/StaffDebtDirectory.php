@@ -8,6 +8,7 @@ use App\Enums\StaffDebtRepaymentMode;
 use App\Enums\StaffDebtRepaymentSource;
 use App\Enums\StaffDebtStatus;
 use App\Models\StaffDebt;
+use App\Models\StaffDebtPenalty;
 use App\Models\StaffDebtRepayment;
 use App\Models\User;
 use App\Support\Authorization\RemoteActorAttribution;
@@ -27,13 +28,17 @@ use Illuminate\Support\Str;
  */
 final class StaffDebtDirectory
 {
-    /** Les vues de la liste, exclusives : la somme des comptes fait le total. */
-    public const VIEWS = [
-        'a-decider' => [StaffDebtStatus::Requested],
-        'a-verser' => [StaffDebtStatus::Approved],
-        'en-cours' => [StaffDebtStatus::Active],
-        'closes' => [StaffDebtStatus::Settled, StaffDebtStatus::WrittenOff, StaffDebtStatus::Refused, StaffDebtStatus::Cancelled],
-    ];
+    /**
+     * Les vues de la liste, exclusives : la somme des comptes fait le total. ADR-230 — une
+     * dette en remboursement d'une personne partie, pas encore réglée, est « à régler au
+     * départ » et quitte « en cours ».
+     */
+    public const VIEWS = ['a-decider', 'a-verser', 'depart', 'en-cours', 'closes'];
+
+    private const CLOSED = [StaffDebtStatus::Settled, StaffDebtStatus::WrittenOff, StaffDebtStatus::Refused, StaffDebtStatus::Cancelled];
+
+    /** Les relations qu'un reste dû lit : remboursements et pénalités. */
+    private const MONEY = ['repayments', 'penalties', 'employee'];
 
     public function __construct(
         private readonly StaffDebtLedger $ledger,
@@ -50,7 +55,7 @@ final class StaffDebtDirectory
         $employee = RequestStaffDebtAction::employeeOf($user);
         $debts = $employee === null ? collect() : StaffDebt::query()
             ->where('employee_id', $employee->getKey())
-            ->with(['repayments.salaryPayment:id,uuid,period'])
+            ->with(['repayments.salaryPayment:id,uuid,period', 'penalties', 'employee'])
             ->latest('id')
             ->get();
 
@@ -104,21 +109,21 @@ final class StaffDebtDirectory
      */
     public function listing(?string $view, ?string $search): array
     {
-        $view = array_key_exists((string) $view, self::VIEWS) ? $view : $this->defaultView();
+        $view = in_array((string) $view, self::VIEWS, true) ? (string) $view : $this->defaultView();
         $search = Str::squish((string) $search);
         $base = fn (): Builder => StaffDebt::query()->when($search !== '', fn (Builder $query) => $this->search($query, $search));
 
-        $counts = collect(self::VIEWS)->map(fn (array $statuses) => $base()->whereIn('status', array_map(fn ($status) => $status->value, $statuses))->count())->all();
+        $counts = collect(self::VIEWS)->mapWithKeys(fn (string $key) => [$key => $this->inView($base(), $key)->count()])->all();
         $today = now();
 
-        $debts = $base()->whereIn('status', array_map(fn ($status) => $status->value, self::VIEWS[$view]))
-            ->with('repayments')
+        $debts = $this->inView($base(), $view)
+            ->with(self::MONEY)
             ->orderByRaw($view === 'closes' ? 'updated_at desc' : 'requested_at asc')
             ->orderBy('id')
             ->limit(300)
             ->get();
 
-        $active = StaffDebt::query()->where('status', StaffDebtStatus::Active->value)->with('repayments')->get();
+        $active = StaffDebt::query()->where('status', StaffDebtStatus::Active->value)->with(self::MONEY)->get();
 
         return [
             'view' => $view,
@@ -129,6 +134,8 @@ final class StaffDebtDirectory
                 'arrears' => Money::fromMinor((int) $active->sum(fn (StaffDebt $debt) => $this->ledger->arrearsMinor($debt, $today))),
                 'to_decide' => $counts['a-decider'],
                 'to_disburse' => $counts['a-verser'],
+                'to_settle' => $counts['depart'],
+                'penalties' => Money::fromMinor((int) $active->sum(fn (StaffDebt $debt) => $debt->penaltiesMinor())),
             ],
             'debts' => $debts->map(fn (StaffDebt $debt) => $this->row($debt, $today))->values()->all(),
         ];
@@ -154,6 +161,10 @@ final class StaffDebtDirectory
             'interest_amount' => (string) ($debt->amount !== null ? $debt->interest_amount : $debt->requested_interest_amount),
             'total_due' => Money::fromMinor($debt->amount !== null ? $debt->totalDueMinor() : $debt->requestedTotalMinor()),
             'derogated' => ! empty($debt->derogations),
+            // ADR-230 — les pénalités encore dues, et un départ à régler.
+            'penalties' => Money::fromMinor($debt->penaltiesMinor()),
+            'awaits_departure' => $debt->awaitsDepartureSettlement(),
+            'departure_settled' => $debt->departure_settled_at !== null,
             'installment_amount' => (string) ($debt->installment_amount ?? $debt->requested_installment),
             'repayment_mode' => $debt->repayment_mode?->value,
             'repayment_mode_label' => $debt->repayment_mode?->label(),
@@ -171,7 +182,7 @@ final class StaffDebtDirectory
      */
     public function detail(StaffDebt $debt, User $viewer, bool $withEmployee = true): array
     {
-        $debt->loadMissing(['repayments.salaryPayment:id,uuid,period', 'requester:id,name', 'decider:id,name', 'disburser:id,name', 'writer:id,name', 'canceller:id,name']);
+        $debt->loadMissing(['repayments.salaryPayment:id,uuid,period', 'penalties.waiver:id,name', 'employee', 'requester:id,name', 'decider:id,name', 'disburser:id,name', 'writer:id,name', 'canceller:id,name', 'departureSettler:id,name']);
         $today = now();
         $plan = $this->plan($debt);
 
@@ -208,6 +219,8 @@ final class StaffDebtDirectory
             ],
             'decision_note' => $debt->decision_note,
             'derogations' => $debt->derogations ?? [],
+            'penalty' => $this->penalty($debt),
+            'departure' => $this->departure($debt),
             'refusal_reason' => $debt->refusal_reason,
             'cancel_reason' => $debt->cancel_reason,
             'write_off_reason' => $debt->write_off_reason,
@@ -240,7 +253,7 @@ final class StaffDebtDirectory
     public function forCash(User $user): array
     {
         $today = now();
-        $debts = StaffDebt::query()->where('status', StaffDebtStatus::Active->value)->with('repayments')->orderBy('employee_name')->get();
+        $debts = StaffDebt::query()->where('status', StaffDebtStatus::Active->value)->with(self::MONEY)->orderBy('employee_name')->get();
 
         $recent = StaffDebtRepayment::query()
             ->where('source', StaffDebtRepaymentSource::Cash->value)
@@ -269,6 +282,7 @@ final class StaffDebtDirectory
                     'repayment_mode_label' => $debt->repayment_mode?->label(),
                     'installment_amount' => (string) $debt->installment_amount,
                     'balance' => Money::fromMinor($debt->balanceMinor()),
+                    'penalties' => Money::fromMinor($debt->penaltiesMinor()),
                     'arrears' => Money::fromMinor($arrears),
                     'repaid_this_month' => Money::fromMinor($thisMonth),
                     'suggested_amount' => Money::fromMinor(min($debt->balanceMinor(), max(0, $suggested))),
@@ -309,8 +323,8 @@ final class StaffDebtDirectory
     public function overview(): array
     {
         $today = now();
-        $counts = collect(self::VIEWS)->map(fn (array $statuses) => StaffDebt::query()->whereIn('status', array_map(fn ($status) => $status->value, $statuses))->count())->all();
-        $active = StaffDebt::query()->where('status', StaffDebtStatus::Active->value)->with('repayments')->get();
+        $counts = collect(self::VIEWS)->mapWithKeys(fn (string $key) => [$key => $this->inView(StaffDebt::query(), $key)->count()])->all();
+        $active = StaffDebt::query()->where('status', StaffDebtStatus::Active->value)->with(self::MONEY)->get();
         $arrears = $active->map(fn (StaffDebt $debt) => $this->ledger->arrearsMinor($debt, $today));
         $present = $this->rules->present();
 
@@ -322,10 +336,12 @@ final class StaffDebtDirectory
             'to_disburse_amount' => Money::fromMinor((int) StaffDebt::query()->where('status', StaffDebtStatus::Approved->value)->get()->sum(fn (StaffDebt $debt) => Money::toMinor((string) $debt->amount))),
             'requested_amount' => Money::fromMinor((int) StaffDebt::query()->where('status', StaffDebtStatus::Requested->value)->get()->sum(fn (StaffDebt $debt) => Money::toMinor((string) $debt->requested_amount))),
             'interest' => Money::fromMinor((int) $active->sum(fn (StaffDebt $debt) => Money::toMinor((string) $debt->interest_amount))),
+            'penalties' => Money::fromMinor((int) $active->sum(fn (StaffDebt $debt) => $debt->penaltiesMinor())),
             'rules' => [
                 'configured' => $present['configured'],
                 'requests_open' => $present['requests_open'],
                 'has_interest' => $present['interest_tiers'] !== [],
+                'has_penalty' => $present['penalty_rate'] !== null,
             ],
         ];
     }
@@ -338,14 +354,14 @@ final class StaffDebtDirectory
      */
     public function export(?string $view, ?string $search): array
     {
-        $view = array_key_exists((string) $view, self::VIEWS) ? (string) $view : 'toutes';
+        $view = in_array((string) $view, self::VIEWS, true) ? (string) $view : 'toutes';
         $search = Str::squish((string) $search);
         $today = now();
 
         $debts = StaffDebt::query()
-            ->when($view !== 'toutes', fn (Builder $query) => $query->whereIn('status', array_map(fn ($status) => $status->value, self::VIEWS[$view])))
+            ->when($view !== 'toutes', fn (Builder $query) => $this->inView($query, $view))
             ->when($search !== '', fn (Builder $query) => $this->search($query, $search))
-            ->with('repayments')
+            ->with(self::MONEY)
             ->orderBy('requested_at')
             ->orderBy('id')
             ->limit(5000)
@@ -359,7 +375,7 @@ final class StaffDebtDirectory
             'headers' => [
                 'N° de dette', 'Personne', 'Matricule', 'État', 'Demandée le', 'Montant demandé', 'Montant accordé',
                 'Intérêt', 'Total à rembourser', 'Mensualité', 'Remboursement', 'Premier mois', 'Versée le',
-                'Remboursé', 'Remis', 'Reste dû', 'En retard', 'Dérogation',
+                'Remboursé', 'Remis', 'Pénalités', 'Reste dû', 'En retard', 'Dérogation', 'Départ',
             ],
             'rows' => $debts->map(fn (StaffDebt $debt) => [
                 $debt->number,
@@ -377,9 +393,11 @@ final class StaffDebtDirectory
                 $debt->disbursed_on?->format('d/m/Y'),
                 (float) Money::fromMinor($debt->repaidMinor()),
                 $amount($debt->written_off_amount),
+                (float) Money::fromMinor($debt->penaltiesMinor()),
                 $debt->status === StaffDebtStatus::Active ? (float) Money::fromMinor($debt->balanceMinor()) : null,
                 $debt->status === StaffDebtStatus::Active ? (float) Money::fromMinor($this->ledger->arrearsMinor($debt, $today)) : null,
                 empty($debt->derogations) ? null : implode(' ', $debt->derogations),
+                $debt->departure_settled_at !== null ? 'Réglé le '.$debt->departure_settled_at->format('d/m/Y') : ($debt->awaitsDepartureSettlement() ? 'À régler' : null),
             ])->values()->all(),
             'numbers' => $debts->pluck('number')->values()->all(),
         ];
@@ -440,7 +458,7 @@ final class StaffDebtDirectory
         }
 
         $others = StaffDebt::query()->where('employee_id', $employee->getKey())->whereKeyNot($debt->getKey())
-            ->where('status', StaffDebtStatus::Active->value)->with('repayments')->get();
+            ->where('status', StaffDebtStatus::Active->value)->with(['repayments', 'penalties'])->get();
         $salary = $viewer->can('employees.payroll.view') && $employee->remuneration_type?->hasAmount() && (float) $employee->remuneration_amount > 0
             ? (string) $employee->remuneration_amount
             : null;
@@ -477,6 +495,9 @@ final class StaffDebtDirectory
             'adjust' => $decide && in_array($debt->status, [StaffDebtStatus::Approved, StaffDebtStatus::Active], true),
             'cancel' => $decide && $debt->status === StaffDebtStatus::Approved,
             'write_off' => $viewer->can('staff_debts.write_off') && $debt->status === StaffDebtStatus::Active && $debt->balanceMinor() > 0,
+            // ADR-230 — remettre une pénalité, régler un départ, imprimer les documents.
+            'waive_penalty' => $viewer->can('staff_debts.write_off'),
+            'settle_departure' => $decide && $debt->awaitsDepartureSettlement(),
             'disburse' => $viewer->can('staff_debts.disburse') && $debt->status === StaffDebtStatus::Approved,
         ];
     }
@@ -510,6 +531,18 @@ final class StaffDebtDirectory
                 'label' => 'Annulée', 'detail' => $debt->cancel_reason];
         }
 
+        if ($debt->departure_settled_at !== null) {
+            $events[] = ['key' => 'departure', 'at' => $debt->departure_settled_at->toIso8601String(),
+                'by' => RemoteActorAttribution::name($debt->departureSettler?->name, $debt->external_departure_settled_by_name),
+                'label' => 'Départ réglé', 'detail' => $debt->departure_terms['note'] ?? null];
+        }
+
+        foreach ($debt->penalties as $penalty) {
+            $events[] = ['key' => 'penalty', 'at' => $penalty->assessed_at?->toIso8601String(), 'by' => null,
+                'label' => 'Pénalité de retard'.($penalty->waived_at !== null ? ' (remise)' : ''),
+                'detail' => StaffDebtNotifier::money($penalty->amount).' — '.StaffDebtPenalties::rate($penalty->rate).' % de '.StaffDebtNotifier::money($penalty->base_amount).' en retard ('.$penalty->period->translatedFormat('F Y').')'];
+        }
+
         if ($debt->settled_at !== null) {
             $events[] = ['key' => 'settled', 'at' => $debt->settled_at->toIso8601String(), 'by' => null, 'label' => 'Soldée', 'detail' => null];
         }
@@ -520,13 +553,84 @@ final class StaffDebtDirectory
     /** La vue d'ouverture : ce qui attend un geste, sinon les dettes en cours. */
     private function defaultView(): string
     {
-        foreach (['a-decider', 'a-verser'] as $view) {
-            if (StaffDebt::query()->whereIn('status', array_map(fn ($status) => $status->value, self::VIEWS[$view]))->exists()) {
+        foreach (['a-decider', 'a-verser', 'depart'] as $view) {
+            if ($this->inView(StaffDebt::query(), $view)->exists()) {
                 return $view;
             }
         }
 
         return 'en-cours';
+    }
+
+    private function inView(Builder $query, string $view): Builder
+    {
+        return match ($view) {
+            'a-decider' => $query->where('status', StaffDebtStatus::Requested->value),
+            'a-verser' => $query->where('status', StaffDebtStatus::Approved->value),
+            'depart' => $query->awaitingDepartureSettlement(),
+            'en-cours' => $query->repayingNormally(),
+            default => $query->whereIn('status', array_map(fn (StaffDebtStatus $status) => $status->value, self::CLOSED)),
+        };
+    }
+
+    /**
+     * ADR-230 — la règle de pénalité figée sur la dette et les pénalités liquidées.
+     *
+     * @return array<string, mixed>
+     */
+    private function penalty(StaffDebt $debt): array
+    {
+        $rule = $debt->penaltyRule();
+
+        return [
+            'rule' => $rule === null ? null : [
+                ...$rule,
+                'cap' => $rule['cap_rate'] !== null && $debt->amount !== null
+                    ? Money::fromMinor(Money::percentage(Money::toMinor((string) $debt->amount), $rule['cap_rate']))
+                    : null,
+            ],
+            'due' => Money::fromMinor($debt->penaltiesMinor()),
+            'items' => $debt->penalties->map(fn (StaffDebtPenalty $penalty) => [
+                'uuid' => $penalty->uuid,
+                'period' => $penalty->period->format('Y-m'),
+                'base_amount' => (string) $penalty->base_amount,
+                'rate' => (string) $penalty->rate,
+                'amount' => (string) $penalty->amount,
+                'assessed_at' => $penalty->assessed_at?->toIso8601String(),
+                'waived_at' => $penalty->waived_at?->toIso8601String(),
+                'waived_by' => RemoteActorAttribution::name($penalty->waiver?->name, $penalty->external_waived_by_name),
+                'waiver_reason' => $penalty->waiver_reason,
+            ])->values()->all(),
+        ];
+    }
+
+    /**
+     * ADR-230 — le départ de la personne : à régler, ou réglé et comment.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function departure(StaffDebt $debt): ?array
+    {
+        $employee = $debt->employee;
+        $left = $employee === null || ! $employee->active || $employee->trashed();
+
+        if (! $left && $debt->departure_settled_at === null) {
+            return null;
+        }
+
+        $principalLeft = max(0, $debt->principalOwedMinor() - $debt->repaidMinor());
+
+        return [
+            'employee_left' => $left,
+            'left_on' => $employee?->deleted_at?->toDateString(),
+            'awaiting' => $debt->awaitsDepartureSettlement(),
+            'balance' => Money::fromMinor($debt->balanceMinor()),
+            'principal_left' => Money::fromMinor(min($principalLeft, $debt->balanceMinor())),
+            'penalties_due' => Money::fromMinor($debt->penaltiesMinor()),
+            'settled_at' => $debt->departure_settled_at?->toIso8601String(),
+            'settled_by' => RemoteActorAttribution::name($debt->departureSettler?->name, $debt->external_departure_settled_by_name),
+            'terms' => $debt->departure_terms,
+        ];
     }
 
     private function search(Builder $query, string $search): Builder

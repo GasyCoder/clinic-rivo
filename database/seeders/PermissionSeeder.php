@@ -149,6 +149,9 @@ class PermissionSeeder extends Seeder
         'advantage_entries.delete' => 'Supprimer un avantage saisi non payé',
         'salary_payments.view' => 'Voir la paie du mois',
         'salary_payments.pay' => 'Marquer une paie payée (avantages du mois compris)',
+        'salary_payments.export' => 'Exporter le journal de paie et la liste de virement',
+        'salary_settings.view' => 'Voir les paramètres de paie (cotisations, barème IRSA)',
+        'salary_settings.update' => 'Modifier les paramètres de paie (cotisations, barème IRSA)',
         'salary_payments.cancel' => 'Annuler une paie marquée payée',
         // ADR-228 — les dettes du personnel : demandées depuis son compte, décidées par le DG.
         'staff_debts.request' => 'Demander une dette depuis son compte (dettes du personnel)',

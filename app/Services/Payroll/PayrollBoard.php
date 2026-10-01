@@ -4,12 +4,15 @@ namespace App\Services\Payroll;
 
 use App\Enums\AdvantageEntryStatus;
 use App\Enums\EmployeeBenefitFrequency;
+use App\Enums\MobileMoneyOperator;
+use App\Enums\SalaryPaymentMode;
 use App\Enums\SalaryPaymentStatus;
 use App\Enums\StaffDebtRepaymentMode;
 use App\Enums\StaffDebtStatus;
 use App\Models\AdvantageEntry;
 use App\Models\Employee;
 use App\Models\EmployeeBenefit;
+use App\Models\PayrollSetting;
 use App\Models\SalaryPayment;
 use App\Models\StaffDebt;
 use App\Services\StaffDebts\StaffDebtLedger;
@@ -22,19 +25,29 @@ use Illuminate\Support\Str;
 /**
  * ADR-227 — la paie d'un mois : pour chaque employé, le salaire de base déclaré (ADR-206)
  * et ses avantages du mois — saisis (ADR-227) et déclarés sur la fiche (ADR-221) — font
- * le brut. Les dettes du personnel à retenue sur salaire (ADR-228)
- * s'en retranchent, en lignes négatives `DEBT`, sans jamais dépasser le brut : à verser =
- * brut − retenues. Aucune cotisation ni impôt n'est calculé (ADR-066). Une paie marquée
- * payée montre ses lignes figées. Le tableau lit ; payer recompte.
+ * le brut. ADR-233 — les retenues légales (CNAPS, organisme médical, IRSA) se calculent sur
+ * ce brut selon les paramètres de paie du site, s'ils sont activés ; les charges patronales
+ * s'affichent pour information. ADR-228 — les dettes à retenue sur salaire s'en retranchent
+ * ensuite, sans jamais dépasser ce qui reste : net à verser = brut − retenues légales −
+ * dettes. Une paie marquée payée montre ses lignes, ses paramètres et son mode de paiement
+ * figés. Le tableau lit ; payer recompte avec `draft()`, le même calcul.
  */
 class PayrollBoard
 {
-    public function __construct(private readonly StaffDebtLedger $ledger) {}
+    public const LEGAL_KINDS = PayrollCalculator::DEDUCTION_KINDS;
 
-    /** @return array{rows: list<array<string, mixed>>, summary: array<string, mixed>} */
-    public function month(Carbon $month): array
+    public const DEDUCTION_KINDS = [...PayrollCalculator::DEDUCTION_KINDS, 'DEBT'];
+
+    public function __construct(
+        private readonly StaffDebtLedger $ledger,
+        private readonly PayrollCalculator $calculator,
+    ) {}
+
+    /** @return array{rows: list<array<string, mixed>>, summary: array<string, mixed>, settings: array<string, mixed>} */
+    public function month(Carbon $month, ?array $only = null): array
     {
         $month = $month->copy()->startOfMonth();
+        $settings = PayrollSetting::current();
         $payments = SalaryPayment::query()->whereDate('period', $month->toDateString())
             ->with(['payer:id,name', 'canceller:id,name'])->latest('id')->get();
         $entries = AdvantageEntry::query()->whereDate('period', $month->toDateString())
@@ -49,37 +62,72 @@ class PayrollBoard
             ->merge($payments->pluck('employee_id'))
             ->unique();
 
-        $employees = Employee::withTrashed()->with('jobTitle:id,label')->whereKey($ids->all())->get();
+        $employees = Employee::withTrashed()
+            ->with(['jobTitle:id,label', 'department:id,label', 'bank:id,code,name,bank_code'])
+            ->whereKey($ids->all())
+            ->when($only !== null, fn ($query) => $query->whereIn('uuid', $only))
+            ->get();
 
-        $rows = $employees->map(function (Employee $employee) use ($month, $payments, $entries, $benefits, $debts) {
+        $rows = $employees->map(function (Employee $employee) use ($month, $payments, $entries, $benefits, $debts, $settings) {
             $mine = $payments->where('employee_id', $employee->getKey());
             $payment = $mine->first(fn (SalaryPayment $payment) => $payment->status === SalaryPaymentStatus::Paid);
-            $lines = $payment ? $payment->lines : $this->lines(
-                $employee,
-                $entries->get($employee->getKey(), collect()),
-                $benefits->get($employee->getKey(), collect()),
-            );
-            if ($payment === null) {
-                $lines = [...$lines, ...$this->debtLines($debts->get($employee->getKey(), collect()), $month, $lines)];
+
+            if ($payment !== null) {
+                $lines = $payment->lines;
+                $snapshot = $payment->payroll_snapshot ?? [];
+                $employer = $snapshot['employer'] ?? [];
+                $legal = $snapshot['legal'] ?? null;
+                $paymentMode = $this->paymentModeOf($payment->payment_mode, $payment->payment_details);
+            } else {
+                $draft = $this->draft(
+                    $employee,
+                    $month,
+                    $entries->get($employee->getKey(), collect()),
+                    $benefits->get($employee->getKey(), collect()),
+                    $debts->get($employee->getKey(), collect()),
+                    $settings,
+                );
+                $lines = $draft['lines'];
+                $employer = $draft['employer'];
+                $legal = $draft['legal'];
+                $paymentMode = $this->paymentModeOf($draft['payment_mode'], $draft['payment_details']);
             }
+
             $gross = self::grossOf($lines);
-            $deductions = self::deductionsOf($lines);
-            $total = $gross - $deductions;
+            $legalTotal = self::legalOf($lines);
+            $debtsTotal = self::debtsOf($lines);
+            $employerTotal = array_sum(array_map(fn ($line) => (float) $line['amount'], $employer));
+            $net = $gross - $legalTotal - $debtsTotal;
 
             return [
                 'uuid' => $employee->uuid,
                 'name' => Str::squish("{$employee->last_name} {$employee->first_name}"),
                 'employee_number' => $employee->employee_number,
                 'job_title' => $employee->jobTitle?->label ?? $employee->profession,
+                'department' => $employee->department?->label,
+                'hire_date' => $employee->hire_date?->toDateString(),
+                'children' => (int) ($employee->children_count ?? 0),
                 'remuneration_label' => $employee->remuneration_type?->label(),
                 'in_post' => $employee->active && ! $employee->trashed(),
                 'lines' => array_values($lines),
+                'employer_lines' => array_values($employer),
+                'legal' => $legal === null ? null : [
+                    'applies' => (bool) ($legal['applies'] ?? false),
+                    'reason' => $legal['reason'] ?? null,
+                    'taxable' => isset($legal['taxable']) ? Money::fromMinor((int) $legal['taxable']) : null,
+                ],
                 'base_amount' => $this->money(array_sum(array_map(fn ($line) => $line['kind'] === 'BASE' ? (float) $line['amount'] : 0, $lines))),
-                'advantages_amount' => $this->money(array_sum(array_map(fn ($line) => ! in_array($line['kind'], ['BASE', 'DEBT'], true) ? (float) $line['amount'] : 0, $lines))),
+                'advantages_amount' => $this->money(array_sum(array_map(fn ($line) => ! in_array($line['kind'], ['BASE', ...self::DEDUCTION_KINDS], true) ? (float) $line['amount'] : 0, $lines))),
                 'gross' => $this->money($gross),
-                'deductions_amount' => $this->money($deductions),
-                // À verser : le brut moins les retenues (ADR-228).
-                'total' => $this->money($total),
+                'legal_amount' => $this->money($legalTotal),
+                'debts_amount' => $this->money($debtsTotal),
+                // Toutes les retenues : légales et dettes.
+                'deductions_amount' => $this->money($legalTotal + $debtsTotal),
+                // Net à verser : brut − retenues légales − dettes.
+                'total' => $this->money($net),
+                'employer_amount' => $this->money($employerTotal),
+                'cost' => $this->money($gross + $employerTotal),
+                'payment_mode' => $paymentMode,
                 'payment' => $this->payment($payment),
                 'cancelled' => $mine->where('status', SalaryPaymentStatus::Cancelled)->values()->map(fn ($payment) => $this->payment($payment))->all(),
                 'payable' => $payment === null && $gross > 0 && ! $month->isAfter(now()->startOfMonth()),
@@ -87,42 +135,116 @@ class PayrollBoard
         })->filter(fn (array $row) => $row['payment'] !== null || (float) $row['gross'] > 0 || $row['cancelled'] !== [])
             ->sortBy('name')->values();
 
-        $paid = $payments->where('status', SalaryPaymentStatus::Paid);
+        $toPay = $rows->where('payable', true);
+        $paidRows = $rows->filter(fn ($row) => $row['payment'] !== null);
+        $sum = fn (Collection $set, string $key) => $this->money($set->sum(fn ($row) => (float) $row[$key]));
 
         return [
             'rows' => $rows->all(),
             'summary' => [
                 'people' => $rows->count(),
-                'to_pay' => $rows->where('payable', true)->count(),
-                'paid' => $paid->count(),
-                'amount_to_pay' => $this->money($rows->where('payable', true)->sum(fn ($row) => (float) $row['total'])),
-                'amount_paid' => $this->money($paid->sum(fn (SalaryPayment $payment) => (float) $payment->total_amount - (float) $payment->deductions_amount)),
-                'advantages_to_pay' => $this->money($rows->where('payable', true)->sum(fn ($row) => (float) $row['advantages_amount'])),
-                'deductions_to_pay' => $this->money($rows->where('payable', true)->sum(fn ($row) => (float) $row['deductions_amount'])),
+                'to_pay' => $toPay->count(),
+                'paid' => $paidRows->count(),
+                'amount_to_pay' => $sum($toPay, 'total'),
+                'amount_paid' => $sum($paidRows, 'total'),
+                'gross_to_pay' => $sum($toPay, 'gross'),
+                'advantages_to_pay' => $sum($toPay, 'advantages_amount'),
+                'legal_to_pay' => $sum($toPay, 'legal_amount'),
+                'deductions_to_pay' => $sum($toPay, 'debts_amount'),
+                'employer_to_pay' => $sum($toPay, 'employer_amount'),
+                'gross_month' => $sum($rows->filter(fn ($row) => $row['payable'] || $row['payment'] !== null), 'gross'),
+                'cost_month' => $sum($rows->filter(fn ($row) => $row['payable'] || $row['payment'] !== null), 'cost'),
+            ],
+            'settings' => [
+                'legal_enabled' => (bool) $settings->legal_deductions_enabled,
+                'configured' => $settings->exists,
+                'health_label' => $settings->healthLabel(),
             ],
         ];
     }
 
     /**
-     * ADR-228 — les retenues de dettes d'un employé pour un mois, calculées sur ses
-     * lignes de brut : jamais plus que ce brut, la plus ancienne dette d'abord.
+     * Le calcul d'une paie non payée, le même pour le tableau et pour « Marquer payé » :
+     * lignes du brut, retenues légales, retenues de dettes (sur ce qui reste après les
+     * retenues légales), charges patronales, paramètres utilisés et mode de paiement.
      *
      * @param  Collection<int, StaffDebt>  $debts
-     * @param  list<array<string, mixed>>  $lines
-     * @return list<array{kind: string, label: string, amount: string, uuid: string}>
+     * @return array{lines: list<array<string, mixed>>, debt_deductions: list<array<string, mixed>>, employer: list<array<string, mixed>>, legal: array<string, mixed>, snapshot: array<string, mixed>, payment_mode: ?string, payment_details: ?array<string, mixed>}
      */
-    public function debtLines(Collection $debts, Carbon $month, array $lines): array
+    public function draft(Employee $employee, Carbon $month, Collection $entries, Collection $benefits, Collection $debts, PayrollSetting $settings): array
     {
-        if ($debts->isEmpty()) {
-            return [];
-        }
-
+        $rules = $settings->snapshot();
+        $lines = $this->lines($employee, $entries, $benefits);
         $grossMinor = Money::toMinor($this->money(self::grossOf($lines)));
 
-        return array_map(
-            fn (array $deduction) => $this->ledger->payrollLine($deduction['debt'], $deduction['amount_minor'], $deduction['due_minor']),
-            $this->ledger->salaryDeductions($debts, $month, $grossMinor),
-        );
+        $legal = $this->calculator->compute($grossMinor, $employee->remuneration_type, (int) ($employee->children_count ?? 0), $rules);
+        $lines = [...$lines, ...$this->calculator->lines($legal, $rules)];
+        $employer = $this->calculator->employerLines($legal, $rules);
+
+        $available = max(0, $grossMinor - $legal['cnaps'] - $legal['health'] - $legal['irsa']);
+        $debtDeductions = $debts->isEmpty() ? [] : $this->ledger->salaryDeductions($debts, $month, $available);
+        foreach ($debtDeductions as $deduction) {
+            $lines[] = $this->ledger->payrollLine($deduction['debt'], $deduction['amount_minor'], $deduction['due_minor']);
+        }
+
+        [$mode, $details] = $this->paymentDetails($employee);
+
+        return [
+            'lines' => $lines,
+            'debt_deductions' => $debtDeductions,
+            'employer' => $employer,
+            'legal' => $legal,
+            'snapshot' => ['rules' => $rules, 'legal' => $legal, 'employer' => $employer],
+            'payment_mode' => $mode,
+            'payment_details' => $details,
+        ];
+    }
+
+    /**
+     * Comment la personne est payée, repris de sa fiche (ADR-225) : virement (banque,
+     * compte), Mobile Money (comptes) ou espèces. Figé sur la paie au paiement.
+     *
+     * @return array{0: ?string, 1: ?array<string, mixed>}
+     */
+    public function paymentDetails(Employee $employee): array
+    {
+        $mode = $employee->salary_payment_mode;
+        if ($mode === null) {
+            return [null, null];
+        }
+
+        return [$mode->value, match ($mode) {
+            SalaryPaymentMode::Bank => [
+                'bank' => $employee->bank?->code ?? null,
+                'bank_name' => $employee->bank?->name ?? null,
+                'bank_code' => $employee->bank?->bank_code ?? null,
+                'account_number' => $employee->bank_account_number,
+                'account_holder' => $employee->bank_account_holder,
+            ],
+            SalaryPaymentMode::MobileMoney => [
+                'accounts' => array_values(array_map(fn (array $account) => [
+                    'operator' => MobileMoneyOperator::tryFrom((string) ($account['operator'] ?? ''))?->label() ?? ($account['operator'] ?? null),
+                    'number' => $account['number'] ?? null,
+                    'holder' => $account['holder'] ?? null,
+                ], is_array($employee->mobile_money_accounts) ? $employee->mobile_money_accounts : [])),
+            ],
+            SalaryPaymentMode::Cash => [],
+        }];
+    }
+
+    /** @return array{mode: ?string, label: string, details: array<string, mixed>, summary: string} */
+    private function paymentModeOf(?string $mode, ?array $details): array
+    {
+        $enum = $mode !== null ? SalaryPaymentMode::tryFrom($mode) : null;
+        $details ??= [];
+        $summary = match ($enum) {
+            SalaryPaymentMode::Bank => implode(' · ', array_filter([$details['bank'] ?? $details['bank_name'] ?? null, $details['account_number'] ?? null])) ?: 'Compte non renseigné',
+            SalaryPaymentMode::MobileMoney => implode(' · ', array_filter(array_map(fn ($account) => trim(($account['operator'] ?? '').' '.($account['number'] ?? '')), $details['accounts'] ?? []))) ?: 'Numéro non renseigné',
+            SalaryPaymentMode::Cash => 'À la caisse',
+            default => 'À renseigner sur la fiche (étape Banque)',
+        };
+
+        return ['mode' => $enum?->value, 'label' => $enum?->label() ?? 'Mode non renseigné', 'details' => $details, 'summary' => $summary];
     }
 
     /**
@@ -145,11 +267,23 @@ class PayrollBoard
     /** @param  list<array<string, mixed>>  $lines */
     public static function grossOf(array $lines): float
     {
-        return array_sum(array_map(fn ($line) => ($line['kind'] ?? null) === 'DEBT' ? 0 : (float) $line['amount'], $lines));
+        return array_sum(array_map(fn ($line) => in_array($line['kind'] ?? null, self::DEDUCTION_KINDS, true) ? 0 : (float) $line['amount'], $lines));
     }
 
-    /** @param  list<array<string, mixed>>  $lines  les retenues, en valeur positive */
+    /** @param  list<array<string, mixed>>  $lines  toutes les retenues (légales et dettes), en valeur positive */
     public static function deductionsOf(array $lines): float
+    {
+        return self::legalOf($lines) + self::debtsOf($lines);
+    }
+
+    /** @param  list<array<string, mixed>>  $lines  les retenues légales (CNAPS, organisme médical, IRSA), en valeur positive */
+    public static function legalOf(array $lines): float
+    {
+        return -array_sum(array_map(fn ($line) => in_array($line['kind'] ?? null, self::LEGAL_KINDS, true) ? (float) $line['amount'] : 0, $lines));
+    }
+
+    /** @param  list<array<string, mixed>>  $lines  les retenues de dettes (ADR-228), en valeur positive */
+    public static function debtsOf(array $lines): float
     {
         return -array_sum(array_map(fn ($line) => ($line['kind'] ?? null) === 'DEBT' ? (float) $line['amount'] : 0, $lines));
     }

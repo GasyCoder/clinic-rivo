@@ -3,6 +3,7 @@
 use App\Http\Controllers\Administration\AdvantageEntryController;
 use App\Http\Controllers\Administration\BonusController;
 use App\Http\Controllers\Administration\PayrollController;
+use App\Http\Controllers\Administration\PayrollSettingsController;
 use App\Http\Controllers\Administration\AttendanceController;
 use App\Http\Controllers\Administration\BankController;
 use App\Http\Controllers\Administration\EmployeeBadgeController;
@@ -178,6 +179,13 @@ Route::put('/bonus/avantages/saisis/{entry}', [AdvantageEntryController::class, 
 Route::delete('/bonus/avantages/saisis/{entry}', [AdvantageEntryController::class, 'destroy'])->name('bonus.advantages.entries.destroy')->middleware('can:advantage_entries.delete');
 Route::get('/paie', [PayrollController::class, 'index'])->name('payroll.index')->middleware('can:salary_payments.view');
 Route::post('/paie/payer', [PayrollController::class, 'pay'])->name('payroll.pay')->middleware('can:salary_payments.pay');
+// ADR-233 — paie en lot, bulletins, journal et virements, paramètres de paie (cotisations, IRSA).
+Route::post('/paie/payer-lot', [PayrollController::class, 'payBatch'])->name('payroll.pay-batch')->middleware('can:salary_payments.pay');
+Route::get('/paie/bulletins', [PayrollController::class, 'payslips'])->name('payroll.payslips')->middleware('can:salary_payments.view');
+Route::get('/paie/export', [PayrollController::class, 'export'])->name('payroll.export')->middleware('can:salary_payments.export');
+Route::get('/paie/parametres', [PayrollSettingsController::class, 'show'])->name('payroll.settings')->middleware('can:salary_settings.view');
+Route::put('/paie/parametres', [PayrollSettingsController::class, 'update'])->name('payroll.settings.update')->middleware('can:salary_settings.update');
+Route::post('/paie/parametres/simulation', [PayrollSettingsController::class, 'simulate'])->name('payroll.settings.simulate')->middleware('can:salary_settings.view');
 Route::post('/paie/{payment}/annuler', [PayrollController::class, 'cancel'])->name('payroll.cancel')->middleware('can:salary_payments.cancel');
 
 Route::get('/staff-block-credits', [StaffBlockCreditController::class, 'index'])

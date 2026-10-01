@@ -7,6 +7,7 @@ use App\Enums\SalaryPaymentStatus;
 use App\Enums\StaffDebtRepaymentSource;
 use App\Models\AdvantageEntry;
 use App\Models\Employee;
+use App\Models\PayrollSetting;
 use App\Models\SalaryPayment;
 use App\Models\StaffDebt;
 use App\Models\StaffDebtRepayment;
@@ -29,7 +30,11 @@ use Illuminate\Validation\ValidationException;
  * une seconde fois. Le virement
  * se fait hors RIVO. Annuler remet les avantages en attente.
  *
- * ADR-228 — les dettes à retenue sur salaire se retranchent du brut (au plus le brut) :
+ * ADR-233 — les retenues légales (CNAPS, organisme médical, IRSA) se calculent selon les
+ * paramètres de paie du site, s'ils sont activés ; paramètres, charges patronales et mode
+ * de paiement sont figés avec la paie.
+ *
+ * ADR-228 — les dettes à retenue sur salaire se retranchent de ce qui reste (jamais plus) :
  * chaque retenue devient un remboursement de la dette, lié à cette paie. Annuler la
  * paie annule ses retenues — la dette redevient due d'autant, et rouverte si elle
  * était soldée.
@@ -64,16 +69,22 @@ class PaySalaryAction
             $entries = AdvantageEntry::query()->where('employee_id', $employee->getKey())
                 ->whereDate('period', $month->toDateString())->where('status', AdvantageEntryStatus::Pending)
                 ->lockForUpdate()->orderBy('id')->get();
-            $lines = $this->board->lines($employee, $entries, $this->board->declaredBenefits($month, $employee->getKey()));
-            $debts = $this->board->salaryDebts($employee->getKey(), lock: true);
-            $deductions = $this->ledger->salaryDeductions($debts, $month, Money::toMinor(number_format(PayrollBoard::grossOf($lines), 2, '.', '')));
-            foreach ($deductions as $deduction) {
-                $lines[] = $this->ledger->payrollLine($deduction['debt'], $deduction['amount_minor'], $deduction['due_minor']);
-            }
+            $draft = $this->board->draft(
+                $employee,
+                $month,
+                $entries,
+                $this->board->declaredBenefits($month, $employee->getKey()),
+                $this->board->salaryDebts($employee->getKey(), lock: true),
+                PayrollSetting::current(),
+            );
+            $lines = $draft['lines'];
+            $deductions = $draft['debt_deductions'];
 
             $base = array_sum(array_map(fn ($line) => $line['kind'] === 'BASE' ? (float) $line['amount'] : 0, $lines));
             $total = PayrollBoard::grossOf($lines);
+            $legalTotal = PayrollBoard::legalOf($lines);
             $deductionsTotal = PayrollBoard::deductionsOf($lines);
+            $employerTotal = array_sum(array_map(fn ($line) => (float) $line['amount'], $draft['employer']));
 
             if ($total <= 0) {
                 throw ValidationException::withMessages(['period' => 'Rien à payer ce mois-ci pour cette personne : ni salaire déclaré, ni avantage.']);
@@ -88,8 +99,13 @@ class PaySalaryAction
                 'base_amount' => number_format($base, 2, '.', ''),
                 'advantages_amount' => number_format($total - $base, 2, '.', ''),
                 'deductions_amount' => number_format($deductionsTotal, 2, '.', ''),
+                'legal_deductions_amount' => number_format($legalTotal, 2, '.', ''),
+                'employer_charges_amount' => number_format($employerTotal, 2, '.', ''),
                 'total_amount' => number_format($total, 2, '.', ''),
                 'lines' => $lines,
+                'payroll_snapshot' => $draft['snapshot'],
+                'payment_mode' => $draft['payment_mode'],
+                'payment_details' => $draft['payment_details'],
                 'status' => SalaryPaymentStatus::Paid,
                 'active_key' => $activeKey,
                 'paid_at' => now(),

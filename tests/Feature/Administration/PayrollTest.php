@@ -6,6 +6,7 @@ use App\Enums\AdvantageEntryStatus;
 use App\Enums\SalaryPaymentStatus;
 use App\Models\AdvantageEntry;
 use App\Models\Employee;
+use App\Models\PayrollSetting;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SalaryPayment;
@@ -28,7 +29,8 @@ class PayrollTest extends TestCase
     private const HR = [
         'bonus_categories.view', 'bonus_awards.view',
         'advantage_entries.view', 'advantage_entries.create', 'advantage_entries.update', 'advantage_entries.delete',
-        'salary_payments.view', 'salary_payments.pay', 'salary_payments.cancel',
+        'salary_payments.view', 'salary_payments.pay', 'salary_payments.cancel', 'salary_payments.export',
+        'salary_settings.view', 'salary_settings.update',
     ];
 
     private User $hr;
@@ -184,6 +186,100 @@ class PayrollTest extends TestCase
         $this->actingAs($this->hr)->post('/administration/paie/payer', ['employee_uuid' => $doctor->uuid, 'mois' => '2026-09'])
             ->assertSessionHasNoErrors();
         $this->assertSame('512000.00', (string) SalaryPayment::query()->where('status', SalaryPaymentStatus::Paid)->sole()->total_amount);
+    }
+
+    public function test_settings_are_proposed_disabled_then_saved_and_validated(): void
+    {
+        $this->actingAs($this->hr)->get('/administration/paie/parametres')
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Administration/Payroll/Settings')
+                ->where('configured', false)
+                ->where('settings.legal_deductions_enabled', false)
+                ->where('settings.irsa_brackets.4.up_to', null)
+                ->etc());
+
+        $payload = $this->settingsPayload();
+        $payload['irsa_brackets'][1]['up_to'] = '300 000';
+        $this->actingAs($this->hr)->put('/administration/paie/parametres', $payload)
+            ->assertSessionHasErrors('irsa_brackets.1.up_to');
+
+        $this->actingAs($this->hr)->put('/administration/paie/parametres', $this->settingsPayload(['cnaps_ceiling' => '2 101 440']))
+            ->assertSessionHasNoErrors();
+        $settings = PayrollSetting::current();
+        $this->assertTrue($settings->legal_deductions_enabled);
+        $this->assertSame('2101440.00', (string) $settings->cnaps_ceiling);
+    }
+
+    public function test_simulation_computes_without_saving(): void
+    {
+        $this->actingAs($this->hr)->postJson('/administration/paie/parametres/simulation', [...$this->settingsPayload(['legal_deductions_enabled' => false]), 'gross' => 1000000, 'children' => 0])
+            ->assertOk()
+            ->assertJson(['cnaps' => '10000.00', 'health' => '10000.00', 'irsa' => '103500.00', 'net' => '876500.00', 'employer' => '180000.00', 'cost' => '1180000.00']);
+        $this->assertFalse(PayrollSetting::query()->exists());
+    }
+
+    public function test_paying_withholds_legal_deductions_and_freezes_rules_and_payment_mode(): void
+    {
+        $this->actingAs($this->hr)->put('/administration/paie/parametres', $this->settingsPayload())->assertSessionHasNoErrors();
+        $employee = $this->employee('EMP-S1', benefits: null, salary: 1000000);
+        $employee->forceFill(['salary_payment_mode' => 'CASH'])->save();
+
+        $this->actingAs($this->hr)->get('/administration/paie?mois=2026-09')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('board.rows.0.legal_amount', '123500.00')
+                ->where('board.rows.0.total', '876500.00')
+                ->where('board.rows.0.employer_amount', '180000.00')
+                ->where('board.rows.0.payment_mode.label', 'Espèces')
+                ->where('board.settings.legal_enabled', true)
+                ->etc());
+
+        $this->actingAs($this->hr)->post('/administration/paie/payer', ['employee_uuid' => $employee->uuid, 'mois' => '2026-09'])
+            ->assertSessionHasNoErrors();
+        $payment = SalaryPayment::query()->sole();
+        $this->assertSame('1000000.00', (string) $payment->total_amount);
+        $this->assertSame('123500.00', (string) $payment->legal_deductions_amount);
+        $this->assertSame('123500.00', (string) $payment->deductions_amount);
+        $this->assertSame('876500.00', $payment->netAmount());
+        $this->assertSame('180000.00', (string) $payment->employer_charges_amount);
+        $this->assertSame('CASH', $payment->payment_mode);
+        $this->assertSame('1.00', $payment->payroll_snapshot['rules']['cnaps_employee_rate']);
+
+        // Changer les paramètres ensuite ne réécrit pas une paie payée.
+        $this->actingAs($this->hr)->put('/administration/paie/parametres', $this->settingsPayload(['cnaps_employee_rate' => '5']))->assertSessionHasNoErrors();
+        $this->actingAs($this->hr)->get('/administration/paie?mois=2026-09')
+            ->assertInertia(fn (Assert $page) => $page->where('board.rows.0.total', '876500.00')->etc());
+    }
+
+    public function test_a_selection_is_paid_each_on_its_own_with_a_report(): void
+    {
+        $first = $this->employee('EMP-B1', benefits: null, salary: 500000);
+        $second = $this->employee('EMP-B2', benefits: null, salary: 400000);
+        $nothing = $this->employee('EMP-B3', benefits: null);
+
+        $this->actingAs($this->hr)->post('/administration/paie/payer-lot', ['employee_uuids' => [$first->uuid, $second->uuid, $nothing->uuid], 'mois' => '2026-09'])
+            ->assertSessionHas('bulk_report', fn (array $report) => $report['done'] === 2 && count($report['failed']) === 1 && $report['amount'] === '900000.00');
+        $this->assertSame(2, SalaryPayment::query()->count());
+    }
+
+    public function test_payslips_and_exports(): void
+    {
+        $employee = $this->employee('EMP-P1', benefits: null, salary: 500000);
+
+        $this->actingAs($this->hr)->get("/administration/paie/bulletins?mois=2026-09&uuids[]={$employee->uuid}")
+            ->assertInertia(fn (Assert $page) => $page->component('Administration/Payroll/Payslips')->has('rows', 1)->where('rows.0.employee_number', 'EMP-P1')->etc());
+
+        $this->actingAs($this->hr)->get('/administration/paie/export?mois=2026-09')->assertOk()->assertDownload('journal-paie-2026-09.xlsx');
+        $this->actingAs($this->hr)->get('/administration/paie/export?mois=2026-09&type=virements')->assertOk()->assertDownload('virements-paie-2026-09.xlsx');
+
+        $reader = $this->user(['salary_payments.view'], 'RECEPTION');
+        $this->actingAs($reader)->get('/administration/paie/export?mois=2026-09')->assertForbidden();
+        $this->actingAs($reader)->put('/administration/paie/parametres', $this->settingsPayload())->assertForbidden();
+    }
+
+    /** @return array<string, mixed> */
+    private function settingsPayload(array $overrides = []): array
+    {
+        return [...(new PayrollSetting(PayrollSetting::PROPOSAL))->snapshot(), 'legal_deductions_enabled' => true, ...$overrides];
     }
 
     public function test_a_future_month_is_not_payable(): void

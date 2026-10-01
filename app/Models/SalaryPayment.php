@@ -13,14 +13,16 @@ use LogicException;
 
 /**
  * ADR-227 — la paie d'un employé pour un mois : salaire de base déclaré + avantages du
- * mois = brut (`total_amount`). ADR-228 — les retenues des dettes du personnel
- * (`deductions_amount`) s'en retranchent : à verser = brut − retenues. Aucune cotisation
- * ni impôt. Lignes figées au paiement ; le virement se fait hors RIVO. Jamais supprimée :
+ * mois = brut (`total_amount`). ADR-233 — les retenues légales (`legal_deductions_amount`)
+ * et ADR-228 — les retenues de dettes s'en retranchent ; `deductions_amount` les compte
+ * toutes : net à verser = brut − retenues. Paramètres de paie, charges patronales et mode
+ * de paiement figés avec la paie (`payroll_snapshot`, `payment_details`). Lignes figées au paiement ; le virement se fait hors RIVO. Jamais supprimée :
  * annulée avec un motif.
  */
 #[Fillable([
     'employee_id', 'employee_name', 'period', 'remuneration_type', 'base_amount', 'advantages_amount',
-    'deductions_amount', 'total_amount', 'lines', 'status', 'active_key',
+    'deductions_amount', 'legal_deductions_amount', 'employer_charges_amount', 'total_amount', 'lines',
+    'payroll_snapshot', 'payment_mode', 'payment_details', 'status', 'active_key',
     'paid_at', 'paid_by', 'external_paid_by_uuid', 'external_paid_by_name', 'payment_note',
 ])]
 class SalaryPayment extends Model
@@ -45,6 +47,10 @@ class SalaryPayment extends Model
             'base_amount' => 'decimal:2',
             'advantages_amount' => 'decimal:2',
             'deductions_amount' => 'decimal:2',
+            'legal_deductions_amount' => 'decimal:2',
+            'employer_charges_amount' => 'decimal:2',
+            'payroll_snapshot' => 'array',
+            'payment_details' => 'array',
             'total_amount' => 'decimal:2',
             'status' => SalaryPaymentStatus::class,
             'paid_at' => 'datetime',

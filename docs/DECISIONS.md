@@ -22653,3 +22653,90 @@ modules indépendants Laboratoire, Pharmacie, RH et Partenaires conservent leurs
 Le banc local garde une base SQLite indépendante par clinique et des API sur les ports 8001, 8002 et 8003
 (`php artisan rivo:local-apis`). Le portail peut conserver une API de développement existante pour un site
 et utiliser le banc local pour les autres. Les jetons restent dans `.env.admin`, jamais dans Git.
+
+---
+
+# ADR-233 — La paie calcule les retenues légales selon des paramètres propres au site
+
+**Status:** ACCEPTED (2026-10-01 — demande explicite du propriétaire : « logique normale de paiement », quatre
+arbitrages : barème Madagascar paramétrable, charges patronales pour information, bulletin / paie en lot / mode de
+paiement / journal Excel, paramètres dans la Paie avec un droit dédié)
+
+**Amende l'ADR-066, l'ADR-206, l'ADR-225 et l'ADR-227**, qui refusaient tout calcul de CNAPS, d'IRSA ou de net
+faute de règles officielles. La règle n'est toujours pas écrite dans le code : elle devient un **paramètre du
+site**, relu et activé par le RH. Le CDC ne décrit aucune paie.
+
+## Le calcul
+
+```text
+brut                 salaire de base déclaré + avantages de la fiche + avantages saisis (ADR-227)
+CNAPS salarié        taux × min(brut, plafond)                         arrondi à l'ariary
+organisme médical    taux × min(brut, plafond)  (OSTIE / SMIE…)        arrondi à l'ariary
+base imposable       brut − CNAPS − organisme médical                  arrondie vers le bas si réglé
+IRSA                 somme des tranches × leur taux − réduction par enfant à charge,
+                     jamais sous le minimum quand la base dépasse la tranche à 0 %
+dettes (ADR-228)     retenues sur ce qui reste après les retenues légales, jamais plus
+net à verser         brut − retenues légales − dettes
+charges patronales   mêmes bases, taux employeur : information (bulletin, totaux, coût employeur)
+```
+
+`PayrollCalculator` calcule en centimes entiers (`Money`), sur des règles reçues — jamais écrites dans la classe.
+`PayrollBoard::draft()` est le seul calcul, partagé par le tableau et par « Marquer payé ». Les enfants à charge
+sont ceux de la fiche (ADR-225). Non rémunéré : aucune retenue ; indemnité de stage : aucune, sauf réglage
+contraire (`allowance_subject`).
+
+## Les paramètres
+
+`payroll_settings`, une ligne par base : activation, taux salarié/employeur et plafond de la CNAPS et de
+l'organisme médical (et son nom), tranches IRSA (plafonds croissants, la dernière sans plafond), IRSA minimum,
+réduction par enfant, arrondi de la base, indemnités de stage soumises ou non. Page **Paie du mois › Paramètres**
+(`/administration/paie/parametres`), servie aussi au portail (ADR-187), avec une **simulation** calculée par le
+serveur sur les valeurs en cours de saisie (rien n'est enregistré).
+
+Sans ligne enregistrée, la page propose le barème courant à Madagascar — CNAPS 1 % / 13 %, organisme médical 1 % /
+5 %, IRSA 0 % jusqu'à 350 000 Ar, puis 5 %, 10 %, 15 %, 20 % au-delà de 600 000 Ar, minimum 3 000 Ar, réduction de
+2 000 Ar par enfant — **désactivé** et marqué « à vérifier par votre comptable » ; les plafonds (8 fois le salaire
+minimum) ne sont pas proposés. Tant que le RH n'active pas, rien ne change : net = brut − dettes, comme avant.
+
+Une paie marquée payée **fige** ses lignes, ses retenues légales (`legal_deductions_amount`), ses charges
+patronales (`employer_charges_amount`), les paramètres utilisés (`payroll_snapshot`) et son mode de paiement
+(`payment_mode`, `payment_details` : banque et compte, comptes Mobile Money, espèces). Modifier les paramètres
+ensuite ne réécrit aucune paie payée. `deductions_amount` compte désormais toutes les retenues (légales et dettes).
+
+## La page Paie du mois
+
+```text
+cartes          à payer (net), brut, retenues légales, retenues de dettes, charges patronales (coût du mois), payées
+bandeau         « Retenues légales non activées » tant qu'elles le sont, avec le lien vers les paramètres
+ligne           mode de paiement, brut, retenues, net ; chaque retenue en ligne ; charges patronales dessous
+sélection       « Marquer payées » : chaque paie recomptée et figée séparément par la même action, rapport des
+                refus (comme l'ADR-090) ; bulletins et exports de la sélection
+bulletin        un par page (PaperSheet) : employeur (NIF, STAT), salarié, gains, retenues, net, mode de paiement,
+                charges patronales, signatures ; « provisoire » tant que la paie n'est pas payée
+exports         journal de paie (une ligne par salarié, détail des retenues) et liste de virement (par mode et
+                banque), en Excel, audités (`payroll.export`)
+```
+
+## Droits
+
+```text
+salary_settings.view     voir les paramètres de paie            ADMINISTRATION
+salary_settings.update   modifier les paramètres de paie        ADMINISTRATION
+salary_payments.export   exporter journal et liste de virement  ADMINISTRATION
+```
+
+Migration `2026_12_07_090000_create_payroll_settings`, à jouer sur chaque site et sur le portail (le Super Admin
+reçoit les droits par l'ADR-186). Audit : `PayrollSetting` (ancienne et nouvelle valeur), `payroll.bulk_pay`,
+`payroll.export`.
+
+## Signalé, non tranché
+
+```text
+barème                  proposé, à faire valider par le comptable de la clinique avant activation
+plafonds                CNAPS et organisme médical : à renseigner (8 × salaire minimum en vigueur)
+avantages en nature     tous les avantages sont soumis comme le salaire ; une exonération partielle n'est
+                        pas prévue
+déclarations            aucune déclaration CNAPS / IRSA ni état nominatif n'est produit
+doublon de dossier      une même personne avec deux dossiers employés (deux matricules) apparaît deux fois :
+                        c'est une donnée à corriger dans les dossiers, pas une règle de paie
+```

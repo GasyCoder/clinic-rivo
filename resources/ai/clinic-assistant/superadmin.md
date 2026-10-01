@@ -35,10 +35,14 @@ Un module n'a qu'une seule entrée dans le menu. On choisit d'abord le site, pui
 - **Laboratoire** › Laboratoires des sites (`/super-admin/laboratory`) ;
 - **Pharmacie & stocks** › Pharmacies des sites (`/super-admin/pharmacy`), Stock médicaments, Fournisseurs pharmacie ;
 - **Organisation** › Ressources humaines, Emails professionnels, Messagerie, Logistique & équipements, Gardiennage ;
-- **Référentiels** › Tarifs & mutuelles, Canevas de documents, Catalogue des analyses, Adresses & localités, Services, chambres & lits, Patients VIP, Partenaires.
+- **Référentiels** › Tarifs & mutuelles, Modèles de documents, Catalogue des analyses, Adresses & localités, Services, chambres & lits, Patients VIP, Partenaires.
 
 Les gestes physiques (délivrer, réceptionner, inventaire, saisir ou valider un résultat d'analyse) restent réservés au site : le portail les montre verrouillés.
 
 ## Autres espaces
 
 Finances (Caisses des sites, Modes de paiement, Rapports financiers, Dettes du personnel), Corbeille multi-sites, Audit & APIs, Maintenance d'un site (Paramètres › Maintenance).
+
+## Modèles de documents
+
+Référentiels › **Modèles de documents** (`/super-admin/workspaces/document-templates`, droit `document_templates.view`) : les modèles (contrat, congé, attestation…) que le RH de chaque site utilise dans « Générer un document ». Choisir le site, puis un dossier à gauche ; « Liste » ou « Grille » ; filtres En service, Proposés au RH, Inactifs, À vérifier, Archivés. Cliquer un modèle ouvre sa fiche avec l'aperçu du texte. « Nouveau modèle » : 1 · Dossier, 2 · Données reprises (la page 1 que le RH verra), 3 · Nom et « Proposé au RH », 4 · Pages, puis le texte (import Word ou PDF possible) et « Créer le modèle ». Enregistrer un modèle déjà utilisé crée une nouvelle version ; « Versions » permet d'y revenir. Archiver demande un motif.

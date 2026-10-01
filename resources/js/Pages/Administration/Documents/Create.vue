@@ -227,7 +227,7 @@ const stepDone = computed(() => ({
         <PageHeader
             eyebrow="Ressources humaines · Documents"
             title="Générer un document"
-            description="Une attestation, un contrat, un courrier de congé… produit à partir d’un canevas du Super Administrateur. La page 1 reprend les informations de la personne (modifiables) ; les pages suivantes, le texte du canevas tel quel. Le document généré est figé, puis imprimé."
+            description="Une attestation, un contrat, un courrier de congé… produit à partir d’un modèle du Super Administrateur. La page 1 reprend les informations de la personne (modifiables) ; les pages suivantes, le texte du modèle tel quel. Le document généré est figé, puis imprimé."
             :icon="FileSignature"
             tone="primary"
         >
@@ -255,14 +255,14 @@ const stepDone = computed(() => ({
                         </span>
                         <div>
                             <h2 class="font-heading text-base font-bold text-foreground">Quel document ?</h2>
-                            <p class="text-sm text-muted-foreground">Les canevas publiés pour ce site par le Super Administrateur.</p>
+                            <p class="text-sm text-muted-foreground">Les modèles publiés pour ce site par le Super Administrateur.</p>
                         </div>
                     </header>
 
                     <div v-if="templates.length" class="mt-4 space-y-4">
                         <div v-for="group in templateGroups" :key="group.type">
                             <p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{{ group.type }}</p>
-                            <div class="grid gap-2 sm:grid-cols-2" role="radiogroup" :aria-label="`Canevas ${group.type}`">
+                            <div class="grid gap-2 sm:grid-cols-2" role="radiogroup" :aria-label="`Modèles ${group.type}`">
                                 <button
                                     v-for="template in group.items"
                                     :key="template.uuid"
@@ -287,7 +287,7 @@ const stepDone = computed(() => ({
                         <p v-if="form.errors.document_template_uuid" class="text-sm text-destructive">{{ form.errors.document_template_uuid }}</p>
                     </div>
                     <div v-else class="mt-4 rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-                        Aucun canevas n’est encore publié pour ce site. Le Super Administrateur les compose dans « Canevas de documents » (portail) et les envoie au site ; ils apparaissent ici dès qu’ils sont actifs.
+                        Aucun modèle n’est encore publié pour ce site. Le Super Administrateur les compose dans « Modèles de documents » (portail) et les envoie au site ; ils apparaissent ici dès qu’ils sont actifs.
                     </div>
                 </Card>
 
@@ -394,7 +394,7 @@ const stepDone = computed(() => ({
                 </Card>
 
                 <div class="flex flex-wrap items-center justify-end gap-2">
-                    <p v-if="! readyForPreview" class="me-auto text-sm text-muted-foreground">Choisissez un canevas, une personne<template v-if="needsContract || needsLeave"> et {{ needsContract ? 'son contrat' : 'sa demande de congé' }}</template>.</p>
+                    <p v-if="! readyForPreview" class="me-auto text-sm text-muted-foreground">Choisissez un modèle, une personne<template v-if="needsContract || needsLeave"> et {{ needsContract ? 'son contrat' : 'sa demande de congé' }}</template>.</p>
                     <Button :as="Link" :href="backHref" variant="outline">Annuler</Button>
                     <Button v-if="can('generated_documents.create')" type="submit" :disabled="form.processing || ! readyForPreview">
                         <LoaderCircle v-if="form.processing" class="h-4 w-4 animate-spin" /><FileSignature v-else class="h-4 w-4" />{{ form.processing ? 'Génération…' : replaces ? 'Générer la nouvelle version' : 'Générer le document' }}
@@ -408,7 +408,7 @@ const stepDone = computed(() => ({
                     <header class="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
                         <div class="min-w-0">
                             <h2 class="text-sm font-bold text-foreground">Aperçu du document</h2>
-                            <p class="truncate text-xs text-muted-foreground">{{ selectedTemplate?.name || 'Canevas à choisir' }} · {{ selectedEmployee?.name || 'personne à choisir' }}</p>
+                            <p class="truncate text-xs text-muted-foreground">{{ selectedTemplate?.name || 'Modèle à choisir' }} · {{ selectedEmployee?.name || 'personne à choisir' }}</p>
                         </div>
                         <Badge v-if="preview && ! previewLoading" variant="success">Données réelles</Badge>
                     </header>
@@ -417,7 +417,7 @@ const stepDone = computed(() => ({
                     <div v-else-if="preview" class="max-h-[70vh] overflow-y-auto bg-white p-4 text-sm text-slate-800" v-html="preview.rendered_html" />
                     <div v-else class="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
                         <FileText class="h-8 w-8 text-muted-foreground/60" aria-hidden="true" />
-                        L’aperçu apparaît dès que le canevas et la personne sont choisis.
+                        L’aperçu apparaît dès que le modèle et la personne sont choisis.
                     </div>
                 </Card>
             </aside>

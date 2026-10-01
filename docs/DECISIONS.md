@@ -23253,3 +23253,67 @@ Migration `2026_12_10_090000_link_payment_methods_to_banks`, à jouer sur chaque
 ```text
 mobile money   les opérateurs (MVola, Orange Money, Airtel Money) restent des libellés écrits : un référentiel
                d'opérateurs n'a pas été demandé
+
+---
+
+# ADR-240 — « Modèles de documents » : une gestion documentaire au portail
+
+**Status:** ACCEPTED (2026-10-01 — demande explicite du propriétaire : « mettre à jour UI et UX de
+`/super-admin/workspaces/document-templates` avec shadcn, en faire une vraie gestion documentaire, rendre
+plus logique la création, et changer le nom du module »)
+
+**Complète l'ADR-070, l'ADR-087 et l'ADR-208** (canevas, page 1, dossiers). Présentation et vocabulaire
+seulement : aucune route, permission, donnée ni règle serveur ne change ; les URL restent
+`/super-admin/workspaces/document-templates`.
+
+## Le nom
+
+« Canevas de documents » devient **« Modèles de documents »**, dans l'espace **« Gestion documentaire »**.
+Un canevas est un mot d'atelier ; ce que le RH choisit est un modèle. Le mot change partout où il se lit :
+menu du portail, pages du portail, messages de retour (portail et API du site), pages RH (Documents,
+Contrats, Congés), aide de l'assistant. Il est écrit une fois (`MODULE_NAME`, `utilities/documentTemplates.js`).
+Les commentaires, classes CSS (`canevas-page-break`) et noms de code ne changent pas.
+
+## La liste : une arborescence et des fichiers
+
+```text
+en-tête       « Documents produits » (RH du site) et « Nouveau modèle »
+sites         onglets, comme avant ; un site injoignable le dit
+repères       modèles en service · proposés au RH · documents produits · à vérifier (cliquable)
+gauche        les dossiers : « Tous les modèles », les sept connus, puis ceux d'un type libre,
+              chacun « proposés au RH / en service »
+droite        fil d'Ariane, recherche (sans accents, tous les mots), Liste ou Grille (gardé sur le poste),
+              états En service · Proposés au RH · Inactifs · À vérifier · Archivés, comptés dans le dossier
+ligne         « Générer » quand le modèle est proposé au RH, le reste dans un menu « … »
+              (voir la fiche, modifier, dupliquer, proposer / retirer du RH, archiver, restaurer)
+fiche         panneau latéral : état, type, données reprises (champs de la page 1, d'où le RH le voit),
+              écart de contexte signalé (ADR-207), documents produits, aperçu du texte
+```
+
+« À vérifier » : un modèle de contrat ou de congé réglé sur d'autres données reprises, qui ne reprendrait
+pas les dates (ADR-207). L'adresse suit le site, le dossier et l'état (`?site=&dossier=&statut=`), sans
+rappeler les sites. Plus aucun composant DashWind (`FolderCard`, `PageHeader`) sur ces pages.
+
+## La fiche d'un modèle : dans l'ordre où l'on décide
+
+```text
+1 · Dossier            un dossier connu (cartes) ou « Autre type… » écrit à la main ; un dossier connu
+                       règle d'office les données reprises
+2 · Données reprises   ce que le RH verra en page 1 ; un nouveau modèle ne présume rien
+3 · Identification     nom, description, « Proposé au RH »
+4 · Pages              liste avec extrait, monter, descendre, dupliquer, supprimer
+texte                  à droite, page par page, sur fond de papier ; import Word ou PDF
+```
+
+Une frise dit ce qui est fait ; « Créer le modèle » / « Enregistrer » attend le dossier, les données
+reprises, le nom et du texte, et dit ce qui manque. Plus aucune fenêtre du navigateur (`confirm`, `alert`) :
+supprimer une page, remplacer une page par un import, quitter sans enregistrer passent par une fenêtre de
+l'application ; un import échoué s'affiche au-dessus du texte. « Historique » devient « Versions » ; revenir
+à une version demande un motif, comme avant.
+
+## Signalé, non tranché
+
+```text
+texte vide          « du texte » est exigé à l'écran seulement ; le serveur accepte toujours un modèle vide
+aperçu de la liste  lu dans la réponse du site (`content_html`), déjà servie avec chaque modèle
+```

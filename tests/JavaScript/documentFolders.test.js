@@ -19,8 +19,9 @@ test('a known folder has its colour, an unknown one the neutral colour', () => {
 
 /** Une tuile fait ~150 px : deux lignes courtes, jamais tronquées. */
 test('a folder says what it holds in two short lines', () => {
-    assert.equal(folderSummary({ templates: 3 }), '3 canevas');
-    assert.equal(folderSummary({ templates: 0 }), 'Aucun canevas');
+    assert.equal(folderSummary({ templates: 3 }), '3 modèles');
+    assert.equal(folderSummary({ templates: 1 }), '1 modèle');
+    assert.equal(folderSummary({ templates: 0 }), 'Aucun modèle');
     assert.equal(folderDocuments({ documents: 0, archived: 0 }), 'Aucun document');
     assert.equal(folderDocuments({ documents: 1, archived: 0 }), '1 document');
     assert.equal(folderDocuments({ documents: 12, archived: 3 }), '12 doc. · 3 arch.');
@@ -29,12 +30,13 @@ test('a folder says what it holds in two short lines', () => {
     }
 });
 
-test('the portal canevas and the site documents are both shown as folders', () => {
-    for (const page of ['resources/js/Pages/SuperAdmin/DocumentTemplates/Index.vue', 'resources/js/Pages/Administration/Documents/Index.vue']) {
-        const source = fs.readFileSync(page, 'utf8');
-        assert.match(source, /<FolderCard/, `${page} range ses éléments en dossiers`);
-        assert.match(source, /familyTone/, `${page} colore ses dossiers comme l'autre écran`);
-    }
+test('the site documents are shown as folders, the portal models as a folder tree', () => {
+    const site = fs.readFileSync('resources/js/Pages/Administration/Documents/Index.vue', 'utf8');
+    assert.match(site, /<FolderCard/);
+    assert.match(site, /familyTone/);
+    const portal = fs.readFileSync('resources/js/Pages/SuperAdmin/DocumentTemplates/Index.vue', 'utf8');
+    assert.match(portal, /familyTone/, 'les dossiers du portail ont la teinte de ceux du site');
+    assert.match(portal, /aria-label="Dossiers de modèles"/);
 });
 
 /** Un document ne s'efface jamais : « Supprimer » l'archive avec un motif, « Modifier » en fait une nouvelle version. */

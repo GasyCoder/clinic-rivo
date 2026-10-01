@@ -82,7 +82,7 @@ class DocumentTemplateController extends Controller
         // ADR-208 — le canevas créé se retrouve dans son dossier.
         return $this->respond(
             $client->createDocumentTemplate($siteCode, $payload, $request->user()),
-            'Canevas créé.',
+            'Modèle créé.',
             route('super-admin.document-templates.index', ['site' => $siteCode, 'dossier' => DocumentFamily::key($payload['document_type'])]),
         );
     }
@@ -93,7 +93,7 @@ class DocumentTemplateController extends Controller
 
         return $this->respond(
             $client->updateDocumentTemplate($site, $documentTemplate, $this->templatePayload($request), $request->user()),
-            'Canevas mis à jour.',
+            'Modèle mis à jour.',
         );
     }
 
@@ -104,7 +104,7 @@ class DocumentTemplateController extends Controller
 
         return $this->respond(
             $client->archiveDocumentTemplate($site, $documentTemplate, $validated['reason'], $request->user()),
-            'Canevas archivé.',
+            'Modèle archivé.',
         );
     }
 
@@ -114,7 +114,7 @@ class DocumentTemplateController extends Controller
 
         return $this->respond(
             $client->restoreDocumentTemplate($site, $documentTemplate, $request->user()),
-            'Canevas restauré.',
+            'Modèle restauré.',
         );
     }
 
@@ -124,7 +124,7 @@ class DocumentTemplateController extends Controller
 
         return $this->respond(
             $client->duplicateDocumentTemplate($site, $documentTemplate, $request->user()),
-            'Canevas dupliqué.',
+            'Modèle dupliqué.',
         );
     }
 
@@ -170,7 +170,7 @@ class DocumentTemplateController extends Controller
 
         return $this->respond(
             $client->setDocumentTemplateActive($site, $documentTemplate, $active, $request->user()),
-            $active ? 'Canevas activé.' : 'Canevas désactivé.',
+            $active ? 'Modèle activé.' : 'Modèle désactivé.',
         );
     }
 

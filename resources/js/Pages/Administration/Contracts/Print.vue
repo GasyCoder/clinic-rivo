@@ -58,7 +58,7 @@ const printSheet = () => {
 
         <section class="print-actions rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-900 dark:bg-gray-950">
             <h1 class="font-heading text-lg font-bold text-slate-800 dark:text-white">Imprimer le contrat de {{ contract.employee.name }}</h1>
-            <p class="mt-1 text-sm text-slate-500">{{ contract.contract_type }} · du {{ formatDate(contract.starts_on) }} au {{ contract.ends_on ? formatDate(contract.ends_on) : 'sans date de fin' }}. Choisissez le canevas à utiliser : les informations de l’employé et du contrat sont remplies automatiquement.</p>
+            <p class="mt-1 text-sm text-slate-500">{{ contract.contract_type }} · du {{ formatDate(contract.starts_on) }} au {{ contract.ends_on ? formatDate(contract.ends_on) : 'sans date de fin' }}. Choisissez le modèle à utiliser : les informations de l’employé et du contrat sont remplies automatiquement.</p>
 
             <div v-if="orderedTemplates.length" class="mt-4 grid gap-2 sm:grid-cols-2">
                 <Link
@@ -75,7 +75,7 @@ const printSheet = () => {
                     <Icon name="printer" class="text-lg text-slate-400 group-hover:text-primary-600" />
                 </Link>
             </div>
-            <p v-else-if="can('generated_documents.create') && !contract.archived" class="mt-4 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"><Icon name="alert-circle" class="mt-0.5" />Aucun canevas de contrat n’est disponible sur ce site. Le Super Admin doit publier un canevas « Employé et contrat ». En attendant, vous pouvez imprimer la fiche résumé.</p>
+            <p v-else-if="can('generated_documents.create') && !contract.archived" class="mt-4 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"><Icon name="alert-circle" class="mt-0.5" />Aucun modèle de contrat n’est disponible sur ce site. Le Super Admin doit publier un modèle « Employé et contrat ». En attendant, vous pouvez imprimer la fiche résumé.</p>
             <p v-else-if="contract.archived" class="mt-4 text-sm text-slate-500">Ce contrat est archivé : seule sa fiche résumé s’imprime.</p>
             <p v-else class="mt-4 text-sm text-slate-500">Votre compte n’a pas le droit de générer un document. Seule la fiche résumé s’imprime.</p>
 

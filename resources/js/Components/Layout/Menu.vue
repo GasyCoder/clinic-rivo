@@ -143,7 +143,7 @@ const adminMenu = computed(() => [
     },
     { heading: 'Référentiels' },
     { icon: FileText, text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
-    { icon: FileText, text: 'Canevas de documents', link: '/super-admin/workspaces/document-templates', permission: 'document_templates.view' },
+    { icon: FileText, text: 'Modèles de documents', link: '/super-admin/workspaces/document-templates', permission: 'document_templates.view' },
     { icon: Activity, text: 'Catalogue des analyses', link: '/super-admin/analyses', permission: 'analysis_catalog.view' },
     { icon: MapPin, text: 'Adresses & localités', link: '/super-admin/addresses', permission: 'address_entries.view' },
     { icon: BedDouble, text: 'Services, chambres & lits', link: '/super-admin/hospital-beds', permission: 'hospital_beds.view' },

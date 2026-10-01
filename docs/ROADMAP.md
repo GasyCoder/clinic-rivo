@@ -1004,6 +1004,7 @@ admin.rivo.mg
 - [x] Répartition financière brute / mutuelle / patient historisée sur les factures
 - [x] Sélection multiple par site : export ciblé Stock/Adresses et archivage/restauration atomiques des référentiels
 - [x] Éditeur de canevas de documents (TipTap) : création, modification versionnée, duplication, activation, archivage/restauration par site
+- [x] « Modèles de documents » (ex-« Canevas de documents ») en gestion documentaire shadcn : arborescence des dossiers, liste ou grille, états (proposés au RH, inactifs, à vérifier, archivés), fiche latérale avec aperçu ; création en quatre étapes (dossier, données reprises, nom, pages) sans fenêtre du navigateur (ADR-240)
 - [x] Catalogue des permissions administrable depuis le portail (ADR-101) : créer un droit, reformuler son libellé, retirer un nom que rien ne vérifie — le nom lui-même ne change jamais
 - [x] Usage réel de chaque permission calculé depuis le code (`PermissionUsageScanner`) : « vérifiée par l'application » ou « pas encore vérifiée », jamais une liste tenue à la main
 - [x] Panneaux redimensionnables à la barre (clavier, double-clic, largeur conservée par poste) sur le socle des rôles et les exceptions par compte

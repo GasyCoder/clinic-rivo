@@ -54,7 +54,7 @@ const fieldOptions = computed(() => props.internshipFields.map((field) => ({
                     <HrEmployeePicker id="contract_employee" v-model="form.employee_uuid" :employees="employees" required :error="form.errors.employee_uuid" />
                 </HrFormSection>
 
-                <HrFormSection number="2" title="Type et référence" description="Le document à signer se produit ensuite depuis « Documents » (canevas Super Admin).">
+                <HrFormSection number="2" title="Type et référence" description="Le document à signer se produit ensuite depuis « Documents » (modèle du Super Admin).">
                     <div class="grid gap-4 lg:grid-cols-2">
                         <FormField as="div" label="Type de contrat" required :error="form.errors.contract_type_uuid">
                             <Select id="contract_type" v-model="form.contract_type_uuid" :options="typeOptions" :icon="FileSignature" placeholder="Sélectionner un type" class="w-full min-w-0" aria-label="Type de contrat" />

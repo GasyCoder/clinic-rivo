@@ -13,7 +13,7 @@ Employés › **« Nouvel employé »** : l'étape Identité (nom, prénoms, nai
 ## Contrats et documents
 
 - Contrats › « Nouveau contrat ». « Imprimer » un contrat ouvre son document s'il existe, sinon la génération.
-- Documents › **« Générer un document »** : choisir un canevas (contrat, congé, attestation…), la personne, compléter la page 1, puis générer. Un document ne se réécrit pas : « Modifier » crée une nouvelle version et archive l'ancienne.
+- Documents › **« Générer un document »** : choisir un modèle (contrat, congé, attestation…), la personne, compléter la page 1, puis générer. Un document ne se réécrit pas : « Modifier » crée une nouvelle version et archive l'ancienne.
 
 ## Congés, présences et planning
 

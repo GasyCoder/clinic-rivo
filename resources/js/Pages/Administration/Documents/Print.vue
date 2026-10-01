@@ -42,7 +42,7 @@ const restore = () => router.post(hrUrl(`/administration/generated-documents/${p
     <div class="mx-auto max-w-4xl space-y-3">
         <div class="print-actions flex flex-wrap items-center gap-2">
             <Button :as="Link" :href="folderHref" variant="outline"><ArrowLeft class="h-4 w-4" />Retour au dossier</Button>
-            <Button v-if="sourceHref" :as="Link" :href="sourceHref" variant="ghost"><FileStack class="h-4 w-4" />{{ document.source.kind === 'contract' ? 'Autre canevas ou fiche résumé' : 'Fiche de demande' }}</Button>
+            <Button v-if="sourceHref" :as="Link" :href="sourceHref" variant="ghost"><FileStack class="h-4 w-4" />{{ document.source.kind === 'contract' ? 'Autre modèle ou fiche résumé' : 'Fiche de demande' }}</Button>
             <div class="ms-auto flex flex-wrap gap-2">
                 <template v-if="! document.archived">
                     <Button v-if="can('generated_documents.create') && can('generated_documents.archive')" :as="Link" :href="modifyHref" variant="outline"><Pencil class="h-4 w-4" />Modifier</Button>

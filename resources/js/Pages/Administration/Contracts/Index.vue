@@ -82,7 +82,7 @@ const restore = (contract) => router.post(hrUrl(`/administration/contracts/${con
         <PageHeader
             eyebrow="Ressources humaines"
             title="Contrats du personnel"
-            description="Le type, les dates et la référence de chaque contrat. Le document à signer se produit depuis un canevas, dans « Documents »."
+            description="Le type, les dates et la référence de chaque contrat. Le document à signer se produit depuis un modèle, dans « Documents »."
             :icon="FileText"
             tone="sky"
         >

@@ -15,8 +15,8 @@ class Permission extends Model
 
     protected static function booted(): void
     {
-        static::saved(fn () => Cache::forget(self::CACHE_KEY));
-        static::deleted(fn () => Cache::forget(self::CACHE_KEY));
+        static::saved(fn () => self::forgetNames());
+        static::deleted(fn () => self::forgetNames());
     }
 
     public function roles(): BelongsToMany
@@ -41,9 +41,20 @@ class Permission extends Model
      */
     public static function allNames(): Collection
     {
-        return collect(Cache::rememberForever(
+        // Lu à chaque `can()` : sans mémoire de requête, le cache stocké en base
+        // coûtait une requête SQL par vérification de droit (47 sur la vue
+        // d'ensemble). `memo()` ne relit le cache qu'une fois par requête.
+        return collect(Cache::memo()->rememberForever(
             self::CACHE_KEY,
             fn () => static::query()->pluck('name')->all()
         ));
+    }
+
+    /**
+     * Forget the cached names, in the request memo as well as in the store.
+     */
+    public static function forgetNames(): void
+    {
+        Cache::memo()->forget(self::CACHE_KEY);
     }
 }

@@ -20,7 +20,6 @@ use Illuminate\Database\Events\NoPendingMigrations;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -61,7 +60,7 @@ class AppServiceProvider extends ServiceProvider
         // la synchronisation du Super Admin ci-dessous ne s'exécutait alors
         // jamais après des migrations (ADR-197).
         Event::listen(MigrationsEnded::class, function (): void {
-            Cache::forget(Permission::CACHE_KEY);
+            Permission::forgetNames();
         });
 
         // ADR-186 — sur le portail, le Super Admin détient toutes les

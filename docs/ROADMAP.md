@@ -1118,6 +1118,10 @@ admin.rivo.mg
 - [ ] Tests de charge
 - [ ] Sauvegardes
 - [ ] Tests restauration
+- [x] Performance : la liste des permissions n'est plus relue en base à chaque vérification de droit (47 lectures sur la vue d'ensemble), mémorisée une fois par requête
+- [x] Performance : fichiers JS/CSS de `public/build/assets` mis en cache un an par le navigateur (`immutable`) ; l'hébergeur n'envoyait aucun Cache-Control
+- [x] Script de diagnostic de lenteur à lancer sur le serveur (`scripts/diagnose-performance.sh`) : temps serveur sans réseau, OPcache web, caches Laravel, latence base
+- [ ] Prod : OPcache web, `php artisan optimize`, `APP_ENV=production` / `APP_DEBUG=false`, cache et sessions hors base — à vérifier avec le script
 - [ ] Monitoring
 - [ ] Logs
 - [ ] Production Mampikony

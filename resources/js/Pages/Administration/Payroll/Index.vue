@@ -24,7 +24,7 @@ import { formatMoney } from '@/utilities/money';
 import { hrContext, hrUrl } from '@/utilities/hrUrl';
 import { monthLabel, shiftMonth } from '@/utilities/bonus';
 import {
-    PAYMENT_MODE_OPTIONS, PAYROLL_LAYOUT_KEY, PAYROLL_LAYOUTS, PAYROLL_VIEWS, filterPayrollRows, hasActiveFilters, netOf,
+    PAYMENT_MODE_OPTIONS, PAYROLL_LAYOUT_KEY, paymentIncomplete, PAYROLL_LAYOUTS, PAYROLL_VIEWS, filterPayrollRows, hasActiveFilters, netOf,
     payrollQuery, payrollViewCounts, serviceOptions,
 } from '@/utilities/payrollBoard';
 
@@ -401,6 +401,9 @@ const emptyText = computed(() => {
                         <div class="flex justify-between bg-primary/5 px-3 py-2 font-semibold"><dt>Net à verser</dt><dd class="tabular-nums text-primary">{{ formatMoney(pending.row.total) }}</dd></div>
                         <div class="flex justify-between px-3 py-1.5 text-xs text-muted-foreground"><dt>Mode</dt><dd>{{ pending.row.payment_mode.label }} · {{ pending.row.payment_mode.summary }}</dd></div>
                     </dl>
+                    <p v-if="paymentIncomplete(pending.row)" class="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                        <CircleAlert class="mt-0.5 h-4 w-4 shrink-0" />Mode de paiement incomplet sur la fiche (étape Banque) : vérifiez comment la personne est réellement payée.
+                    </p>
                     <p class="text-muted-foreground">Le serveur recompte et fige les lignes, les paramètres de paie et le mode de paiement ; les avantages portés passent « Payé »<template v-if="Number(pending.row.debts_amount) > 0"> et chaque retenue devient un remboursement de la dette</template>.</p>
                 </template>
                 <template v-else-if="pending.mode === 'batch'">

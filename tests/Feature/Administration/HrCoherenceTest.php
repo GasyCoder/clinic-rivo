@@ -3,7 +3,10 @@
 namespace Tests\Feature\Administration;
 
 use App\Enums\DocumentDataContext;
+use App\Enums\HrReferenceType;
 use App\Models\AttendanceRecord;
+use App\Models\EmploymentContract;
+use App\Models\HrReferenceValue;
 use App\Models\DocumentTemplate;
 use App\Models\Employee;
 use App\Models\LeaveRequest;
@@ -103,6 +106,59 @@ class HrCoherenceTest extends TestCase
         // Une période ou les sessions ouvertes demandées : l'historique, sans le tableau du jour.
         $this->actingAs($this->administration)->get('/administration/attendance?open=1')
             ->assertInertia(fn (Assert $page) => $page->where('view', 'history')->where('board', null));
+    }
+
+    /** Un salarié n'a qu'un contrat à la fois, et la période d'essai tient dans le contrat. */
+    public function test_contracts_of_one_employee_never_overlap_and_trial_stays_inside(): void
+    {
+        $employee = $this->employee('EMP-C1', 'RAKOTO');
+        $cdi = HrReferenceValue::query()->where('type', HrReferenceType::ContractType->value)->where('label', 'CDI')->firstOrFail();
+        $cdd = HrReferenceValue::query()->where('type', HrReferenceType::ContractType->value)->where('label', 'CDD')->firstOrFail();
+        $post = fn (array $data) => $this->actingAs($this->administration)->post('/administration/contracts', ['employee_uuid' => $employee->uuid, 'contract_type_uuid' => $cdd->uuid, ...$data]);
+
+        $post(['starts_on' => '2026-01-01', 'ends_on' => '2026-03-31', 'trial_ends_on' => '2026-04-15'])->assertSessionHasErrors('trial_ends_on');
+        $post(['starts_on' => '2026-01-01', 'ends_on' => '2026-06-30'])->assertSessionHasNoErrors();
+
+        // Le même contrat saisi deux fois, ou un CDI qui commence pendant le CDD : refusés.
+        $post(['starts_on' => '2026-01-01', 'ends_on' => '2026-06-30'])->assertSessionHasErrors('starts_on');
+        $post(['contract_type_uuid' => $cdi->uuid, 'starts_on' => '2026-06-01'])->assertSessionHasErrors('starts_on');
+        // Après la fin du CDD : accepté.
+        $post(['contract_type_uuid' => $cdi->uuid, 'starts_on' => '2026-07-01'])->assertSessionHasNoErrors();
+        $this->assertSame(2, EmploymentContract::query()->where('employee_id', $employee->id)->count());
+
+        // Un contrat archivé ne revient pas par-dessus celui qui l'a remplacé.
+        $first = EmploymentContract::query()->where('employee_id', $employee->id)->orderBy('starts_on')->first();
+        $first->delete();
+        $post(['starts_on' => '2026-02-01', 'ends_on' => '2026-06-30'])->assertSessionHasNoErrors();
+        $this->actingAs($this->administration)->post("/administration/contracts/{$first->uuid}/restore")->assertSessionHasErrors('starts_on');
+        $this->assertTrue(EmploymentContract::withTrashed()->findOrFail($first->id)->trashed());
+
+        // Corriger un contrat ne se compare pas à lui-même.
+        $current = EmploymentContract::query()->where('employee_id', $employee->id)->whereDate('starts_on', '2026-07-01')->sole();
+        $this->actingAs($this->administration)->put("/administration/contracts/{$current->uuid}", [
+            'employee_uuid' => $employee->uuid, 'contract_type_uuid' => $cdi->uuid, 'starts_on' => '2026-07-01', 'observation' => 'Corrigé',
+        ])->assertSessionHasNoErrors();
+    }
+
+    public function test_an_employee_with_an_open_attendance_session_is_not_archived(): void
+    {
+        $employee = $this->employee('EMP-A1', 'RABE');
+        AttendanceRecord::query()->create(['employee_id' => $employee->id, 'work_date' => now()->toDateString(), 'started_at' => now()->subHour()]);
+
+        $this->actingAs($this->administration)->delete("/administration/employees/{$employee->uuid}", ['reason' => 'Départ'])
+            ->assertSessionHasErrors('reason');
+        $this->assertFalse($employee->fresh()->trashed());
+    }
+
+    public function test_attendance_is_not_recorded_in_advance(): void
+    {
+        $employee = $this->employee('EMP-A2', 'SOA');
+
+        $this->actingAs($this->administration)->post('/administration/attendance', [
+            'employee_uuid' => $employee->uuid,
+            'started_at' => now()->addDay()->format('Y-m-d H:i'),
+        ])->assertSessionHasErrors('started_at');
+        $this->assertSame(0, AttendanceRecord::query()->count());
     }
 
     private function employee(string $number, string $lastName): Employee

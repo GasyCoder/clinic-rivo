@@ -232,7 +232,7 @@ class PayrollBoard
         }];
     }
 
-    /** @return array{mode: ?string, label: string, details: array<string, mixed>, summary: string} */
+    /** @return array{mode: ?string, label: string, details: array<string, mixed>, summary: string, incomplete: bool} */
     private function paymentModeOf(?string $mode, ?array $details): array
     {
         $enum = $mode !== null ? SalaryPaymentMode::tryFrom($mode) : null;
@@ -244,7 +244,16 @@ class PayrollBoard
             default => 'À renseigner sur la fiche (étape Banque)',
         };
 
-        return ['mode' => $enum?->value, 'label' => $enum?->label() ?? 'Mode non renseigné', 'details' => $details, 'summary' => $summary];
+        // Un virement sans numéro de compte ou un Mobile Money sans numéro ne peut pas être
+        // versé : la ligne le dit, sans empêcher de la marquer payée (le virement est hors RIVO).
+        $incomplete = match ($enum) {
+            SalaryPaymentMode::Bank => blank($details['account_number'] ?? null),
+            SalaryPaymentMode::MobileMoney => collect($details['accounts'] ?? [])->filter(fn ($account) => filled($account['number'] ?? null))->isEmpty(),
+            SalaryPaymentMode::Cash => false,
+            default => true,
+        };
+
+        return ['mode' => $enum?->value, 'label' => $enum?->label() ?? 'Mode non renseigné', 'details' => $details, 'summary' => $summary, 'incomplete' => $incomplete];
     }
 
     /**

@@ -60,3 +60,14 @@ test('the address keeps only what differs from the default', () => {
     assert.equal(payrollQuery('2026-10', { vue: 'toutes', q: ' ', dettes: false }), 'mois=2026-10');
     assert.equal(payrollQuery('2026-10', { vue: 'a-payer', q: 'rabe', mode: 'CASH', dettes: true }), 'mois=2026-10&vue=a-payer&q=rabe&mode=CASH&dettes=1');
 });
+
+test('a payment mode that cannot be paid is flagged, and « À compléter » finds it', async () => {
+    const { filterPayrollRows: filter, paymentIncomplete } = await import('../../resources/js/utilities/payrollBoard.js');
+    const bankWithout = { name: 'A', payment_mode: { mode: 'BANK', incomplete: true }, lines: [] };
+    const cash = { name: 'B', payment_mode: { mode: 'CASH', incomplete: false }, lines: [] };
+    const none = { name: 'C', payment_mode: { mode: null }, lines: [] };
+    assert.equal(paymentIncomplete(bankWithout), true);
+    assert.equal(paymentIncomplete(cash), false);
+    assert.equal(paymentIncomplete(none), true);
+    assert.deepEqual(filter([bankWithout, cash, none], { mode: 'NONE' }).map((r) => r.name), ['A', 'C']);
+});

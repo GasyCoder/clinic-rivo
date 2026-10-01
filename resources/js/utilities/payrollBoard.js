@@ -19,7 +19,7 @@ export const PAYMENT_MODE_OPTIONS = [
     { value: 'BANK', label: 'Virement bancaire' },
     { value: 'MOBILE_MONEY', label: 'Mobile Money' },
     { value: 'CASH', label: 'Espèces' },
-    { value: 'NONE', label: 'Mode non renseigné' },
+    { value: 'NONE', label: 'À compléter (compte, numéro ou mode)' },
 ];
 
 /**
@@ -62,6 +62,9 @@ export function matchesSearch(row, query) {
     return words.every((word) => haystack.includes(word));
 }
 
+/** Le mode de paiement ne permet pas de verser : aucun mode, virement sans compte, Mobile Money sans numéro. */
+export const paymentIncomplete = (row) => Boolean(row?.payment_mode?.incomplete ?? ! row?.payment_mode?.mode);
+
 /** Les retenues de dettes que la ligne porte. */
 export const hasDebtDeduction = (row) => (row?.lines ?? []).some((line) => line.kind === 'DEBT');
 
@@ -71,7 +74,7 @@ export function matchesFilters(row, filters = {}) {
     if (filters.service && (row.department ?? '') !== filters.service) return false;
     if (filters.mode) {
         const mode = row.payment_mode?.mode ?? null;
-        if (filters.mode === 'NONE' ? mode !== null : mode !== filters.mode) return false;
+        if (filters.mode === 'NONE' ? ! paymentIncomplete(row) : mode !== filters.mode) return false;
     }
     if (filters.dettes && ! hasDebtDeduction(row)) return false;
 

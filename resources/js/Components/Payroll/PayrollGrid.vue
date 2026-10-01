@@ -8,7 +8,7 @@ import PayrollRowActions from '@/Components/Payroll/PayrollRowActions.vue';
 import { cn } from '@/lib/cn';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
-import { PAYROLL_STATUS, payrollStatusOf } from '@/utilities/payrollBoard';
+import { PAYROLL_STATUS, paymentIncomplete, payrollStatusOf } from '@/utilities/payrollBoard';
 
 /**
  * ADR-233 — la paie du mois en grille (vue « Grille ») : une carte par personne, le net en
@@ -63,8 +63,8 @@ const isOpen = (row) => props.detailed || props.expanded.includes(row.uuid);
             </div>
 
             <p class="flex items-center gap-1.5 px-4 pb-3 text-xs text-muted-foreground" :title="row.payment_mode.summary">
-                <component :is="MODE_ICONS[row.payment_mode.mode] ?? CircleAlert" :class="['h-4 w-4 shrink-0', ! row.payment_mode.mode && 'text-amber-600']" aria-hidden="true" />
-                <span class="truncate">{{ row.payment_mode.label }} · {{ row.payment_mode.summary }}</span>
+                <component :is="MODE_ICONS[row.payment_mode.mode] ?? CircleAlert" :class="['h-4 w-4 shrink-0', paymentIncomplete(row) && 'text-amber-600']" aria-hidden="true" />
+                <span :class="['truncate', paymentIncomplete(row) && 'font-medium text-amber-700 dark:text-amber-300']">{{ row.payment_mode.label }} · {{ row.payment_mode.summary }}</span>
             </p>
 
             <div v-if="isOpen(row)" class="border-t border-border">

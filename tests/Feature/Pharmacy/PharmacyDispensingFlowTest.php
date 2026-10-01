@@ -8,6 +8,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
 use App\Enums\MedicineStockReservationStatus;
+use App\Enums\InvoiceStatus;
 use App\Enums\PharmacyDispenseStatus;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
@@ -21,6 +22,7 @@ use App\Models\PaymentMethod;
 use App\Models\Permission;
 use App\Models\PharmacyDispense;
 use App\Models\PharmacyDispenseAllocation;
+use App\Models\PharmacyDispenseLotReservation;
 use App\Models\PharmacyStockMovement;
 use App\Models\Role;
 use App\Models\User;
@@ -29,6 +31,7 @@ use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -497,5 +500,56 @@ class PharmacyDispensingFlowTest extends TestCase
         $this->assertFalse($receptionPermissions->contains('stock.adjust'));
         $this->assertFalse($pharmacyPermissions->contains(fn (string $name) => str_starts_with($name, 'cash.')));
         $this->assertFalse($pharmacyPermissions->contains(fn (string $name) => str_starts_with($name, 'payments.')));
+    }
+
+    /** Le patient règle quand le lot réservé a déjà périmé : la réservation passe sur un lot valide. */
+    public function test_a_reservation_on_a_lot_that_expired_before_dispensing_moves_to_a_valid_lot(): void
+    {
+        [$medicine, $early, $late] = $this->saleMedicine();
+        $dispense = $this->sell($medicine, 5);
+        $this->markPaid($dispense);
+        $line = $dispense->lines()->sole();
+
+        Carbon::setTestNow(now()->addMonths(4));
+        try {
+            $this->actingAs($this->pharmacist)->post("/pharmacy/dispenses/{$dispense->uuid}/deliveries", [
+                'lines' => [['uuid' => $line->uuid, 'quantity' => 5]],
+            ])->assertSessionHasNoErrors()->assertRedirect();
+        } finally {
+            Carbon::setTestNow();
+        }
+
+        // Le lot périmé n'a pas bougé ; tout sort du lot valide.
+        $this->assertSame(3, $early->fresh()->quantity_on_hand);
+        $this->assertSame(5, $late->fresh()->quantity_on_hand);
+        $stale = PharmacyDispenseLotReservation::query()->where('medicine_lot_id', $early->id)->sole();
+        $this->assertSame(MedicineStockReservationStatus::Released, $stale->status);
+        $this->assertStringContainsString('FEFO-EARLY', $stale->release_reason);
+    }
+
+    public function test_an_expired_reservation_is_not_moved_when_valid_lots_cannot_cover_it(): void
+    {
+        [$medicine, $early, $late] = $this->saleMedicine();
+        $dispense = $this->sell($medicine, 5);
+        $this->markPaid($dispense);
+        $late->update(['quantity_on_hand' => 3]);
+
+        Carbon::setTestNow(now()->addMonths(4));
+        try {
+            $this->actingAs($this->pharmacist)->post("/pharmacy/dispenses/{$dispense->uuid}/deliveries", [
+                'lines' => [['uuid' => $dispense->lines()->sole()->uuid, 'quantity' => 5]],
+            ])->assertSessionHasErrors('lines');
+        } finally {
+            Carbon::setTestNow();
+        }
+
+        $this->assertSame(MedicineStockReservationStatus::Reserved, PharmacyDispenseLotReservation::query()->where('medicine_lot_id', $early->id)->sole()->status);
+        $this->assertSame(3, $early->fresh()->quantity_on_hand);
+    }
+
+    private function markPaid(PharmacyDispense $dispense): void
+    {
+        $dispense->invoice->forceFill(['status' => InvoiceStatus::Paid])->save();
+        $dispense->forceFill(['status' => PharmacyDispenseStatus::Ready])->save();
     }
 }

@@ -22893,3 +22893,51 @@ autorisation ponctuelle    le droit vaut pour le compte, pas pour une seule dema
                            usage est un geste du Super Admin
 premier mois proposé       le mois suivant la décision ; le DG le change à volonté
 ```
+
+---
+
+# ADR-235 — Audit de cohérence RH et Pharmacie : gardes d'intégrité ajoutées
+
+**Status:** ACCEPTED (2026-10-01 — demande du propriétaire : « vérifier cohérence et logique de donnée puis
+corriger, côté RH et Pharmacie »)
+
+Les données locales ont été interrogées (invariants), puis le code qui les produit relu. Tiennent déjà : stock
+d'un lot = somme de ses mouvements, aucune réservation au-delà du stock, totaux de commandes et de factures,
+reçu ≤ commandé, aucun chevauchement de congés ou de présences, enfants = liste. Ce qui a été corrigé :
+
+```text
+RH
+contrats             un salarié n'a qu'un contrat à la fois : deux contrats non archivés qui se chevauchent
+                     sont refusés à la création, à la modification et à la restauration (ContractPeriodGuard,
+                     message qui nomme le contrat en place). Constaté : le même CDI saisi deux fois à 47 s
+                     d'écart ; un CDD d'un jour posé sur un CDI. Garde d'intégrité comme celles des
+                     présences et des congés (ADR-066) : le contrat « en cours » lu par les stages (ADR-207),
+                     les documents (ADR-208) et la paie doit être unique
+période d'essai      ne finit pas après la fin du contrat (elle pouvait)
+archivage            refusé tant qu'une session de présence est ouverte : la personne resterait « présente »
+                     sans fin ; on enregistre d'abord son heure de sortie
+présences            un fait constaté ne se saisit pas à l'avance (10 min de marge pour l'horloge du poste) ;
+                     le planning sert à prévoir
+paie                 mode de paiement incomplet (aucun mode, virement sans numéro de compte, Mobile Money sans
+                     numéro) signalé sur la ligne, filtrable (« À compléter ») et rappelé à la confirmation —
+                     sans bloquer : la fiche s'enregistre toute seule pendant la saisie (ADR-221)
+
+Pharmacie
+réception            un lot déjà périmé ne se réceptionne pas (le jour de péremption reste utilisable,
+                     ADR-036) ; l'entrée en stock le refuse aussi, quel que soit le chemin. Constaté : 8 lots
+                     entrés le jour même de leur péremption
+délivrance           une réservation posée sur un lot périmé ou désactivé avant le règlement bloquait la
+                     délivrance (« Réallouez le stock ») sans qu'aucun écran ne le permette. Elle est reportée
+                     sur les lots valides du même médicament, en FEFO, sans entamer ce qui est réservé pour
+                     d'autres ; l'ancienne réservation est libérée avec son motif. Lots valides insuffisants :
+                     rien ne bouge, le refus dit combien il manque
+facture fournisseur  refusée sur une commande jamais envoyée, ou annulée sans aucune livraison ; une facture
+                     déjà rattachée se corrige toujours
+```
+
+Aucune permission ni migration. **Données déjà enregistrées non modifiées** (ADR-010) : à reprendre à la main —
+contrats en double du même salarié (archiver le doublon, donner une fin au CDD), lots déjà périmés en stock
+(ajustement « péremption »), deux salariés payés par virement sans numéro de compte.
+
+**Signalé, non tranché.** Une demande de congé en attente ou un créneau de planning à venir n'empêchent pas
+d'archiver un dossier ; un employé désactivé (`active = false`) peut encore recevoir présence, congé ou créneau.

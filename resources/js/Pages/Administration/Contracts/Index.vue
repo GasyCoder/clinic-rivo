@@ -17,6 +17,7 @@ import Textarea from '@/Components/Shadcn/Textarea.vue';
 import HrPagination from '../Partials/HrPagination.vue';
 import HrStatCard from '../Partials/HrStatCard.vue';
 import { usePermissions } from '@/composables/usePermissions';
+import { useToastStore } from '@/stores/toast';
 import { endingLabel, formatPeriod, initials } from '@/utilities/hr';
 
 defineOptions({ layout: AppLayout });
@@ -66,7 +67,12 @@ const archive = () => {
         onSuccess: () => { archiving.value = null; },
     });
 };
-const restore = (contract) => router.post(hrUrl(`/administration/contracts/${contract.uuid}/restore`), {}, { preserveScroll: true });
+const toast = useToastStore();
+// Restaurer est refusé si un autre contrat couvre déjà la période : le refus se dit ici.
+const restore = (contract) => router.post(hrUrl(`/administration/contracts/${contract.uuid}/restore`), {}, {
+    preserveScroll: true,
+    onError: (errors) => toast.error(Object.values(errors)[0] ?? 'Le contrat n’a pas été restauré.', 10000),
+});
 </script>
 
 <template>

@@ -43,7 +43,7 @@ class UpdateSupplierInvoiceAction
         try {
             $invoice = DB::transaction(function () use ($invoice, $supplier, $data, $actor, $file, $newPath): SupplierInvoice {
                 $invoice = SupplierInvoice::query()->lockForUpdate()->findOrFail($invoice->id);
-                [$purchaseOrder, $goodsReceipt] = $this->resolveLinks($supplier, $data);
+                [$purchaseOrder, $goodsReceipt] = $this->resolveLinks($supplier, $data, $invoice);
                 [$lines, $total] = $this->resolveContent($data);
                 $invoiceNumber = $this->guardInvoiceNumber($supplier, $data['invoice_number'], $invoice);
 

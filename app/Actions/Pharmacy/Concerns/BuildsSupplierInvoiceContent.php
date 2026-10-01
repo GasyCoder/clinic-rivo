@@ -2,6 +2,7 @@
 
 namespace App\Actions\Pharmacy\Concerns;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Models\GoodsReceipt;
 use App\Models\Medicine;
 use App\Models\MedicineSupplier;
@@ -54,7 +55,7 @@ trait BuildsSupplierInvoiceContent
      * @param  array<string, mixed>  $data
      * @return array{0: ?PurchaseOrder, 1: ?GoodsReceipt}
      */
-    private function resolveLinks(MedicineSupplier $supplier, array $data): array
+    private function resolveLinks(MedicineSupplier $supplier, array $data, ?SupplierInvoice $existing = null): array
     {
         $purchaseOrder = filled($data['purchase_order_uuid'] ?? null)
             ? PurchaseOrder::query()->where('uuid', $data['purchase_order_uuid'])->firstOrFail()
@@ -68,6 +69,21 @@ trait BuildsSupplierInvoiceContent
         if ($purchaseOrder && $purchaseOrder->medicine_supplier_id !== $supplier->getKey()) {
             throw ValidationException::withMessages([
                 'purchase_order_uuid' => 'Cette commande a été passée à un autre fournisseur.',
+            ]);
+        }
+
+        // Une facture paie ce qui a été livré : une commande jamais envoyée, ou annulée
+        // sans qu'aucune livraison n'ait eu lieu, n'a rien à facturer.
+        // Une facture déjà rattachée à cette commande se corrige toujours (la commande a pu
+        // être annulée ensuite).
+        if ($purchaseOrder && $existing?->purchase_order_id !== $purchaseOrder->getKey() && (
+            $purchaseOrder->status === PurchaseOrderStatus::Draft
+            || ($purchaseOrder->status === PurchaseOrderStatus::Cancelled && ! $purchaseOrder->receipts()->exists())
+        )) {
+            throw ValidationException::withMessages([
+                'purchase_order_uuid' => $purchaseOrder->status === PurchaseOrderStatus::Draft
+                    ? 'Cette commande n’a pas encore été envoyée au fournisseur : rien n’est à facturer.'
+                    : 'Cette commande a été annulée sans livraison : rien n’est à facturer.',
             ]);
         }
 

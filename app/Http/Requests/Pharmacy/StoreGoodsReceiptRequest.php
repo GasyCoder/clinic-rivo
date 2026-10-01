@@ -37,7 +37,8 @@ class StoreGoodsReceiptRequest extends FormRequest
             ],
             'lines.*.quantity_received' => ['required', 'integer', 'min:1'],
             'lines.*.lot_number' => ['required', 'string', 'max:100'],
-            'lines.*.expires_at' => ['required', 'date'],
+            // Un lot déjà périmé ne se réceptionne pas : il entrerait au stock déjà inutilisable.
+            'lines.*.expires_at' => ['required', 'date', 'after_or_equal:today'],
             'lines.*.unit_purchase_price' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99'],
             'lines.*.notes' => ['nullable', 'string', 'max:500'],
             // ADR-174 — le nom sous lequel la pharmacie vendra un produit nouveau.
@@ -108,6 +109,7 @@ class StoreGoodsReceiptRequest extends FormRequest
             'lines.*.quantity_received.min' => 'La quantité reçue doit être supérieure à zéro.',
             'lines.*.lot_number.required' => 'Le numéro de lot est obligatoire.',
             'lines.*.expires_at.required' => 'La date de péremption est obligatoire.',
+            'lines.*.expires_at.after_or_equal' => 'Ce lot est déjà périmé : il ne se réceptionne pas. Signalez-le au fournisseur.',
             'invoice.invoice_number.required_with' => 'Le numéro de la facture est obligatoire.',
             'invoice.invoice_date.required_with' => 'La date de la facture est obligatoire.',
             'invoice.total_amount.required_with' => 'Le montant de la facture est obligatoire.',

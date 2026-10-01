@@ -7,7 +7,7 @@ import PayrollLines from '@/Components/Payroll/PayrollLines.vue';
 import PayrollRowActions from '@/Components/Payroll/PayrollRowActions.vue';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
-import { PAYROLL_STATUS, payrollStatusOf } from '@/utilities/payrollBoard';
+import { PAYROLL_STATUS, paymentIncomplete, payrollStatusOf } from '@/utilities/payrollBoard';
 
 /**
  * ADR-233 — la paie du mois en tableau : une ligne par personne, les montants alignés,
@@ -70,10 +70,10 @@ const isOpen = (row) => props.expanded.includes(row.uuid);
                             </td>
                             <td class="px-3 py-2.5">
                                 <span class="flex items-center gap-1.5 text-xs" :title="row.payment_mode.summary">
-                                    <component :is="MODE_ICONS[row.payment_mode.mode] ?? CircleAlert" :class="['h-4 w-4 shrink-0', row.payment_mode.mode ? 'text-muted-foreground' : 'text-amber-600']" aria-hidden="true" />
+                                    <component :is="MODE_ICONS[row.payment_mode.mode] ?? CircleAlert" :class="['h-4 w-4 shrink-0', paymentIncomplete(row) ? 'text-amber-600' : 'text-muted-foreground']" aria-hidden="true" />
                                     <span class="min-w-0">
                                         <span class="block font-medium text-foreground">{{ row.payment_mode.label }}</span>
-                                        <span class="block max-w-[12rem] truncate text-muted-foreground">{{ row.payment_mode.summary }}</span>
+                                        <span :class="['block max-w-[12rem] truncate', paymentIncomplete(row) ? 'font-medium text-amber-700 dark:text-amber-300' : 'text-muted-foreground']">{{ row.payment_mode.summary }}</span>
                                     </span>
                                 </span>
                             </td>

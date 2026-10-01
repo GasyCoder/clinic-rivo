@@ -431,6 +431,41 @@ class PurchaseOrderLifecycleTest extends TestCase
         $this->assertSame(5, $order->fresh()->lines->sole()->quantity_ordered);
     }
 
+    /** Un lot déjà périmé ne se réceptionne pas : il entrerait au stock inutilisable. */
+    public function test_an_already_expired_lot_is_refused_at_reception(): void
+    {
+        $supplier = $this->supplier();
+        $order = $this->createOrder($supplier, $this->medicine(), 10, '100');
+        $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$order->uuid}/submit");
+
+        $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$order->uuid}/receipts", ['lines' => [
+            ['purchase_order_line_id' => $order->lines->sole()->id, 'quantity_received' => 10, 'lot_number' => 'LOT-OLD', 'expires_at' => now()->subDay()->toDateString()],
+        ]])->assertSessionHasErrors('lines.0.expires_at');
+        $this->assertSame(0, $order->receipts()->count());
+
+        // Le jour de péremption reste utilisable (ADR-036) : il se réceptionne encore.
+        $this->receive($order, [
+            ['purchase_order_line_id' => $order->lines->sole()->id, 'quantity_received' => 10, 'lot_number' => 'LOT-TODAY', 'expires_at' => now()->toDateString()],
+        ]);
+        $this->assertSame(1, $order->receipts()->count());
+    }
+
+    /** Une facture paie ce qui a été livré : rien à facturer sur une commande jamais envoyée. */
+    public function test_a_draft_order_cannot_be_invoiced(): void
+    {
+        $supplier = $this->supplier();
+        $order = $this->createOrder($supplier, $this->medicine(), 10, '100');
+
+        $this->actingAs($this->pharmacist)->post("/pharmacy/suppliers/{$supplier->uuid}/invoices", [
+            'invoice_number' => 'FAC-1', 'invoice_date' => now()->toDateString(), 'total_amount' => '1000', 'purchase_order_uuid' => $order->uuid,
+        ])->assertSessionHasErrors('purchase_order_uuid');
+
+        $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$order->uuid}/submit");
+        $this->actingAs($this->pharmacist)->post("/pharmacy/suppliers/{$supplier->uuid}/invoices", [
+            'invoice_number' => 'FAC-1', 'invoice_date' => now()->toDateString(), 'total_amount' => '1000', 'purchase_order_uuid' => $order->uuid,
+        ])->assertSessionHasNoErrors();
+    }
+
     private function receive(PurchaseOrder $order, array $lines): void
     {
         $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$order->uuid}/receipts", [

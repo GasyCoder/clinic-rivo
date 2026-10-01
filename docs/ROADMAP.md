@@ -457,6 +457,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 
 - [x] Catalogue analyses structuré, références par profil et import/export Excel
 - [x] Catalogue des analyses : un seul écran partagé par le site et le portail (lecture, formulaire, adresses écrites une fois), plus de doublon DashWind / shadcn (ADR-063, amendement du 2026-09-28)
+- [x] Fiche d'une analyse en étapes (Identité, Résultat, Normes, Sous-analyses, Récapitulatif) qui s'enregistre toute seule après la création de l'identité ; champs selon le type de résultat, prestation cherchée dans une liste filtrable ; sous-analyses jamais recréées ni réactivées par un enregistrement (ADR-063, amendement du 2026-10-01)
 - [x] File de paillasse filtrable (à analyser / rendues / toutes) avec cartes compteur ; une demande annulée par le médecin (ADR-079) quitte la file au lieu d'y rester à faire
 - [x] Réception au laboratoire : numéro de laboratoire annuel, contrôle du règlement par analyse (bloquant sauf urgence, hospitalisé, prise en charge à 100 %), aucun montant affiché (ADR-214)
 - [x] Le technicien traite tout de suite : « Traiter » dans la file prend la demande en charge et ouvre la paillasse, la première saisie aussi ; le règlement s'affiche sans jamais bloquer (ADR-217)

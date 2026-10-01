@@ -50,17 +50,10 @@ test('list and grid modes are shadcn, responsive and remembered after hydration'
     assert.match(source, /viewMode === 'list'/);
 });
 
-test('an existing analysis can be updated immediately from any wizard step', () => {
-    assert.match(formSource, /v-if="analysisUuid && currentStep < steps\.length"/);
-    assert.match(formSource, /:disabled="form\.processing \|\| !form\.isDirty"/);
-    assert.match(formSource, /@click="submitForm"/);
-    assert.match(formSource, /Mettre à jour/);
-    assert.match(formSource, /Enregistrer maintenant sans parcourir les autres étapes/);
-    assert.ok(
-        formSource.indexOf("@click=\"submitForm\"") < formSource.indexOf("@click=\"nextStep\"", formSource.indexOf('<footer')),
-        'Mettre à jour doit être proposé avant Continuer',
-    );
-    assert.match(editSource, /submit-label="Mettre à jour"/);
+test('an existing analysis saves itself instead of a « Mettre à jour » button', () => {
+    assert.match(editSource, /useAutosave\(/);
+    assert.doesNotMatch(editSource, /submit-label=/);
+    assert.doesNotMatch(formSource, /submitForm|Mettre à jour/);
 });
 
 test('the hierarchy builder keeps children and grandchildren inside their main analysis', () => {

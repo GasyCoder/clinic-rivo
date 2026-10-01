@@ -19,6 +19,9 @@ const props = defineProps({
     current: { type: String, required: true },
     locked: { type: Boolean, default: false },
     stateOf: { type: Function, default: () => 'idle' },
+    /** Aussi employée par la fiche d'une analyse (ADR-063) : ses libellés lui sont propres. */
+    navLabel: { type: String, default: 'Étapes du dossier employé' },
+    lockedHint: { type: String, default: 'après la création du dossier' },
 });
 const emit = defineEmits(['select']);
 
@@ -43,15 +46,15 @@ const select = (step, index) => {
         <div class="h-0.5 bg-muted" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100" :aria-label="`Avancement : ${progress} %`">
             <div class="h-full bg-primary transition-[width] duration-300" :style="{ width: `${progress}%` }" />
         </div>
-        <nav aria-label="Étapes du dossier employé">
+        <nav :aria-label="navLabel">
             <ol class="grid divide-x divide-border" :style="{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }">
                 <li v-for="(step, index) in steps" :key="step.key">
                     <button
                         type="button"
                         :disabled="kind(step, index) === 'locked'"
-                        :title="kind(step, index) === 'locked' ? `${step.label} — après « Continuer »` : step.hint"
+                        :title="kind(step, index) === 'locked' ? `${step.label} — ${lockedHint}` : step.hint"
                         :aria-current="kind(step, index) === 'current' ? 'step' : undefined"
-                        :aria-label="`Étape ${step.number} : ${step.label}${kind(step, index) === 'locked' ? ' (après la création du dossier)' : ''}${kind(step, index) === 'attention' ? ' (à reprendre)' : ''}`"
+                        :aria-label="`Étape ${step.number} : ${step.label}${kind(step, index) === 'locked' ? ` (${lockedHint})` : ''}${kind(step, index) === 'attention' ? ' (à reprendre)' : ''}`"
                         :class="cn(
                             'flex h-full w-full items-center justify-center gap-2 px-1 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:flex-col lg:gap-1 lg:px-1.5 lg:py-2.5',
                             kind(step, index) === 'current' ? 'bg-primary/5' : 'hover:bg-accent/60',

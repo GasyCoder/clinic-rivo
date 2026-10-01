@@ -58,26 +58,42 @@ class AnalysisCatalogController extends Controller
         ]);
     }
 
-    public function edit(AnalysisCatalog $analysisCatalog, AnalysisCatalogDirectory $directory): Response
+    public function edit(Request $request, AnalysisCatalog $analysisCatalog, AnalysisCatalogDirectory $directory): Response
     {
         return Inertia::render('Analyses/Edit', [
             'context' => ['mode' => 'site'],
             'clinicSite' => $this->siteMeta(),
             ...$this->formData($directory),
             'analysis' => $directory->detail($analysisCatalog),
+            'initialStep' => AnalysisCatalogDirectory::formStep($request->query('etape')),
         ]);
     }
 
+    /**
+     * ADR-063, amendement du 2026-10-01 — la création ne demande que l'identité
+     * de l'analyse, puis ouvre sa fiche (`after=edit`), où la suite s'enregistre
+     * toute seule. Sans `after`, l'ancien retour au catalogue reste valable.
+     */
     public function store(StoreAnalysisCatalogRequest $request, AnalysisCatalogManager $manager): RedirectResponse
     {
         $analysis = $manager->saveWithChildren(null, $request->validated(), $request->user());
 
+        if ($request->input('after') === 'edit') {
+            return to_route('administration.analyses.edit', [$analysis, 'etape' => 'resultat'])
+                ->with('status', "Analyse « {$analysis->designation} » créée : la suite s’enregistre toute seule.");
+        }
+
         return to_route('administration.analyses.index')->with('status', "Analyse « {$analysis->designation} » ajoutée.");
     }
 
+    /** Un enregistrement automatique (`_autosave`) revient sur la fiche, sans message. */
     public function update(UpdateAnalysisCatalogRequest $request, AnalysisCatalog $analysisCatalog, AnalysisCatalogManager $manager): RedirectResponse
     {
         $analysis = $manager->saveWithChildren($analysisCatalog, $request->validated(), $request->user());
+
+        if ($request->boolean('_autosave')) {
+            return back();
+        }
 
         return to_route('administration.analyses.index')->with('status', "Analyse « {$analysis->designation} » mise à jour.");
     }

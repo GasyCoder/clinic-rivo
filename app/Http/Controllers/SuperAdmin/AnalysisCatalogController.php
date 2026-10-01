@@ -72,6 +72,7 @@ class AnalysisCatalogController extends Controller
             'clinicSite' => $this->siteMeta($site),
             'analysis' => $detail['data'],
             ...$this->formData($site, $request, $client),
+            'initialStep' => AnalysisCatalogDirectory::formStep($request->query('etape')),
         ]);
     }
 
@@ -80,11 +81,17 @@ class AnalysisCatalogController extends Controller
         $validated = $request->validate(['site_code' => $this->siteCodeRules(), ...$this->catalogRules()]);
         $site = $validated['site_code'];
         unset($validated['site_code']);
+        $result = $client->createAnalysis($site, $validated, $request->user());
 
-        return $this->respond(
-            $client->createAnalysis($site, $validated, $request->user()),
-            'Analyse ajoutée au site.',
-        );
+        // ADR-063, amendement du 2026-10-01 — la fiche créée s'ouvre aussitôt ;
+        // la suite s'y enregistre toute seule, toujours par l'API du site.
+        $uuid = $result['data']['uuid'] ?? null;
+        if ($result['ok'] && $request->input('after') === 'edit' && is_string($uuid)) {
+            return to_route('super-admin.analyses.edit', ['site' => $site, 'analysis' => $uuid, 'etape' => 'resultat'])
+                ->with('status', ($result['message'] ?? null) ?: 'Analyse créée sur le site : la suite s’enregistre toute seule.');
+        }
+
+        return $this->respond($result, 'Analyse ajoutée au site.');
     }
 
     public function update(
@@ -94,11 +101,14 @@ class AnalysisCatalogController extends Controller
         PortalSiteApiClient $client,
     ): RedirectResponse {
         $validated = $request->validate($this->catalogRules());
+        $result = $client->updateAnalysis($site, $analysis, $validated, $request->user());
 
-        return $this->respond(
-            $client->updateAnalysis($site, $analysis, $validated, $request->user()),
-            'Analyse mise à jour sur le site.',
-        );
+        // Un enregistrement automatique revient sur la fiche, sans message.
+        if ($result['ok'] && $request->boolean('_autosave')) {
+            return back();
+        }
+
+        return $this->respond($result, 'Analyse mise à jour sur le site.');
     }
 
     public function activate(Request $request, string $site, string $analysis, PortalSiteApiClient $client): RedirectResponse

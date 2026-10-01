@@ -169,6 +169,36 @@ class StockAndAddressPortalTest extends TestCase
             && $request['code'] === 'GLYC');
     }
 
+    /** ADR-063, amendement du 2026-10-01 — au portail aussi : créer ouvre la fiche, l'enregistrement automatique y revient. */
+    public function test_portal_creation_opens_the_record_and_autosave_returns_to_it(): void
+    {
+        $uuid = '33333333-3333-4333-8333-333333333333';
+        Http::fake([
+            'https://m.test/api/v1/super-admin/analysis-catalogs/'.$uuid => Http::response(['message' => 'Analyse mise à jour sur le site.', 'data' => ['uuid' => $uuid]], 200),
+            'https://m.test/api/v1/super-admin/analysis-catalogs' => Http::response(['message' => 'Analyse « Hémoglobine » ajoutée sur le site.', 'data' => ['uuid' => $uuid]], 201),
+        ]);
+        $definition = [
+            'catalog_item_uuid' => '11111111-1111-4111-8111-111111111111',
+            'parent_uuid' => null, 'code' => 'HB', 'level' => 'NORMAL', 'designation' => 'Hémoglobine',
+            'result_type' => 'NUMERIC', 'predefined_values' => [], 'display_order' => 0, 'is_active' => true,
+        ];
+
+        $this->actingAs($this->superAdmin)->post('/super-admin/analyses', ['site_code' => 'M', ...$definition, 'after' => 'edit'])
+            ->assertRedirect("/super-admin/analyses/M/{$uuid}/edit?etape=resultat")
+            ->assertSessionHas('status');
+
+        $edit = "/super-admin/analyses/M/{$uuid}/edit";
+        $this->actingAs($this->superAdmin)->from($edit)
+            ->put("/super-admin/analyses/M/{$uuid}", [...$definition, 'unit' => 'g/dL', '_autosave' => true])
+            ->assertRedirect($edit)
+            ->assertSessionMissing('status');
+
+        Http::assertSent(fn ($request) => $request->method() === 'PUT'
+            && $request->url() === 'https://m.test/api/v1/super-admin/analysis-catalogs/'.$uuid
+            && $request['unit'] === 'g/dL'
+            && ! isset($request['_autosave']));
+    }
+
     public function test_cash_registers_page_and_create_command_use_the_selected_site_api(): void
     {
         Http::fake([

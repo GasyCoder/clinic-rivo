@@ -98,6 +98,15 @@ class AnalysisCatalogDirectory
         ];
     }
 
+    /** Les étapes de la fiche d'une analyse, dans l'ordre de l'écran (`utilities/analysisForm.js`). */
+    public const FORM_STEPS = ['identite', 'resultat', 'normes', 'sous-analyses', 'recap'];
+
+    /** L'étape demandée dans l'adresse (`?etape=`), sinon la première. */
+    public static function formStep(mixed $step): string
+    {
+        return in_array($step, self::FORM_STEPS, true) ? $step : self::FORM_STEPS[0];
+    }
+
     /**
      * Une analyse avec ses sous-analyses, et les leurs quand elles sont
      * elles-mêmes des groupes : l'éditeur descend d'un niveau de plus.

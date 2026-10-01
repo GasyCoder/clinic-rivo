@@ -3109,6 +3109,48 @@ comme au portail. Le portail ne lit toujours aucune base de site (ADR-004).
 Aucune route, permission ni règle serveur ne change ; l'export du site est
 borné à 1 000 lignes, comme celui du portail.
 
+## Amendement du 2026-10-01 — la fiche d'une analyse en étapes, enregistrée toute seule
+
+Demande du propriétaire, sur `/super-admin/analyses/A/create` : un enregistrement
+automatique pendant la saisie, une interface shadcn, et des étapes plus logiques.
+C'est le schéma déjà retenu pour le dossier employé (ADR-221) : une fiche n'existe
+qu'une fois créée, donc on crée l'identité, puis tout le reste s'enregistre seul.
+
+```text
+création     l'étape Identité seule : prestation (recherche dans une liste
+             filtrable, accents ignorés), désignation, code, rang (Groupe /
+             Sous-analyse / Analyse simple) et groupe parent ; les autres étapes
+             se voient, verrouillées. « Créer et continuer » ouvre la fiche sur
+             l'étape Résultat (`after=edit`, `?etape=resultat`)
+étapes       Identité · Résultat · Normes · Sous-analyses (seulement pour un
+             groupe) · Récapitulatif ; chacune s'ouvre d'un clic, l'adresse la
+             garde (`?etape=`), une étape où il manque quelque chose ou qu'un
+             refus vise le dit dans la barre
+Résultat     le type d'abord (cartes Numérique, Texte, Choix, Oui/Non…) ; ce
+             qui ne le concerne pas n'est pas demandé : l'unité seulement pour un
+             résultat numérique, les valeurs proposées seulement pour un choix
+Normes       références par profil ; bornes critiques seulement si numérique
+Sous-analyses une ligne par résultat (désignation, code, type, unité), le détail
+             (normes, saisie, bornes, sous-groupe) replié ; retirer un résultat
+             déjà enregistré demande confirmation
+enregistré   ~1 s après la dernière saisie, par la même route, les mêmes droits
+             et la même validation qu'avant (au portail, par l'API du site) ;
+             retour sans message (`_autosave`). Rien ne part tant qu'un champ
+             obligatoire manque, et la barre du bas le nomme. « Continuer »
+             enregistre ce qui reste ; quitter une saisie refusée demande
+             confirmation
+```
+
+**Deux défauts corrigés.** Une sous-analyse nouvelle n'avait pas d'UUID côté
+écran : un second enregistrement l'aurait recréée. L'écran reprend désormais
+l'UUID que le serveur lui donne (par code, puis par rang), et le serveur refuse
+de toute façon un code déjà pris. La fiche chargeait aussi les sous-analyses
+**désactivées** : un enregistrement les aurait réactivées en silence. Seules les
+sous-analyses actives entrent dans le formulaire.
+
+Aucune route nouvelle, aucune permission ni migration ; les règles de
+`AnalysisCatalogManager` ne changent pas.
+
 ---
 
 # ADR-064 — Socle de permissions d’un rôle éditable depuis le portail

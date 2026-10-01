@@ -270,9 +270,14 @@ avec `settings.update` revérifié localement.
 (`ThemeModeSwitcher`, `stores/theme.js` : `mode` gardé sur le poste, `resolved`
 suit l'appareil pour « Système ») ; `app.blade.php` pose `dark` avant le premier
 affichage. Pendant un changement de page (GET sans `preserveState`, ni partiel,
-ni préchargement), `AppLayout` montre `PageSkeleton` — forme choisie par
-`utilities/pageSkeleton.js` sur l'adresse visée — après 200 ms, l'ancienne page
-restant montée et cachée (`usePageLoading`, installé dans `app.js`).
+ni préchargement), `AppLayout` montre, dès le clic et au moins 450 ms, la forme
+photographiée de l'écran visé (`usePageShapes` : `snapshotBones` de Boneyard pendant un
+temps mort après chaque affichage, rangée sous `pageShapeKey` — segments chiffrés en `:id` —,
+reprise à largeur comparable, dessinée par `PageShapeSkeleton` avec ses cartes), sinon la
+forme générique `PageSkeleton` ; jamais au premier affichage ; l'ancienne page reste montée
+et cachée dans `[data-page-shape-root]` (`usePageLoading`). Tout bloc de squelette, `Skeleton`
+shadcn compris, est `.skeleton-bone` : `foreground` à 8 % et balayage (ADR-185, amendement
+du 2026-10-01).
 
 **Thème, réglages avancés et numérotation par site** (ADR-191). `app_settings` porte
 `theme_preset` et trois couleurs par mode (`primary_color` / `dark_primary_color`,

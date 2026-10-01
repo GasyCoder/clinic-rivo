@@ -1022,6 +1022,8 @@ admin.rivo.mg
 - [x] Page « Mon profil » : identité, rôle, droits effectifs, et changement de son mot de passe (ancien exigé, autres sessions fermées, audité) ; deux modèles choisis par site (ADR-184, amendement bis)
 - [x] Apparence Clair / Système / Sombre (barre du haut à côté de la cloche, menu du compte sur téléphone, pages de connexion), « Système » suivant l'appareil en direct, sans éclair au chargement (ADR-185)
 - [x] Squelette de chargement shadcn sur toutes les pages de la mise en page principale, à la forme de la page qui arrive (tableau de bord, liste, fiche, formulaire, document, réglages) (ADR-185)
+- [x] Squelette à la forme exacte de l'écran : chaque page affichée est photographiée par Boneyard et rangée sous le motif de son adresse ; la visite suivante en reprend les cartes, compteurs et tableau ; forme générique pour un écran jamais vu (ADR-185, amendement du 2026-10-01)
+- [x] Squelette visible dès le clic et au moins 450 ms, un seul aspect de bloc à balayage (aussi pour le `Skeleton` shadcn), juste en clair comme en sombre ; trois captures arbitraires retirées (ADR-185, amendement du 2026-10-01)
 - [x] Thème par site : préréglages (RIVO, Océan, Forêt, Ardoise, Prune, Ambre, Nuit), couleurs du mode clair et du mode sombre côte à côte, texte illisible refusé, export / copie / import JSON (ADR-191)
 - [x] Réglages avancés du site (taille du texte, densité, arrondis, animations, contraste) appliqués dès le rendu serveur ; chacun ajuste taille, animations et contraste dans « Mon profil › Apparence », gardé sur son compte (ADR-191)
 - [x] Numéro de patient et de passage réglables par site (préfixe, année, chiffres, séparateur, remise annuelle ou continue) ; défaut inchangé, aucun numéro réécrit ni redonné (ADR-191)

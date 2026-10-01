@@ -2,6 +2,7 @@ import { createInertiaApp, router } from '@inertiajs/vue3';
 import { createPinia } from 'pinia';
 import { applySiteSettings, siteBrand } from '@/lib/siteSettings';
 import { installPageLoading } from '@/composables/usePageLoading';
+import { installPageShapes } from '@/composables/usePageShapes';
 
 const pinia = createPinia();
 
@@ -11,6 +12,9 @@ router.on('navigate', (event) => applySiteSettings(event.detail.page?.props?.sit
 
 // Pendant un changement de page, un squelette à la forme de la page qui arrive.
 installPageLoading(router);
+
+// Et chaque écran affiché est photographié, pour que son squelette ait sa vraie forme.
+installPageShapes(router);
 
 createInertiaApp({
     title: (title) => (title ? `${title} - ${siteBrand()}` : siteBrand()),

@@ -16834,6 +16834,56 @@ Limite : la forme est déduite de l'adresse, pas de la page elle-même (Inertia 
 composant d'arrivée qu'avec la réponse). Une page à l'adresse atypique reçoit la forme « liste ».
 Les pages hors mise en page principale (connexion, feuilles plein écran) n'en ont pas.
 
+## Amendement du 2026-10-01 — un squelette qui a la forme de l'écran, et qu'on voit
+
+Constat du propriétaire, avec la démo de Boneyard (boneyard.vercel.app) pour modèle : « je n'ai
+pas vu le chargement skeleton », puis « il ne prend pas la forme des pages, ni les cartes ».
+Quatre causes, vérifiées dans un navigateur :
+
+```text
+délai       200 ms : sur une page servie vite, le squelette n'apparaissait jamais
+couleur     gris à 96 % de clarté (`bg-muted`) avec un fondu, sur le fond de la page : invisible
+forme       trois formes capturées une fois sur trois pages prises au hasard, données à toutes
+            les autres — la « liste » faisait 262 px, sans compteurs ni tableau
+cartes      le composant Vue de Boneyard ne dessine jamais les surfaces (`filter(!c)`) : les
+            blocs flottaient sans carte autour
+```
+
+La règle devient :
+
+```text
+forme       chaque écran affiché est photographié par Boneyard (`snapshotBones`) pendant un
+            temps mort, ~1 s après son affichage et après chaque filtre ou onglet qui le change
+            (`usePageShapes`) ; la photo est rangée sous le motif de l'adresse — un segment qui
+            porte un chiffre devient `:id`, la requête est ignorée (`pageShapeKey`) ; la visite
+            suivante de cet écran en reprend la forme exacte
+largeur     une photo ne sert qu'à une largeur comparable (± 12 %) ; trois largeurs gardées
+            par écran (téléphone, tablette, ordinateur)
+inconnu     un écran jamais vu sur ce poste reçoit la forme générique de `PageSkeleton`
+dessin      `PageShapeSkeleton` : une surface arrondie redevient une carte bordée (`bg-card`),
+            une surface droite (ligne de tableau, bandeau) une surface plate, chaque contenu
+            un bloc à balayage
+bloc        un seul aspect, `.skeleton-bone` (shadcn.css) : `foreground` à 8 % et un balayage,
+            juste en clair comme en sombre ; le `Skeleton` shadcn l'emploie aussi, partout ;
+            les animations réduites (ADR-191) l'arrêtent
+délai       aucun : le squelette paraît dès le clic et reste au moins 450 ms
+premier     jamais au premier affichage : la page est déjà rendue par le serveur, et afficher
+affichage   le squelette avant l'hydratation ferait diverger client et serveur
+gardé       sur le poste (localStorage `rivo:page-shapes:v1`), 60 écrans au plus, 2 400 px de
+            haut au plus ; une forme ne contient que des rectangles — ni texte, ni donnée ;
+            stockage refusé ou abîmé : pas de forme, jamais une erreur
+```
+
+Remplace le délai de 200 ms ci-dessus. Le reste ne change pas : seuls les vrais changements de
+page, l'ancienne page montée et cachée, une seule annonce « Chargement de la page… ».
+
+**Retiré** : les trois captures faites d'avance (`resources/js/bones`), leur registre, la
+configuration et le script de capture. Elles donnaient à chaque écran la forme d'un autre.
+
+**Limite** : un bouton est photographié comme un seul bloc (compteurs cliquables, onglets) — c'est
+ainsi que Boneyard lit un élément de formulaire. Une page dont le contenu change beaucoup d'une
+visite à l'autre (liste vide puis pleine) montre la forme de la dernière visite.
+
 ---
 
 # ADR-186 — Le Super Admin du portail détient réellement toutes les permissions

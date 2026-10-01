@@ -150,13 +150,13 @@ const doneBySite = computed(() => {
 
 const title = computed(() => (single.value ? `Créer l’accès de ${single.value.employee.name}` : `Créer l’accès de ${rows.value.length} employés`));
 const description = computed(() => (phase.value === 'form'
-    ? 'Une adresse professionnelle et un compte RIVO. L’employé choisira lui-même son mot de passe.'
+    ? 'Une adresse professionnelle et un compte. L’employé choisira lui-même son mot de passe.'
     : phase.value === 'running' ? 'Chaque accès est créé à son tour : l’adresse chez l’hébergeur, puis le compte sur le site.'
         : 'Envoyez-les au RH du site : il dira à chaque employé que son compte existe et où se connecter.'));
 
 const STEPS = [
     { icon: AtSign, label: 'Adresse pro' },
-    { icon: UserRound, label: 'Compte RIVO' },
+    { icon: UserRound, label: 'Compte' },
     { icon: Send, label: 'Au RH' },
     { icon: KeyRound, label: 'Mot de passe choisi par l’employé' },
 ];
@@ -346,11 +346,11 @@ const who = (employee) => [employee.job_title, employee.department, employee.emp
                                     <span class="flex h-full max-w-[50%] shrink-0 items-center truncate border-s border-border bg-muted px-3 font-mono text-sm text-muted-foreground">@{{ domain ?? '…' }}</span>
                                 </div>
                             </FormField>
-                            <p v-if="hasActiveMailbox(row.employee)" class="text-xs text-muted-foreground">Elle recevra le mot de passe que l’employé choisira pour RIVO.</p>
+                            <p v-if="hasActiveMailbox(row.employee)" class="text-xs text-muted-foreground">Elle recevra le mot de passe que l’employé choisira pour son compte.</p>
                         </div>
 
                         <div class="grid min-w-0 content-start gap-3">
-                            <FormField label="Rôle dans RIVO" as="div">
+                            <FormField label="Rôle" as="div">
                                 <template v-if="fromJobTitle(row)" #action>
                                     <span class="ms-auto inline-flex items-center gap-1 text-[11px] font-medium text-primary" :title="`Proposé par sa fonction « ${row.employee.proposed_access.job_title} » — modifiable`">
                                         <Sparkles class="h-3 w-3" aria-hidden="true" />selon sa fonction

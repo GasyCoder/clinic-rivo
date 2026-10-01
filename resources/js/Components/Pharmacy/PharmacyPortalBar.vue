@@ -53,7 +53,7 @@ const otherSites = computed(() => (context.value?.sites ?? []).filter((site) => 
                     :title="site.configured ? `Voir la Pharmacie de ${site.name}` : `L’API de ${site.name} n’est pas configurée`"
                 ><Building2 class="h-3.5 w-3.5" />{{ site.name }}</Link>
                 <Link :href="context.overview_url" class="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground">
-                    <ArrowLeft class="h-3.5 w-3.5" />Stock de tous les sites
+                    <ArrowLeft class="h-3.5 w-3.5" />Tous les sites
                 </Link>
             </div>
         </div>

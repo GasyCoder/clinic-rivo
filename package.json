@@ -13,6 +13,7 @@
         "@tailwindcss/forms": "^0.5.10",
         "@tailwindcss/typography": "^0.5.16",
         "autoprefixer": "^10.4.21",
+        "boneyard-js": "^1.10.0",
         "concurrently": "^10.0.3",
         "laravel-vite-plugin": "^3.1",
         "postcss": "^8.5.3",

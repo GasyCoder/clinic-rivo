@@ -8,6 +8,7 @@ use App\Models\EmploymentContract;
 use App\Models\User;
 use App\Services\Administration\HrReferenceResolver;
 use App\Services\Administration\InternshipContractResolver;
+use App\Support\Hr\ContractPeriodGuard;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -26,7 +27,8 @@ class UpdateEmploymentContractAction
 
         return DB::transaction(function () use ($contract, $data): EmploymentContract {
             $contract = EmploymentContract::query()->lockForUpdate()->findOrFail($contract->getKey());
-            $employee = Employee::query()->where('uuid', $data['employee_uuid'])->firstOrFail();
+            $employee = Employee::query()->where('uuid', $data['employee_uuid'])->lockForUpdate()->firstOrFail();
+            ContractPeriodGuard::ensure($employee, $data['starts_on'] ?? null, $data['ends_on'] ?? null, $data['trial_ends_on'] ?? null, $contract);
             $type = $this->references->resolve(
                 $data['contract_type_uuid'],
                 HrReferenceType::ContractType,

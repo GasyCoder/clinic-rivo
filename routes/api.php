@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\SuperAdmin\AddressEntryController;
 use App\Http\Controllers\Api\V1\SuperAdmin\AnalysisCatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\AppSettingsController;
+use App\Http\Controllers\Api\V1\SuperAdmin\AssistantSettingsController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CashRegisterController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\DocumentTemplateController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\ProfessionalMailboxController;
 use App\Http\Controllers\Api\V1\SuperAdmin\ReportController as SuperAdminReportController;
 use App\Http\Controllers\Api\V1\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\Api\V1\SuperAdmin\StaffAccessController;
+use App\Http\Controllers\Api\V1\SuperAdmin\StaffDebtController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
 use App\Http\Controllers\Api\V1\SuperAdmin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -43,6 +45,22 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
             ->name('site-pharmacy.')
             ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
             ->group(base_path('routes/pharmacy.php'));
+
+        // ADR-215 — le Laboratoire du site, vu depuis le portail : mêmes routes,
+        // contrôleurs et droits que /laboratory (routes/laboratory.php). Les
+        // gestes cliniques y restent refusés au Super Admin (rivo.site-only).
+        Route::prefix('site-laboratory')
+            ->name('site-laboratory.')
+            ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
+            ->group(base_path('routes/laboratory.php'));
+
+        // ADR-229 — les dettes du personnel du site, gérées dans Finance au portail.
+        // Montées ici seulement : le site n'a plus d'écran de gestion, l'employé
+        // demande depuis « Mes dettes » et la Caisse encaisse (routes/web.php).
+        Route::prefix('site-staff-debts')
+            ->name('site-staff-debts.')
+            ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
+            ->group(base_path('routes/staff_debts.php'));
 
         // ADR-211 — les Partenaires du site, gérés aussi depuis le portail :
         // mêmes routes, contrôleurs et droits que /partenaires (routes/partners.php).
@@ -70,8 +88,15 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         // ADR-199 — confier la remise à un compte du site quand personne ne le peut.
         Route::post('/staff-access/receivers', [StaffAccessController::class, 'designateReceiver'])->name('staff-access.receivers');
 
+        // ADR-228 — les demandes de dette qui attendent le DG, relues par le portail pour le prévenir.
+        Route::get('/staff-debts/pending', [StaffDebtController::class, 'pending'])->name('staff-debts.pending');
+        // ADR-229 — ce qu'un site a en jeu, pour « Tous les sites » dans Finance.
+        Route::get('/staff-debts/overview', [StaffDebtController::class, 'overview'])->name('staff-debts.overview');
+
         Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
         Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore');
+        // ADR-236 — vider la corbeille : chaque élément jugé seul, ce qui a servi reste.
+        Route::delete('/trash', [TrashController::class, 'empty'])->name('trash.empty');
         Route::delete('/trash/{category}/{uuid}', [TrashController::class, 'destroy'])->name('trash.force-delete');
 
         Route::get('/pharmacy/stock', MedicineStockController::class)->name('pharmacy.stock');
@@ -202,6 +227,8 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::delete('/app-settings/reset', [AppSettingsController::class, 'reset'])->name('app-settings.reset');
         Route::post('/app-settings/assets/{kind}', [AppSettingsController::class, 'storeAsset'])->name('app-settings.assets.store');
         Route::delete('/app-settings/assets/{kind}', [AppSettingsController::class, 'destroyAsset'])->name('app-settings.assets.destroy');
+        // ADR-223 — l'aperçu du compte rendu d'analyses : un patient fictif, rien n'est enregistré.
+        Route::get('/app-settings/lab-report-preview', [AppSettingsController::class, 'labReportPreview'])->name('app-settings.lab-report-preview');
         // ADR-192 — les coupons de remise de ce site.
         Route::post('/app-settings/coupons', [AppSettingsController::class, 'storeCoupon'])->name('app-settings.coupons.store');
         Route::post('/app-settings/coupons/{coupon}/archive', [AppSettingsController::class, 'archiveCoupon'])->name('app-settings.coupons.archive');
@@ -209,6 +236,11 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         // ADR-193 — la maintenance du site, pilotée depuis le portail.
         Route::put('/app-settings/maintenance', [AppSettingsController::class, 'updateMaintenance'])->name('app-settings.maintenance.update');
         Route::post('/app-settings/maintenance/lift', [AppSettingsController::class, 'liftMaintenance'])->name('app-settings.maintenance.lift');
+        // ADR-222 — l'assistant d'aide au logiciel de ce site : fournisseur, modèle, clé, limites.
+        Route::get('/assistant-settings', [AssistantSettingsController::class, 'show'])->name('assistant-settings.show');
+        Route::put('/assistant-settings', [AssistantSettingsController::class, 'update'])->name('assistant-settings.update');
+        Route::delete('/assistant-settings/key', [AssistantSettingsController::class, 'destroyKey'])->name('assistant-settings.key.destroy');
+        Route::post('/assistant-settings/test', [AssistantSettingsController::class, 'test'])->name('assistant-settings.test');
 
         // ADR-133 — seuils des patients VIP de ce site.
         Route::get('/patient-vip-settings', [PatientVipSettingsController::class, 'show'])->name('patient-vip-settings.show');
@@ -256,11 +288,15 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/catalog/tariffs/import', [CatalogController::class, 'importTariffs'])->name('catalog.tariffs.import');
         Route::post('/catalog/bulk/archive', [CatalogController::class, 'bulkArchive'])->name('catalog.bulk.archive');
         Route::post('/catalog/bulk/restore', [CatalogController::class, 'bulkRestore'])->name('catalog.bulk.restore');
+        Route::get('/catalog/options', [CatalogController::class, 'formOptions'])->name('catalog.options');
+        Route::get('/catalog/{catalogUuid}', [CatalogController::class, 'show'])->name('catalog.show');
         Route::put('/catalog/{catalogUuid}', [CatalogController::class, 'update'])->name('catalog.update');
         Route::delete('/catalog/{catalogUuid}', [CatalogController::class, 'destroy'])->name('catalog.destroy');
         Route::post('/catalog/{catalogUuid}/restore', [CatalogController::class, 'restore'])->name('catalog.restore');
         Route::post('/catalog/{catalogUuid}/tariffs', [CatalogController::class, 'setTariff'])->name('catalog.tariffs.store');
         Route::post('/catalog/{catalogUuid}/tariffs/archive', [CatalogController::class, 'archiveTariff'])->name('catalog.tariffs.archive');
+        // ADR-072 / ADR-142 / ADR-169 — le matériel habituel d'un acte, réglé aussi depuis le portail.
+        Route::put('/catalog/{catalogUuid}/care-consumables', [CatalogController::class, 'syncCareConsumables'])->name('catalog.care-consumables.update');
 
         Route::get('/document-templates', [DocumentTemplateController::class, 'index'])->name('document-templates.index');
         Route::post('/document-templates', [DocumentTemplateController::class, 'store'])->name('document-templates.store');

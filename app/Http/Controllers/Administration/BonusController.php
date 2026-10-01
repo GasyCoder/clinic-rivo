@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Administration;
 
 use App\Actions\Bonus\ArchiveBonusCategoryAction;
+use App\Services\Payroll\AdvantageEntryDirectory;
 use App\Actions\Bonus\SaveBonusCategoryAction;
 use App\Actions\Bonus\SettleBonusAwardAction;
 use App\Actions\Bonus\ValidateBonusAwardAction;
@@ -27,7 +28,7 @@ use Inertia\Response;
  */
 class BonusController extends Controller
 {
-    public function index(Request $request, BonusBoard $board): Response
+    public function index(Request $request, BonusBoard $board, AdvantageEntryDirectory $entries): Response
     {
         $month = $this->month($request->query('mois')) ?? now()->startOfMonth();
         $canManage = $request->user()->can('bonus_categories.view');
@@ -36,6 +37,13 @@ class BonusController extends Controller
             'month' => $month->format('Y-m'),
             'currentMonth' => now()->format('Y-m'),
             'board' => $board->month($month),
+            // « Avantages des médecins » d'abord ; `?onglet=avantages` (ancien onglet retiré) y mène aussi.
+            'tab' => match ($request->query('onglet')) {
+                'saisis', 'avantages' => 'entries',
+                default => 'bonus',
+            },
+            // ADR-227 — avantages saisis pour les médecins (montant, motif, mois de paie).
+            'entries' => $request->user()->can('advantage_entries.view') ? $entries->month($month) : null,
             'measures' => BonusMeasure::options(),
             'categories' => $canManage ? BonusCategory::withTrashed()
                 ->withCount('awards')

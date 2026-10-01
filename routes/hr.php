@@ -1,8 +1,11 @@
 <?php
 
-use App\Http\Controllers\Administration\BonusController;
+use App\Http\Controllers\Administration\AdvantageEntryController;
 use App\Http\Controllers\Administration\AttendanceController;
+use App\Http\Controllers\Administration\BankController;
+use App\Http\Controllers\Administration\BonusController;
 use App\Http\Controllers\Administration\EmployeeBadgeController;
+use App\Http\Controllers\Administration\EmployeeBenefitController;
 use App\Http\Controllers\Administration\EmployeeController;
 use App\Http\Controllers\Administration\EmploymentContractController;
 use App\Http\Controllers\Administration\GeneratedDocumentController;
@@ -12,6 +15,8 @@ use App\Http\Controllers\Administration\HrReportController;
 use App\Http\Controllers\Administration\HrStructureController;
 use App\Http\Controllers\Administration\InternshipController;
 use App\Http\Controllers\Administration\LeaveController;
+use App\Http\Controllers\Administration\PayrollController;
+use App\Http\Controllers\Administration\PayrollSettingsController;
 use App\Http\Controllers\Administration\PlanningController;
 use App\Http\Controllers\Administration\ProfessionalMailboxController;
 use App\Http\Controllers\Administration\StaffAccessController;
@@ -73,6 +78,14 @@ Route::get('/employees/{employee}/photo', [EmployeeController::class, 'photo'])-
 Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update')->middleware('can:employees.update');
 Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy')->middleware('can:employees.delete');
 Route::post('/employees/{employee}/restore', [EmployeeController::class, 'restore'])->name('employees.restore')->middleware('can:employees.restore')->withTrashed();
+// ADR-236 — un dossier archivé qui n'a servi nulle part se supprime définitivement ; une sélection s'archive,
+// se restaure ou se supprime d'un geste, chaque dossier jugé séparément.
+Route::delete('/employees/{employee}/force', [EmployeeController::class, 'forceDestroy'])->name('employees.force-destroy')->middleware('can:employees.force_delete')->withTrashed();
+Route::post('/employees/bulk', [EmployeeController::class, 'bulk'])->name('employees.bulk')->middleware('can:employees.view');
+// ADR-221 — les avantages et primes d'un employé : mêmes droits que sa rémunération.
+Route::post('/employees/{employee}/benefits', [EmployeeBenefitController::class, 'store'])->name('employees.benefits.store')->middleware(['can:employees.update', 'can:employees.payroll.update']);
+Route::put('/employees/{employee}/benefits/{benefit}', [EmployeeBenefitController::class, 'update'])->name('employees.benefits.update')->middleware(['can:employees.update', 'can:employees.payroll.update']);
+Route::delete('/employees/{employee}/benefits/{benefit}', [EmployeeBenefitController::class, 'destroy'])->name('employees.benefits.destroy')->middleware(['can:employees.update', 'can:employees.payroll.update']);
 
 Route::get('/contracts', [EmploymentContractController::class, 'index'])->name('contracts.index')->middleware('can:contracts.view');
 Route::get('/contracts/export', [EmploymentContractController::class, 'export'])->name('contracts.export')->middleware('can:contracts.export');
@@ -164,6 +177,20 @@ Route::post('/bonus/categories/{category}/restore', [BonusController::class, 're
 Route::post('/bonus/awards', [BonusController::class, 'validateAward'])->name('bonus.awards.store')->middleware('can:bonus_awards.validate');
 Route::post('/bonus/awards/{award}/pay', [BonusController::class, 'payAward'])->name('bonus.awards.pay')->middleware('can:bonus_awards.pay');
 Route::post('/bonus/awards/{award}/cancel', [BonusController::class, 'cancelAward'])->name('bonus.awards.cancel')->middleware('can:bonus_awards.cancel');
+// ADR-227 — avantages saisis pour les médecins, et paie du mois qui les porte.
+Route::post('/bonus/avantages/saisis', [AdvantageEntryController::class, 'store'])->name('bonus.advantages.entries.store')->middleware('can:advantage_entries.create');
+Route::put('/bonus/avantages/saisis/{entry}', [AdvantageEntryController::class, 'update'])->name('bonus.advantages.entries.update')->middleware('can:advantage_entries.update');
+Route::delete('/bonus/avantages/saisis/{entry}', [AdvantageEntryController::class, 'destroy'])->name('bonus.advantages.entries.destroy')->middleware('can:advantage_entries.delete');
+Route::get('/paie', [PayrollController::class, 'index'])->name('payroll.index')->middleware('can:salary_payments.view');
+Route::post('/paie/payer', [PayrollController::class, 'pay'])->name('payroll.pay')->middleware('can:salary_payments.pay');
+// ADR-233 — paie en lot, bulletins, journal et virements, paramètres de paie (cotisations, IRSA).
+Route::post('/paie/payer-lot', [PayrollController::class, 'payBatch'])->name('payroll.pay-batch')->middleware('can:salary_payments.pay');
+Route::get('/paie/bulletins', [PayrollController::class, 'payslips'])->name('payroll.payslips')->middleware('can:salary_payments.view');
+Route::get('/paie/export', [PayrollController::class, 'export'])->name('payroll.export')->middleware('can:salary_payments.export');
+Route::get('/paie/parametres', [PayrollSettingsController::class, 'show'])->name('payroll.settings')->middleware('can:salary_settings.view');
+Route::put('/paie/parametres', [PayrollSettingsController::class, 'update'])->name('payroll.settings.update')->middleware('can:salary_settings.update');
+Route::post('/paie/parametres/simulation', [PayrollSettingsController::class, 'simulate'])->name('payroll.settings.simulate')->middleware('can:salary_settings.view');
+Route::post('/paie/{payment}/annuler', [PayrollController::class, 'cancel'])->name('payroll.cancel')->middleware('can:salary_payments.cancel');
 
 Route::get('/staff-block-credits', [StaffBlockCreditController::class, 'index'])
     ->name('staff-block-credits.index')
@@ -171,3 +198,10 @@ Route::get('/staff-block-credits', [StaffBlockCreditController::class, 'index'])
 Route::post('/staff-block-credits/{employee}', [StaffBlockCreditController::class, 'store'])
     ->name('staff-block-credits.store')
     ->middleware('can:staff_block_credits.allocate');
+
+// ADR-221 — le référentiel des banques du site, proposé à la fiche d'un employé.
+Route::get('/banks', [BankController::class, 'index'])->name('banks.index')->middleware('can:hr_settings.view');
+Route::post('/banks', [BankController::class, 'store'])->name('banks.store')->middleware('can:hr_settings.create');
+Route::put('/banks/{bank}', [BankController::class, 'update'])->name('banks.update')->middleware('can:hr_settings.update');
+Route::delete('/banks/{bank}', [BankController::class, 'destroy'])->name('banks.destroy')->middleware('can:hr_settings.archive');
+Route::post('/banks/{bank}/restore', [BankController::class, 'restore'])->name('banks.restore')->middleware('can:hr_settings.restore')->withTrashed();

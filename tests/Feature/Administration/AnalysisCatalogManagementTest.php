@@ -62,10 +62,14 @@ class AnalysisCatalogManagementTest extends TestCase
             ->get('/administration/analyses')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->component('Administration/Analyses/Index')
-                ->where('analyses.data.0.code', 'GLYC')
-                ->where('analyses.data.0.unit', 'g/L')
-                ->has('catalogItems', 1));
+                // Le même écran que le portail, pour ce seul site (ADR-063).
+                ->component('Analyses/Index')
+                ->where('context.mode', 'site')
+                ->has('sites', 1)
+                ->where('sites.0.ok', true)
+                ->where('sites.0.data.analyses.0.code', 'GLYC')
+                ->where('sites.0.data.analyses.0.unit', 'g/L')
+                ->has('sites.0.data.catalog_items', 1));
 
         $this->actingAs($actor)
             ->post("/administration/analyses/{$analysis->uuid}/deactivate")
@@ -204,8 +208,10 @@ class AnalysisCatalogManagementTest extends TestCase
         $manager = app(AnalysisCatalogManager::class);
 
         $rootData = $this->definition($service, 'PANEL', 'PARENT', 'Bilan complet');
+        // ADR-238 — la discipline se choisit sur le groupe ; une sous-analyse prend la sienne.
+        $rootData['new_discipline_name'] = 'BIOCHIMIE';
         $rootData['children'] = [
-            ['code' => 'PANEL-A', 'level' => 'CHILD', 'designation' => 'Élément A', 'result_type' => 'NUMERIC', 'display_order' => 1, 'exam_category' => 'BIOCHIMIE', 'is_bold' => true],
+            ['code' => 'PANEL-A', 'level' => 'CHILD', 'designation' => 'Élément A', 'result_type' => 'NUMERIC', 'display_order' => 1, 'exam_category' => 'HEMATOLOGIE', 'is_bold' => true],
             ['code' => 'PANEL-B', 'level' => 'CHILD', 'designation' => 'Élément B', 'result_type' => 'NUMERIC', 'display_order' => 2],
         ];
         $root = $manager->saveWithChildren(null, $rootData, $actor);
@@ -298,7 +304,7 @@ class AnalysisCatalogManagementTest extends TestCase
         $service = $this->laboratoryService($actor);
 
         $payload = $this->definition($service, 'NFS', 'PARENT', 'Numération formule sanguine');
-        $payload['exam_category'] = 'HEMATOLOGIE';
+        $payload['new_discipline_name'] = 'HEMATOLOGIE';
         $payload['is_bold'] = true;
         $payload['children'] = [
             ['code' => 'NFS-HB', 'level' => 'CHILD', 'designation' => 'Hémoglobine', 'result_type' => 'NUMERIC', 'reference_male' => '13-17', 'unit' => 'g/dL', 'display_order' => 1],
@@ -312,12 +318,14 @@ class AnalysisCatalogManagementTest extends TestCase
         $this->assertTrue($root->is_bold);
         $this->assertCount(2, $root->children);
         $this->assertTrue(AnalysisCatalog::query()->where('code', 'NFS-HB')->firstOrFail()->parent->is($root));
+        $this->assertSame($root->lab_discipline_id, AnalysisCatalog::query()->where('code', 'NFS-HB')->value('lab_discipline_id'));
 
         $this->actingAs($actor)
             ->get('/administration/analyses/create')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('examCategories', ['HEMATOLOGIE']));
+                ->where('disciplines.0.name', 'HEMATOLOGIE')
+                ->count('disciplines', 1));
     }
 
     public function test_a_nested_sub_group_can_be_created_through_the_web_form_and_reopened_with_its_grandchildren(): void
@@ -384,6 +392,82 @@ class AnalysisCatalogManagementTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->where('analysis.children.0.uuid', $child->uuid));
+    }
+
+    /** ADR-063, amendement du 2026-10-01 — la création ouvre la fiche, sur l'étape Résultat. */
+    public function test_creating_then_continuing_opens_the_new_analysis_on_its_result_step(): void
+    {
+        $actor = $this->administrationUser();
+        $service = $this->laboratoryService($actor);
+
+        $response = $this->actingAs($actor)->post('/administration/analyses', [
+            ...$this->definition($service, 'HB', 'NORMAL', 'Hémoglobine'),
+            'after' => 'edit',
+        ]);
+
+        $analysis = AnalysisCatalog::query()->where('code', 'HB')->firstOrFail();
+        $response->assertRedirect("/administration/analyses/{$analysis->uuid}/edit?etape=resultat");
+
+        $this->actingAs($actor)->get("/administration/analyses/{$analysis->uuid}/edit?etape=resultat")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('Analyses/Edit')->where('initialStep', 'resultat'));
+        $this->actingAs($actor)->get("/administration/analyses/{$analysis->uuid}/edit?etape=inconnue")
+            ->assertInertia(fn (Assert $page) => $page->where('initialStep', 'identite'));
+    }
+
+    /**
+     * Un enregistrement automatique revient sur la fiche, sans message ; refait
+     * avec les UUID reçus, il ne recrée jamais une sous-analyse.
+     */
+    public function test_autosave_returns_to_the_record_silently_and_never_duplicates_a_sub_analysis(): void
+    {
+        $actor = $this->administrationUser();
+        $service = $this->laboratoryService($actor);
+        $root = app(AnalysisCatalogManager::class)->saveWithChildren(null, $this->definition($service, 'NFS', 'PARENT', 'NFS'), $actor);
+        $edit = "/administration/analyses/{$root->uuid}/edit";
+        $child = ['code' => 'NFS-HB', 'level' => 'CHILD', 'designation' => 'Hémoglobine', 'result_type' => 'NUMERIC', 'unit' => 'g/dL'];
+
+        $this->actingAs($actor)->from($edit)->put("/administration/analyses/{$root->uuid}", [
+            ...$this->definition($service, 'NFS', 'PARENT', 'NFS'),
+            'children' => [$child],
+            '_autosave' => true,
+        ])->assertRedirect($edit)->assertSessionMissing('status');
+
+        $saved = AnalysisCatalog::query()->where('code', 'NFS-HB')->firstOrFail();
+
+        // L'écran renvoie la sous-analyse avec l'UUID que la fiche lui a rendu.
+        $this->actingAs($actor)->from($edit)->put("/administration/analyses/{$root->uuid}", [
+            ...$this->definition($service, 'NFS', 'PARENT', 'Numération formule sanguine'),
+            'children' => [['uuid' => $saved->uuid, ...$child, 'unit' => 'g/L']],
+            '_autosave' => true,
+        ])->assertRedirect($edit);
+
+        $this->assertSame(1, AnalysisCatalog::query()->where('parent_id', $root->id)->count());
+        $this->assertSame('g/L', $saved->fresh()->unit);
+        $this->assertSame('Numération formule sanguine', $root->fresh()->designation);
+
+        // Sans `_autosave`, l'ancien retour au catalogue reste valable.
+        $this->actingAs($actor)->put("/administration/analyses/{$root->uuid}", $this->definition($service, 'NFS', 'PARENT', 'NFS'))
+            ->assertRedirect('/administration/analyses');
+    }
+
+    /** La fiche ne recharge que les sous-analyses actives : la réactiver serait un effet de bord. */
+    public function test_the_record_keeps_a_deactivated_sub_analysis_out_of_the_form_payload(): void
+    {
+        $actor = $this->administrationUser();
+        $service = $this->laboratoryService($actor);
+        $data = $this->definition($service, 'ION', 'PARENT', 'Ionogramme');
+        $data['children'] = [
+            ['code' => 'ION-NA', 'level' => 'CHILD', 'designation' => 'Sodium', 'result_type' => 'NUMERIC'],
+            ['code' => 'ION-K', 'level' => 'CHILD', 'designation' => 'Potassium', 'result_type' => 'NUMERIC'],
+        ];
+        $root = app(AnalysisCatalogManager::class)->saveWithChildren(null, $data, $actor);
+        app(AnalysisCatalogManager::class)->setActive(AnalysisCatalog::query()->where('code', 'ION-K')->firstOrFail(), false, $actor);
+
+        $this->actingAs($actor)->get("/administration/analyses/{$root->uuid}/edit")
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('analysis.children.1.code', 'ION-K')
+                ->where('analysis.children.1.is_active', false));
     }
 
     private function administrationUser(): User

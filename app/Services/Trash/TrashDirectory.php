@@ -2,8 +2,11 @@
 
 namespace App\Services\Trash;
 
-use App\Services\Settings\AppSettings;
+use App\Actions\Administration\ForceDeleteEmployeeAction;
+use App\Actions\Administration\RestoreEmployeeAction;
+use App\Actions\Administration\RestoreEmploymentContractAction;
 use App\Actions\Catalog\RestoreCatalogItemAction;
+use App\Actions\Laboratory\RestoreLabRequestAction;
 use App\Actions\Patient\RestorePatientAction;
 use App\Actions\Pharmacy\RestoreMedicineSupplierAction;
 use App\Actions\Pharmacy\RestorePurchaseOrderAction;
@@ -15,6 +18,9 @@ use App\Models\AddressEntry;
 use App\Models\AuditLog;
 use App\Models\CashRegister;
 use App\Models\CatalogItem;
+use App\Models\Employee;
+use App\Models\EmploymentContract;
+use App\Models\LabRequest;
 use App\Models\MedicineSupplier;
 use App\Models\MutualOrganization;
 use App\Models\Patient;
@@ -25,6 +31,8 @@ use App\Services\Administration\AddressEntryManager;
 use App\Services\Administration\MutualOrganizationManager;
 use App\Services\Cash\CashRegisterManager;
 use App\Services\Catalog\CatalogActor;
+use App\Services\Settings\AppSettings;
+use App\Support\Hr\EmployeeUsage;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -44,6 +52,27 @@ class TrashDirectory
 {
     public const MAX_RESULTS = 100;
 
+    /** ADR-236 — au plus tant d'éléments par catégorie et par geste « Vider » ; le reste au suivant. */
+    public const EMPTY_LIMIT = 500;
+
+    /** Le pluriel de chaque raison : « 2 lots reçus », jamais « 2 lot reçus ». */
+    private const PLURALS = [
+        'lot reçu' => 'lots reçus',
+        'mouvement de stock' => 'mouvements de stock',
+        'prix d’achat' => 'prix d’achat',
+        'prestation facturée' => 'prestations facturées',
+        'demande de la Réception' => 'demandes de la Réception',
+        'acte demandé aux Soins' => 'actes demandés aux Soins',
+        'couverture patient' => 'couvertures patient',
+        'couverture de passage' => 'couvertures de passage',
+        'session de caisse' => 'sessions de caisse',
+        'traitement habituel' => 'traitements habituels',
+        'ligne rattachée à un médicament' => 'lignes rattachées à un médicament',
+    ];
+
+    /** Le détail des éléments conservés tient en ce nombre de lignes ; le total est toujours donné. */
+    private const EMPTY_REPORTED = 30;
+
     public function __construct(
         private readonly RestorePatientAction $restorePatient,
         private readonly RestoreCatalogItemAction $restoreCatalogItem,
@@ -54,6 +83,10 @@ class TrashDirectory
         private readonly RestoreSupplierCatalogAction $restoreCatalog,
         private readonly RestoreSupplierInvoiceAction $restoreInvoice,
         private readonly RestorePurchaseOrderAction $restoreOrder,
+        private readonly RestoreLabRequestAction $restoreLabRequest,
+        private readonly RestoreEmployeeAction $restoreEmployee,
+        private readonly RestoreEmploymentContractAction $restoreContract,
+        private readonly ForceDeleteEmployeeAction $forceDeleteEmployee,
     ) {}
 
     /**
@@ -140,6 +173,9 @@ class TrashDirectory
                     TrashCategory::SupplierCatalog => $this->restoreCatalog->execute($model, $actor),
                     TrashCategory::SupplierInvoice => $this->restoreInvoice->execute($model, $actor),
                     TrashCategory::PurchaseOrder => $this->restoreOrder->execute($model, $actor),
+                    TrashCategory::LabRequest => $this->restoreLabRequest->execute($model, $actor),
+                    TrashCategory::Employee => $this->restoreEmployee->perform($model),
+                    TrashCategory::EmploymentContract => $this->restoreContract->perform($model),
                 };
             }
 
@@ -165,7 +201,7 @@ class TrashDirectory
      */
     public function forceDelete(TrashCategory $category, string $uuid, CatalogActor $actor): array
     {
-        if ($actor->cannot('trash.force_delete') || $actor->cannot($category->restorePermission())) {
+        if (! $this->mayForceDelete($category, $actor)) {
             throw new AuthorizationException('Cette suppression définitive n’est pas autorisée.');
         }
 
@@ -191,6 +227,13 @@ class TrashDirectory
                 ]);
             }
 
+            // ADR-236 — un dossier employé a sa propre règle (audit, personnel des bonus, photo).
+            if ($category === TrashCategory::Employee) {
+                $this->forceDeleteEmployee->destroy($model);
+
+                return ['category' => $category->value, 'uuid' => $uuid];
+            }
+
             // Ce qui n'appartient qu'à l'élément part avec lui : sinon
             // « supprimer définitivement » laisserait des fichiers et des
             // lignes qui ne désignent plus rien.
@@ -200,6 +243,79 @@ class TrashDirectory
 
             return ['category' => $category->value, 'uuid' => $uuid];
         });
+    }
+
+    public function mayForceDelete(TrashCategory $category, CatalogActor $actor): bool
+    {
+        return $actor->can('trash.force_delete') && $actor->can($category->forceDeletePermission());
+    }
+
+    /**
+     * ADR-236 — vider la corbeille : supprimer définitivement, pour la catégorie et les filtres
+     * choisis, tout ce qui n'a servi nulle part. Chaque élément passe par la même règle que
+     * s'il était supprimé seul ; ce qui a servi reste, et le rapport dit pourquoi. Une
+     * catégorie que l'acteur ne peut pas détruire est sautée et nommée.
+     *
+     * @param  array{search?: string|null, category?: string|null, deleted_from?: string|null, deleted_to?: string|null}  $filters
+     * @return array{deleted: int, kept: int, kept_items: list<array{category: string, title: string, reasons: list<string>}>, skipped: list<string>, remaining: bool}
+     */
+    public function empty(array $filters, CatalogActor $actor): array
+    {
+        if ($actor->cannot('trash.force_delete')) {
+            throw new AuthorizationException('Vider la corbeille n’est pas autorisé.');
+        }
+
+        // Ce qui dépend d'un autre élément passe avant lui : un contrat avant son employé, un
+        // employé ou un patient avant l'adresse qu'il porte.
+        $selected = ($filters['category'] ?? 'ALL') === 'ALL'
+            ? collect(TrashCategory::cases())->sortBy(fn (TrashCategory $category) => match ($category) {
+                TrashCategory::EmploymentContract, TrashCategory::SupplierCatalog, TrashCategory::PurchaseOrder => 0,
+                TrashCategory::AddressEntry => 2,
+                default => 1,
+            })->values()->all()
+            : [TrashCategory::from($filters['category'])];
+
+        $report = ['deleted' => 0, 'kept' => 0, 'kept_items' => [], 'skipped' => [], 'remaining' => false];
+        foreach ($selected as $category) {
+            if (! $this->mayForceDelete($category, $actor)) {
+                if ($this->query($category, $filters)->exists()) {
+                    $report['skipped'][] = $category->label();
+                }
+
+                continue;
+            }
+
+            $models = $this->query($category, $filters)->oldest('deleted_at')->limit(self::EMPTY_LIMIT + 1)->get();
+            if ($models->count() > self::EMPTY_LIMIT) {
+                $report['remaining'] = true;
+                $models = $models->take(self::EMPTY_LIMIT);
+            }
+
+            foreach ($models as $model) {
+                $blockers = $this->forceDeleteBlockers($category, $model);
+                if ($blockers === []) {
+                    try {
+                        $this->forceDelete($category, $model->uuid, $actor);
+                        $report['deleted']++;
+
+                        continue;
+                    } catch (ValidationException $exception) {
+                        $blockers = [collect($exception->errors())->flatten()->first() ?? 'refusé'];
+                    }
+                }
+
+                $report['kept']++;
+                if (count($report['kept_items']) < self::EMPTY_REPORTED) {
+                    $report['kept_items'][] = [
+                        'category' => $category->singularLabel(),
+                        'title' => $this->serialize($category, $model, null)['title'],
+                        'reasons' => $blockers,
+                    ];
+                }
+            }
+        }
+
+        return $report;
     }
 
     /**
@@ -270,6 +386,24 @@ class TrashDirectory
                         ->where('invoice_number', 'like', "%{$search}%"),
                     TrashCategory::PurchaseOrder => $nested
                         ->where('order_number', 'like', "%{$search}%"),
+                    TrashCategory::LabRequest => $nested
+                        ->where('lab_number', 'like', "%{$search}%")
+                        ->orWhereHas('episode', fn (Builder $episode) => $episode
+                            ->where('episode_number', 'like', "%{$search}%")
+                            ->orWhereHas('patient', fn (Builder $patient) => $patient
+                                ->where('last_name', 'like', "%{$search}%")
+                                ->orWhere('first_name', 'like', "%{$search}%")
+                                ->orWhere('patient_number', 'like', "%{$search}%"))),
+                    TrashCategory::Employee => $nested
+                        ->where('employee_number', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('first_name', 'like', "%{$search}%"),
+                    TrashCategory::EmploymentContract => $nested
+                        ->where('reference_number', 'like', "%{$search}%")
+                        ->orWhereHas('employee', fn (Builder $employee) => $employee->withTrashed()
+                            ->where('employee_number', 'like', "%{$search}%")
+                            ->orWhere('last_name', 'like', "%{$search}%")
+                            ->orWhere('first_name', 'like', "%{$search}%")),
                 };
             });
         }
@@ -298,6 +432,12 @@ class TrashDirectory
             TrashCategory::SupplierCatalog => SupplierCatalog::query()->with('supplier'),
             TrashCategory::SupplierInvoice => SupplierInvoice::query()->with('supplier'),
             TrashCategory::PurchaseOrder => PurchaseOrder::query()->with('supplier'),
+            TrashCategory::LabRequest => LabRequest::query()->with(['episode.patient:id,first_name,last_name,patient_number', 'items']),
+            TrashCategory::Employee => Employee::query()->with(['jobTitle' => fn ($query) => $query->withTrashed()]),
+            TrashCategory::EmploymentContract => EmploymentContract::query()->with([
+                'employee' => fn ($query) => $query->withTrashed(),
+                'contractType' => fn ($query) => $query->withTrashed(),
+            ]),
         };
     }
 
@@ -367,6 +507,21 @@ class TrashDirectory
                 'Commande '.$model->order_number,
                 $model->order_number,
                 'Brouillon · '.($model->supplier?->name ?? 'Fournisseur archivé').' · '.app(AppSettings::class)->formatMoney($model->total_amount),
+            ],
+            TrashCategory::LabRequest => [
+                'Analyses de '.trim(mb_strtoupper((string) $model->episode?->patient?->last_name).' '.$model->episode?->patient?->first_name),
+                $model->lab_number ?? $model->episode?->episode_number,
+                $model->items->pluck('catalog_item_name_snapshot')->take(4)->implode(', ').($model->items->count() > 4 ? '…' : ''),
+            ],
+            TrashCategory::Employee => [
+                trim($model->last_name.' '.$model->first_name),
+                $model->employee_number,
+                $model->jobTitle?->label ?? 'Dossier du personnel',
+            ],
+            TrashCategory::EmploymentContract => [
+                trim(($model->contractType?->label ?? 'Contrat').' · '.trim($model->employee?->last_name.' '.$model->employee?->first_name)),
+                $model->reference_number ?? $model->employee?->employee_number,
+                'Du '.($model->starts_on?->format('d/m/Y') ?? '—').($model->ends_on ? ' au '.$model->ends_on->format('d/m/Y') : ''),
             ],
         };
 
@@ -446,7 +601,8 @@ class TrashDirectory
                 'traitement habituel' => $model->treatments()->count(),
             ],
             TrashCategory::SupplierCatalog => [
-                'ligne importée' => $model->items()->count(),
+                'ligne rattachée à un médicament' => $model->usage()['linked'] ?? 0,
+                'prix d’achat' => $model->usage()['prices'] ?? 0,
             ],
             default => [],
         };
@@ -455,12 +611,17 @@ class TrashDirectory
         $stated = match (true) {
             $category === TrashCategory::SupplierInvoice => ['une facture fournisseur est une pièce comptable'],
             $category === TrashCategory::PurchaseOrder && $model->status !== PurchaseOrderStatus::Draft => ['la commande a été envoyée au fournisseur'],
+            // ADR-220 — une donnée médicale : elle se restaure, jamais détruite (ADR-010).
+            $category === TrashCategory::LabRequest => ['une demande d’analyses est une donnée médicale'],
+            // ADR-236 — le registre des usages d'un employé dit déjà tout, en mots.
+            $category === TrashCategory::Employee => EmployeeUsage::blockers($model),
+            $category === TrashCategory::EmploymentContract => $model->usageLabels(),
             default => [],
         };
 
         $named = collect($counts)
             ->filter()
-            ->map(fn (int $total, string $label): string => $total.' '.$label.($total > 1 && ! str_contains($label, 'prix') ? 's' : ''))
+            ->map(fn (int $total, string $label): string => $total.' '.($total > 1 ? (self::PLURALS[$label] ?? $label.'s') : $label))
             ->values()
             ->all();
 

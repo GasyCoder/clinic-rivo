@@ -3,21 +3,27 @@
 namespace App\Providers;
 
 use App\Actions\Role\SyncPortalSuperAdminPermissionsAction;
+use App\Models\Employee;
 use App\Models\Permission;
 use App\Models\User;
+use App\Services\Assistant\AssistantConfiguration;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\SiteMaintenanceState;
+use App\Services\StaffDebts\StaffDebtDeparture;
 use App\Services\Webmail\WebmailAccess;
 use App\Services\Webmail\WebmailSignOn;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Database\Events\NoPendingMigrations;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -34,6 +40,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(SiteMaintenanceState::class);
         // ADR-195 — la boîte du titulaire, résolue une fois par requête.
         $this->app->scoped(WebmailAccess::class);
+        // ADR-222 — la configuration de l'assistant : une lecture de ses réglages par requête.
+        $this->app->scoped(AssistantConfiguration::class);
     }
 
     /**
@@ -84,6 +92,30 @@ class AppServiceProvider extends ServiceProvider
             $signOn->forgetDevice();
         });
 
+        // ADR-230 — une fiche quitte le poste (désactivée ou archivée, par tout chemin) : ses
+        // demandes de dette se closent et ses accords pas encore versés s'annulent. Des
+        // closures qui ne renvoient rien, pour la même raison qu'au-dessus.
+        Employee::updated(function (Employee $employee): void {
+            if ($employee->wasChanged('active') && ! $employee->active) {
+                app(StaffDebtDeparture::class)->employeeLeft($employee);
+            }
+        });
+        Employee::deleted(function (Employee $employee): void {
+            if (! $employee->isForceDeleting()) {
+                app(StaffDebtDeparture::class)->employeeLeft($employee);
+            }
+        });
+
+        // ADR-222 — l'assistant : un nombre de questions par heure et par compte, réglé
+        // depuis le portail. Par compte, jamais par adresse IP : un poste de soins est
+        // partagé, et toute la clinique sort souvent par la même adresse.
+        RateLimiter::for('assistant-ai', fn (Request $request) => Limit::perHour(app(AssistantConfiguration::class)->rateLimitPerHour())
+            ->by('assistant:'.($request->user()?->getAuthIdentifier() ?? $request->ip()))
+            ->response(fn () => response()->json([
+                'message' => 'Vous avez posé beaucoup de questions en peu de temps. Réessayez dans un moment.',
+                'reason' => 'rate_limited',
+            ], 429)));
+
         // ADR-009 / CDC §11: the three columns every SoftDeletable model
         // needs, declared once so they can never drift between migrations.
         Blueprint::macro('softDeletesWithReason', function () {
@@ -128,6 +160,9 @@ class AppServiceProvider extends ServiceProvider
             || $user->can('attendance.view') || $user->can('leave.view'));
         // ADR-209 — l'emblème du badge : pour qui voit un employé ou imprime son badge.
         Gate::define('view-employee-badge', fn (User $user): bool => $user->can('view-employee-photo') || $user->can('employees.print'));
+        // ADR-217 — prendre en charge une demande au laboratoire : qui réceptionne, ou qui saisit.
+        Gate::define('take-up-lab-request', fn (User $user): bool => $user->can('laboratory_orders.receive') || $user->can('laboratory_results.create'));
+
         // ADR-172 — le dossier chirurgical imprimable s'ouvre au bloc comme à l'anesthésie ;
         // chaque feuille reste gardée par son propre droit (SurgicalDossierSheet).
         Gate::define('view-surgical-dossier', fn (User $user): bool => $user->can('surgery.view') || $user->can('anesthesia.view'));

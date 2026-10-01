@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-    WEBMAIL_NAVIGATION, WEBMAIL_STATIC_PROPS, applyActionLocally, canReturnByHistory, composeHref, composeTarget, filterBoxes, folderActions, folderUrl, followOpening, forgetOpening, formatListDate, formatSize, forwardSubject, frameDocument, initialsOf, messageUrl, parseRecipients, parseWebmailPath, quotaPercent, quotedReply, recipientSuggestions, reloadAfterSending, rememberOpening, replyRecipients, replySubject, toFormData,
+    WEBMAIL_NAVIGATION, WEBMAIL_STATIC_PROPS, applyActionLocally, canReturnByHistory, composeHref, composeLeavesMessaging, composeTarget, filterBoxes, folderActions, folderUrl, followOpening, forgetOpening, formatListDate, formatSize, forwardSubject, frameDocument, initialsOf, messageUrl, parseRecipients, parseWebmailPath, quotaPercent, quotedReply, recipientSuggestions, reloadAfterSending, rememberOpening, replyRecipients, replySubject, toFormData,
 } from '../../resources/js/utilities/webmail.js';
 import { buildClinicMenu, visibleMenu } from '../../resources/js/utilities/clinicMenu.js';
+import { WEBMAIL_MENU_WARM } from '../../resources/js/utilities/menuWarm.js';
 
 test('les destinataires se lisent comme le serveur les lit', () => {
     assert.deepEqual(
@@ -44,14 +45,14 @@ test('« Répondre à tous » met les autres en copie, jamais soi-même', () => 
     const message = {
         from: { name: 'Dr Vola', email: 'vola@exemple.mg' },
         reply_to: [],
-        to: [{ name: '', email: 'soa@cbdc.mg' }, { name: 'Labo', email: 'labo@exemple.mg' }],
+        to: [{ name: '', email: 'soa@cliniquesaintgeorges.mg' }, { name: 'Labo', email: 'labo@exemple.mg' }],
         cc: [{ name: '', email: 'vola@exemple.mg' }],
     };
 
-    assert.deepEqual(replyRecipients(message, 'SOA@cbdc.mg'), { to: 'Dr Vola <vola@exemple.mg>', cc: '' });
-    assert.deepEqual(replyRecipients(message, 'soa@cbdc.mg', true), { to: 'Dr Vola <vola@exemple.mg>', cc: 'Labo <labo@exemple.mg>' });
+    assert.deepEqual(replyRecipients(message, 'SOA@cliniquesaintgeorges.mg'), { to: 'Dr Vola <vola@exemple.mg>', cc: '' });
+    assert.deepEqual(replyRecipients(message, 'soa@cliniquesaintgeorges.mg', true), { to: 'Dr Vola <vola@exemple.mg>', cc: 'Labo <labo@exemple.mg>' });
     assert.deepEqual(
-        replyRecipients({ ...message, reply_to: [{ name: '', email: 'secretariat@exemple.mg' }] }, 'soa@cbdc.mg'),
+        replyRecipients({ ...message, reply_to: [{ name: '', email: 'secretariat@exemple.mg' }] }, 'soa@cliniquesaintgeorges.mg'),
         { to: 'secretariat@exemple.mg', cc: '' },
         'l’adresse de réponse l’emporte sur l’expéditeur',
     );
@@ -104,8 +105,8 @@ test('« Messagerie » n’apparaît que pour le titulaire d’une adresse activ
 
 test('the boxes one may open are found by name, address, job or site, accents and case ignored', () => {
     const boxes = [
-        { owner: 'Vola Rabe', address: 'vola.rabe@cbdc.mg', job: 'Sage-femme', site_name: 'Ambondromamy', site_code: 'A' },
-        { owner: 'Hery Andria', address: 'hery@cbdc.mg', job: 'Médecin', site_name: 'Mampikony', site_code: 'M' },
+        { owner: 'Vola Rabe', address: 'vola.rabe@cliniquesaintgeorges.mg', job: 'Sage-femme', site_name: 'Ambondromamy', site_code: 'A' },
+        { owner: 'Hery Andria', address: 'hery@cliniquesaintgeorges.mg', job: 'Médecin', site_name: 'Mampikony', site_code: 'M' },
     ];
 
     assert.deepEqual(filterBoxes(boxes, '').map((box) => box.owner), ['Vola Rabe', 'Hery Andria']);
@@ -116,12 +117,12 @@ test('the boxes one may open are found by name, address, job or site, accents an
 
 test('any address can be typed: « Écrire à … » comes first, colleagues follow', () => {
     const contacts = [
-        { name: 'Vola Rabe', email: 'vola.rabe@cbdc.mg', job: 'Sage-femme' },
-        { name: 'Hery Andria', email: 'hery@cbdc.mg', job: 'Médecin' },
+        { name: 'Vola Rabe', email: 'vola.rabe@cliniquesaintgeorges.mg', job: 'Sage-femme' },
+        { name: 'Hery Andria', email: 'hery@cliniquesaintgeorges.mg', job: 'Médecin' },
     ];
 
     // Un nom : les collègues seulement, rien à « écrire à ».
-    assert.deepEqual(recipientSuggestions(contacts, [], 'vola').map((option) => option.email), ['vola.rabe@cbdc.mg']);
+    assert.deepEqual(recipientSuggestions(contacts, [], 'vola').map((option) => option.email), ['vola.rabe@cliniquesaintgeorges.mg']);
     // Une adresse d'ailleurs : proposée telle quelle, en tête.
     const outside = recipientSuggestions(contacts, [], 'fournisseur@gmail.com');
     assert.equal(outside.length, 1);
@@ -129,7 +130,7 @@ test('any address can be typed: « Écrire à … » comes first, colleagues fol
     assert.equal(outside[0].email, 'fournisseur@gmail.com');
     // Une adresse incomplète n'est pas proposée ; celle d'un collègue ne se double pas.
     assert.deepEqual(recipientSuggestions(contacts, [], 'fournisseur@gm'), []);
-    assert.deepEqual(recipientSuggestions(contacts, [], 'hery@cbdc.mg').map((option) => option.typed ?? false), [false]);
+    assert.deepEqual(recipientSuggestions(contacts, [], 'hery@cliniquesaintgeorges.mg').map((option) => option.typed ?? false), [false]);
     // Déjà ajoutée : plus rien à proposer.
     assert.deepEqual(recipientSuggestions(contacts, [{ email: 'fournisseur@gmail.com' }], 'fournisseur@gmail.com'), []);
     assert.deepEqual(recipientSuggestions(contacts, [], '   '), []);
@@ -275,6 +276,39 @@ test('the unavailable page is a guided, permission-aware shadcn state', () => {
     assert.ok(!unavailable.includes('py-16 text-center'), 'l’état vide ne flotte plus seul au milieu de la page');
 });
 
+test('la messagerie est un workspace shadcn lisible sur ordinateur et sur mobile', () => {
+    const index = readFileSync(new URL('../../resources/js/Pages/Webmail/Index.vue', import.meta.url), 'utf8');
+    const list = readFileSync(new URL('../../resources/js/Components/Webmail/MessageList.vue', import.meta.url), 'utf8');
+    const view = readFileSync(new URL('../../resources/js/Components/Webmail/MessageView.vue', import.meta.url), 'utf8');
+    const sidebar = readFileSync(new URL('../../resources/js/Components/Webmail/WebmailSidebar.vue', import.meta.url), 'utf8');
+    const compose = readFileSync(new URL('../../resources/js/Components/Webmail/ComposeDialog.vue', import.meta.url), 'utf8');
+    const editor = readFileSync(new URL('../../resources/js/Components/Webmail/EmailEditor.vue', import.meta.url), 'utf8');
+
+    for (const component of ['Badge', 'Button', 'Card', 'Sheet']) {
+        assert.match(index, new RegExp(`import ${component} from '@\\/Components\\/Shadcn\\/${component}\\.vue'`));
+    }
+    assert.match(index, /Messagerie professionnelle/);
+    assert.match(index, /min-h-14 items-center/);
+    assert.ok(!index.includes('Communication · Messagerie'), 'le surtitre redondant ne consomme plus une ligne');
+    assert.match(index, /<Sheet[\s\S]*side="left"/);
+    assert.match(index, /class="hidden w-72[^"]*lg:block"/);
+    assert.ok(!index.includes('fixed inset-0 z-[1030]'), 'le tiroir mobile artisanal a été remplacé par Sheet');
+    assert.ok(!index.includes('lg:h-[calc(100dvh'), 'le workspace suit la hauteur de son contenu');
+    assert.ok(!index.includes('w-72 shrink-0 overflow-y-auto'), 'la sidebar ordinateur ne crée aucun défilement interne');
+    assert.match(index, /body-class="[^"]*\[scrollbar-width:none\][^"]*\[&::-webkit-scrollbar\]:hidden"/);
+
+    assert.match(list, /import IconInput from '@\/Components\/Shadcn\/IconInput\.vue'/);
+    assert.match(list, /<IconInput[\s\S]*:icon="Search"/);
+    assert.match(list, /sticky top-0 z-20/);
+    assert.match(view, /sticky top-0 z-20/);
+    assert.match(view, /max-w-6xl/);
+    assert.match(sidebar, /Boîte aux lettres/);
+    assert.match(sidebar, /Contacts rapides/);
+    assert.match(compose, /data-compose-window/);
+    assert.match(compose, /Ctrl[\s\S]*Entrée[\s\S]*pour envoyer/);
+    assert.match(editor, /flex flex-nowrap items-center[^"]*overflow-x-auto/);
+});
+
 test('the filter counters follow an action at once', () => {
     const props = {
         list: {
@@ -306,16 +340,16 @@ test('the filter counters follow an action at once', () => {
 });
 
 test('écrire depuis une fiche : un message déjà adressé, jamais une adresse glissée', () => {
-    assert.equal(composeHref('Emilien TSARAHASINA', 'emilien.tsarahasina@cbdc.mg'),
-        '/messagerie/dossier/reception?ecrire=' + encodeURIComponent('Emilien TSARAHASINA <emilien.tsarahasina@cbdc.mg>'));
+    assert.equal(composeHref('Emilien TSARAHASINA', 'emilien.tsarahasina@cliniquesaintgeorges.mg'),
+        '/messagerie/dossier/reception?ecrire=' + encodeURIComponent('Emilien TSARAHASINA <emilien.tsarahasina@cliniquesaintgeorges.mg>'));
     assert.equal(composeHref('', 'a@b.mg'), '/messagerie/dossier/reception?ecrire=' + encodeURIComponent('a@b.mg'));
     // Un nom ne peut pas fabriquer une seconde adresse.
     assert.equal(composeHref('X <pirate@evil.com>', 'a@b.mg'), '/messagerie/dossier/reception?ecrire=' + encodeURIComponent('X pirate@evil.com <a@b.mg>'));
     assert.equal(composeHref('Sans adresse', ''), null);
     assert.equal(composeHref('Mauvaise', 'pas-une-adresse'), null);
 
-    assert.equal(composeTarget('?ecrire=' + encodeURIComponent('Hery <hery@cbdc.mg>')), 'Hery <hery@cbdc.mg>');
-    assert.equal(composeTarget('?ecrire=hery%40cbdc.mg'), 'hery@cbdc.mg');
+    assert.equal(composeTarget('?ecrire=' + encodeURIComponent('Hery <hery@cliniquesaintgeorges.mg>')), 'Hery <hery@cliniquesaintgeorges.mg>');
+    assert.equal(composeTarget('?ecrire=hery%40cliniquesaintgeorges.mg'), 'hery@cliniquesaintgeorges.mg');
     assert.equal(composeTarget('?ecrire=' + encodeURIComponent('a@b.mg, c@d.mg')), null, 'une seule adresse');
     assert.equal(composeTarget('?ecrire=' + encodeURIComponent('a@b.mg\nBcc: x@y.mg')), null);
     assert.equal(composeTarget('?ecrire=nimporte-quoi'), null);
@@ -342,4 +376,95 @@ test('sa boîte s’ouvre avec la connexion RIVO : rien à retaper, et la page d
     const sidebar = readFileSync(new URL('../../resources/js/Components/Webmail/WebmailSidebar.vue', import.meta.url), 'utf8');
     assert.match(sidebar, /v-if="mailbox\.signed_on"/);
     assert.match(sidebar, /v-if="mailbox\.closable \?\? !mailbox\.portal"/);
+});
+
+test('la fenêtre de rédaction ressemble à celle d’une messagerie : ancrée, réductible, agrandissable', () => {
+    const compose = readFileSync(new URL('../../resources/js/Components/Webmail/ComposeDialog.vue', import.meta.url), 'utf8');
+    const editor = readFileSync(new URL('../../resources/js/Components/Webmail/EmailEditor.vue', import.meta.url), 'utf8');
+    const recipients = readFileSync(new URL('../../resources/js/Components/Webmail/RecipientInput.vue', import.meta.url), 'utf8');
+    const template = compose.slice(compose.indexOf('<template>'));
+
+    // Ancrée en bas à droite, sans voile : la messagerie reste utilisable pendant qu'on écrit.
+    assert.match(compose, /<Teleport to="body">/);
+    assert.ok(!compose.includes("import Dialog from '@/Components/Shadcn/Dialog.vue'"), 'plus une boîte de dialogue modale');
+    assert.match(compose, /view\.value === 'docked' && '[^']*sm:bottom-0 sm:end-4/);
+    assert.match(compose, /view\.value === 'maximized' && '[^']*sm:inset-6 sm:mx-auto/);
+    assert.match(compose, /view\.value === 'minimized' && '[^']*h-12/);
+    assert.match(compose, /aria-label="view === 'minimized' \? 'Rouvrir le message' : 'Réduire'"/);
+    assert.match(compose, /view === 'maximized' \? 'Taille normale' : 'Agrandir'/);
+    assert.match(compose, /event\.key === 'Escape' && view\.value === 'maximized'/);
+    assert.match(compose, /<form v-show="view !== 'minimized'"/, 'réduire ne détruit ni le texte ni l’historique d’annulation');
+
+    // Les en-têtes en lignes sans cadre ; le sujet devient le titre.
+    assert.match(template, /<span class="w-10 shrink-0 text-sm text-muted-foreground">De<\/span>/);
+    assert.equal((template.match(/<RecipientInput[^>]*\bbare\b/g) ?? []).length, 3);
+    assert.match(template, /placeholder="Objet"/);
+    assert.match(compose, /form\.subject\.trim\(\) \|\| titles\[drafting\.value\.mode\]/);
+    assert.match(recipients, /bare: \{ type: Boolean, default: false \}/);
+    // Échap ferme les propositions sans effacer l'adresse tapée, et sans réduire la fenêtre agrandie.
+    assert.match(recipients, /event\.key === 'Escape' && listOpen\.value\) \{[^}]*stopPropagation\(\);[^}]*dismissed\.value = true;/);
+    assert.ok(!/Escape[^}]*draft\.value = ''/.test(recipients), 'Échap ne vide plus la frappe');
+    // La fenêtre occupe le coin du bouton de l'assistant : il s'efface le temps qu'elle est ouverte.
+    assert.match(compose, /body:has\(\[data-compose-window\]\) \[data-assistant-launcher\]/);
+
+    // Le texte occupe la place, la mise en forme se range au-dessus des boutons et se replie.
+    assert.match(template, /<EmailEditor[^>]*\bbare\b[^>]*toolbar-position="bottom"[^>]*:toolbar="formatting"/);
+    assert.match(editor, /toolbar && toolbarPosition === 'bottom'/);
+    assert.match(editor, /v-if="editor && empty"/, 'le texte d’invite reste visible tant que le message est vide');
+    assert.match(compose, /FORMATTING_KEY = 'rivo:webmail:formatting'/);
+
+    // Envoyer d'abord : jamais un bouton « submit » — Entrée dans l'objet n'envoie rien.
+    assert.match(template, /<Button type="button" class="rounded-full px-5"[^>]*@click="send"/);
+    assert.ok(!template.includes('type="submit"'));
+    assert.match(template, /Déposez vos fichiers pour les joindre/);
+    assert.match(compose, /@drop="onDrop"/);
+
+    // Rien que le gabarit ne peut pas lire (Vue n'y expose ni window ni document).
+    assert.ok(!/\b(document|window)\./.test(template), 'aucun document. ni window. dans le gabarit');
+    assert.match(compose, /File as FileIcon/, 'le constructeur File du navigateur n’est pas masqué');
+
+    // Une autre demande ne remplace jamais un message commencé sans le demander.
+    assert.match(compose, /title="Remplacer le message en cours \?"/);
+    assert.match(compose, /title="Quitter la messagerie \?"/);
+    assert.match(compose, /window\.addEventListener\('beforeunload', onBeforeUnload\)/);
+});
+
+test('seule une visite qui quitte la messagerie retient un message commencé', () => {
+    const inside = { method: 'get', url: new URL('http://rivo.test/messagerie/dossier/envoyes'), preserveState: true };
+    assert.equal(composeLeavesMessaging(inside), false, 'lire un autre dossier garde la fenêtre');
+    assert.equal(composeLeavesMessaging({ ...inside, url: new URL('http://rivo.test/messagerie/dossier/reception/12') }), false);
+    assert.equal(composeLeavesMessaging({ ...inside, url: new URL('http://rivo.test/patients') }), true, 'quitter la messagerie');
+    assert.equal(composeLeavesMessaging({ ...inside, url: new URL('http://rivo.test/messagerie-archive') }), true, 'un préfixe n’est pas la messagerie');
+    assert.equal(composeLeavesMessaging({ ...inside, preserveState: false }), true, 'une page rechargée sans la garder détruirait la fenêtre');
+    assert.equal(composeLeavesMessaging({ ...inside, url: new URL('http://rivo.test/patients'), prefetch: true }), false, 'un préchargement ne quitte rien');
+    assert.equal(composeLeavesMessaging({ ...inside, url: new URL('http://rivo.test/patients'), method: 'post' }), false, 'un envoi n’est pas une sortie');
+    assert.equal(composeLeavesMessaging({ method: 'get', url: '/messagerie/dossier/brouillons', preserveState: true }), false, 'une adresse en texte aussi');
+    assert.equal(composeLeavesMessaging(null), false);
+});
+
+test('la messagerie s’ouvre plus vite : page préparée au survol, éditeur chargé à la demande', () => {
+    const index = readFileSync(new URL('../../resources/js/Pages/Webmail/Index.vue', import.meta.url), 'utf8');
+    const menu = readFileSync(new URL('../../resources/js/Components/Layout/Menu.vue', import.meta.url), 'utf8');
+    const adminMenu = readFileSync(new URL('../../resources/js/Components/Layout/AdminMenu.vue', import.meta.url), 'utf8');
+
+    // L'éditeur (ProseMirror) n'est plus dans le code de la page.
+    assert.ok(!/^import ComposeDialog from/m.test(index));
+    assert.ok(!/^import TemplatesDialog from/m.test(index));
+    assert.match(index, /const ComposeDialog = defineAsyncComponent\(\(\) => import\('@\/Components\/Webmail\/ComposeDialog\.vue'\)\)/);
+    assert.match(index, /<ComposeDialog\s+v-if="composeReady"/);
+    assert.match(index, /requestIdleCallback\(prepareCompose/);
+    assert.match(index, /:request="compose\.request"/);
+
+    // Le lien « Messagerie » prépare la page et son code avant le clic, site et portail.
+    const entry = buildClinicMenu({ can: () => false, webmail: true }).find((item) => item.key === 'webmail');
+    assert.equal(entry?.warm, WEBMAIL_MENU_WARM);
+    assert.equal(WEBMAIL_MENU_WARM.data, true);
+    assert.deepEqual(WEBMAIL_MENU_WARM.cacheTags, ['webmail']);
+    assert.equal(typeof WEBMAIL_MENU_WARM.component, 'function');
+    assert.match(menu, /permission: 'webmail\.view', warm: WEBMAIL_MENU_WARM/);
+    for (const source of [menu, adminMenu]) {
+        assert.match(source, /v-bind="menuLinkPrefetch\(item\)"/);
+        assert.match(source, /@mouseenter="warmMenuItem\(item\)"/);
+        assert.match(source, /@focus="warmMenuItem\(item, \{ data: true \}\)"/);
+    }
 });

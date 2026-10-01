@@ -58,7 +58,7 @@ class EmployeeManagementTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Administration/Employees/Import')
-                ->has('columns', 23)
+                ->has('columns', 29)
                 ->where('limits.rows', 1000)
                 ->where('limits.megabytes', 5)
                 ->has('referenceValues.departments'));
@@ -337,19 +337,60 @@ class EmployeeManagementTest extends TestCase
         $this->assertNull($employee->email);
 
         // Posée par l'activation de l'adresse professionnelle.
-        $employee->forceFill(['email' => 'soa.rabe@cbdc.mg'])->save();
+        $employee->forceFill(['email' => 'soa.rabe@cliniquesaintgeorges.mg'])->save();
 
         foreach ([[], ['email' => '']] as $extra) {
             $this->actingAs($actor)
                 ->put("/administration/employees/{$employee->uuid}", [...$this->validPayload(), 'first_name' => 'Soavina', ...$extra])
                 ->assertSessionHasNoErrors();
-            $this->assertSame('soa.rabe@cbdc.mg', $employee->fresh()->email, 'modifier la fiche n’efface pas l’adresse professionnelle');
+            $this->assertSame('soa.rabe@cliniquesaintgeorges.mg', $employee->fresh()->email, 'modifier la fiche n’efface pas l’adresse professionnelle');
         }
 
         $this->actingAs($actor)
             ->put("/administration/employees/{$employee->uuid}", [...$this->validPayload(), 'email' => 'autre@gmail.com'])
             ->assertSessionHasErrors('email');
-        $this->assertSame('soa.rabe@cbdc.mg', $employee->fresh()->email);
+        $this->assertSame('soa.rabe@cliniquesaintgeorges.mg', $employee->fresh()->email);
+    }
+
+    public function test_the_number_of_children_is_the_length_of_the_children_list(): void
+    {
+        $actor = $this->userWithRole('ADMINISTRATION');
+        $this->actingAs($actor)->post('/administration/employees', $this->validPayload())->assertSessionHasNoErrors();
+        $employee = Employee::query()->sole();
+
+        // Une ligne vide est ignorée ; un nombre envoyé à côté ne contredit jamais la liste.
+        $this->actingAs($actor)
+            ->put("/administration/employees/{$employee->uuid}", [
+                ...$this->validPayload(),
+                'children_count' => 9,
+                'children' => [
+                    ['name' => 'Mayrah', 'sex' => 'F', 'age' => 3],
+                    ['name' => 'Tiavina', 'sex' => 'G', 'age' => 15],
+                    ['name' => '', 'sex' => '', 'age' => ''],
+                ],
+            ])->assertSessionHasNoErrors();
+
+        $employee->refresh();
+        $this->assertSame(2, $employee->children_count);
+        $this->assertSame('Tiavina', $employee->children[1]['name']);
+
+        // Un âge sans prénom est refusé.
+        $this->actingAs($actor)
+            ->put("/administration/employees/{$employee->uuid}", [...$this->validPayload(), 'children' => [['name' => '', 'sex' => 'F', 'age' => 3]]])
+            ->assertSessionHasErrors('children.0.name');
+    }
+
+    public function test_the_clinic_staff_number_is_built_from_the_profile_and_never_guessed(): void
+    {
+        $numbers = app(\App\Services\Administration\EmployeeNumberAllocator::class);
+
+        // H/F + année d'entrée + jour et mois de naissance (feuille du personnel).
+        $this->assertSame('F20151808', $numbers->fromProfile('F', '2015-03-14', '1987-08-18'));
+        $this->assertSame('H20181007', $numbers->fromProfile('M', '2018-10-01', '1997-07-10'));
+        // Rien n'est deviné quand une information manque, ni redonné quand il est pris.
+        $this->assertNull($numbers->fromProfile(null, '2015-03-14', '1987-08-18'));
+        $this->assertNull($numbers->fromProfile('F', null, '1987-08-18'));
+        $this->assertNull($numbers->fromProfile('F', '2015-03-14', '1987-08-18', ['f20151808']));
     }
 
     /** @return array<string, mixed> */

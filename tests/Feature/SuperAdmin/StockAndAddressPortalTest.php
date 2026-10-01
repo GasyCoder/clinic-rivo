@@ -123,7 +123,8 @@ class StockAndAddressPortalTest extends TestCase
         $this->actingAs($this->superAdmin)->get('/super-admin/analyses?status=ALL')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('SuperAdmin/Analyses/Index')
+                ->component('Analyses/Index')
+                ->where('context.mode', 'portal')
                 ->has('sites', 3)
                 ->where('sites.0.data.analyses.0.code', 'GLYC')
                 ->where('filters.status', 'ALL'));
@@ -166,6 +167,36 @@ class StockAndAddressPortalTest extends TestCase
             && $request->url() === 'https://m.test/api/v1/super-admin/analysis-catalogs'
             && $request->hasHeader('Idempotency-Key')
             && $request['code'] === 'GLYC');
+    }
+
+    /** ADR-063, amendement du 2026-10-01 — au portail aussi : créer ouvre la fiche, l'enregistrement automatique y revient. */
+    public function test_portal_creation_opens_the_record_and_autosave_returns_to_it(): void
+    {
+        $uuid = '33333333-3333-4333-8333-333333333333';
+        Http::fake([
+            'https://m.test/api/v1/super-admin/analysis-catalogs/'.$uuid => Http::response(['message' => 'Analyse mise à jour sur le site.', 'data' => ['uuid' => $uuid]], 200),
+            'https://m.test/api/v1/super-admin/analysis-catalogs' => Http::response(['message' => 'Analyse « Hémoglobine » ajoutée sur le site.', 'data' => ['uuid' => $uuid]], 201),
+        ]);
+        $definition = [
+            'catalog_item_uuid' => '11111111-1111-4111-8111-111111111111',
+            'parent_uuid' => null, 'code' => 'HB', 'level' => 'NORMAL', 'designation' => 'Hémoglobine',
+            'result_type' => 'NUMERIC', 'predefined_values' => [], 'display_order' => 0, 'is_active' => true,
+        ];
+
+        $this->actingAs($this->superAdmin)->post('/super-admin/analyses', ['site_code' => 'M', ...$definition, 'after' => 'edit'])
+            ->assertRedirect("/super-admin/analyses/M/{$uuid}/edit?etape=resultat")
+            ->assertSessionHas('status');
+
+        $edit = "/super-admin/analyses/M/{$uuid}/edit";
+        $this->actingAs($this->superAdmin)->from($edit)
+            ->put("/super-admin/analyses/M/{$uuid}", [...$definition, 'unit' => 'g/dL', '_autosave' => true])
+            ->assertRedirect($edit)
+            ->assertSessionMissing('status');
+
+        Http::assertSent(fn ($request) => $request->method() === 'PUT'
+            && $request->url() === 'https://m.test/api/v1/super-admin/analysis-catalogs/'.$uuid
+            && $request['unit'] === 'g/dL'
+            && ! isset($request['_autosave']));
     }
 
     public function test_cash_registers_page_and_create_command_use_the_selected_site_api(): void
@@ -428,7 +459,7 @@ class StockAndAddressPortalTest extends TestCase
             ->get('/super-admin/workspaces/tariffs?site=A')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('SuperAdmin/Tariffs/Index')
+                ->component('Catalog/Index')
                 ->has('sites', 3)
                 ->where('sites.0.status', 'ONLINE')
                 ->where('sites.2.status', 'UNCONFIGURED')
@@ -628,6 +659,35 @@ class StockAndAddressPortalTest extends TestCase
         Http::assertSent(fn ($request) => $request->url() === 'https://m.test/api/v1/super-admin/mutual-organizations/import'
             && $request['rows'][1]['name'] === 'BOA'
             && $request['rows'][1]['coverage_rate'] === '80.00');
+    }
+
+    public function test_a_tariff_export_can_cover_a_single_category_imaging_split_by_family(): void
+    {
+        $payload = $this->catalogPayload('Mampikony');
+        $template = $payload['data']['items'][0];
+        $payload['data']['items'] = [
+            $template,
+            [...$template, 'uuid' => 'lab-uuid', 'code' => 'NFS', 'name' => 'NFS', 'module' => 'LABORATORY', 'module_label' => 'Laboratoire'],
+            [...$template, 'uuid' => 'echo-uuid', 'code' => 'ECHO-ABD', 'name' => 'Échographie abdominale', 'module' => 'IMAGING', 'module_label' => 'Imagerie', 'imaging_modality' => 'ULTRASOUND'],
+            [...$template, 'uuid' => 'x-uuid', 'code' => 'IMG-X', 'name' => 'Examen sans famille', 'module' => 'IMAGING', 'module_label' => 'Imagerie', 'imaging_modality' => null],
+        ];
+        Http::fake(['https://m.test/api/v1/super-admin/catalog*' => Http::response($payload, 200)]);
+
+        $codes = fn (string $category) => array_column(array_slice($this->excelRows(
+            $this->actingAs($this->superAdmin)
+                ->get('/super-admin/workspaces/tariffs/export?site_code=M&module='.urlencode($category))
+                ->assertOk()
+                ->streamedContent(),
+        ), 1), 2);
+
+        $this->assertSame(['NFS'], $codes('LABORATORY'));
+        $this->assertSame(['ECHO-ABD'], $codes('IMAGING:ULTRASOUND'));
+        // Sans famille réglée, un examen reste « non classé » : jamais rangé d'office (ADR-106).
+        $this->assertSame(['IMG-X'], $codes('IMAGING:UNCLASSIFIED'));
+
+        $this->actingAs($this->superAdmin)
+            ->get('/super-admin/workspaces/tariffs/export?site_code=M&module=not-a-category')
+            ->assertSessionHasErrors('module');
     }
 
     /** @return array<string, mixed> */

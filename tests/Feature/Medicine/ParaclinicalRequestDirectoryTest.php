@@ -96,14 +96,14 @@ class ParaclinicalRequestDirectoryTest extends TestCase
         [, $orientation] = $this->medicineConsultation($doctor);
         $request = $this->labRequest($orientation, $doctor, 'NFS');
 
-        $request->items()->update(['resulted_at' => now()->subDay(), 'resulted_by' => $doctor->id]);
+        $request->items()->update(['resulted_at' => now()->subDay(), 'resulted_by' => $doctor->id, 'sent_at' => now()->subDay()]);
 
         $this->actingAs($doctor)
             ->get('/medicine/demandes-examens?filter=recent')
             ->assertOk()
             ->assertInertia(fn ($page) => $page->has('requests', 1));
 
-        $request->items()->update(['resulted_at' => now()->subDays(30)]);
+        $request->items()->update(['resulted_at' => now()->subDays(30), 'sent_at' => now()->subDays(30)]);
 
         $this->actingAs($doctor)
             ->get('/medicine/demandes-examens?filter=recent')

@@ -15,6 +15,7 @@ use App\Models\Medicine;
 use App\Models\MedicineLot;
 use App\Models\MutualOrganization;
 use App\Models\PaymentMethod;
+use App\Models\Permission;
 use App\Models\PharmacyStockMovement;
 use App\Models\Role;
 use App\Models\User;
@@ -359,6 +360,39 @@ class SuperAdminSiteApiTest extends TestCase
         ]);
     }
 
+    public function test_a_single_designation_and_the_form_options_are_read_without_the_whole_catalog(): void
+    {
+        $item = CatalogItem::query()->create([
+            'code' => 'ECHO-ABD', 'name' => 'Échographie abdominale', 'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Imaging, 'unit' => 'examen', 'billable' => true,
+            'stockable' => false, 'created_by' => $this->actor->id, 'updated_by' => $this->actor->id,
+        ]);
+        $item->delete();
+        $readers = ['catalog.items.view', 'catalog.tariffs.view'];
+
+        $this->withHeaders($this->headers(null, null, $readers))
+            ->getJson('/api/v1/super-admin/catalog/options')
+            ->assertOk()
+            ->assertJsonMissingPath('data.items')
+            ->assertJsonPath('data.options.tariff_categories.0.value', 'STANDARD');
+
+        // Une désignation archivée reste lisible sur sa page : on la restaure depuis là.
+        $this->withHeaders($this->headers(null, null, $readers))
+            ->getJson("/api/v1/super-admin/catalog/{$item->uuid}")
+            ->assertOk()
+            ->assertJsonPath('data.item.code', 'ECHO-ABD')
+            ->assertJsonPath('data.item.archived', true)
+            ->assertJsonPath('data.options.modules.0.value', 'RECEPTION');
+
+        $this->withHeaders($this->headers(null, null, $readers))
+            ->getJson('/api/v1/super-admin/catalog/'.Str::uuid())
+            ->assertNotFound();
+
+        $this->withHeaders($this->headers(null, null, ['catalog.tariffs.view']))
+            ->getJson("/api/v1/super-admin/catalog/{$item->uuid}")
+            ->assertForbidden();
+    }
+
     public function test_catalog_items_expose_their_analyses_and_an_imaging_family_only_imaging_carries(): void
     {
         $permissions = ['catalog.items.view', 'catalog.items.create', 'catalog.items.update', 'catalog.tariffs.create'];
@@ -592,6 +626,40 @@ class SuperAdminSiteApiTest extends TestCase
             'entity_uuid' => $uuid,
             'external_actor_uuid' => $actorUuid,
         ]);
+    }
+
+    public function test_cash_register_api_exposes_only_eligible_reception_cashiers_and_saves_the_assignment(): void
+    {
+        $reception = Role::query()->create(['code' => 'RECEPTION', 'name' => 'Réception / Caisse']);
+        $cashOpen = Permission::query()->create(['name' => 'cash.open', 'label' => 'Ouvrir la caisse']);
+        $reception->permissions()->attach($cashOpen);
+        $cashier = User::factory()->create(['role_id' => $reception->id, 'name' => 'Fara Caissière']);
+        User::factory()->create(['role_id' => $reception->id, 'name' => 'Compte désactivé', 'active' => false]);
+
+        $created = $this->withHeaders($this->headers((string) Str::uuid(), (string) Str::uuid(), ['cash_registers.create']))
+            ->postJson('/api/v1/super-admin/cash-registers', [
+                'name' => 'Caisse accueil',
+                'color' => '#0F766E',
+                'opening_fund_amount' => '40000.00',
+                'assigned_user_uuid' => $cashier->uuid,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.color', '#0F766E')
+            ->assertJsonPath('data.opening_fund_amount', '40000.00')
+            ->assertJsonPath('data.assigned_user.uuid', $cashier->uuid);
+
+        $this->assertDatabaseHas('cash_registers', [
+            'uuid' => $created->json('data.uuid'),
+            'assigned_user_id' => $cashier->id,
+            'opening_fund_amount' => '40000.00',
+        ]);
+
+        $this->withHeaders($this->headers(null, null, ['cash_registers.view']))
+            ->getJson('/api/v1/super-admin/cash-registers')
+            ->assertOk()
+            ->assertJsonCount(1, 'meta.eligible_users')
+            ->assertJsonPath('meta.eligible_users.0.uuid', $cashier->uuid)
+            ->assertJsonPath('data.0.assigned_user.name', 'Fara Caissière');
     }
 
     public function test_a_super_admin_holding_the_whole_catalogue_keeps_its_last_permissions(): void
@@ -1172,6 +1240,62 @@ class SuperAdminSiteApiTest extends TestCase
     }
 
     /** @return array<string, string> */
+    /**
+     * ADR-044, amendement du 2026-09-28 (ter) — le matériel habituel d'un acte,
+     * réglé depuis le portail : la même action que sur le site, signée du
+     * Super Admin distant, et refusée sans catalog.items.update.
+     */
+    public function test_the_usual_material_of_an_act_is_set_by_the_portal_and_audited_under_its_actor(): void
+    {
+        $act = CatalogItem::query()->create([
+            'code' => 'PANSEMENT', 'name' => 'Pansement simple', 'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Care, 'unit' => 'acte', 'billable' => true,
+            'stockable' => false, 'created_by' => $this->actor->id, 'updated_by' => $this->actor->id,
+        ]);
+        $product = CatalogItem::query()->create([
+            'code' => 'PH-COMP', 'name' => 'Compresses stériles', 'type' => CatalogItemType::Medicine,
+            'module' => CatalogModule::Pharmacy, 'unit' => 'paquet', 'billable' => true,
+            'stockable' => true, 'created_by' => $this->actor->id, 'updated_by' => $this->actor->id,
+        ]);
+        $medicine = Medicine::query()->create([
+            'catalog_item_id' => $product->id, 'generic_name' => 'Compresses stériles',
+            'form' => MedicineForm::ParapharmacyConsumable, 'active' => true,
+            'created_by' => $this->actor->id, 'updated_by' => $this->actor->id,
+        ]);
+        $actorUuid = (string) Str::uuid();
+        $payload = ['consumables' => [['medicine_uuid' => $medicine->uuid, 'default_quantity' => 3]]];
+
+        // La fiche sert au portail les produits qu'on peut associer à l'acte.
+        $this->withHeaders($this->headers($actorUuid, null, ['catalog.items.view', 'catalog.items.update']))
+            ->getJson("/api/v1/super-admin/catalog/{$act->uuid}")
+            ->assertOk()
+            ->assertJsonPath('data.item.accepts_consumables', true)
+            ->assertJsonPath('data.consumable_options.0.medicine_uuid', $medicine->uuid);
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['catalog.items.view']))
+            ->putJson("/api/v1/super-admin/catalog/{$act->uuid}/care-consumables", $payload)
+            ->assertForbidden();
+        $this->assertDatabaseCount('care_act_consumables', 0);
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['catalog.items.update']))
+            ->putJson("/api/v1/super-admin/catalog/{$act->uuid}/care-consumables", $payload)
+            ->assertOk()
+            ->assertJsonPath('data.default_consumables.0.name', 'Compresses stériles')
+            ->assertJsonPath('data.default_consumables.0.default_quantity', 3);
+
+        $this->assertDatabaseHas('care_act_consumables', [
+            'catalog_item_id' => $act->id,
+            'medicine_id' => $medicine->id,
+            'default_quantity' => 3,
+            'created_by' => null,
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'catalog.care_act_consumables.update',
+            'user_id' => null,
+            'external_actor_uuid' => $actorUuid,
+        ]);
+    }
+
     private function headers(
         ?string $actorUuid = null,
         ?string $idempotencyKey = null,

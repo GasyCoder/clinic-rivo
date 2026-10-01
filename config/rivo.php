@@ -231,7 +231,7 @@ return [
     'professional_email' => [
         'domain' => env('RIVO_PROFESSIONAL_EMAIL_DOMAIN', ''),
         'hosting' => [
-            // ex. https://abyssin.o2switch.net:2083
+            // ex. https://kitty.o2switch.net:2083
             'url' => env('RIVO_MAIL_HOSTING_URL'),
             'user' => env('RIVO_MAIL_HOSTING_USER'),
             // Un jeton API de préférence ; à défaut (outil absent de l'offre o2switch),
@@ -283,6 +283,10 @@ return [
         'keep_alive' => [
             'enabled' => (bool) env('RIVO_WEBMAIL_KEEP_ALIVE', true),
             'idle_minutes' => (int) env('RIVO_WEBMAIL_KEEP_ALIVE_MINUTES', 10),
+            // Entre deux clics, un NOOP toutes les N secondes : un routeur (NAT, box) oublie
+            // une connexion muette sans prévenir, et elle serait rouverte au clic suivant
+            // après tout le délai d'attente. 15 secondes au moins.
+            'heartbeat_seconds' => (int) env('RIVO_WEBMAIL_KEEP_ALIVE_HEARTBEAT', 60),
             // Le PHP en ligne de commande qui lance ce processus (sous PHP-FPM, PHP_BINARY
             // désigne php-fpm) : déduit s'il est vide.
             'php' => env('RIVO_WEBMAIL_KEEP_ALIVE_PHP'),
@@ -304,6 +308,24 @@ return [
      */
     'account_activation' => [
         'days' => (int) env('RIVO_ACCOUNT_ACTIVATION_DAYS', 14),
+    ],
+
+    /*
+     * ADR-222 — l'assistant d'utilisation du logiciel. Il se règle depuis le portail
+     * (Paramètres › Assistant IA), site par site, et ces valeurs ne servent qu'en
+     * secours quand rien n'y est réglé. La clé d'un fournisseur n'est jamais ici : en
+     * secours, c'est la variable du SDK (OPENAI_API_KEY, ANTHROPIC_API_KEY…).
+     */
+    'assistant' => [
+        'enabled' => (bool) env('RIVO_AI_ENABLED', false),
+        // Le nom de l'assistant dans sa bulle et sa fenêtre.
+        'brand' => env('RIVO_AI_BRAND', 'GasyCoder AI'),
+        // Le fournisseur par défaut, quand rien n'est réglé au portail : GasyCoder AI.
+        'provider' => env('RIVO_AI_PROVIDER', 'gasycoder'),
+        'model' => env('RIVO_AI_MODEL'),
+        'max_output_tokens' => (int) env('RIVO_AI_MAX_OUTPUT_TOKENS', 800),
+        'timeout' => (int) env('RIVO_AI_TIMEOUT', 30),
+        'rate_limit_per_hour' => (int) env('RIVO_AI_RATE_LIMIT_PER_HOUR', 20),
     ],
 
     'site_api' => [

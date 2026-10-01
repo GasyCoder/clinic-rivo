@@ -12,3 +12,9 @@ Artisan::command('inspire', function () {
 // nouveaux employés. Sans effet sur un site. (Aucun mot de passe à effacer depuis
 // l'ADR-202 : l'employé choisit le sien à sa première connexion.)
 Schedule::command('rivo:staff-access:sync')->everyFiveMinutes()->withoutOverlapping();
+// ADR-228 — le portail prévient le DG des demandes de dette du personnel.
+Schedule::command('rivo:staff-debts:sync')->everyFiveMinutes()->withoutOverlapping();
+// ADR-229 — sur un site : relance mensuelle des remboursements en espèces en retard.
+Schedule::command('rivo:staff-debts:remind')->dailyAt('08:00')->withoutOverlapping();
+// ADR-230 — sur un site : pénalités de retard des remboursements en espèces.
+Schedule::command('rivo:staff-debts:penalties')->dailyAt('07:30')->withoutOverlapping();

@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers\SuperAdmin;
 
+use App\Enums\LabEntryMode;
 use App\Http\Controllers\Controller;
 use App\Models\AnalysisCatalog;
+use App\Services\Laboratory\AnalysisCatalogDirectory;
 use App\Services\Laboratory\AnalysisCatalogImportService;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use App\Services\SuperAdmin\PortalSiteApiClient;
+use App\Support\Laboratory\LabCriticalRange;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -30,7 +33,8 @@ class AnalysisCatalogController extends Controller
         $site = mb_strtoupper(trim((string) ($filters['site'] ?? '')));
         $siteCodes = collect(config('rivo.clinics', []))->pluck('code')->all();
 
-        return Inertia::render('SuperAdmin/Analyses/Index', [
+        return Inertia::render('Analyses/Index', [
+            'context' => ['mode' => 'portal'],
             // La prestation se choisit à l'écran, parmi toutes : l'envoyer au site
             // lui ferait servir une liste réduite à elle seule.
             'sites' => $client->analysisCatalogsForAllSites(
@@ -44,7 +48,8 @@ class AnalysisCatalogController extends Controller
 
     public function create(Request $request, string $site, PortalSiteApiClient $client): Response
     {
-        return Inertia::render('SuperAdmin/Analyses/Create', [
+        return Inertia::render('Analyses/Create', [
+            'context' => ['mode' => 'portal'],
             // Never name this prop "site" — HandleInertiaRequests already
             // shares a global "site" prop describing THIS deployment (the
             // portal itself, incl. site.type === 'admin', which Menu.vue
@@ -61,11 +66,13 @@ class AnalysisCatalogController extends Controller
         $detail = $client->analysisDetail($site, $analysis, $request->user());
         abort_unless($detail['ok'], 503, $detail['message'] ?? 'Le site ne répond pas actuellement.');
 
-        return Inertia::render('SuperAdmin/Analyses/Edit', [
+        return Inertia::render('Analyses/Edit', [
+            'context' => ['mode' => 'portal'],
             // See create() above: must not be named "site".
             'clinicSite' => $this->siteMeta($site),
             'analysis' => $detail['data'],
             ...$this->formData($site, $request, $client),
+            'initialStep' => AnalysisCatalogDirectory::formStep($request->query('etape')),
         ]);
     }
 
@@ -74,11 +81,17 @@ class AnalysisCatalogController extends Controller
         $validated = $request->validate(['site_code' => $this->siteCodeRules(), ...$this->catalogRules()]);
         $site = $validated['site_code'];
         unset($validated['site_code']);
+        $result = $client->createAnalysis($site, $validated, $request->user());
 
-        return $this->respond(
-            $client->createAnalysis($site, $validated, $request->user()),
-            'Analyse ajoutée au site.',
-        );
+        // ADR-063, amendement du 2026-10-01 — la fiche créée s'ouvre aussitôt ;
+        // la suite s'y enregistre toute seule, toujours par l'API du site.
+        $uuid = $result['data']['uuid'] ?? null;
+        if ($result['ok'] && $request->input('after') === 'edit' && is_string($uuid)) {
+            return to_route('super-admin.analyses.edit', ['site' => $site, 'analysis' => $uuid, 'etape' => 'resultat'])
+                ->with('status', ($result['message'] ?? null) ?: 'Analyse créée sur le site : la suite s’enregistre toute seule.');
+        }
+
+        return $this->respond($result, 'Analyse ajoutée au site.');
     }
 
     public function update(
@@ -88,11 +101,14 @@ class AnalysisCatalogController extends Controller
         PortalSiteApiClient $client,
     ): RedirectResponse {
         $validated = $request->validate($this->catalogRules());
+        $result = $client->updateAnalysis($site, $analysis, $validated, $request->user());
 
-        return $this->respond(
-            $client->updateAnalysis($site, $analysis, $validated, $request->user()),
-            'Analyse mise à jour sur le site.',
-        );
+        // Un enregistrement automatique revient sur la fiche, sans message.
+        if ($result['ok'] && $request->boolean('_autosave')) {
+            return back();
+        }
+
+        return $this->respond($result, 'Analyse mise à jour sur le site.');
     }
 
     public function activate(Request $request, string $site, string $analysis, PortalSiteApiClient $client): RedirectResponse
@@ -128,7 +144,7 @@ class AnalysisCatalogController extends Controller
         );
     }
 
-    public function export(Request $request, PortalSiteApiClient $client, ExcelWorkbook $excel): StreamedResponse
+    public function export(Request $request, PortalSiteApiClient $client, ExcelWorkbook $excel, AnalysisCatalogDirectory $directory): StreamedResponse
     {
         $validated = $request->validate([
             'site_code' => $this->siteCodeRules(),
@@ -140,24 +156,7 @@ class AnalysisCatalogController extends Controller
 
         abort_unless($result && $result['ok'], 503, $result['message'] ?? 'Le site ne répond pas actuellement.');
 
-        $rows = collect(data_get($result, 'data.analyses', []))->map(fn (array $item) => [
-            data_get($item, 'catalog_item.code'),
-            $item['code'],
-            $item['level'],
-            data_get($item, 'parent.code'),
-            $item['designation'],
-            $item['description'],
-            $item['result_type'],
-            $item['reference_general'],
-            $item['reference_male'],
-            $item['reference_female'],
-            $item['reference_child_male'],
-            $item['reference_child_female'],
-            $item['unit'],
-            implode('|', $item['predefined_values'] ?? []),
-            $item['display_order'],
-            $item['is_active'] ? 'ACTIVE' : 'INACTIVE',
-        ]);
+        $rows = collect(data_get($result, 'data.analyses', []))->map(fn (array $item) => $directory->exportRow($item));
 
         return $excel->download(
             'catalogue-analyses-'.mb_strtolower($validated['site_code']).'-'.now()->format('Y-m-d-His'),
@@ -173,10 +172,7 @@ class AnalysisCatalogController extends Controller
             'modele-import-catalogue-analyses',
             'Analyses à importer',
             AnalysisCatalogImportService::HEADERS,
-            [
-                ['LAB-NFS', 'NFS-HB', 'CHILD', 'NFS', 'Hémoglobine', '', 'NUMERIC', '', '13–17', '12–16', '', '', 'g/dL', '', 10, 'ACTIVE'],
-                ['LAB-GROUP-RH', 'GROUP-RH', 'NORMAL', '', 'Groupe sanguin et Rhésus', '', 'CHOICE', '', '', '', '', '', '', 'A+|A-|B+|B-|AB+|AB-|O+|O-', 20, 'ACTIVE'],
-            ],
+            AnalysisCatalogDirectory::templateRows(),
         );
     }
 
@@ -208,7 +204,8 @@ class AnalysisCatalogController extends Controller
             'parents' => data_get($result, 'data.parents', []),
             'levels' => data_get($result, 'data.levels', ['PARENT', 'CHILD', 'NORMAL']),
             'resultTypes' => data_get($result, 'data.result_types', ['NUMERIC', 'TEXT', 'CHOICE', 'BOOLEAN']),
-            'examCategories' => data_get($result, 'data.exam_categories', []),
+            'entryModes' => data_get($result, 'data.entry_modes', []),
+            'disciplines' => data_get($result, 'data.disciplines', []),
         ];
     }
 
@@ -222,13 +219,16 @@ class AnalysisCatalogController extends Controller
             'level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
             'designation' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'exam_category' => ['nullable', 'string', 'max:100'],
+            'lab_discipline_uuid' => ['nullable', 'uuid'],
+            'new_discipline_name' => ['nullable', 'string', 'max:120'],
             'result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
+            'entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'reference_general' => ['nullable', 'string', 'max:255'],
             'reference_male' => ['nullable', 'string', 'max:255'],
             'reference_female' => ['nullable', 'string', 'max:255'],
             'reference_child_male' => ['nullable', 'string', 'max:255'],
             'reference_child_female' => ['nullable', 'string', 'max:255'],
+            ...LabCriticalRange::rules(''),
             'unit' => ['nullable', 'string', 'max:60'],
             'predefined_values' => ['nullable', 'array', 'max:30'],
             'predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],
@@ -241,13 +241,14 @@ class AnalysisCatalogController extends Controller
             'children.*.level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
             'children.*.designation' => ['required', 'string', 'max:255'],
             'children.*.description' => ['nullable', 'string', 'max:2000'],
-            'children.*.exam_category' => ['nullable', 'string', 'max:100'],
             'children.*.result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
+            'children.*.entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'children.*.reference_general' => ['nullable', 'string', 'max:255'],
             'children.*.reference_male' => ['nullable', 'string', 'max:255'],
             'children.*.reference_female' => ['nullable', 'string', 'max:255'],
             'children.*.reference_child_male' => ['nullable', 'string', 'max:255'],
             'children.*.reference_child_female' => ['nullable', 'string', 'max:255'],
+            ...LabCriticalRange::rules('children.*.'),
             'children.*.unit' => ['nullable', 'string', 'max:60'],
             'children.*.predefined_values' => ['nullable', 'array', 'max:30'],
             'children.*.predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],
@@ -264,13 +265,14 @@ class AnalysisCatalogController extends Controller
             'children.*.children.*.level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
             'children.*.children.*.designation' => ['required', 'string', 'max:255'],
             'children.*.children.*.description' => ['nullable', 'string', 'max:2000'],
-            'children.*.children.*.exam_category' => ['nullable', 'string', 'max:100'],
             'children.*.children.*.result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
+            'children.*.children.*.entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'children.*.children.*.reference_general' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_male' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_female' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_child_male' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_child_female' => ['nullable', 'string', 'max:255'],
+            ...LabCriticalRange::rules('children.*.children.*.'),
             'children.*.children.*.unit' => ['nullable', 'string', 'max:60'],
             'children.*.children.*.predefined_values' => ['nullable', 'array', 'max:30'],
             'children.*.children.*.predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],

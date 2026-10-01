@@ -1,136 +1,379 @@
 <script setup>
-import { hrUrl } from '@/utilities/hrUrl';
 import { computed, ref, watch } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
+import {
+    ArrowRight,
+    CircleAlert,
+    Clock3,
+    History,
+    LockKeyhole,
+    Plus,
+    Search,
+    ShieldCheck,
+    UserRound,
+    Users,
+    Wallet,
+    X,
+} from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from '@/Components/UI/Button.vue';
-import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import Input from '@/Components/UI/Input.vue';
-import HrEmptyState from '../Partials/HrEmptyState.vue';
-import HrPageHeader from '../Partials/HrPageHeader.vue';
+import Avatar from '@/Components/Shadcn/Avatar.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
+import Dialog from '@/Components/Shadcn/Dialog.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
+import PageHeader from '@/Components/UI/PageHeader.vue';
 import HrPagination from '../Partials/HrPagination.vue';
 import { usePermissions } from '@/composables/usePermissions';
-import { formatMoney } from '@/utilities/money';
+import { cn } from '@/lib/cn';
+import { hrUrl } from '@/utilities/hrUrl';
+import { currencyLabel, formatMoney } from '@/utilities/money';
 
+/**
+ * ADR-030 — le crédit Bloc du personnel est un registre RH/Finance immuable.
+ * Cet écran ne recalcule ni ne corrige le registre : il sélectionne un employé,
+ * présente la projection envoyée par Laravel et soumet une allocation motivée.
+ */
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
-    employees: Object,
-    selectedEmployee: Object,
-    movements: Object,
-    filters: Object,
+    employees: { type: Object, required: true },
+    selectedEmployee: { type: Object, default: null },
+    movements: { type: Object, default: null },
+    filters: { type: Object, default: () => ({}) },
 });
 
 const { can } = usePermissions();
 const query = ref(props.filters.q ?? '');
-const showAllocation = ref(false);
+const allocationOpen = ref(false);
 const newIdempotencyKey = () => crypto.randomUUID();
 const allocationForm = useForm({ amount: '', reason: '', idempotency_key: newIdempotencyKey() });
+
 const employeeName = (employee) => [employee?.last_name, employee?.first_name].filter(Boolean).join(' ');
+const employeeInitials = (employee) => [employee?.last_name?.[0], employee?.first_name?.[0]].filter(Boolean).join('').toUpperCase();
+
 const creditMetrics = computed(() => props.selectedEmployee ? [
-    { key: 'allocated', label: 'Alloué', value: props.selectedEmployee.credit.allocated, tone: 'text-sky-700 dark:text-sky-300' },
-    { key: 'consumed', label: 'Consommé au Bloc', value: props.selectedEmployee.credit.consumed, tone: 'text-amber-700 dark:text-amber-300' },
-    { key: 'reversed', label: 'Réversé', value: props.selectedEmployee.credit.reversed, tone: 'text-violet-700 dark:text-violet-300' },
+    { key: 'allocated', label: 'Total alloué', value: props.selectedEmployee.credit.allocated, tone: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300' },
+    { key: 'consumed', label: 'Consommé au Bloc', value: props.selectedEmployee.credit.consumed, tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' },
+    { key: 'reversed', label: 'Total réversé', value: props.selectedEmployee.credit.reversed, tone: 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300' },
 ] : []);
+
 const projectedBalance = computed(() => Number(props.selectedEmployee?.credit.available ?? 0) + Number(allocationForm.amount || 0));
+const allocationReady = computed(() => Number(allocationForm.amount) > 0 && allocationForm.reason.trim().length >= 5);
+
 const submitSearch = () => router.get(hrUrl('/administration/staff-block-credits'), {
     q: query.value || undefined,
     employee: props.selectedEmployee?.uuid,
-}, { preserveState: true, replace: true });
+}, { preserveState: true, preserveScroll: true, replace: true });
+
 const clearSearch = () => {
     query.value = '';
     submitSearch();
 };
+
 const selectEmployee = (employee) => router.get(hrUrl('/administration/staff-block-credits'), {
     q: query.value || undefined,
     employee: employee.uuid,
-}, { preserveState: true, replace: true });
+}, { preserveState: true, preserveScroll: true, replace: true });
+
 const resetAllocation = () => {
     allocationForm.reset();
     allocationForm.clearErrors();
     allocationForm.idempotency_key = newIdempotencyKey();
 };
-watch(() => props.selectedEmployee?.uuid, () => {
-    resetAllocation();
-    showAllocation.value = false;
-});
-const allocate = () => allocationForm.post(hrUrl(`/administration/staff-block-credits/${props.selectedEmployee.uuid}`), {
-    preserveScroll: true,
-    onSuccess: () => {
+
+const onAllocationOpenChange = (open) => {
+    if (open) {
+        allocationOpen.value = true;
+        return;
+    }
+
+    if (! allocationForm.processing) {
+        allocationOpen.value = false;
         resetAllocation();
-        showAllocation.value = false;
-    },
+    }
+};
+
+watch(() => props.selectedEmployee?.uuid, () => {
+    allocationOpen.value = false;
+    resetAllocation();
 });
+
+const allocate = () => {
+    if (! props.selectedEmployee || ! allocationReady.value) return;
+
+    allocationForm.post(hrUrl(`/administration/staff-block-credits/${props.selectedEmployee.uuid}`), {
+        preserveScroll: true,
+        onSuccess: () => {
+            allocationOpen.value = false;
+            resetAllocation();
+        },
+    });
+};
+
 const formatDateTime = (value) => value
     ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
     : '—';
-const movementTone = (type) => ({
-    ALLOCATION: 'bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
-    CONSUMPTION: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-    REVERSAL: 'bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300',
-}[type] ?? 'bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300');
+
+const movementBadge = (type) => ({
+    ALLOCATION: { variant: 'default', icon: Plus },
+    CONSUMPTION: { variant: 'warning', icon: Wallet },
+    REVERSAL: { variant: 'secondary', icon: History },
+}[type] ?? { variant: 'outline', icon: Clock3 });
 </script>
 
 <template>
     <Head title="Crédit forfaitaire Bloc" />
-    <div class="space-y-5">
-        <HrPageHeader eyebrow="Administration · Registre du personnel" title="Crédit forfaitaire Bloc" description="Consultez le solde d’un employé, enregistrez une allocation manuelle autorisée et suivez chaque mouvement sans altérer l’historique." icon="wallet" tone="primary" />
 
-        <aside class="grid gap-3 rounded-2xl border border-primary-200 bg-primary-50 p-4 text-sm text-primary-800 dark:border-primary-900 dark:bg-primary-950/20 dark:text-primary-300 lg:grid-cols-3">
-            <div class="flex gap-3"><Icon class="mt-0.5 shrink-0 text-lg" name="edit" /><p><strong>Allocation manuelle.</strong><br><span class="text-xs leading-5 opacity-80">Aucun montant par défaut ni renouvellement automatique.</span></p></div>
-            <div class="flex gap-3"><Icon class="mt-0.5 shrink-0 text-lg" name="shield-check" /><p><strong>Registre immuable.</strong><br><span class="text-xs leading-5 opacity-80">Une correction crée un mouvement inverse ; elle ne modifie jamais une ligne.</span></p></div>
-            <div class="flex gap-3"><Icon class="mt-0.5 shrink-0 text-lg" name="lock" /><p><strong>Idempotence protégée.</strong><br><span class="text-xs leading-5 opacity-80">Un double envoi ne doit pas créer une seconde allocation.</span></p></div>
-        </aside>
+    <div class="w-full space-y-4">
+        <PageHeader
+            eyebrow="Ressources humaines · Avantage du personnel"
+            title="Crédit forfaitaire Bloc"
+            description="Consultez le solde disponible, allouez un crédit motivé et retrouvez chaque mouvement du registre."
+            :icon="Wallet"
+            compact
+        />
 
-        <div class="grid items-start gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
-            <section class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950 xl:sticky xl:top-4">
-                <div class="border-b border-gray-200 bg-gray-50/70 p-4 dark:border-gray-900 dark:bg-gray-1000/40"><div class="flex items-center gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950"><Icon name="users" /></span><div><h2 class="text-sm font-bold text-slate-800 dark:text-white">Choisir un employé</h2><p class="mt-0.5 text-xs text-slate-500">{{ employees.total }} dossier(s) correspondant(s)</p></div></div><form class="mt-4 flex gap-2" @submit.prevent="submitSearch"><div class="relative min-w-0 flex-1"><Input v-model="query" size="lg" type="search" placeholder="Nom ou matricule" /><button v-if="query" type="button" class="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500" title="Effacer" @click="clearSearch"><Icon name="cross" /></button></div><Button icon size="lg" title="Rechercher"><Icon name="search" /></Button></form></div>
+        <Card class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex min-w-0 items-start gap-3">
+                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                    <ShieldCheck class="h-4 w-4" />
+                </span>
+                <div class="min-w-0">
+                    <p class="text-sm font-semibold text-foreground">Un registre protégé, jamais réécrit</p>
+                    <p class="mt-0.5 text-xs leading-5 text-muted-foreground">Le montant est décidé manuellement. Les consommations du Bloc et les réversions restent traçables ligne par ligne.</p>
+                </div>
+            </div>
+            <div class="flex shrink-0 flex-wrap gap-1.5 ps-12 sm:ps-0">
+                <Badge variant="outline"><LockKeyhole class="h-3 w-3" />Immuable</Badge>
+                <Badge variant="outline"><ShieldCheck class="h-3 w-3" />Audité</Badge>
+            </div>
+        </Card>
 
-                <div v-if="employees.data.length" class="max-h-[580px] divide-y divide-gray-100 overflow-y-auto dark:divide-gray-900">
-                    <button v-for="employee in employees.data" :key="employee.uuid" type="button" :class="['flex w-full items-center gap-3 border-s-4 px-4 py-3.5 text-start transition', selectedEmployee?.uuid === employee.uuid ? 'border-primary-500 bg-primary-50/70 dark:bg-primary-950/20' : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-900']" @click="selectEmployee(employee)">
-                        <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-black', selectedEmployee?.uuid === employee.uuid ? 'bg-primary-600 text-white' : 'bg-gray-100 text-slate-500 dark:bg-gray-900']">{{ employee.last_name?.[0] }}{{ employee.first_name?.[0] }}</span>
-                        <span class="min-w-0 flex-1"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ employeeName(employee) }}</span><span class="mt-0.5 block truncate text-xs text-slate-400">{{ employee.employee_number }} · {{ employee.job_title || 'Fonction non renseignée' }}</span></span>
-                        <span class="shrink-0 text-end"><span class="block text-sm font-black text-primary-700 dark:text-primary-300">{{ formatMoney(employee.credit.available) }}</span><span class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Disponible</span></span>
+        <div class="grid items-start gap-4 xl:grid-cols-[21rem_minmax(0,1fr)]">
+            <Card class="overflow-hidden xl:sticky xl:top-4">
+                <header class="border-b border-border px-4 py-3">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <h2 class="flex items-center gap-2 text-sm font-bold text-foreground"><Users class="h-4 w-4 text-primary" />Personnel</h2>
+                            <p class="mt-0.5 text-xs tabular-nums text-muted-foreground">{{ employees.total }} dossier{{ employees.total > 1 ? 's' : '' }}</p>
+                        </div>
+                        <Badge variant="secondary">Sélectionnez</Badge>
+                    </div>
+
+                    <form class="mt-3 flex gap-2" role="search" @submit.prevent="submitSearch">
+                        <div class="relative min-w-0 flex-1">
+                            <IconInput v-model="query" :icon="Search" type="search" placeholder="Nom ou matricule…" aria-label="Rechercher un employé" />
+                            <button
+                                v-if="query"
+                                type="button"
+                                class="absolute end-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                                aria-label="Effacer la recherche"
+                                @click="clearSearch"
+                            ><X class="h-3.5 w-3.5" /></button>
+                        </div>
+                        <Button type="submit" size="icon" variant="outline" aria-label="Lancer la recherche"><Search class="h-4 w-4" /></Button>
+                    </form>
+                </header>
+
+                <div v-if="employees.data.length" class="max-h-[34rem] divide-y divide-border overflow-y-auto">
+                    <button
+                        v-for="employee in employees.data"
+                        :key="employee.uuid"
+                        type="button"
+                        :aria-pressed="selectedEmployee?.uuid === employee.uuid"
+                        :class="cn(
+                            'group flex w-full items-center gap-3 border-s-2 px-3 py-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                            selectedEmployee?.uuid === employee.uuid
+                                ? 'border-primary bg-primary/5'
+                                : 'border-transparent hover:bg-accent/60',
+                        )"
+                        @click="selectEmployee(employee)"
+                    >
+                        <Avatar :initials="employeeInitials(employee)" :variant="selectedEmployee?.uuid === employee.uuid ? 'primary-pale' : 'slate-pale'" size="sm" />
+                        <span class="min-w-0 flex-1">
+                            <span class="block truncate text-sm font-semibold text-foreground">{{ employeeName(employee) }}</span>
+                            <span class="mt-0.5 block truncate text-xs text-muted-foreground">{{ employee.employee_number }} · {{ employee.job_title || 'Fonction non renseignée' }}</span>
+                        </span>
+                        <span class="shrink-0 text-end">
+                            <span class="block text-xs font-bold tabular-nums text-foreground">{{ formatMoney(employee.credit.available) }}</span>
+                            <span :class="cn('mt-0.5 block text-[10px] font-medium', employee.active ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground')">{{ employee.active ? 'Disponible' : 'Inactif' }}</span>
+                        </span>
                     </button>
                 </div>
-                <HrEmptyState v-else icon="search" title="Aucun employé trouvé" description="Modifiez le nom ou le matricule utilisé pour la recherche."><Button v-if="query" type="button" size="sm" variant="white-outline" @click="clearSearch">Effacer la recherche</Button></HrEmptyState>
+
+                <div v-else class="flex flex-col items-center gap-2 px-5 py-10 text-center">
+                    <span class="grid h-11 w-11 place-items-center rounded-full bg-muted text-muted-foreground"><Search class="h-5 w-5" /></span>
+                    <p class="text-sm font-semibold text-foreground">Aucun employé trouvé</p>
+                    <p class="text-xs leading-5 text-muted-foreground">Essayez un autre nom ou matricule.</p>
+                    <Button v-if="query" type="button" size="sm" variant="outline" @click="clearSearch">Effacer la recherche</Button>
+                </div>
+
                 <HrPagination :paginator="employees" />
-            </section>
+            </Card>
 
             <main v-if="selectedEmployee" class="min-w-0 space-y-4">
-                <section class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                    <div class="flex flex-col gap-4 bg-gradient-to-br from-primary-700 to-cyan-600 p-5 text-white sm:flex-row sm:items-start sm:justify-between">
-                        <div class="flex min-w-0 items-center gap-3"><span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-sm font-black">{{ selectedEmployee.last_name?.[0] }}{{ selectedEmployee.first_name?.[0] }}</span><div class="min-w-0"><p class="text-[11px] font-bold uppercase tracking-wide text-white/70">{{ selectedEmployee.employee_number }}</p><h2 class="mt-1 truncate text-lg font-black">{{ employeeName(selectedEmployee) }}</h2><p class="truncate text-xs text-white/75">{{ selectedEmployee.job_title || 'Fonction non renseignée' }}</p></div></div>
-                        <span :class="['w-fit rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide', selectedEmployee.active ? 'bg-emerald-300/20 text-emerald-50' : 'bg-white/15 text-white/70']">{{ selectedEmployee.active ? 'Dossier actif' : 'Inactif / archivé' }}</span>
+                <Card class="overflow-hidden">
+                    <header class="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex min-w-0 items-center gap-3">
+                            <Avatar :initials="employeeInitials(selectedEmployee)" variant="primary-pale" size="lg" />
+                            <div class="min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h2 class="truncate text-base font-bold text-foreground">{{ employeeName(selectedEmployee) }}</h2>
+                                    <Badge :variant="selectedEmployee.active ? 'success' : 'outline'">{{ selectedEmployee.active ? 'Dossier actif' : 'Inactif / archivé' }}</Badge>
+                                </div>
+                                <p class="mt-1 truncate text-xs text-muted-foreground">{{ selectedEmployee.employee_number }} · {{ selectedEmployee.job_title || 'Fonction non renseignée' }}</p>
+                            </div>
+                        </div>
+                        <Button
+                            v-if="can('staff_block_credits.allocate') && selectedEmployee.active"
+                            type="button"
+                            size="sm"
+                            @click="allocationOpen = true"
+                        ><Plus class="h-4 w-4" />Allouer un crédit</Button>
+                    </header>
+
+                    <div class="grid gap-2.5 p-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <div class="rounded-xl border border-primary/20 bg-primary/5 p-3.5">
+                            <div class="flex items-center justify-between gap-2">
+                                <p class="text-[11px] font-semibold uppercase tracking-wide text-primary">Solde disponible</p>
+                                <Wallet class="h-4 w-4 text-primary" />
+                            </div>
+                            <p class="mt-2 text-xl font-bold tabular-nums tracking-tight text-foreground">{{ formatMoney(selectedEmployee.credit.available) }}</p>
+                        </div>
+                        <div v-for="metric in creditMetrics" :key="metric.key" class="rounded-xl border border-border bg-card p-3.5">
+                            <span :class="cn('grid h-7 w-7 place-items-center rounded-md', metric.tone)"><History class="h-3.5 w-3.5" /></span>
+                            <p class="mt-2 text-[11px] font-medium text-muted-foreground">{{ metric.label }}</p>
+                            <p class="mt-0.5 text-sm font-bold tabular-nums text-foreground">{{ formatMoney(metric.value) }}</p>
+                        </div>
                     </div>
 
-                    <div class="grid gap-4 p-5 lg:grid-cols-[minmax(240px,1.2fr)_2fr]">
-                        <div class="rounded-2xl border border-primary-200 bg-primary-50 p-5 dark:border-primary-900 dark:bg-primary-950/20"><p class="text-[11px] font-bold uppercase tracking-wide text-primary-600 dark:text-primary-300">Solde disponible</p><p class="mt-2 text-3xl font-black tracking-tight text-primary-800 dark:text-primary-200">{{ formatMoney(selectedEmployee.credit.available) }}</p><p class="mt-2 text-xs leading-5 text-slate-500">Solde calculé à partir du registre des allocations, consommations Bloc et réversions.</p></div>
-                        <dl class="grid gap-3 sm:grid-cols-3"><div v-for="metric in creditMetrics" :key="metric.key" class="rounded-xl border border-gray-200 p-4 dark:border-gray-800"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">{{ metric.label }}</dt><dd :class="['mt-2 text-base font-black', metric.tone]">{{ formatMoney(metric.value) }}</dd></div></dl>
+                    <div v-if="! selectedEmployee.active" class="flex items-start gap-2 border-t border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
+                        <CircleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+                        <p>Ce dossier est inactif ou archivé : son registre reste consultable, mais aucune nouvelle allocation n’est possible.</p>
+                    </div>
+                </Card>
+
+                <Card class="overflow-hidden">
+                    <header class="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <h2 class="flex items-center gap-2 text-sm font-bold text-foreground"><History class="h-4 w-4 text-primary" />Historique du registre</h2>
+                            <p class="mt-0.5 text-xs text-muted-foreground">{{ movements?.total ?? 0 }} mouvement{{ (movements?.total ?? 0) > 1 ? 's' : '' }}, du plus récent au plus ancien</p>
+                        </div>
+                        <Badge variant="outline"><LockKeyhole class="h-3 w-3" />Lecture seule</Badge>
+                    </header>
+
+                    <div v-if="movements?.data?.length" class="overflow-x-auto">
+                        <table class="w-full min-w-[52rem] text-sm">
+                            <caption class="sr-only">Mouvements du crédit Bloc de {{ employeeName(selectedEmployee) }}</caption>
+                            <thead class="border-b border-border bg-muted/35 text-[11px] text-muted-foreground">
+                                <tr>
+                                    <th class="px-4 py-2.5 text-start font-semibold">Date</th>
+                                    <th class="px-3 py-2.5 text-start font-semibold">Mouvement</th>
+                                    <th class="px-3 py-2.5 text-end font-semibold">Montant</th>
+                                    <th class="px-3 py-2.5 text-start font-semibold">Évolution du solde</th>
+                                    <th class="px-4 py-2.5 text-start font-semibold">Traçabilité</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-border">
+                                <tr v-for="movement in movements.data" :key="movement.uuid" class="transition-colors hover:bg-muted/25">
+                                    <td class="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-muted-foreground">{{ formatDateTime(movement.created_at) }}</td>
+                                    <td class="px-3 py-3">
+                                        <Badge :variant="movementBadge(movement.movement_type).variant">
+                                            <component :is="movementBadge(movement.movement_type).icon" class="h-3 w-3" />
+                                            {{ movement.movement_type_label }}
+                                        </Badge>
+                                    </td>
+                                    <td :class="cn('whitespace-nowrap px-3 py-3 text-end font-bold tabular-nums', Number(movement.amount) < 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400')">
+                                        {{ Number(movement.amount) > 0 ? '+' : '' }}{{ formatMoney(movement.amount) }}
+                                    </td>
+                                    <td class="px-3 py-3">
+                                        <span class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs tabular-nums">
+                                            <span class="text-muted-foreground">{{ formatMoney(movement.balance_before) }}</span>
+                                            <ArrowRight class="h-3.5 w-3.5 text-muted-foreground" />
+                                            <strong class="font-bold text-foreground">{{ formatMoney(movement.balance_after) }}</strong>
+                                        </span>
+                                    </td>
+                                    <td class="max-w-sm px-4 py-3 text-xs leading-5 text-muted-foreground">
+                                        <span v-if="movement.episode_number" class="block font-semibold text-foreground">Épisode {{ movement.episode_number }}</span>
+                                        <span class="block">{{ movement.billable_item_description || movement.reason || 'Sans détail' }}</span>
+                                        <span class="block text-[10px]">Par {{ movement.created_by || 'le système' }}</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
 
-                    <div v-if="can('staff_block_credits.allocate') && selectedEmployee.active" class="border-t border-gray-200 p-5 dark:border-gray-900">
-                        <div v-if="!showAllocation" class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 class="text-sm font-bold text-slate-800 dark:text-white">Nouvelle allocation manuelle</h3><p class="mt-1 text-xs leading-5 text-slate-500">Une décision motivée ajoute un nouveau mouvement audité au registre.</p></div><Button type="button" size="rg" @click="showAllocation = true"><Icon name="plus" /><span class="ms-2">Préparer une allocation</span></Button></div>
-                        <form v-else class="rounded-2xl border border-primary-200 bg-primary-50/60 p-4 dark:border-primary-900 dark:bg-primary-950/20" @submit.prevent="allocate">
-                            <div class="flex items-start justify-between gap-3"><div><p class="text-[11px] font-bold uppercase tracking-wide text-primary-600">Mouvement à confirmer</p><h3 class="mt-1 text-sm font-bold text-slate-800 dark:text-white">Allocation manuelle</h3></div><button type="button" class="text-slate-400 hover:text-red-500" title="Fermer" @click="showAllocation = false; resetAllocation()"><Icon name="cross" /></button></div>
-                            <div class="mt-4 grid gap-4 md:grid-cols-[190px_minmax(0,1fr)]"><label><span class="mb-1.5 block text-xs font-bold text-slate-600 dark:text-slate-300">Montant à allouer (Ar) <span class="text-red-500">*</span></span><Input v-model="allocationForm.amount" size="lg" type="number" min="1" step="0.01" required /><FormError v-if="allocationForm.errors.amount">{{ allocationForm.errors.amount }}</FormError></label><label><span class="mb-1.5 block text-xs font-bold text-slate-600 dark:text-slate-300">Motif de la décision <span class="text-red-500">*</span></span><Input v-model="allocationForm.reason" size="lg" minlength="5" maxlength="1000" required placeholder="Expliquer l’allocation manuelle" /><FormError v-if="allocationForm.errors.reason">{{ allocationForm.errors.reason }}</FormError></label></div>
-                            <div class="mt-4 flex flex-col gap-3 rounded-xl bg-white p-3 dark:bg-gray-950 sm:flex-row sm:items-center sm:justify-between"><div class="text-xs text-slate-500">Solde après confirmation : <strong class="ms-1 text-base text-primary-700 dark:text-primary-300">{{ formatMoney(projectedBalance) }}</strong></div><div class="flex justify-end gap-2"><Button type="button" size="rg" variant="white-outline" @click="showAllocation = false; resetAllocation()">Annuler</Button><Button size="rg" :disabled="allocationForm.processing"><Icon name="shield-check" /><span class="ms-2">Confirmer l’allocation</span></Button></div></div>
-                            <FormError v-if="allocationForm.errors.idempotency_key" class="mt-2">{{ allocationForm.errors.idempotency_key }}</FormError>
-                        </form>
+                    <div v-else class="flex flex-col items-center gap-2 px-5 py-10 text-center">
+                        <span class="grid h-11 w-11 place-items-center rounded-full bg-muted text-muted-foreground"><History class="h-5 w-5" /></span>
+                        <p class="text-sm font-semibold text-foreground">Aucun mouvement</p>
+                        <p class="max-w-md text-xs leading-5 text-muted-foreground">La première allocation apparaîtra ici avec son auteur, son motif et le solde obtenu.</p>
                     </div>
-                    <div v-else-if="!selectedEmployee.active" class="border-t border-gray-200 bg-gray-50 px-5 py-4 text-xs text-slate-500 dark:border-gray-900 dark:bg-gray-1000/40"><Icon class="me-2" name="lock" />Une allocation ne peut pas être ajoutée à un dossier inactif ou archivé.</div>
-                </section>
 
-                <section class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                    <div class="flex flex-col gap-2 border-b border-gray-200 bg-gray-50/70 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/40 sm:flex-row sm:items-center sm:justify-between"><div><h2 class="text-sm font-bold text-slate-800 dark:text-white">Historique immuable</h2><p class="mt-1 text-xs text-slate-500">{{ movements?.total ?? 0 }} mouvement(s), du plus récent au plus ancien.</p></div><span class="w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><Icon class="me-1" name="shield-check" />Lecture seule</span></div>
-                    <div v-if="movements?.data?.length" class="overflow-x-auto"><table class="min-w-[850px] w-full text-sm"><thead class="bg-gray-50 text-[10px] uppercase tracking-wide text-slate-400 dark:bg-gray-900"><tr><th class="px-5 py-2.5 text-start">Date</th><th class="px-4 py-2.5 text-start">Mouvement</th><th class="px-4 py-2.5 text-end">Montant</th><th class="px-4 py-2.5 text-end">Solde après</th><th class="px-5 py-2.5 text-start">Traçabilité</th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-gray-900"><tr v-for="movement in movements.data" :key="movement.uuid" class="hover:bg-gray-50/70 dark:hover:bg-gray-900/50"><td class="whitespace-nowrap px-5 py-4 text-xs text-slate-500">{{ formatDateTime(movement.created_at) }}</td><td class="px-4 py-4"><span :class="['inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide', movementTone(movement.movement_type)]">{{ movement.movement_type_label }}</span></td><td :class="['px-4 py-4 text-end font-black', Number(movement.amount) < 0 ? 'text-red-600' : 'text-emerald-600']">{{ Number(movement.amount) > 0 ? '+' : '' }}{{ formatMoney(movement.amount) }}</td><td class="px-4 py-4 text-end font-black text-slate-700 dark:text-white">{{ formatMoney(movement.balance_after) }}</td><td class="max-w-sm px-5 py-4 text-xs text-slate-500"><span v-if="movement.episode_number" class="mb-1 block font-bold text-slate-700 dark:text-slate-300">Épisode {{ movement.episode_number }}</span><span class="block">{{ movement.billable_item_description || movement.reason || 'Sans détail' }}</span><span class="mt-1 block text-[10px] text-slate-400">Enregistré par {{ movement.created_by || 'le système' }}</span></td></tr></tbody></table></div>
-                    <HrEmptyState v-else icon="activity" title="Aucun mouvement" description="La première allocation manuelle apparaîtra ici avec son auteur et son solde résultant." />
                     <HrPagination :paginator="movements" />
-                </section>
+                </Card>
             </main>
 
-            <section v-else class="overflow-hidden rounded-2xl border border-dashed border-gray-300 bg-white dark:border-gray-800 dark:bg-gray-950"><HrEmptyState icon="wallet" title="Sélectionnez un employé" description="Son solde disponible, l’action d’allocation autorisée et son registre de mouvements apparaîtront dans cet espace." /></section>
+            <Card v-else class="flex min-h-72 flex-col items-center justify-center gap-3 border-dashed px-6 py-12 text-center">
+                <span class="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary"><UserRound class="h-6 w-6" /></span>
+                <div>
+                    <h2 class="text-sm font-bold text-foreground">Choisissez un employé</h2>
+                    <p class="mt-1 max-w-md text-sm leading-6 text-muted-foreground">Son solde, ses totaux et l’historique immuable du crédit Bloc s’afficheront ici.</p>
+                </div>
+            </Card>
         </div>
+
+        <Dialog
+            :open="allocationOpen"
+            title="Allouer un crédit Bloc"
+            :description="selectedEmployee ? `${employeeName(selectedEmployee)} · ${selectedEmployee.employee_number}` : ''"
+            :dismissible="! allocationForm.processing"
+            @update:open="onAllocationOpenChange"
+        >
+            <template #icon>
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Wallet class="h-5 w-5" /></span>
+            </template>
+
+            <form id="staff-block-credit-allocation" class="space-y-4" @submit.prevent="allocate">
+                <div class="grid grid-cols-2 gap-2 rounded-xl border border-border bg-muted/35 p-3 text-sm">
+                    <div>
+                        <p class="text-xs text-muted-foreground">Solde actuel</p>
+                        <p class="mt-1 font-bold tabular-nums text-foreground">{{ formatMoney(selectedEmployee?.credit.available) }}</p>
+                    </div>
+                    <div class="border-s border-border ps-3">
+                        <p class="text-xs text-muted-foreground">Solde après allocation</p>
+                        <p class="mt-1 font-bold tabular-nums text-primary">{{ formatMoney(projectedBalance) }}</p>
+                    </div>
+                </div>
+
+                <FormField label="Montant à allouer" required :error="allocationForm.errors.amount" :icon="Wallet">
+                    <div class="relative">
+                        <Input v-model="allocationForm.amount" type="number" min="1" step="0.01" inputmode="decimal" class="pe-16" autofocus required />
+                        <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs font-semibold text-muted-foreground">{{ currencyLabel() }}</span>
+                    </div>
+                </FormField>
+
+                <FormField label="Motif de la décision" required hint="5 caractères minimum" :error="allocationForm.errors.reason" :icon="ShieldCheck">
+                    <Textarea v-model="allocationForm.reason" rows="3" minlength="5" maxlength="1000" required placeholder="Expliquez pourquoi ce crédit est accordé…" />
+                </FormField>
+
+                <div class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-200">
+                    <CircleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+                    <p>La confirmation ajoute une ligne auditée au registre. Elle ne pourra pas être modifiée ni supprimée.</p>
+                </div>
+
+                <p v-if="allocationForm.errors.idempotency_key" class="text-xs font-medium text-destructive">{{ allocationForm.errors.idempotency_key }}</p>
+            </form>
+
+            <template #footer>
+                <Button type="button" variant="outline" :disabled="allocationForm.processing" @click="onAllocationOpenChange(false)">Annuler</Button>
+                <Button type="submit" form="staff-block-credit-allocation" :disabled="allocationForm.processing || ! allocationReady">
+                    <ShieldCheck class="h-4 w-4" />{{ allocationForm.processing ? 'Enregistrement…' : 'Confirmer l’allocation' }}
+                </Button>
+            </template>
+        </Dialog>
     </div>
 </template>

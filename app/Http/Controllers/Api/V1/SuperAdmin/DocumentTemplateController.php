@@ -78,7 +78,7 @@ class DocumentTemplateController extends Controller
         $template = $action->execute($request->validated(), CatalogActor::fromRemoteRequest($request));
 
         return response()->json([
-            'message' => "Canevas « {$template->name} » créé sur le site.",
+            'message' => "Modèle « {$template->name} » créé sur le site.",
             'data' => $this->serialize($this->loadTemplate($template)),
         ], 201);
     }
@@ -93,7 +93,7 @@ class DocumentTemplateController extends Controller
         $template = $action->execute($request->validated(), CatalogActor::fromRemoteRequest($request), $template);
 
         return response()->json([
-            'message' => "Canevas « {$template->name} » mis à jour.",
+            'message' => "Modèle « {$template->name} » mis à jour.",
             'data' => $this->serialize($this->loadTemplate($template)),
         ]);
     }
@@ -106,7 +106,7 @@ class DocumentTemplateController extends Controller
         $template = DocumentTemplate::query()->where('uuid', $documentTemplateUuid)->firstOrFail();
         $action->execute($template, $request->validated('reason'), CatalogActor::fromRemoteRequest($request));
 
-        return response()->json(['message' => "Canevas « {$template->name} » archivé."]);
+        return response()->json(['message' => "Modèle « {$template->name} » archivé."]);
     }
 
     public function restore(
@@ -119,7 +119,7 @@ class DocumentTemplateController extends Controller
         $template = $action->execute($template, $actor);
 
         return response()->json([
-            'message' => "Canevas « {$template->name} » restauré.",
+            'message' => "Modèle « {$template->name} » restauré.",
             'data' => $this->serialize($this->loadTemplate($template)),
         ]);
     }
@@ -133,7 +133,7 @@ class DocumentTemplateController extends Controller
         $copy = $action->execute($template, CatalogActor::fromRemoteRequest($request));
 
         return response()->json([
-            'message' => "Canevas dupliqué en « {$copy->name} », inactif.",
+            'message' => "Modèle dupliqué en « {$copy->name} », inactif.",
             'data' => $this->serialize($this->loadTemplate($copy)),
         ], 201);
     }
@@ -191,7 +191,7 @@ class DocumentTemplateController extends Controller
         $template = $action->execute($template, $active, CatalogActor::fromRemoteRequest($request));
 
         return response()->json([
-            'message' => $active ? "Canevas « {$template->name} » activé." : "Canevas « {$template->name} » désactivé.",
+            'message' => $active ? "Modèle « {$template->name} » activé." : "Modèle « {$template->name} » désactivé.",
             'data' => $this->serialize($this->loadTemplate($template)),
         ]);
     }

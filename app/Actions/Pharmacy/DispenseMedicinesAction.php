@@ -90,6 +90,7 @@ class DispenseMedicinesAction
 
             foreach ($lines as $line) {
                 $requested = (int) $submitted[$line->uuid]['quantity'];
+                $this->replaceUnusableReservations($dispense, $line, $actor);
                 $reservations = $this->reservations($dispense, $line);
                 $reservable = (int) $reservations->sum('remaining_quantity');
 
@@ -186,6 +187,107 @@ class DispenseMedicinesAction
     }
 
     /** @return Collection<int, MedicineStockReservation|PharmacyDispenseLotReservation> */
+    /**
+     * Un lot réservé à l'ordonnance (ou à la vente) peut périmer — ou être désactivé — avant
+     * que le patient ait réglé. Sa réservation est alors reportée sur les lots encore
+     * valides du même médicament, en FEFO, sans jamais entamer ce qui est réservé pour
+     * quelqu'un d'autre : c'est la « réallocation » que la délivrance exigeait sans
+     * qu'aucun écran ne permette de la faire. L'ancienne réservation est libérée avec son
+     * motif, jamais effacée. Si les lots valides ne couvrent pas tout, rien ne bouge et le
+     * refus dit combien il manque.
+     */
+    private function replaceUnusableReservations(PharmacyDispense $dispense, PharmacyDispenseLine $line, User $actor): void
+    {
+        $today = CarbonImmutable::today();
+        $lots = MedicineLot::query()
+            ->withReservedQuantity()
+            ->where('medicine_id', $line->medicine_id)
+            ->orderBy('expires_at')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        $stale = $this->reservations($dispense, $line)
+            ->filter(fn ($reservation) => ! ($lots->get($reservation->medicine_lot_id)?->isUsableOn($today) ?? false))
+            ->values();
+
+        if ($stale->isEmpty()) {
+            return;
+        }
+
+        $needed = (int) $stale->sum('remaining_quantity');
+        $usable = $lots->filter(fn (MedicineLot $lot) => $lot->isUsableOn($today) && $lot->availableQuantity() > 0);
+        $available = (int) $usable->sum(fn (MedicineLot $lot) => $lot->availableQuantity());
+        $staleLots = $stale->map(fn ($reservation) => $lots->get($reservation->medicine_lot_id)?->lot_number ?? '?')->unique()->implode(', ');
+
+        if ($available < $needed) {
+            throw ValidationException::withMessages([
+                'lines' => sprintf(
+                    'Le lot %s de %s est périmé ou retiré depuis la réservation : %d à remplacer, %d disponible(s) dans des lots valides. Recevez du stock ou délivrez moins.',
+                    $staleLots, $line->medicine_name, $needed, $available,
+                ),
+            ]);
+        }
+
+        foreach ($stale as $reservation) {
+            $toPlace = (int) $reservation->remaining_quantity;
+
+            foreach ($usable as $lot) {
+                if ($toPlace === 0) {
+                    break;
+                }
+
+                $take = min($toPlace, $lot->availableQuantity());
+                if ($take <= 0) {
+                    continue;
+                }
+
+                // Une ligne n'a qu'une réservation par lot : celle qu'elle a déjà sur ce lot
+                // grandit d'autant (quantité et reste ; délivré = quantité − reste ne change pas).
+                $owner = $reservation instanceof MedicineStockReservation ? 'prescription_line_id' : 'pharmacy_dispense_line_id';
+                $existing = $reservation::query()
+                    ->where($owner, $reservation->getAttribute($owner))
+                    ->where('medicine_lot_id', $lot->getKey())
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existing !== null) {
+                    $existing->forceFill([
+                        'quantity' => (int) $existing->quantity + $take,
+                        'remaining_quantity' => (int) $existing->remaining_quantity + $take,
+                        'status' => MedicineStockReservationStatus::Reserved,
+                        'released_at' => null,
+                        'released_by' => null,
+                        'release_reason' => null,
+                    ])->save();
+                } else {
+                    $copy = $reservation->replicate(['uuid', 'released_at', 'released_by', 'release_reason', 'dispensed_at', 'dispensed_by']);
+                    $copy->forceFill([
+                        'medicine_lot_id' => $lot->getKey(),
+                        'quantity' => $take,
+                        'remaining_quantity' => $take,
+                        'status' => MedicineStockReservationStatus::Reserved,
+                        'reserved_at' => now(),
+                        'reserved_by' => $actor->getKey(),
+                    ])->save();
+                }
+
+                // La disponibilité du lot tient compte de ce qui vient d'y être réservé.
+                $lot->setAttribute('prescription_reserved_quantity', (int) ($lot->prescription_reserved_quantity ?? 0) + $take);
+                $toPlace -= $take;
+            }
+
+            $reservation->forceFill([
+                'status' => MedicineStockReservationStatus::Released,
+                'remaining_quantity' => 0,
+                'released_at' => now(),
+                'released_by' => $actor->getKey(),
+                'release_reason' => sprintf('Lot %s périmé ou retiré avant la délivrance : réservation reportée sur un lot valide (FEFO).', $lots->get($reservation->medicine_lot_id)?->lot_number ?? '?'),
+            ])->save();
+        }
+    }
+
     private function reservations(PharmacyDispense $dispense, PharmacyDispenseLine $line): Collection
     {
         $query = $dispense->type === PharmacyDispenseType::Internal

@@ -19,6 +19,7 @@ const props = defineProps({
     numbering: { type: Object, default: () => ({}) },
     fallbacks: { type: Object, default: () => ({}) },
     options: { type: Object, default: () => ({}) },
+    scope: { type: String, default: 'all', validator: (value) => ['all', 'patient', 'employee'].includes(value) },
     readonly: { type: Boolean, default: false },
 });
 
@@ -93,9 +94,14 @@ const employeeNumber = computed(() => (employeeExact.value
 </script>
 
 <template>
-    <SettingsSection id="numerotation" title="Numérotation" body-class="space-y-10" description="Le numéro des nouveaux patients et de leurs passages, et le matricule proposé à la création d’un employé. Un numéro déjà attribué ne change jamais.">
+    <SettingsSection
+        :id="scope === 'employee' ? 'matricules' : 'numerotation'"
+        :title="scope === 'employee' ? 'Matricules' : 'Numérotation des patients'"
+        body-class="space-y-10"
+        :description="scope === 'employee' ? 'Le matricule proposé par les Ressources humaines à la création d’un employé.' : 'Le numéro des nouveaux patients et de leurs passages. Un numéro déjà attribué ne change jamais.'"
+    >
         <!-- Patients et passages -->
-        <div class="space-y-6" role="group" aria-labelledby="numerotation-patients">
+        <div v-if="scope !== 'employee'" class="space-y-6" role="group" aria-labelledby="numerotation-patients">
             <div>
                 <h4 id="numerotation-patients" class="flex items-center gap-2 text-base font-medium text-foreground"><CircleUser class="h-4 w-4 text-primary" aria-hidden="true" />Patients et passages</h4>
                 <p class="text-sm text-muted-foreground">Le numéro donné à un nouveau dossier patient, puis à chacun de ses passages.</p>
@@ -139,10 +145,10 @@ const employeeNumber = computed(() => (employeeExact.value
             </SettingsField>
         </div>
 
-        <Separator />
+        <Separator v-if="scope === 'all'" />
 
         <!-- Matricule -->
-        <div class="space-y-6" role="group" aria-labelledby="numerotation-matricule">
+        <div v-if="scope !== 'patient'" class="space-y-6" role="group" aria-labelledby="numerotation-matricule">
             <div>
                 <h4 id="numerotation-matricule" class="flex items-center gap-2 text-base font-medium text-foreground"><IdCard class="h-4 w-4 text-primary" aria-hidden="true" />Matricule des employés</h4>
                 <p class="text-sm text-muted-foreground">Proposé à la création d’un employé, modifiable par le RH.</p>

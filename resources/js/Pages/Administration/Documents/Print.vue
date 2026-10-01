@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { Archive, ArrowLeft, FileStack, History, Pencil, Printer, RotateCcw } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -15,6 +15,16 @@ const props = defineProps({ document: Object });
 const { can } = usePermissions();
 
 const printPage = () => window.print();
+
+// ADR-240 — A4 réel, mêmes marges que la feuille de l'éditeur de modèles (2,5 cm / 2 cm).
+// La règle @page est posée le temps de la page : elle ne doit pas suivre une autre impression.
+let pageRule = null;
+onMounted(() => {
+    pageRule = document.createElement('style');
+    pageRule.textContent = '@page { size: A4; margin: 25mm 20mm; }';
+    document.head.appendChild(pageRule);
+});
+onBeforeUnmount(() => pageRule?.remove());
 const formatDate = (value) => (value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '');
 
 // ADR-208 — le document dans son dossier : modifier (nouvelle version), archiver, restaurer.
@@ -42,7 +52,7 @@ const restore = () => router.post(hrUrl(`/administration/generated-documents/${p
     <div class="mx-auto max-w-4xl space-y-3">
         <div class="print-actions flex flex-wrap items-center gap-2">
             <Button :as="Link" :href="folderHref" variant="outline"><ArrowLeft class="h-4 w-4" />Retour au dossier</Button>
-            <Button v-if="sourceHref" :as="Link" :href="sourceHref" variant="ghost"><FileStack class="h-4 w-4" />{{ document.source.kind === 'contract' ? 'Autre canevas ou fiche résumé' : 'Fiche de demande' }}</Button>
+            <Button v-if="sourceHref" :as="Link" :href="sourceHref" variant="ghost"><FileStack class="h-4 w-4" />{{ document.source.kind === 'contract' ? 'Autre modèle ou fiche résumé' : 'Fiche de demande' }}</Button>
             <div class="ms-auto flex flex-wrap gap-2">
                 <template v-if="! document.archived">
                     <Button v-if="can('generated_documents.create') && can('generated_documents.archive')" :as="Link" :href="modifyHref" variant="outline"><Pencil class="h-4 w-4" />Modifier</Button>
@@ -64,7 +74,7 @@ const restore = () => router.post(hrUrl(`/administration/generated-documents/${p
             <History class="me-1 inline h-3.5 w-3.5" />Nouvelle version — remplace celle du <Link :href="hrUrl(`/administration/generated-documents/${document.replaces.uuid}/print`)" class="underline">{{ formatDate(document.replaces.created_at) }}</Link>, archivée.
         </p>
 
-        <article class="print-doc bg-white p-8 text-slate-900">
+        <article class="print-doc generated-doc-a4 bg-white text-slate-900">
             <header class="mb-4 flex items-start justify-between gap-4 border-b border-slate-200 pb-3 text-xs text-slate-400 print:hidden">
                 <span>{{ document.document_type }} · {{ document.employee.name }}</span>
                 <span>{{ document.uuid }}</span>
@@ -106,6 +116,15 @@ const restore = () => router.post(hrUrl(`/administration/generated-documents/${p
     background-color: #f8fafc;
     font-weight: 700;
 }
+.generated-doc-a4 {
+    box-sizing: border-box;
+    width: 210mm;
+    max-width: 100%;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 25mm 20mm;
+    box-shadow: 0 1px 3px rgb(15 23 42 / 0.12), 0 8px 24px rgb(15 23 42 / 0.08);
+}
 .canevas-page-break {
     margin: 1rem 0;
     border-top: 1px dashed #cbd5e1;
@@ -118,6 +137,11 @@ const restore = () => router.post(hrUrl(`/administration/generated-documents/${p
     }
     .print-doc {
         padding: 0 !important;
+    }
+    .generated-doc-a4 {
+        width: auto;
+        min-height: 0;
+        box-shadow: none;
     }
     .canevas-page-break {
         border: 0;

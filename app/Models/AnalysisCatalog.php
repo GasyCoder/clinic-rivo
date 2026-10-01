@@ -12,8 +12,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'catalog_item_id', 'parent_id', 'code', 'level', 'designation', 'description',
-    'exam_category', 'result_type', 'reference_general', 'reference_male', 'reference_female',
-    'reference_child_male', 'reference_child_female', 'unit', 'predefined_values',
+    'exam_category', 'lab_discipline_id', 'result_type', 'entry_mode', 'reference_general', 'reference_male', 'reference_female',
+    'reference_child_male', 'reference_child_female', 'critical_ranges', 'unit', 'predefined_values',
     'display_order', 'is_active', 'is_bold', 'created_by', 'updated_by',
     'external_created_by_uuid', 'external_created_by_name',
     'external_updated_by_uuid', 'external_updated_by_name',
@@ -37,12 +37,49 @@ class AnalysisCatalog extends Model
     {
         return [
             'predefined_values' => 'array',
+            'critical_ranges' => 'array',
             'display_order' => 'integer',
             'is_active' => 'boolean',
             'is_bold' => 'boolean',
             'source_id' => 'integer',
             'source_metadata' => 'array',
         ];
+    }
+
+    /**
+     * ADR-238 — `exam_category` est la copie du nom de la discipline : ce qui
+     * le lit déjà (paillasse, compte rendu, désignations) ne change pas. Un
+     * import qui n'écrit que le texte (ancien laboratoire, données de
+     * développement) retrouve la discipline du même nom, ou la crée.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $analysis): void {
+            if ($analysis->isDirty('lab_discipline_id')) {
+                $analysis->exam_category = $analysis->lab_discipline_id
+                    ? LabDiscipline::withTrashed()->whereKey($analysis->lab_discipline_id)->value('name')
+                    : null;
+
+                return;
+            }
+
+            $text = trim((string) $analysis->exam_category);
+            if ($analysis->isDirty('exam_category') && $analysis->lab_discipline_id === null && $text !== '') {
+                $discipline = LabDiscipline::withTrashed()->where('normalized_name', LabDiscipline::normalize($text))->first()
+                    ?? LabDiscipline::query()->create([
+                        'name' => $text,
+                        'display_order' => ((int) LabDiscipline::withTrashed()->max('display_order')) + 10,
+                        'is_active' => true,
+                    ]);
+                $analysis->lab_discipline_id = $discipline->id;
+                $analysis->exam_category = $discipline->name;
+            }
+        });
+    }
+
+    public function discipline(): BelongsTo
+    {
+        return $this->belongsTo(LabDiscipline::class, 'lab_discipline_id')->withTrashed();
     }
 
     public function catalogItem(): BelongsTo

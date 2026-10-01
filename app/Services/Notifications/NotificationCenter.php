@@ -4,9 +4,13 @@ namespace App\Services\Notifications;
 
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Notifications\LabResultReturned;
+use App\Notifications\LabResultsAddressed;
 use App\Notifications\NewEmployeesAwaitingAccess;
 use App\Notifications\StaffAccessActivated;
 use App\Notifications\StaffAccessReady;
+use App\Notifications\StaffDebtRequested;
+use App\Notifications\StaffDebtUpdated;
 use App\Notifications\WelcomeToPlatform;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -38,6 +42,16 @@ final class NotificationCenter
         'account' => [
             'label' => 'Mon compte',
             'types' => [WelcomeToPlatform::class],
+        ],
+        // ADR-228 — les dettes du personnel : la demande au DG, sa décision, son versement.
+        'staff_debts' => [
+            'label' => 'Dettes du personnel',
+            'types' => [StaffDebtRequested::class, StaffDebtUpdated::class],
+        ],
+        // ADR-216 — les résultats d'analyses envoyés par le laboratoire.
+        'laboratory' => [
+            'label' => 'Résultats d’analyses',
+            'types' => [LabResultsAddressed::class, LabResultReturned::class],
         ],
     ];
 

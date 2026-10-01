@@ -67,6 +67,7 @@ import ClinicalDiagnosisList from '@/Components/Clinical/ClinicalDiagnosisList.v
 import ClinicalDiagnosisSuggestions from '@/Components/Clinical/ClinicalDiagnosisSuggestions.vue';
 import ClinicalPrescriptionSuggestions from '@/Components/Clinical/ClinicalPrescriptionSuggestions.vue';
 import PrescriptionAlerts from '@/Components/Clinical/PrescriptionAlerts.vue';
+import SealedLabResult from '@/Components/Laboratory/SealedLabResult.vue';
 import PrescriptionLineEditor from '@/Components/Clinical/PrescriptionLineEditor.vue';
 import CareSummaryReadOnly from '@/Components/Surgery/CareSummaryReadOnly.vue';
 import ClinicalVitalsCorrection from '@/Components/Clinical/ClinicalVitalsCorrection.vue';
@@ -2619,11 +2620,15 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         </Button>
                                     </div>
                                 </div>
+                                <!-- ADR-216 — adressés à un confrère : les valeurs s'ouvrent après confirmation. -->
+                                <div v-if="request.sealed" class="mt-2"><SealedLabResult :seal="request.sealed" compact /></div>
                                 <ul class="mt-2 space-y-1.5">
                                     <li v-for="item in request.items" :key="item.uuid" class="text-xs">
                                         <div class="flex items-center justify-between gap-3">
                                             <span class="font-semibold text-foreground">{{ item.name }}</span>
-                                            <span v-if="item.resulted_at" class="font-semibold text-emerald-600 dark:text-emerald-300">{{ item.result_value }}</span>
+                                            <span v-if="item.in_correction" class="font-semibold text-amber-700 dark:text-amber-300" title="Repris par le laboratoire : un nouvel envoi suivra">En correction</span>
+                                            <span v-else-if="item.resulted_at && request.sealed" class="text-muted-foreground">Envoyé</span>
+                                            <span v-else-if="item.resulted_at" class="font-semibold text-emerald-600 dark:text-emerald-300">{{ item.result_value }}</span>
                                             <!-- Une icône suffit à l'écran ; le sens reste dit au
                                                  survol et au lecteur d'écran. -->
                                             <span v-else class="inline-flex shrink-0 items-center text-amber-600 dark:text-amber-400" title="En attente de résultat">
@@ -2635,6 +2640,9 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                     </li>
                                 </ul>
                                 <p v-if="request.notes" class="mt-1.5 text-[11px] text-muted-foreground">{{ request.notes }}</p>
+                                <Link v-if="request.results_url" :href="request.results_url" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
+                                    <FileText class="h-3.5 w-3.5" aria-hidden="true" /> Feuille de résultats
+                                </Link>
                             </div>
                         </div>
                         <form v-if="capabilities.can_create_lab_request" id="lab-request-form" class="p-5" @submit.prevent="openRequestConfirmation('lab')">

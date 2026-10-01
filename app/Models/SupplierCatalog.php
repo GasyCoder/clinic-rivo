@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 #[Fillable([
     'medicine_supplier_id', 'original_name', 'path', 'mime_type', 'size', 'kind',
@@ -78,7 +79,24 @@ class SupplierCatalog extends Model
             return false;
         }
 
-        return $this->isImported() || $this->items()->exists();
+        return $this->usage() !== [];
+    }
+
+    /**
+     * ADR-236 — ce qui fait qu'un catalogue a servi : une de ses lignes est rattachée à un
+     * médicament de la clinique, ou a donné un prix d'achat (même clos depuis, ADR-183).
+     * Des lignes seulement importées, jamais reprises, ne retiennent rien : elles partent
+     * avec leur fichier.
+     *
+     * @return array{linked: int, prices: int}|array{}
+     */
+    public function usage(): array
+    {
+        $items = SupplierCatalogItem::withTrashed()->where('supplier_catalog_id', $this->getKey());
+        $linked = (clone $items)->whereNotNull('linked_medicine_id')->count();
+        $prices = DB::table('medicine_supplier_offers')->whereIn('supplier_catalog_item_id', (clone $items)->select('id'))->count();
+
+        return $linked === 0 && $prices === 0 ? [] : ['linked' => $linked, 'prices' => $prices];
     }
 
     protected function auditModule(): ?string

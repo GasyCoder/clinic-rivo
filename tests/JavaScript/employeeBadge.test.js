@@ -252,7 +252,7 @@ test('the settings preview builds the same design as the server would', () => {
 test('the lists, the file and the settings lead to the badge', () => {
     const employees = read('resources/js/Pages/Administration/Employees/Index.vue');
     assert.match(employees, /can\('employees\.print'\)/);
-    assert.match(employees, /badgeSheetPath\(\{ uuids: selected\.value \}\)/, 'les dossiers cochés');
+    assert.match(employees, /badgeSheetPath\(\{ uuids: targets\.value\.badge\.map/, 'les dossiers cochés en service (ADR-236 : un dossier archivé coché n’a pas de badge)');
     assert.match(employees, /statusFilter\.value !== 'archived'/, 'un dossier archivé n’a plus de badge');
 
     const internships = read('resources/js/Pages/Administration/Internships/Index.vue');

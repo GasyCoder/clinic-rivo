@@ -64,12 +64,16 @@ test('les demandes se lisent en trois vues, « Active » par défaut', () => {
  * de validation. Nommer l'onglet « Validé » afficherait un contrôle que
  * personne n'a fait — le même refus que pour « a pris connaissance ».
  */
-test('l’onglet dit « rendu », jamais « validé »', () => {
-    const filters = page.slice(page.indexOf('const FILTERS = ['));
+// Amendement ADR-216 quater — la validation existe désormais, et elle a sa propre
+// vue : « Rendues récemment » ne prétend toujours pas qu'un résultat est validé.
+test('« À valider » d’abord ; l’onglet des résultats dit « rendu », jamais « validé »', () => {
+    const filters = page.slice(page.indexOf('const ALL_FILTERS = ['));
     const block = filters.slice(0, filters.indexOf('];'));
 
-    assert.match(block, /Rendues? récemment/);
-    assert.doesNotMatch(block, /Validé/);
+    assert.match(block, /key: 'to_validate', label: 'À valider'/);
+    const recent = block.split('\n').find((line) => line.includes("key: 'recent'"));
+    assert.match(recent, /Rendues? récemment/);
+    assert.doesNotMatch(recent, /Validé/);
 });
 
 /** Après une saisie, la ligne a quitté « Active » : on la suit. */

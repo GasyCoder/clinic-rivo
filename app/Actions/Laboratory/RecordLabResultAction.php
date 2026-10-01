@@ -2,6 +2,7 @@
 
 namespace App\Actions\Laboratory;
 
+use App\Enums\LabItemStatus;
 use App\Models\LabRequestItem;
 use App\Models\User;
 use App\Services\Laboratory\AnalysisReferenceResolver;
@@ -16,6 +17,14 @@ class RecordLabResultAction
     {
         return DB::transaction(function () use ($item, $resultValue, $resultNotes, $actor): LabRequestItem {
             $locked = LabRequestItem::query()->lockForUpdate()->findOrFail($item->getKey());
+
+            if ($locked->labRequest()->value('cancelled_at') !== null) {
+                throw ValidationException::withMessages([
+                    'result_value' => 'Cette demande a été retirée par le prescripteur : elle ne se travaille plus.',
+                ]);
+            }
+
+            LabItemGuard::ensureTakenUp($locked->labRequest, $actor);
 
             if ($locked->resulted_at !== null) {
                 throw ValidationException::withMessages([
@@ -36,6 +45,10 @@ class RecordLabResultAction
                 ),
                 'resulted_at' => now(),
                 'resulted_by' => $actor->getKey(),
+                // ADR-213 / ADR-216 — rendu en une fois, il attend d'être envoyé au médecin.
+                'status' => LabItemStatus::Completed,
+                'started_at' => $locked->started_at ?? now(),
+                'started_by' => $locked->started_by ?? $actor->getKey(),
             ]);
 
             return $locked->fresh();

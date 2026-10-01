@@ -39,9 +39,8 @@ class EmployeePolicy
 
     public function forceDelete(User $user, Employee $employee): bool
     {
-        // The official Employee catalog defines no force-delete permission.
-        // Historical HR/clinical/financial references remain protected by
-        // Employee::isForceDeleteProtected() as a second model-level guard.
-        return false;
+        // ADR-236 — seulement un dossier déjà archivé ; qu'il n'ait servi nulle part, c'est
+        // Employee::isForceDeleteProtected() qui le vérifie, au moment de le détruire.
+        return $user->can('employees.force_delete') && $employee->trashed();
     }
 }

@@ -1,0 +1,362 @@
+{
+ "source": "CTB_COVER (labo-vuejs ctb-cover.sql) — familles, bactéries et antibiotiques du laboratoire, doublons fusionnés par nom",
+ "families": [
+  {
+   "name": "ENTEROBACTERIACEAE",
+   "bacteria": [
+    "Escherichia coli",
+    "Proteus mirabilis",
+    "Proteus vulgarus",
+    "Klebsiella oxytoca",
+    "Salmonella Typhi",
+    "Shigella sp",
+    "Salmonella sp",
+    "Serratia sp",
+    "Citrobacter sp",
+    "Enterobacter cloacae",
+    "Klebsiella sp",
+    "Enterobacter sp",
+    "Klebsiella pneumoniae",
+    "Entérobactérie"
+   ],
+   "antibiotics": [
+    {
+     "name": "Ampicilline / Amoxicilline",
+     "comment": null
+    },
+    {
+     "name": "Amoxicilline + acide clavulunique",
+     "comment": null
+    },
+    {
+     "name": "C1G (Cefalotine,...)",
+     "comment": null
+    },
+    {
+     "name": "C3G (ceftriaxone, céfotaxime, céfixime)",
+     "comment": null
+    },
+    {
+     "name": "Céfopérazone",
+     "comment": null
+    },
+    {
+     "name": "Phénicolés (Tiamphénicol/Chloramphénicol)",
+     "comment": null
+    },
+    {
+     "name": "Ciprofloxacine / Ofloxacine",
+     "comment": null
+    },
+    {
+     "name": "Gentamicine",
+     "comment": null
+    },
+    {
+     "name": "Impénème",
+     "comment": null
+    },
+    {
+     "name": "Levofloxacine",
+     "comment": null
+    },
+    {
+     "name": "Amikacine",
+     "comment": null
+    },
+    {
+     "name": "Céfoxitine",
+     "comment": null
+    },
+    {
+     "name": "Triméthoprime sulphamétozazole (Bactrim,...)",
+     "comment": null
+    },
+    {
+     "name": "C4G (céfépime)",
+     "comment": null
+    },
+    {
+     "name": "Norfloxacine",
+     "comment": null
+    },
+    {
+     "name": "Nitroflurantoine",
+     "comment": null
+    }
+   ]
+  },
+  {
+   "name": "STAPHYLOCOCCUS",
+   "bacteria": [
+    "Staphylococcus aureus",
+    "Staphylococcus à coagulase négative",
+    "autre germe",
+    "S. non aureus",
+    "Staphylococcus sp"
+   ],
+   "antibiotics": [
+    {
+     "name": "Penicilline G",
+     "comment": null
+    },
+    {
+     "name": "Oxacilline",
+     "comment": null
+    },
+    {
+     "name": "Ciprofloxacine / Ofloxacine",
+     "comment": null
+    },
+    {
+     "name": "Gentamicine",
+     "comment": null
+    },
+    {
+     "name": "Clindamycine",
+     "comment": null
+    },
+    {
+     "name": "Thiamphénicol/ chloramphénicol",
+     "comment": null
+    },
+    {
+     "name": "Amoxicilline-acide clavulanique",
+     "comment": null
+    },
+    {
+     "name": "Érythromycine",
+     "comment": null
+    },
+    {
+     "name": "Céfoxitine (Interprétation valable pour Oxacilline)",
+     "comment": null
+    },
+    {
+     "name": "Vancomycine",
+     "comment": null
+    },
+    {
+     "name": "Rifampicine",
+     "comment": null
+    },
+    {
+     "name": "Acide Nalidixique",
+     "comment": "Claventin"
+    }
+   ]
+  },
+  {
+   "name": "PSEUDOMONAS",
+   "bacteria": [
+    "Pseudomonas aeruginosa",
+    "Stenotrophomonas maltophilia"
+   ],
+   "antibiotics": [
+    {
+     "name": "Ticarcilline",
+     "comment": null
+    },
+    {
+     "name": "Ceftazidime (Fortum, ...)",
+     "comment": null
+    },
+    {
+     "name": "Céfépime",
+     "comment": null
+    },
+    {
+     "name": "Impénème",
+     "comment": null
+    },
+    {
+     "name": "Pipéracilline",
+     "comment": null
+    },
+    {
+     "name": "Ciprofloxacine",
+     "comment": null
+    },
+    {
+     "name": "Lévofloxacine",
+     "comment": null
+    },
+    {
+     "name": "Amikacine",
+     "comment": null
+    },
+    {
+     "name": "Gentamicine",
+     "comment": null
+    },
+    {
+     "name": "Ticarcilline + acide clavulanic (Claventin,...)",
+     "comment": null
+    }
+   ]
+  },
+  {
+   "name": "Bacilles à Gram positif",
+   "bacteria": [
+    "Bacilles de Doderleïn",
+    "Corynebacterium sp"
+   ],
+   "antibiotics": [
+    {
+     "name": "Pénicilline G",
+     "comment": null
+    },
+    {
+     "name": "Erythromycine",
+     "comment": null
+    },
+    {
+     "name": "Ciprofloxacine",
+     "comment": null
+    },
+    {
+     "name": "Gentamicine",
+     "comment": null
+    },
+    {
+     "name": "Vancomycine",
+     "comment": null
+    },
+    {
+     "name": "Triméthoprime-sulphamétozazole (Bactrim,...)",
+     "comment": null
+    }
+   ]
+  },
+  {
+   "name": "Streptococacceae",
+   "bacteria": [
+    "Streptococcus sp.",
+    "Streptococcus pneumoniae",
+    "Streptococcus agalactiae",
+    "Streptococcus pyogenes",
+    "Streptococcus alpha-hémolytique",
+    "Streptococcus beta-hémolytique",
+    "Enterococcus sp"
+   ],
+   "antibiotics": [
+    {
+     "name": "Amoxicilline",
+     "comment": null
+    },
+    {
+     "name": "Amoxicilline-acide clavulanique",
+     "comment": null
+    },
+    {
+     "name": "Pénicilline G",
+     "comment": null
+    },
+    {
+     "name": "Ceftriaxone",
+     "comment": null
+    },
+    {
+     "name": "Erythromycine",
+     "comment": null
+    },
+    {
+     "name": "Triméthoprime sulphamétozazole (Bactrim,...)",
+     "comment": null
+    },
+    {
+     "name": "Chloramphénicol/ Thiamphénicol",
+     "comment": null
+    },
+    {
+     "name": "Oxacilline",
+     "comment": null
+    },
+    {
+     "name": "Levofloxacine",
+     "comment": null
+    }
+   ]
+  },
+  {
+   "name": "Mycoplasmes",
+   "bacteria": [
+    "Mycoplasma hominis",
+    "Ureaplasma urealyticum",
+    "Mycoplasma hominis et Ureaplasma urealyticum"
+   ],
+   "antibiotics": [
+    {
+     "name": "Doxycycline",
+     "comment": null
+    },
+    {
+     "name": "Pristinamycine",
+     "comment": null
+    },
+    {
+     "name": "Roxithromycine",
+     "comment": null
+    },
+    {
+     "name": "Azithromycine",
+     "comment": null
+    },
+    {
+     "name": "Josamycine",
+     "comment": null
+    },
+    {
+     "name": "Ciprofloxacine",
+     "comment": null
+    },
+    {
+     "name": "Ofloxacine",
+     "comment": null
+    },
+    {
+     "name": "Minocycline",
+     "comment": null
+    },
+    {
+     "name": "Télithromycine",
+     "comment": null
+    },
+    {
+     "name": "Erythromycine",
+     "comment": null
+    },
+    {
+     "name": "Clindamycine",
+     "comment": null
+    },
+    {
+     "name": "Lévofloxacine",
+     "comment": null
+    },
+    {
+     "name": "Moxifloxacine",
+     "comment": null
+    }
+   ]
+  },
+  {
+   "name": "Entérobactéries Oxydatifs",
+   "bacteria": [],
+   "antibiotics": [
+    {
+     "name": "Ticarcilline",
+     "comment": null
+    },
+    {
+     "name": "Ticarcilline acide clavulanique",
+     "comment": "Claventin"
+    },
+    {
+     "name": "Pipéracilline",
+     "comment": "Claventin"
+    }
+   ]
+  }
+ ]
+}

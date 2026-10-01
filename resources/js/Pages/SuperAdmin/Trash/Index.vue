@@ -1,10 +1,13 @@
 <script setup>
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
-import { computed, reactive, ref } from 'vue';
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { computed, reactive, ref, watch } from 'vue';
+import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
-import { Filter, Lock, LoaderCircle, RotateCcw, Search, Server, Trash2 } from 'lucide-vue-next';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import { CircleAlert, CircleCheck, Eraser, Filter, Lock, LoaderCircle, RotateCcw, Search, Server, Trash2, X } from 'lucide-vue-next';
 import { lucideIcon } from '@/lib/icons';
 import { usePermissions } from '@/composables/usePermissions';
 
@@ -122,6 +125,40 @@ const submitRestore = () => restoreForm.post(
     },
 );
 
+// ADR-236 — vider la corbeille : ce que montrent les filtres, sur les sites choisis. Chaque site
+// supprime ce qui n'a servi nulle part et garde le reste ; « VIDER » est à saisir.
+const emptyOpen = ref(false);
+const emptyForm = useForm({ confirmation: '' });
+const deletableShown = computed(() => records.value.filter((record) => record.can_force_delete).length);
+const keptShown = computed(() => records.value.length - deletableShown.value);
+const scopeLabel = computed(() => {
+    const site = filterValues.site === 'ALL' ? 'tous les sites' : (props.sites.find((item) => item.site.code === filterValues.site)?.site.name ?? filterValues.site);
+    const category = filterValues.category === 'ALL' ? 'toutes les catégories' : (props.categories.find((item) => item.code === filterValues.category)?.label ?? filterValues.category);
+    const narrowed = filterValues.search || filterValues.deleted_from || filterValues.deleted_to;
+
+    return `${category}, ${site}${narrowed ? ', avec la recherche et les dates choisies' : ''}`;
+});
+const openEmpty = () => {
+    emptyForm.reset();
+    emptyForm.clearErrors();
+    emptyOpen.value = true;
+};
+const submitEmpty = () => emptyForm
+    .transform((data) => ({
+        confirmation: data.confirmation.trim(),
+        site: filterValues.site,
+        category: filterValues.category,
+        search: filterValues.search || undefined,
+        deleted_from: filterValues.deleted_from || undefined,
+        deleted_to: filterValues.deleted_to || undefined,
+    }))
+    .post('/super-admin/trash/empty', { preserveScroll: true, onSuccess: () => { emptyOpen.value = false; } });
+
+const page = usePage();
+const emptyReport = computed(() => (page.props.flash?.bulk_report?.action === 'trash_empty' ? page.props.flash.bulk_report : null));
+const reportHidden = ref(false);
+watch(emptyReport, () => { reportHidden.value = false; });
+
 const formatDateTime = (value) => value
     ? new Intl.DateTimeFormat('fr-MG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
     : '—';
@@ -142,10 +179,33 @@ const formatDateTime = (value) => value
                     <p class="mt-1 text-sm text-muted-foreground">Dossiers et référentiels archivés sur les sites cliniques.</p>
                 </div>
             </div>
-            <div class="max-w-xl border-s-2 border-amber-300 ps-3 text-xs leading-5 text-muted-foreground dark:border-amber-700">
-                La restauration conserve l’UUID et l’historique. Elle est exécutée par l’API du site concerné et inscrite dans son journal d’audit.
+            <div class="flex flex-col items-start gap-3 lg:items-end">
+                <Button v-if="can('trash.force_delete')" type="button" variant="destructive" @click="openEmpty"><Eraser class="h-4 w-4" />Vider la corbeille</Button>
+                <div class="max-w-xl border-s-2 border-amber-300 ps-3 text-xs leading-5 text-muted-foreground dark:border-amber-700">
+                    La restauration conserve l’UUID et l’historique. Elle est exécutée par l’API du site concerné et inscrite dans son journal d’audit.
+                </div>
             </div>
         </header>
+
+        <!-- ADR-236 — ce que « Vider la corbeille » a supprimé, et ce qu'il a gardé, site par site. -->
+        <div v-if="emptyReport && ! reportHidden" class="flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 shadow-sm" role="status">
+            <component :is="emptyReport.kept || emptyReport.sites.some((site) => ! site.ok) ? CircleAlert : CircleCheck" :class="['mt-0.5 h-5 w-5 shrink-0', emptyReport.kept ? 'text-amber-600' : 'text-emerald-600']" />
+            <div class="min-w-0 flex-1 space-y-2 text-sm">
+                <p class="font-semibold text-foreground">{{ emptyReport.deleted }} supprimé{{ emptyReport.deleted > 1 ? 's' : '' }} définitivement · {{ emptyReport.kept }} conservé{{ emptyReport.kept > 1 ? 's' : '' }} parce qu’ils ont servi</p>
+                <div v-for="entry in emptyReport.sites" :key="entry.site.code" class="text-muted-foreground">
+                    <p v-if="! entry.ok"><span class="font-medium text-foreground">{{ entry.site.name }}</span> — {{ entry.message }}</p>
+                    <template v-else>
+                        <p><span class="font-medium text-foreground">{{ entry.site.name }}</span> — {{ entry.deleted }} supprimé{{ entry.deleted > 1 ? 's' : '' }}, {{ entry.kept }} conservé{{ entry.kept > 1 ? 's' : '' }}<span v-if="entry.remaining"> ; il en reste, relancez « Vider » pour la suite</span>.</p>
+                        <p v-if="entry.skipped?.length" class="text-xs">Non traité (droit manquant) : {{ entry.skipped.join(', ') }}.</p>
+                        <ul v-if="entry.kept_items?.length" class="mt-1 space-y-0.5 text-xs">
+                            <li v-for="(item, index) in entry.kept_items" :key="index"><span class="font-medium text-foreground">{{ item.title }}</span> ({{ item.category }}) — {{ item.reasons.join(', ') }}</li>
+                            <li v-if="entry.kept > entry.kept_items.length">… et {{ entry.kept - entry.kept_items.length }} autre{{ entry.kept - entry.kept_items.length > 1 ? 's' : '' }}.</li>
+                        </ul>
+                    </template>
+                </div>
+            </div>
+            <Button type="button" size="icon-xs" variant="ghost" aria-label="Fermer le rapport" @click="reportHidden = true"><X class="h-4 w-4" /></Button>
+        </div>
 
         <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <button
@@ -209,12 +269,12 @@ const formatDateTime = (value) => value
                 <p><strong>{{ site.site.name }} :</strong> {{ site.message }}</p>
             </div>
 
-            <div class="hidden grid-cols-[minmax(240px,1.25fr)_190px_160px_210px_minmax(220px,1fr)_110px] border-b border-border bg-muted px-5 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground lg:grid">
+            <div class="hidden grid-cols-[minmax(240px,1.25fr)_190px_160px_210px_minmax(220px,1fr)_210px] border-b border-border bg-muted px-5 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground lg:grid">
                 <span>Élément</span><span>Catégorie</span><span>Site</span><span>Suppression</span><span>Motif</span><span class="text-end">Action</span>
             </div>
 
             <div v-if="records.length" class="divide-y divide-border">
-                <article v-for="record in records" :key="`${record.site.code}-${record.category}-${record.uuid}`" class="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(240px,1.25fr)_190px_160px_210px_minmax(220px,1fr)_110px] lg:items-center lg:gap-0">
+                <article v-for="record in records" :key="`${record.site.code}-${record.category}-${record.uuid}`" class="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(240px,1.25fr)_190px_160px_210px_minmax(220px,1fr)_210px] lg:items-center lg:gap-0">
                     <div class="min-w-0 pe-4">
                         <p class="truncate text-sm font-bold text-foreground">{{ record.title }}</p>
                         <p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
@@ -259,7 +319,7 @@ const formatDateTime = (value) => value
                         </Button>
                         <span
                             v-else-if="can('trash.force_delete')"
-                            class="ms-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                            class="ms-2 inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[11px] text-muted-foreground"
                             :title="`A déjà servi : ${(record.force_delete_blockers ?? []).join(', ')}. Cet élément reste restaurable.`"
                         >
                             <Lock class="h-3.5 w-3.5" />A servi
@@ -279,6 +339,30 @@ const formatDateTime = (value) => value
                 <span v-if="resultIsLimited">Les 100 suppressions les plus récentes de chaque site sont affichées.</span>
             </footer>
         </section>
+
+        <ConfirmModal
+            :open="emptyOpen"
+            title="Vider la corbeille"
+            confirm-label="Vider la corbeille"
+            tone="danger"
+            :icon="Eraser"
+            :processing="emptyForm.processing"
+            :disabled="emptyForm.confirmation.trim() !== 'VIDER'"
+            :dismissible="false"
+            @update:open="emptyOpen = $event"
+            @confirm="submitEmpty"
+        >
+            <div class="space-y-3 text-sm">
+                <p class="text-muted-foreground">Supprime définitivement, pour <strong class="text-foreground">{{ scopeLabel }}</strong>, tout ce qui n’a servi nulle part. C’est irréversible : ces éléments ne pourront plus être restaurés.</p>
+                <p class="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    Ce qui a servi — une facture, un passage, un contrat signé, une présence… — reste dans la corbeille et se restaure toujours. Parmi les éléments affichés : <strong class="text-foreground">{{ deletableShown }}</strong> supprimable{{ deletableShown > 1 ? 's' : '' }}, {{ keptShown }} conservé{{ keptShown > 1 ? 's' : '' }}.
+                </p>
+                <FormField label="Saisissez VIDER pour confirmer" required :error="emptyForm.errors.confirmation">
+                    <Input v-model="emptyForm.confirmation" autocomplete="off" placeholder="VIDER" />
+                </FormField>
+                <p v-for="(error, key) in emptyForm.errors" v-show="key !== 'confirmation'" :key="key" class="text-xs text-destructive">{{ error }}</p>
+            </div>
+        </ConfirmModal>
 
         <div v-if="destroying" class="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" @click.self="closeDestroy">
             <form class="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-xl" @submit.prevent="submitDestroy">

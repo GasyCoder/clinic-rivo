@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Administration;
 
 use App\Actions\Administration\ArchiveEmployeeAction;
 use App\Actions\Administration\CreateEmployeeAction;
+use App\Actions\Administration\ForceDeleteEmployeeAction;
 use App\Actions\Administration\ImportEmployeesAction;
 use App\Actions\Administration\RestoreEmployeeAction;
 use App\Actions\Administration\UpdateEmployeeAction;
+use App\Enums\EmployeeBenefitFrequency;
 use App\Enums\HrDocumentCategory;
 use App\Enums\HrReferenceType;
 use App\Enums\IdentityDocumentType;
@@ -19,6 +21,7 @@ use App\Http\Requests\Administration\StoreEmployeeRequest;
 use App\Http\Requests\Administration\UpdateEmployeeRequest;
 use App\Models\AddressEntry;
 use App\Models\AttendanceRecord;
+use App\Models\Bank;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
 use App\Models\HrDocument;
@@ -34,20 +37,36 @@ use App\Services\Administration\InternshipDirectory;
 use App\Services\Administration\LeaveBalanceCalculator;
 use App\Services\Administration\LeaveToday;
 use App\Services\Administration\ProfessionalMailboxPresenter;
+use App\Services\Audit\Auditor;
 use App\Services\Spreadsheet\ExcelWorkbook;
+use App\Support\Hr\EmployeeChildren;
+use App\Support\Hr\EmployeeUsage;
 use App\Support\ProfessionalEmailAddress;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class EmployeeController extends Controller
 {
+    /** ADR-236 — au plus 50 dossiers par geste groupé, comme les autres sélections. */
+    private const BULK_LIMIT = 50;
+
+    private const BULK_ACTIONS = [
+        'archive' => ['permission' => 'employees.delete', 'done' => 'archivé', 'refused' => 'Archivage non autorisé pour ce dossier.'],
+        'restore' => ['permission' => 'employees.restore', 'done' => 'restauré', 'refused' => 'Restauration non autorisée pour ce dossier.'],
+        'force_delete' => ['permission' => 'employees.force_delete', 'done' => 'supprimé', 'refused' => 'Seul un dossier archivé se supprime définitivement.'],
+    ];
+
     public function __construct(
         private readonly HrPresenter $presenter,
         private readonly InternshipDirectory $internships,
@@ -74,9 +93,16 @@ class EmployeeController extends Controller
             ->paginate(20)->withQueryString();
         // Le congé en cours de chaque ligne, en une requête : « Actif » et « En congé » se lisent ensemble.
         $onLeave = $this->leaveToday->byEmployee($employees->getCollection()->modelKeys());
+        // ADR-236 — ce qui empêche de détruire un dossier archivé, en une requête par table ;
+        // et les dossiers en service qui désignent peut-être la même personne.
+        $archived = $employees->getCollection()->filter(fn (Employee $employee) => $employee->trashed());
+        $blockers = EmployeeUsage::blockersFor($archived->mapWithKeys(fn (Employee $employee) => [$employee->getKey() => $employee->user_id])->all());
+        $duplicates = $this->directory->duplicates();
         $employees->through(fn (Employee $employee) => [
             ...$this->presenter->employee($employee),
             'on_leave' => $onLeave[$employee->getKey()] ?? null,
+            'duplicates' => $employee->trashed() ? [] : $duplicates->of($employee),
+            'deletion_blockers' => $employee->trashed() ? ($blockers[$employee->getKey()] ?? []) : null,
         ]);
 
         return Inertia::render('Administration/Employees/Index', [
@@ -87,6 +113,7 @@ class EmployeeController extends Controller
                 'on_leave' => $this->leaveToday->employees($this->staff()->where('active', true))->count(),
                 'inactive' => $this->staff()->where('active', false)->count(),
                 'archived' => $this->staff()->onlyTrashed()->count(),
+                'duplicates' => $this->staff()->whereKey($this->directory->duplicates()->ids())->count(),
                 // Ils ne sont pas ici : la page le dit, et mène à « Stages ».
                 'interns' => $this->internships->interns(Employee::query())->count(),
             ],
@@ -139,6 +166,7 @@ class EmployeeController extends Controller
             'department' => fn ($query) => $query->withTrashed(),
             'jobTitle' => fn ($query) => $query->withTrashed(),
             'user:id,uuid,name,active,deactivated_at',
+            'bank' => fn ($query) => $query->withTrashed(),
         ]);
 
         $contracts = $request->user()->can('contracts.view')
@@ -179,6 +207,8 @@ class EmployeeController extends Controller
             'employee' => $this->presenter->employee($employee),
             // ADR-206 — données sensibles : servies seulement avec leur droit, jamais vides.
             'payroll' => $user->can('employees.payroll.view') ? $this->presenter->payroll($employee) : null,
+            // ADR-221 — avantages et primes : confidentiels comme la rémunération.
+            'benefits' => $user->can('employees.payroll.view') ? $this->benefits($employee) : null,
             'contracts' => $contracts,
             'documents' => $documents,
             'leave' => $leave,
@@ -187,6 +217,10 @@ class EmployeeController extends Controller
             'documentOptions' => $this->documentOptions(),
             'attestationTypes' => $this->references(HrReferenceType::AttestationType),
             'professionalEmail' => $this->professionalEmail($request, $employee),
+            // ADR-236 — un dossier archivé dit ce qui l'empêche d'être détruit ; un dossier en
+            // service, les autres dossiers qui désignent peut-être la même personne.
+            'deletionBlockers' => $employee->trashed() ? EmployeeUsage::blockers($employee) : null,
+            'duplicates' => $employee->trashed() ? [] : $this->directory->duplicates()->of($employee),
             // ADR-209 — le badge, tel qu'il s'imprime. Un dossier archivé n'en a plus.
             'badge' => $employee->trashed() ? null : [
                 'person' => $badges->presentOne($employee),
@@ -223,6 +257,10 @@ class EmployeeController extends Controller
         ];
     }
 
+    /**
+     * ADR-221 — la fiche : le même parcours à étapes que la création, chaque
+     * étape enregistrée automatiquement ; « Continuer » passe à la suivante.
+     */
     public function edit(Request $request, Employee $employee): Response
     {
         Gate::forUser($request->user())->authorize('update', $employee);
@@ -231,26 +269,95 @@ class EmployeeController extends Controller
             'department' => fn ($query) => $query->withTrashed(),
             'jobTitle' => fn ($query) => $query->withTrashed(),
             'user:id,uuid,name,active,deactivated_at',
+            'bank' => fn ($query) => $query->withTrashed(),
         ]);
+        $user = $request->user();
+        $payroll = $user->can('employees.payroll.view') || $user->can('employees.payroll.update');
 
         return Inertia::render('Administration/Employees/Edit', [
             ...$this->formData($request, $employee),
             'employee' => $this->presenter->employee($employee),
             // ADR-206 — prérempli pour qui peut lire ou modifier la rémunération.
-            'payroll' => $request->user()->can('employees.payroll.view') || $request->user()->can('employees.payroll.update')
-                ? $this->presenter->payroll($employee)
-                : null,
+            'payroll' => $payroll ? $this->presenter->payroll($employee) : null,
+            // ADR-221 — la liste du module Banques, et les avantages de la personne.
+            'banks' => $payroll ? $this->bankOptions($employee->bank_id) : [],
+            'benefits' => $payroll ? $this->benefits($employee) : null,
+            'benefitOptions' => $payroll ? [
+                'types' => $this->references(HrReferenceType::BenefitType),
+                'frequencies' => collect(EmployeeBenefitFrequency::cases())->map(fn ($frequency) => [
+                    'value' => $frequency->value, 'label' => $frequency->label(),
+                ])->all(),
+                // La case « Avantages » de l'étape Rémunération, sinon la fonction (module Fonctions).
+                'eligible' => $employee->grantsBenefits() && $employee->active && ! $employee->trashed(),
+                'job_title' => $employee->jobTitle?->label,
+            ] : null,
+            // Ouvrir directement une section : ?section=pay depuis la fiche.
+            'section' => (string) $request->query('section', ''),
+            // Le parcours de création (juste après l'étape Identité), pas la mise à jour d'un dossier.
+            'creating' => $request->boolean('nouveau'),
+            // ADR-194 — « Nouveau stagiaire » : au bout du parcours, son stage.
+            'internshipIntent' => $request->boolean('stage')
+                && $user->can('contracts.create')
+                && $this->internships->hasInternshipType(),
         ]);
+    }
+
+    /**
+     * ADR-221 — les banques proposées : actives, plus celle que la fiche porte
+     * déjà si elle a été archivée depuis.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function bankOptions(?int $currentBankId): array
+    {
+        return Bank::withTrashed()
+            ->where(function ($query) use ($currentBankId): void {
+                $query->where(fn ($active) => $active->where('active', true)->whereNull('deleted_at'));
+                if ($currentBankId) {
+                    $query->orWhere('id', $currentBankId);
+                }
+            })
+            ->orderBy('position')->orderBy('code')->get()
+            ->map(fn (Bank $bank) => $this->presenter->bank($bank))->all();
+    }
+
+    /**
+     * ADR-221 — les avantages et primes d'une personne, en cours d'abord ; les
+     * retirés restent lisibles, avec leur motif.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function benefits(Employee $employee): array
+    {
+        return $employee->benefits()->withTrashed()
+            ->with(['benefitType' => fn ($query) => $query->withTrashed(), 'creator:id,name'])
+            ->orderByRaw('CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END')
+            ->latest('starts_on')->latest('id')
+            ->get()->map(fn ($benefit) => $this->presenter->benefit($benefit))->all();
     }
 
     public function store(StoreEmployeeRequest $request, CreateEmployeeAction $action): RedirectResponse
     {
-        $employee = $action->execute($request->safe()->except('after'), $request->user());
+        $employee = $action->execute($request->safe()->except(['after', 'internship']), $request->user());
 
         // ADR-194 — un stagiaire : le dossier est créé, son stage vient ensuite.
         if ($request->validated('after') === 'internship' && $request->user()->can('contracts.create')) {
             return to_route('administration.contracts.create', ['employee' => $employee->uuid, 'type' => 'stage'])
                 ->with('status', "Dossier {$employee->employee_number} créé. Enregistrez maintenant son stage : filière, école, encadrant et dates.");
+        }
+
+        // ADR-221 — le dossier est créé à la première étape : le parcours continue
+        // dans la fiche, où chaque étape s'enregistre toute seule.
+        if ($request->validated('after') === 'edit' && $request->user()->can('update', $employee)) {
+            // `nouveau` : le parcours de création continue ; l'étape Contact n'y montre pas l'email,
+            // qui n'existera qu'avec l'accès (ADR-190, ADR-197).
+            $next = ['employee' => $employee, 'section' => 'contact', 'nouveau' => 1];
+            if ($request->boolean('internship')) {
+                $next['stage'] = 1;
+            }
+
+            return to_route('administration.employees.edit', $next)
+                ->with('status', "Dossier {$employee->employee_number} créé. Continuez : chaque étape s’enregistre toute seule.");
         }
 
         return to_route('administration.employees.show', $employee)
@@ -259,7 +366,13 @@ class EmployeeController extends Controller
 
     public function update(UpdateEmployeeRequest $request, Employee $employee, UpdateEmployeeAction $action): RedirectResponse
     {
-        $employee = $action->execute($employee, $request->safe()->except('after'), $request->user());
+        $employee = $action->execute($employee, $request->safe()->except(['after', '_autosave']), $request->user());
+
+        // ADR-221 — un enregistrement automatique reste sur la fiche, sans message :
+        // son statut se lit près de la section, jamais dans un toast.
+        if ($request->boolean('_autosave')) {
+            return back();
+        }
 
         return to_route('administration.employees.show', $employee)
             ->with('status', "Dossier Employé {$employee->employee_number} mis à jour.");
@@ -270,8 +383,89 @@ class EmployeeController extends Controller
         $number = $employee->employee_number;
         $action->execute($employee, $request->validated('reason'), $request->user());
 
-        return to_route('administration.employees.index', ['status' => 'archived'])
-            ->with('status', "Dossier Employé {$number} archivé.");
+        // Depuis la liste, on y reste : la ligne disparaît de la vue ouverte (ADR-236).
+        $redirect = $request->boolean('back')
+            ? back()
+            : to_route('administration.employees.index', ['status' => 'archived']);
+
+        return $redirect->with('status', "Dossier Employé {$number} archivé.");
+    }
+
+    /** ADR-236 — un dossier archivé qui n'a servi nulle part (doublon, saisie à tort). */
+    public function forceDestroy(Request $request, Employee $employee, ForceDeleteEmployeeAction $action): RedirectResponse
+    {
+        $number = $employee->employee_number;
+        $action->execute($employee, $request->user());
+
+        $redirect = $request->boolean('back')
+            ? back()
+            : to_route('administration.employees.index', ['status' => 'archived']);
+
+        return $redirect->with('status', "Dossier Employé {$number} supprimé définitivement.");
+    }
+
+    /**
+     * ADR-236 — archiver, restaurer ou supprimer définitivement une sélection. Chaque dossier
+     * est jugé séparément par l'action qui le juge seul : un refus n'empêche pas les autres,
+     * le rapport dit pourquoi (même principe que l'ADR-090).
+     */
+    public function bulk(Request $request, Auditor $auditor): RedirectResponse
+    {
+        $data = $request->validate([
+            'action' => ['required', Rule::in(array_keys(self::BULK_ACTIONS))],
+            'uuids' => ['required', 'array', 'min:1', 'max:'.self::BULK_LIMIT],
+            'uuids.*' => ['required', 'uuid', 'distinct'],
+            'reason' => [Rule::requiredIf($request->input('action') === 'archive'), 'nullable', 'string', 'max:1000'],
+        ], [], ['reason' => 'motif d’archivage', 'uuids' => 'sélection']);
+
+        $bulk = self::BULK_ACTIONS[$data['action']];
+        abort_unless($request->user()->can($bulk['permission']), 403);
+
+        $employees = Employee::withTrashed()->whereIn('uuid', $data['uuids'])->orderBy('last_name')->orderBy('first_name')->get();
+        $reason = isset($data['reason']) ? str($data['reason'])->squish()->toString() : null;
+
+        $report = ['action' => 'employees_bulk', 'kind' => $data['action'], 'total' => count($data['uuids']), 'done' => 0, 'failed' => []];
+        foreach ($employees as $employee) {
+            $label = trim("{$employee->last_name} {$employee->first_name} · {$employee->employee_number}");
+            try {
+                match ($data['action']) {
+                    'archive' => $employee->trashed()
+                        ? throw ValidationException::withMessages(['employee' => 'Déjà archivé.'])
+                        : app(ArchiveEmployeeAction::class)->execute($employee, $reason, $request->user()),
+                    'restore' => $employee->trashed()
+                        ? app(RestoreEmployeeAction::class)->execute($employee, $request->user())
+                        : throw ValidationException::withMessages(['employee' => 'N’est pas archivé.']),
+                    'force_delete' => app(ForceDeleteEmployeeAction::class)->execute($employee, $request->user()),
+                };
+                $report['done']++;
+            } catch (ValidationException $exception) {
+                $report['failed'][] = ['label' => $label, 'message' => collect($exception->errors())->flatten()->first() ?? 'Refusé.'];
+            } catch (AuthorizationException) {
+                $report['failed'][] = ['label' => $label, 'message' => $bulk['refused']];
+            } catch (Throwable $exception) {
+                report($exception);
+                $report['failed'][] = ['label' => $label, 'message' => 'Erreur inattendue : ce dossier n’a pas été modifié.'];
+            }
+        }
+        foreach (array_diff($data['uuids'], $employees->pluck('uuid')->all()) as $missing) {
+            $report['failed'][] = ['label' => $missing, 'message' => 'Dossier introuvable.'];
+        }
+
+        $auditor->record('employee.bulk_'.$data['action'], null, ['done' => $report['done'], 'total' => $report['total'], 'reason' => $reason], module: 'administration');
+
+        $failed = count($report['failed']);
+        $done = $report['done'];
+
+        return back()
+            ->with('status', $failed === 0
+                ? "{$done} dossier".($done > 1 ? 's' : '').' '.$bulk['done'].($done > 1 ? 's' : '').'.'
+                : "{$done} sur {$report['total']} dossiers {$bulk['done']}s. {$failed} refusé".($failed > 1 ? 's' : '').' — détail ci-dessous.')
+            ->with('status_type', match (true) {
+                $done === 0 => 'danger',
+                $failed > 0 => 'warning',
+                default => 'success',
+            })
+            ->with('bulk_report', $report);
     }
 
     public function restore(Request $request, Employee $employee, RestoreEmployeeAction $action): RedirectResponse
@@ -293,9 +487,12 @@ class EmployeeController extends Controller
             'jobTitle' => fn ($query) => $query->withTrashed(),
         ]);
 
+        $employee->load(['bank' => fn ($query) => $query->withTrashed()]);
+
         return Inertia::render('Administration/Employees/Print', [
             'employee' => $this->presenter->employee($employee),
             'payroll' => $request->user()->can('employees.payroll.view') ? $this->presenter->payroll($employee) : null,
+            'benefits' => $request->user()->can('employees.payroll.view') ? $this->benefits($employee) : null,
         ]);
     }
 
@@ -317,8 +514,10 @@ class EmployeeController extends Controller
                 $employee->hire_date?->toDateString(), $employee->birth_date?->toDateString(),
                 $employee->birth_place, $employee->identity_document_number,
                 $employee->identity_document_issued_on?->toDateString(), $employee->identity_document_issued_at,
-                $employee->address, $employee->children_count, $employee->children_details,
+                $employee->address, $employee->children_count, trim(EmployeeChildren::label($employee->children).' '.$employee->children_details),
                 $employee->badge, $employee->blouse, $employee->email, $employee->phone,
+                $employee->phone_secondary, $employee->tshirt_size, $employee->blouse_size,
+                $employee->bloc_outfit, $employee->shoe_size, $employee->scrub_cap, $employee->clog,
                 $employee->trashed() ? 'ARCHIVÉ' : ($employee->active ? 'ACTIF' : 'INACTIF'),
                 $employee->contracts->first()?->contractType?->label, $employee->observation,
             ]),
@@ -437,6 +636,8 @@ class EmployeeController extends Controller
                 'label' => $reference->label,
                 'available' => $reference->active && ! $reference->trashed(),
                 'department_uuids' => $reference->departments->pluck('uuid')->values()->all(),
+                // ADR-221 — cette fonction ouvre-t-elle droit aux avantages et primes ?
+                'grants_benefits' => $reference->grantsBenefits(),
             ])->all();
     }
 
@@ -451,7 +652,7 @@ class EmployeeController extends Controller
     /** @return array<int, string> */
     private function exportHeaders(): array
     {
-        return ['Matricule', 'Nom', 'Prénoms', 'Fonction', 'Département', 'Diplôme', 'Niveau', 'Genre', 'Date entrée', 'Date naissance', 'Lieu naissance', 'Numéro CIN', 'Date CIN', 'Lieu CIN', 'Adresse', 'Nombre enfants', 'Détails enfants', 'Badge', 'Blouse', 'Email', 'Téléphone', 'Statut', 'Type contrat', 'Observation'];
+        return ['Matricule', 'Nom', 'Prénoms', 'Fonction', 'Département', 'Diplôme', 'Niveau', 'Genre', 'Date entrée', 'Date naissance', 'Lieu naissance', 'Numéro CIN', 'Date CIN', 'Lieu CIN', 'Adresse', 'Nombre enfants', 'Détails enfants', 'Badge', 'Blouse', 'Email', 'Téléphone', 'Second téléphone', 'Taille T-shirt', 'Taille blouse', 'Tenue bloc', 'Pointure', 'Callot', 'Sabot', 'Statut', 'Type contrat', 'Observation'];
     }
 
     /** @return array<int, array{name: string, required: bool, format: string}> */
@@ -479,7 +680,13 @@ class EmployeeController extends Controller
             ['name' => 'Détails enfants', 'required' => false, 'format' => 'Note administrative libre'],
             ['name' => 'Badge', 'required' => false, 'format' => 'Texte'],
             ['name' => 'Blouse', 'required' => false, 'format' => 'Texte'],
-            ['name' => 'Téléphone', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Téléphone', 'required' => false, 'format' => 'Texte ; deux numéros séparés par « / » sont répartis en téléphone et second téléphone'],
+            ['name' => 'Taille T-shirt', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Taille blouse', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Tenue bloc', 'required' => false, 'format' => 'Texte (taille ou Oui/Non)'],
+            ['name' => 'Pointure', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Callot', 'required' => false, 'format' => 'Texte (taille ou Oui/Non)'],
+            ['name' => 'Sabot', 'required' => false, 'format' => 'Texte (taille ou Oui/Non)'],
             ['name' => 'Observation', 'required' => false, 'format' => 'Texte'],
         ];
     }

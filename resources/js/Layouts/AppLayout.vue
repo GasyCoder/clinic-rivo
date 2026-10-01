@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { usePage } from '@inertiajs/vue3';
 
 import Sidebar from '@/Components/Layout/Sidebar.vue';
@@ -7,10 +7,15 @@ import Header from '@/Components/Layout/Header.vue';
 import Footer from '@/Components/Layout/Footer.vue';
 import ToastContainer from '@/Components/UI/ToastContainer.vue';
 import PageSkeleton from '@/Components/Layout/PageSkeleton.vue';
+import PageShapeSkeleton from '@/Components/Layout/PageShapeSkeleton.vue';
 import HrPortalBar from '@/Components/Administration/HrPortalBar.vue';
 import PharmacyPortalBar from '@/Components/Pharmacy/PharmacyPortalBar.vue';
+import LaboratoryPortalBar from '@/Components/Laboratory/LaboratoryPortalBar.vue';
+import StaffDebtPortalBar from '@/Components/StaffDebts/StaffDebtPortalBar.vue';
 import MaintenanceBanner from '@/Components/Layout/MaintenanceBanner.vue';
+import AssistantWidget from '@/Components/Assistant/AssistantWidget.vue';
 import { usePageLoading } from '@/composables/usePageLoading';
+import { pageShapeFor } from '@/composables/usePageShapes';
 
 import { useThemeSync } from '@/composables/useThemeSync';
 import { applyAppearance } from '@/utilities/appearance';
@@ -27,6 +32,14 @@ useThemeSync();
 // La page reste montée pendant le chargement (cachée) : si la visite est
 // annulée, elle réapparaît telle qu'elle était, saisie comprise.
 const pageLoading = usePageLoading();
+
+// ADR-185 — le squelette a la forme exacte de l'écran visé quand ce poste l'a déjà
+// affiché à cette largeur (photo Boneyard) ; sinon la forme générique de PageSkeleton.
+// Lu seulement pendant un chargement, donc jamais pendant le rendu serveur.
+const contentEl = ref(null);
+const loadingShape = computed(() => (pageLoading.active
+    ? pageShapeFor(pageLoading.path, contentEl.value?.clientWidth ?? 0)
+    : null));
 
 // ADR-187 / ADR-189 — un écran RH ou Pharmacie d'un site, affiché par le
 // portail : sa navigation.
@@ -56,11 +69,18 @@ const sidebarResizing = ref(false);
             <Header v-model:visibility="sidebarVisibility" />
 
             <div class="nk-content mt-16 px-1.5 sm:px-5 py-6 sm:py-8">
-                <div :class="{ container: true, 'max-w-none': !container }">
-                    <PageSkeleton v-if="pageLoading.active" :path="pageLoading.path" />
-                    <div v-show="! pageLoading.active">
+                <div ref="contentEl" :class="{ container: true, 'max-w-none': !container }">
+                    <template v-if="pageLoading.active">
+                        <PageShapeSkeleton v-if="loadingShape" :shape="loadingShape" />
+                        <PageSkeleton v-else :path="pageLoading.path" aria-hidden="true" />
+                        <span class="sr-only" role="status" aria-live="polite">Chargement de la page…</span>
+                    </template>
+
+                    <div v-show="! pageLoading.active" data-page-shape-root>
                         <HrPortalBar v-if="page.props.hrContext" />
                         <PharmacyPortalBar v-if="page.props.pharmacyContext" />
+                        <LaboratoryPortalBar v-if="page.props.laboratoryContext" />
+                        <StaffDebtPortalBar v-if="page.props.staffDebtContext" />
                         <MaintenanceBanner />
                         <slot />
                     </div>
@@ -69,6 +89,9 @@ const sidebarResizing = ref(false);
 
             <Footer />
         </div>
+
+        <!-- ADR-222 — l'assistant IA : une bulle déplaçable, s'il est prêt pour ce compte. -->
+        <AssistantWidget />
     </div>
 </template>
 

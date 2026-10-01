@@ -9,8 +9,9 @@ use App\Models\Concerns\ProtectsFinancialRecord;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['code', 'name', 'category', 'active', 'affects_cash_balance', 'requires_reference'])]
+#[Fillable(['code', 'name', 'category', 'bank_id', 'category_detail', 'active', 'affects_cash_balance', 'requires_reference'])]
 class PaymentMethod extends Model
 {
     use Auditable, HasUuid, ProtectsFinancialRecord;
@@ -32,6 +33,11 @@ class PaymentMethod extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
+    }
+
+    public function bank(): BelongsTo
+    {
+        return $this->belongsTo(Bank::class)->withTrashed();
     }
 
     protected function auditModule(): ?string

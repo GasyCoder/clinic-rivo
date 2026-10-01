@@ -24,6 +24,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Sélecteur de date compact (242 × 296 px au lieu de ~390 × 317) : cases de 28 px, ligne Heure : Minutes sous le calendrier, bouton « Maintenant » ; cartes Voie veineuse / Sonde urinaire placées par requêtes de conteneur, plus aucun champ qui déborde ni date tronquée (ADR-099)
 - [x] Menu latéral fidèle au rendu serveur : l'ordre personnel et les vues liste/grille ne sont plus lus pendant le rendu, plus aucune ligne portant le libellé d'un module et le lien d'un autre (ADR-115)
 - [x] Entrées mères par module (Médecine, Réception, Référentiels) ; un seul enfant actif à la fois ; icônes revues (ADR-115)
+- [x] Portail Super Admin sans doublons de navigation : un module vit soit sous le site, soit dans son espace multi-sites ; anciennes adresses redirigées, entrée Pharmacies des sites ajoutée (ADR-231)
 - [x] Marque de l'application unifiée dans la navigation : pastille d'initiales dérivées de `rivo.brand` et enseigne en majuscules, écrites une seule fois pour le bandeau latéral et la barre du haut
 - [x] Authentification locale avec comptes actifs et rôle obligatoire
 - [x] RBAC dynamique
@@ -91,6 +92,10 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Onglet « Partenaire médical » retiré de l'étape Patient : un partenaire se choisit à la prise en charge ; `partner_uuid` refusé à l'arrivée, sexe et naissance retirés de la fiche partenaire (ADR-211, amendement bis)
 - [x] « Mutuelles & partenaires » renommé « Mutuelles » (page « Tarifs & mutuelles ») : « partenaire » ne désigne plus que le module Partenaires (ADR-211, amendement bis)
 - [x] Page « Tarifs & mutuelles » du portail passée à shadcn (ADR-099) : site et section en onglets, cartes-compteurs qui filtrent (dont « Sans tarif standard / mutuelle »), tableaux et six fenêtres shadcn (import compris) ; aucune route ni règle modifiée
+- [x] « Tarifs & mutuelles » : une catégorie à la fois dans une colonne de navigation (plus de vue « Tous »), onglets Actives / Sans tarif standard / Sans tarif mutuelle / Archivées par catégorie, recherche qui nomme les autres catégories, actions en menu, sans cartes ni bandeau colorés ; export Excel d'une seule catégorie (ADR-044, amendement du 2026-09-28)
+- [x] Une désignation se crée et se modifie sur sa propre page (catégorie, identification, Réception, Soins, Personnel, tarifs), plus dans une fenêtre ; en modification, les deux tarifs et leur historique sur la même page ; case « Motif automatique » écrite par le serveur à la place du champ Motif (ADR-044, amendement bis)
+- [x] Un seul écran « Désignations & tarifs » pour le site et le portail : l'ancien écran DashWind du site est supprimé, liste et fiche partagées (`context` site | portal), adresses écrites une fois ; au site, les médicaments prescrits hors référentiel ont leur catégorie (ADR-044, amendement ter)
+- [x] Matériel habituel d'un acte réglé depuis sa fiche, au site et au portail par l'API du site ; « Demandable par le médecin » réglable sur un acte de Soins (ADR-044, amendement ter)
 - [ ] Faire passer l'étape Patient de l'accueil et la modification du dossier patient sur le même champ d'adresse (ADR-211)
 - [ ] Couverture d'un partenaire (chambre, lit, taux…) — aucune règle : 0 % pour l'instant (ADR-211)
 - [ ] ISPG (mutuelle, ADR-045) et ISPSG (partenaire) : même établissement ? À confirmer (ADR-211)
@@ -115,7 +120,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Rattachement d'un nouvel acte à une facture du même passage non encore encaissée (DRAFT/VALIDATED, paid_amount = 0)
 - [ ] Factures
 - [ ] Facture lignes
-- [ ] Caisse unique
+- [x] Postes de caisse nommés et concurrents, supervisés par site via API (ADR-058 à ADR-060)
+- [x] Attribution facultative à un compte Réception/Caisse, couleur, fond initial fixe et graphiques de détail (ADR-224)
+- [x] Modes de paiement : « Banque » choisi dans le référentiel des banques du site, « Autre » avec sa catégorie saisie ; modes génériques existants gardés tels quels ; page du portail refaite en shadcn (ADR-239)
 - [ ] Paiements
 - [ ] Paiements partiels
 - [x] Sorties & règlements : file des passages en attente de règlement, contrôle du compte (§33.2) et sortie administrative payé comptant / dette validée / évadé (ADR-090)
@@ -130,9 +137,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Coupon archivé jamais utilisé supprimable définitivement (corbeille, confirmation, audit, code libéré) ; un coupon qui a servi reste archivé, la corbeille le dit (ADR-192, amendement du 2026-09-25)
 - [ ] Remise appliquée d'office à la création de la facture, remise libre du caissier avec validation hiérarchique, total des remises dans les rapports — à décider (ADR-192)
 - [ ] Reçus
-- [ ] Ouverture caisse
-- [ ] Clôture caisse
-- [ ] Rapport caisse
+- [x] Ouverture caisse avec contrôle du titulaire et du fond configuré
+- [x] Clôture caisse locale ou centrale avec comptage et écart tracé
+- [x] Rapport caisse : historique, exports Excel, histogramme/courbes et diagramme par mode de paiement
 
 ---
 
@@ -450,21 +457,70 @@ https://github.com/GasyCoder/cdc-clinic-george
 # Phase 3 — Laboratoire
 
 - [x] Catalogue analyses structuré, références par profil et import/export Excel
+- [x] Catalogue des analyses : un seul écran partagé par le site et le portail (lecture, formulaire, adresses écrites une fois), plus de doublon DashWind / shadcn (ADR-063, amendement du 2026-09-28)
+- [x] Fiche d'une analyse en étapes (Identité, Résultat, Normes, Sous-analyses, Récapitulatif) qui s'enregistre toute seule après la création de l'identité ; champs selon le type de résultat, prestation cherchée dans une liste filtrable ; sous-analyses jamais recréées ni réactivées par un enregistrement (ADR-063, amendement du 2026-10-01)
 - [x] File de paillasse filtrable (à analyser / rendues / toutes) avec cartes compteur ; une demande annulée par le médecin (ADR-079) quitte la file au lieu d'y rester à faire
-- [ ] Demande analyse
-- [ ] Analyse interne
-- [ ] Analyse externe
-- [ ] Vérification statut paiement
-- [ ] Prélèvement
-- [ ] Echantillon
-- [ ] Analyse
-- [ ] Saisie résultat
-- [ ] Validation résultat
-- [ ] Correction contrôlée
-- [ ] Résultat critique
-- [ ] Impression
-- [ ] Export
-- [ ] Rapport
+- [x] Réception au laboratoire : numéro de laboratoire annuel, contrôle du règlement par analyse (bloquant sauf urgence, hospitalisé, prise en charge à 100 %), aucun montant affiché (ADR-214)
+- [x] Le technicien traite tout de suite : « Traiter » dans la file prend la demande en charge et ouvre la paillasse, la première saisie aussi ; le règlement s'affiche sans jamais bloquer (ADR-217)
+- [x] File à la manière de labo-vuejs : À traiter / À refaire / Terminées / Envoyées, un bouton par ligne (Traiter, Continuer, Reprendre, Envoyer, Voir), qui a pris en charge (ADR-217)
+- [x] Paillasse : avancement par analyse (x/y saisis) et nombre d'analyses terminées (ADR-217)
+- [x] Archiver / désarchiver une demande terminée (vue « Archivées »), au site et au portail ; renvoyer une analyse à refaire la désarchive (ADR-220)
+- [x] Mettre une demande à la corbeille avec motif, jamais après un envoi au médecin ; facturation en attente annulée, restauration depuis la Corbeille qui refacture ; jamais détruite (ADR-220)
+- [x] Corriger une demande au laboratoire : ajouter une analyse, retirer une analyse (motif), renseignements cliniques (ADR-220)
+- [x] Sélection multiple sur la paillasse (archiver, désarchiver, corbeille) et la feuille de paillasse (imprimer la sélection, corbeille), chaque demande jugée séparément avec rapport (ADR-220)
+- [ ] Retenir ou non la feuille de résultats d'un patient externe qui n'a pas réglé — à décider (ADR-217)
+- [x] Prélèvements : un tube par ligne, code-barres Code 128 imprimé (rouleau 50 × 25 mm ou planche A4), non-conformité avec motif, jamais supprimés (ADR-214)
+- [x] Référentiel des types de prélèvement et des tubes par site, sans prix, référentiel de départ importable (ADR-214)
+- [x] Analyse externe : confiée à un laboratoire extérieur, bon d'envoi, résultat transcrit « réalisée par … » et validé (ADR-214)
+- [x] Scanner un tube ou saisir un n° de laboratoire ouvre la demande ; la file commence par « À réceptionner » (ADR-214)
+- [x] Rien ne se saisit avant la réception (ADR-214)
+- [x] Saisie résultat : analyse par analyse du catalogue, dix modes de saisie repris de labo-vuejs, enregistrement automatique, interprétation proposée (ADR-213)
+- [x] Validation résultat : Terminer (technicien) puis Valider (biologiste), par analyse ou toute la demande (ADR-213)
+- [x] Correction contrôlée : renvoyer à refaire avec motif, résultat rendu gardé lisible (ADR-213)
+- [x] Résultat critique signalé à la main, tracé — aucune borne critique inventée (ADR-213)
+- [x] Impression : feuille de résultats avec antibiogrammes, « non validé » écrit tant qu'il l'est (ADR-213)
+- [x] File de la paillasse par demande : À faire / À refaire / À valider / Validées (ADR-213)
+- [x] Microbiologie : familles, germes, antibiotiques par site, référentiel de départ importable ; antibiogramme S/I/R par germe identifié (ADR-213)
+- [x] Mode de saisie choisi dans le formulaire du catalogue des analyses (ADR-213)
+- [x] Bornes critiques par analyse et par profil au catalogue : critique proposé d'office, retirable, bornes figées sur le résultat (ADR-214)
+- [x] Conclusion générale du biologiste, imprimée sous les résultats (ADR-214)
+- [x] Feuille de paillasse par discipline, imprimable (ADR-214)
+- [x] Historique des résultats d'un patient, demande par demande (ADR-214)
+- [x] Rapports : activité, délais médians, disciplines, origines, en attente ; export Excel audité (ADR-214)
+- [x] Laboratoire d'un site lisible depuis le portail (file, demandes, résultats, paillasse, historique, rapports) et ses référentiels gérés (prélèvements & tubes, microbiologie), par l'API du site ; gestes cliniques refusés au portail et montrés verrouillés (ADR-215)
+- [x] Plus de biologiste distinct : le technicien envoie les résultats au médecin, l'envoi les valide ; prescripteur proposé, destinataire choisi pour une demande de l'accueil, « Aucun médecin » pour un patient externe ; notification et correction tracées (ADR-216)
+- [x] Le médecin ne voit que les résultats envoyés ; un résultat adressé à un confrère s'ouvre après confirmation, tracée à l'audit (ADR-216)
+- [x] « Renvoyer à refaire » gouverné par son propre droit `laboratory_results.return`, réglable depuis « Rôles & permissions » ; bouton verrouillé avec le droit à demander ; accès existant repris par migration (ADR-216, amendement du 2026-09-29)
+- [x] « Terminer l'analyse » au pied de la saisie (marquée « Terminée » dans la liste des tâches), « Envoyer au médecin » en haut pour une, plusieurs ou toutes les analyses terminées (toutes par défaut), « Rouvrir la saisie » avant l'envoi (ADR-216, amendement bis du 2026-09-29)
+- [x] Le médecin « Demande à refaire » depuis sa feuille de résultats (droit `laboratory_results.return`, MEDICINE par défaut), le technicien est prévenu ; saisie et modification de demande accessibles au médecin qui en reçoit les droits (ADR-216, amendement bis)
+- [x] Compte rendu d'analyses en pleine largeur
+- [x] Résultats adressés à un, plusieurs ou tous les médecins (liste à cocher, « Aucun médecin » exclusif), chacun notifié et lecteur libre (ADR-216, amendement ter)
+- [x] Le médecin relit puis valide le résultat reçu (« Terminé · à valider » → « Validé »), une analyse ou toutes ; un patient externe est validé à l'envoi ; une reprise retire la validation (ADR-216, amendement quater)
+- [x] « Demandes d'examens » : vue « À valider » par défaut quand elle n'est pas vide, statuts « Terminé · à valider » / « Résultats validés », bouton « Vérifier et valider » (ADR-216, amendement quater)
+- [x] Réception « Résultats à remettre » : résultats validés, Tous / Complets / Partiels, compte rendu PDF à imprimer, lien depuis le détail du passage (`laboratory_results.validated_view`) (ADR-216, amendement quater)
+- [x] Feuille des résultats du médecin allégée : état du compte rendu en ligne neutre sous l'en-tête (plus de bandeau coloré), colonne « Analyses » élargie, une analyse par bloc (ADR-216, amendement quater)
+- [ ] Tracer la remise du compte rendu au patient, notifier la Réception d'une validation — à décider (ADR-216, amendement quater)
+- [x] Note par ligne d'analyse (groupes compris), conclusion de chaque analyse et conclusion générale, comme labo-vuejs (ADR-218)
+- [x] Compte rendu de résultats en PDF produit par le serveur : sections par discipline, Résultat · Val. réf. · Antériorité, notes, provisoire ; montré, imprimé et téléchargé depuis la page ; version du médecin limitée à l'envoyé (ADR-218)
+- [x] Paillasse refaite façon labo-vuejs en shadcn : « Tâche(s) à traiter », une carte par ligne (mode, norme, résultat, interprétation), pied collant (ADR-219)
+- [x] Conclusion partielle par ligne ajoutée, annulée, modifiée, supprimée ; « Conclusion de l'analyse » retirée au profit de la conclusion générale (ADR-219)
+- [x] « Réinitialiser la saisie » d'une analyse jamais envoyée, confirmée et tracée (ADR-219)
+- [x] Pied d'une analyse simplifié : un seul bouton « Envoyer au médecin », les autres gestes (renvoyer à refaire, laboratoire extérieur, réinitialiser) dans « Autres actions » avec leur raison quand ils sont indisponibles ; conclusion générale enregistrée d'elle-même (ADR-219, amendement du 2026-09-29)
+- [x] Un intitulé du catalogue (« Soit » dans la NFS) s'affiche en séparateur, sans conclusion partielle ; seuls les vrais groupes en portent une (ADR-219, amendement du 2026-09-29)
+- [x] Nom d'analyse en gras seulement si le catalogue le dit, à l'écran et sur le PDF (ADR-219)
+- [x] « Demandes d'examens » : le laboratoire y a le bouton de sa file (Traiter, Continuer, Reprendre, Envoyer, Voir) (ADR-219)
+- [x] Paillasse : barre glissable entre « Tâche(s) à traiter » et l'analyse, en-tête rangé ; « Demandes d'examens » : un seul statut pour une analyse, le règlement en repère dessous (ADR-219)
+- [x] Compte rendu PDF : le bloc final (envoyé, validé, signature) ne part jamais seul sur une page — resserré pour tenir sur une page, sinon les dernières lignes descendent avec lui, « (suite) » en cas de coupure dans une analyse (ADR-218, amendement du 2026-09-29)
+- [x] Compte rendu PDF : « Âge : 28 ans | Sexe : Féminin » sur une ligne (ADR-223)
+- [x] Aspect du compte rendu réglé par site depuis le portail (Paramètres › Compte rendu d'analyses) : modèle (Classique, Bandeau, Sobre), police et taille, couleurs, en-tête, logo propre, QR du numéro de laboratoire, colonne Antériorité, lignes alternées, lignes du bloc final masquables, qui signe (laboratoire, médecin, les deux, automatique), bas de page et site web ; aperçu PDF réel sur un patient fictif (ADR-223)
+- [ ] Couleur des valeurs critiques réglable, aperçu d'un logo non encore enregistré — à décider (ADR-223)
+- [x] Disciplines du laboratoire en référentiel par site (Laboratoire › Disciplines) : ajouter, renommer, réordonner, archiver, restaurer, fusionner une faute de frappe ; choisies dans la fiche d'analyse, héritées par les sous-analyses, ordre suivi par la paillasse et le compte rendu ; aussi depuis le portail (ADR-238)
+- [x] « Saisie au laboratoire » cohérente avec « Quel résultat » : seuls les modes du type coché sont proposés, le serveur refuse les autres, « Automatique » dit ce qu'il donne (ADR-238)
+- [ ] Fusionner « BIOCHIME » dans « BIOCHIMIE » sur chaque site — geste du laboratoire, jamais d'office (ADR-238)
+- [ ] Réserver Négatif / Positif et Absence / Présence au type « Oui / Non », discipline dans l'Excel du catalogue — à décider (ADR-238)
+- [ ] Image de signature du biologiste sur le PDF, envoi du PDF au patient — à décider (ADR-218)
+- [ ] Microbiologie pour l'Administration — à décider (ADR-213) ; envoi des résultats au patient — aucun canal défini (ADR-216)
+- [ ] Analyse sans tarif (non facturée) qui retient ou non le prélèvement, Maternité sans séjour exemptée ou non, bornes critiques dans l'Excel du catalogue — à décider (ADR-214)
 
 Règle :
 
@@ -783,14 +839,55 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [ ] Historique des salaires à l'écran, indemnité forfaitaire, champs de paie dans l'export / import Excel — à décider (ADR-206)
 - [x] Bonus du personnel : catégories (mesure, seuil mensuel, montant fixe, personnel concerné), tableau du mois, validation RH qui recompte et fige, versé hors RIVO puis marqué versé, annulation avec motif ; au site et au portail (ADR-212)
 - [ ] Bonus : plusieurs paliers par catégorie, plafond de cumul entre catégories — à décider (ADR-212)
+- [x] Rémunération : Salaire et Avantages cochables ensemble, Non rémunéré exclusif ; stagiaire en Indemnité d'office ; la case « Avantages » l'emporte sur la fonction (ADR-226)
+- [x] ~~Onglet « Avantages à l'acte » du module Bonus : articles (quantité × prix unitaire) comptés par RIVO sur les actes réalisés ou les patients référés, employés et partenaires, validation figée, versé hors RIVO (ADR-226)~~ — retiré le 2026-10-01 : remplacé par la saisie par médecin (ADR-227, amendement)
+- [x] ~~Configurer les articles de la feuille « Avantage_Reference » (ECHO, ECG, CHIR…) et leurs prix sur chaque site (ADR-226)~~ — sans objet : les articles se saisissent avec leur montant pour chaque médecin
+- [x] « Saisir des avantages » dans le module Bonus : liste des médecins, plusieurs avantages par médecin (montant, motif, mois), totaux en direct, correction et suppression tant que non payés (ADR-227)
+- [x] Paie du mois : salaire de base + avantages du mois = montant brut à verser, « Marquer payé » fige et empêche un second paiement, annulation motivée ; virement hors RIVO (ADR-227)
+- [x] Saisie des avantages médecin par médecin : liste des médecins à gauche, ses avantages (article, montant) à droite, articles déjà saisis ajoutés en un clic au dernier montant ; lecture en une carte par médecin (ADR-227, amendement du 2026-10-01)
+- [x] Retenues légales paramétrables par site : CNAPS, organisme médical, IRSA par tranches (minimum, réduction par enfant, plafonds), activées par le RH ; net à verser, charges patronales pour information ; paramètres figés au paiement (ADR-233)
+- [x] Paie en lot avec rapport des refus, bulletins de paie imprimables, mode de paiement repris de la fiche, journal de paie et liste de virement en Excel (ADR-233)
+- [x] Paie du mois : présentations Tableau / Grille / Détail, onglets Toutes / À payer / Payées, recherche et filtres (service, mode, dette), actions toujours à droite, export de ce qui est affiché (ADR-233, amendement du 2026-10-01)
+- [x] Plus aucun salaire pour un mois qui précède l'entrée d'une personne (ADR-233, amendement du 2026-10-01)
+- [x] Audit de cohérence RH et Pharmacie : contrats sans chevauchement, essai dans le contrat, pas d'archivage avec une présence ouverte, présence non saisie à l'avance, mode de paiement incomplet signalé ; lot périmé refusé à la réception, réservation sur lot périmé reportée en FEFO à la délivrance, facture refusée sur une commande jamais envoyée (ADR-235)
+- [ ] Reprendre à la main les données déjà enregistrées : contrats en double, lots périmés en stock, virements sans numéro de compte (ADR-235)
+- [x] Liste des employés : archiver une ligne ou une sélection (motif), restaurer, supprimer définitivement un dossier archivé qui n'a servi nulle part (`employees.force_delete`, aucun rôle par défaut), chaque dossier jugé séparément avec rapport (ADR-236)
+- [x] Doublons possibles repérés (même nom, prénom, naissance) : compteur, filtre, repère sur la ligne et la fiche (ADR-236)
+- [ ] Fusion de deux dossiers qui ont tous deux servi — à décider (ADR-236)
+- [x] « Vider la corbeille » au portail : par site, catégorie et filtres, ce qui n'a servi nulle part est supprimé, le reste conservé avec sa raison ; « VIDER » à saisir (ADR-236, amendement)
+- [x] Employés et contrats archivés dans la corbeille : restaurables, détruits seulement s'ils n'ont servi nulle part (ADR-236, amende ADR-066)
+- [ ] Purge automatique de la corbeille après N jours — à décider (ADR-236)
+- [ ] Dernier salaire d'une personne partie en cours de mois, prorata, salaire versé en espèces enregistré à la Caisse — à décider (ADR-233)
+- [ ] Faire valider le barème proposé par le comptable, renseigner les plafonds CNAPS / organisme médical, puis activer sur chaque site (ADR-233)
+- [ ] Déclarations CNAPS / IRSA, exonération partielle des avantages en nature, bonus par palier (ADR-212) dans la paie — à décider (ADR-233)
+- [x] Dettes du personnel : demande depuis son compte, décision du DG au portail (accord ajusté, refus, remise), versement constaté au portail (par le RH avant l'ADR-229), remboursement retenu sur la paie ou encaissé à la Caisse avec reçu (ADR-228)
+- [x] « Mes dettes » refait en pleine largeur : prochain remboursement, déjà remboursé et retard servis par le serveur, avancement de chaque dette en quatre étapes, détail replié pour une dette close, déroulé expliqué à côté (ADR-228, amendement du 2026-09-30)
+- [x] Dettes du personnel déplacées dans Finance au portail : aperçu de tous les sites, liste, fiche et réglages d'un site par son API ; rubrique RH retirée, le RH ne verse plus, anciennes adresses redirigées (ADR-229)
+- [x] Réglages par site : demandes suspendues avec message, montant min/max, durée max, mensualité ≤ % du salaire, dettes en cours max, ancienneté min, stagiaires exclus (ADR-229)
+- [x] Demandes fermées au personnel tant que le montant minimum et maximum ne sont pas réglés ; réglages qui les exigent pour ouvrir les demandes ; fourchette affichée au portail, compteurs en bande compacte (ADR-229, amendement du 2026-09-30)
+- [x] Intérêt par tranche de montant (fixe ou %), figé à l'accord, remboursé avec le montant ; remise de l'intérêt par le DG (ADR-229)
+- [x] Limite dépassée : refus à la demande, dérogation confirmée et écrite à la décision du DG (ADR-229)
+- [x] Relance des remboursements en espèces en retard (automatique une fois par mois, et à la main au portail) ; export Excel audité (ADR-229)
+- [x] Pénalité de retard des dettes remboursées en espèces : règle par site figée à l'accord, liquidée chaque mois après le délai de grâce, plafonnée, remise par le DG avec motif (ADR-230)
+- [x] Règlement au départ d'un employé endetté : retenue sur le solde de tout compte, remise, accord amiable en espèces, vue « À régler au départ » (ADR-230)
+- [x] Reconnaissance de dette et protocole d'accord de départ imprimables, signés à la main (ADR-230)
+- [x] La demande de dette ne porte que le montant, l'acceptation des règles et conditions du site (gardées sur la demande telles qu'elles ont été lues) et un motif facultatif ; le DG fixe la mensualité et le premier mois (ADR-234)
+- [x] Une dette en cours (accordée ou en remboursement) ferme les demandes, sauf autorisation du Super Admin (`staff_debts.request_additional`, aucun rôle par défaut) (ADR-234)
+- [x] Fiche du DG : « à fixer par vous », durées proposées dans la limite du site, « Au plus permis » par le salaire, dettes en cours à la demande, règles acceptées (ADR-234)
+- [x] Dossier employé : le parcours à étapes reste (Identité, Contact, Poste, Compléments, Rémunération, Avantages, Banque, Récapitulatif), chaque étape s'enregistre seule (~1 s après la dernière saisie), plus aucun bouton « Enregistrer » ; Précédent / Continuer, clic direct dans la barre (ADR-221)
+- [x] Création : l'étape Identité seule, « Continuer » crée le dossier et poursuit dans la fiche ; même parcours pour un stagiaire, qui finit sur son contrat de stage (ADR-221)
+- [x] Module Banques (RH) : liste, ajout, correction, désactivation, archivage avec motif, restauration, doublons refusés et nommés ; BOA, BNI, BMOI, SBM livrées ; la fiche choisit sa banque dans la liste (ADR-221)
+- [x] Avantages et primes par employé (type, montant, motif, mensuel ou ponctuel, dates), réservés aux fonctions cochées dans le module Fonctions (« Médecin » d'office), retrait tracé, sans total ni net (ADR-221)
+- [ ] Banques et avantages dans l'export / import Excel, liste des banques poussée par le portail à tous les sites — à décider (ADR-221)
 - [x] Adresses email professionnelles : demande par le RH depuis la fiche employé, création par le Super Admin chez l'hébergeur (API cPanel o2switch), mot de passe montré une fois, adresse reportée sur la fiche (ADR-190)
 - [x] Suspension au départ de l'employé (vue « À suspendre »), réactivation, nouveau mot de passe ; jamais de suppression ; reprise sans double création si le site ne confirme pas (ADR-190)
 - [x] Accès à l'hébergeur vérifié sur abyssin.o2switch.net avec le mot de passe du compte : o2switch refuse l'authentification Basic sur l'API, le client ouvre une session cPanel puis la ferme (ADR-190, correction du 2026-09-25)
-- [x] Première création réelle d'une boîte sur cbdc.mg depuis le portail (ADR-190)
+- [x] Première création réelle d'une boîte sur le domaine de test depuis le portail (ADR-190)
 - [x] Création accélérée : session cPanel gardée quelques minutes et ouverte d'avance à l'ouverture de la fenêtre ; une opération passe de 5–17 s à 2–3 s (ADR-190)
 - [x] Page RH « Emails professionnels » sur chaque site ; un RH à qui le Super Admin accorde le droit crée, suspend, réactive ou renouvelle le mot de passe depuis son site (accès à l'hébergeur posés aussi sur le site) (ADR-190, amendement)
 - [x] Plus de champ email à la création ni à l'import d'un employé : son email est l'adresse pro, posée à son activation ; une modification de fiche ne l'efface plus (ADR-190, amendement du 2026-09-25)
-- [ ] Domaine officiel de la clinique à la place de cbdc.mg (ADR-190)
+- [x] Domaine officiel cliniquesaintgeorges.mg à la place du domaine de test ; adresses de test retirées, base du site réinitialisée (ADR-190, amendement du 2026-09-29)
+- [x] Nom trop long, adresse brève : « Latifah Olsen Lee Park » propose latifah.lee (20 caractères au plus, première forme qui tient) ; « Créer l'accès » dit « Compte » et « Rôle », sans « RIVO » (ADR-190, amendement du 2026-09-30)
 - [x] Accès du personnel en un geste depuis le portail : adresse pro + compte RIVO (sans mot de passe depuis l'ADR-202) ; l'hébergeur n'est appelé qu'après l'accord du site, et un nouvel essai ne recrée jamais la boîte (ADR-197)
 - [x] ~~Remise au RH du site : notification, fiches d'accès imprimables, mots de passe chiffrés effacés à la remise (7 jours au plus, 24 h après le premier affichage), chaque affichage audité ; afficher et remettre restent au site, verrouillés sur le portail (ADR-197)~~ — remplacé par l'ADR-202 : plus aucun mot de passe à remettre
 - [x] Liste RH des remises refaite : cartes-filtres (À remettre, Remis, Effacés, Toutes), recherche par employé, délai d'effacement coloré par urgence, frise d'avancement, bouton selon ce qui attend (ADR-197, amendement du 2026-09-26)
@@ -825,7 +922,12 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [ ] Changer aussi le mot de passe de la boîte quand on change celui de RIVO dans « Mon profil » — à décider (ADR-200)
 - [x] « Actualiser » et « Réessayer » tournent à chaque clic, dans toute l'application : au moins un tour, arrêt en fin de tour, animations réduites respectées (`Shadcn/RefreshIcon`, ADR-195)
 - [x] Connexion IMAP gardée ouverte entre les clics : un processus par boîte ouverte, fermé seul après 10 min ; page en un seul aller-retour, première page lue d'avance à la connexion — liste 1,7 s → 0,33 s en TLS sur le banc (ADR-195, amendement du 2026-09-26 quater)
+- [x] Connexion oubliée par la box sans prévenir : entretenue d'un NOOP chaque minute, éprouvée avant d'être réutilisée, jetée après un échec — plus de « le serveur ne répond pas » à chaque clic après 40 s (ADR-195, amendement du 2026-09-30)
 - [ ] Vérifier en production que l'hébergement permet proc_open et des processus de fond (sinon repli : connexion à chaque clic) ; RIVO_WEBMAIL_KEEP_ALIVE_PHP sous PHP-FPM si besoin (ADR-195)
+- [x] Le processus de messagerie ne garde plus les descripteurs de la requête qui le lance (port de `php artisan serve`, tubes) (ADR-195, amendement du 2026-09-30)
+- [x] Un processus de messagerie par installation : un serveur lancé sur un clone de la base ne rejoint plus celui du portail (« le serveur ne répond pas » à chaque clic) (ADR-195, amendement du 2026-09-30)
+- [x] Fenêtre de rédaction de messagerie : ancrée en bas à droite, réduite ou agrandie, en-têtes en lignes, mise en forme repliable, glisser-déposer, confirmation avant de quitter un message commencé ; la messagerie reste utilisable pendant qu'on écrit (ADR-195, amendement du 2026-09-30 bis)
+- [x] Messagerie ouverte au clic : page et code préchargés au survol du menu, éditeur chargé à part — la boîte s'affiche en 80 ms après survol (ADR-195, amendement du 2026-09-30 bis)
 - [x] Messagerie pilotée par les permissions : `webmail.view` (sa boîte, menu visible) et `webmail.open_any` (la boîte d'un autre employé du site), mot de passe toujours exigé, audité (ADR-195, amendement du 2026-09-25 ; ouverture depuis le portail retirée le 2026-09-26)
 - [x] Page « Aucune boîte à ouvrir » qui dit pourquoi : droit manquant, compte non relié, fiche sans adresse, adresse inactive (ADR-195)
 - [x] Le Super Admin arrive directement dans la boîte du portail (réglée dans son .env), sans choisir de boîte d'employé ni saisir de mot de passe ; ouverture des boîtes d'employés retirée du portail ; adresses des sites proposées comme destinataires (ADR-195, amendement du 2026-09-26 ter)
@@ -902,6 +1004,9 @@ admin.rivo.mg
 - [x] Répartition financière brute / mutuelle / patient historisée sur les factures
 - [x] Sélection multiple par site : export ciblé Stock/Adresses et archivage/restauration atomiques des référentiels
 - [x] Éditeur de canevas de documents (TipTap) : création, modification versionnée, duplication, activation, archivage/restauration par site
+- [x] « Modèles de documents » (ex-« Canevas de documents ») en gestion documentaire shadcn : arborescence des dossiers, liste ou grille, états (proposés au RH, inactifs, à vérifier, archivés), fiche latérale avec aperçu ; création en quatre étapes (dossier, données reprises, nom, pages) sans fenêtre du navigateur (ADR-240)
+- [x] Fiche d'un modèle de document rangée dans un panneau latéral à droite, feuille sur toute la largeur ; un nouveau modèle commence par « Importer un fichier Word ou PDF » (dépôt) ou « Créer et écrire directement » (ADR-240, amendement du 2026-10-01)
+- [x] Pages d'un modèle nommées (renommées sur place, jamais imprimées), feuille A4 réelle avec marges et zoom, débordement signalé, aperçu page par page, « Annuler » dans la fiche (ADR-240, amendement bis du 2026-10-01)
 - [x] Catalogue des permissions administrable depuis le portail (ADR-101) : créer un droit, reformuler son libellé, retirer un nom que rien ne vérifie — le nom lui-même ne change jamais
 - [x] Usage réel de chaque permission calculé depuis le code (`PermissionUsageScanner`) : « vérifiée par l'application » ou « pas encore vérifiée », jamais une liste tenue à la main
 - [x] Panneaux redimensionnables à la barre (clavier, double-clic, largeur conservée par poste) sur le socle des rôles et les exceptions par compte
@@ -937,6 +1042,8 @@ admin.rivo.mg
 - [x] Page « Mon profil » : identité, rôle, droits effectifs, et changement de son mot de passe (ancien exigé, autres sessions fermées, audité) ; deux modèles choisis par site (ADR-184, amendement bis)
 - [x] Apparence Clair / Système / Sombre (barre du haut à côté de la cloche, menu du compte sur téléphone, pages de connexion), « Système » suivant l'appareil en direct, sans éclair au chargement (ADR-185)
 - [x] Squelette de chargement shadcn sur toutes les pages de la mise en page principale, à la forme de la page qui arrive (tableau de bord, liste, fiche, formulaire, document, réglages) (ADR-185)
+- [x] Squelette à la forme exacte de l'écran : chaque page affichée est photographiée par Boneyard et rangée sous le motif de son adresse ; la visite suivante en reprend les cartes, compteurs et tableau ; forme générique pour un écran jamais vu (ADR-185, amendement du 2026-10-01)
+- [x] Squelette visible dès le clic et au moins 450 ms, un seul aspect de bloc à balayage (aussi pour le `Skeleton` shadcn), juste en clair comme en sombre ; trois captures arbitraires retirées (ADR-185, amendement du 2026-10-01)
 - [x] Thème par site : préréglages (RIVO, Océan, Forêt, Ardoise, Prune, Ambre, Nuit), couleurs du mode clair et du mode sombre côte à côte, texte illisible refusé, export / copie / import JSON (ADR-191)
 - [x] Réglages avancés du site (taille du texte, densité, arrondis, animations, contraste) appliqués dès le rendu serveur ; chacun ajuste taille, animations et contraste dans « Mon profil › Apparence », gardé sur son compte (ADR-191)
 - [x] Numéro de patient et de passage réglables par site (préfixe, année, chiffres, séparateur, remise annuelle ou continue) ; défaut inchangé, aucun numéro réécrit ni redonné (ADR-191)
@@ -950,6 +1057,21 @@ admin.rivo.mg
 - [x] Repère visuel devant chaque option de l'affichage avancé (taille, densité, arrondis, animations, contraste) (ADR-191)
 - [x] Repères dans les listes de la Numérotation et de la Monnaie ; icône en tête des champs texte (Identité, Identité légale, Direction, Âges, préfixes) et des aperçus (ADR-191)
 - [x] Réinitialisation globale des paramètres d'un site ou du portail vers les valeurs du déploiement, avec saisie exacte de « RÉINITIALISER », API du site et audit ; coupons, maintenance et compteurs conservés (ADR-210)
+- [x] Paramètres métier rangés dans leur module (Finances, RH, Laboratoire, Patients et Établissement par site) ; « Paramètres » devient « Apparence & système » ; anciennes adresses redirigées (ADR-237)
+- [x] Assistant IA d'aide au logiciel (Laravel AI SDK) : ~~bouton flottant et panneau latéral~~ remplacés par la page `/assistant`, réponse en flux, historique par compte, questions proposées selon la page et les droits, aucune action ni conseil médical (ADR-222)
+- [x] ~~Assistant IA dans le menu latéral (site et portail), page en pleine largeur~~ — remplacé par la bulle ; historique, nouvelle conversation, questions groupées par module et adaptées au métier, questions de suivi, « Réessayer », copie, tableaux (ADR-222, amendement du 2026-09-29)
+- [x] Assistant en bulle déplaçable sur chaque page (petit robot), fenêtre petite / grande / plein écran, place gardée sur le poste ; menu et page `/assistant` retirés (ADR-222, amendement bis)
+- [x] « GasyCoder AI » : nom de l'assistant dans sa bulle, et fournisseur par défaut comme les autres (modèle, clé ; API compatible OpenAI, adresse `GASYCODER_AI_URL`) (ADR-222, amendement bis)
+- [x] Réponses qui coulent à l'écran : flux protégé des proxys (compression coupée, 2 Ko d'ouverture), texte dévoilé au fil de l'eau avec curseur (ADR-222, amendement bis)
+- [ ] Adresse, modèles et console de clés de GasyCoder AI à fournir ; vérifier que son API est compatible OpenAI (ADR-222)
+- [x] Prompt système dans son fichier (vocabulaire, règles absolues, langues français / malgache / anglais, réponse de secours) et questions proposées dans `AssistantSuggestions` (ADR-222)
+- [x] Aide de l'assistant à jour du Laboratoire refait (ADR-213 à 220) : fiche Laboratoire (Traiter, Terminer, Envoyer au médecin, corrections) et fiche Demandes d'examens (validation par le médecin, Résultats à remettre) (ADR-222)
+- [x] Réglages de l'assistant par site et par portail (Paramètres › Assistant IA) : fournisseur, modèle, clé chiffrée et masquée, limites, consignes, « Tester la connexion », consommation du jour et du mois ; un site réglé par son API (ADR-222)
+- [x] Données minimales vers le fournisseur : question nettoyée des identifiants, contexte de page sans contenu, aide limitée aux modules ouverts au compte (ADR-222)
+- [x] Coûts bornés : question limitée, tokens de réponse réglables, questions par heure et par jour et par compte, budget mensuel de tokens (ADR-222)
+- [ ] Brancher un vrai fournisseur (clé) sur chaque site et vérifier le flux derrière le proxy d'o2switch (ADR-222)
+- [ ] Assistant : fournisseur de secours, tableau de consommation consolidé multi-sites, actions assistées — à décider (ADR-222)
+- [ ] Fiches d'aide traduites en malgache — aujourd'hui l'assistant répond en malgache selon le modèle, l'aide reste en français (ADR-222)
 - [x] « Moteurs de recherche » : carte d'état (Masquée / Visible), trois consignes en cartes, liens vers les outils de retrait, robots.txt et en-tête copiables (ADR-191)
 - [ ] Couleurs d'alerte et format des autres numéros (factures, reçus, commandes) réglables — à décider (ADR-191)
 - [x] Mode maintenance par site depuis Paramètres › Maintenance : maintenant ou programmée, message personnalisable avec aperçu, bandeau 24 h avant, réouverture automatique à la fin prévue, levée tracée ; seul le droit `app_maintenance.bypass` traverse, connexion et API restent ouvertes (ADR-193)
@@ -959,6 +1081,7 @@ admin.rivo.mg
 - [x] Pharmacie d'un site lisible depuis le portail (ordonnances, consommables, stock, achats, fournisseurs) : les mêmes écrans et règles que le site, par son API, arrivée sur « Médicaments & stock » (ADR-189)
 - [x] L'administratif de la Pharmacie géré depuis le portail (médicaments, prix de vente, familles, fournisseurs, commandes, factures), signé du Super Admin ; les actes physiques refusés par le site et montrés verrouillés (ADR-189)
 - [ ] Fusionner l'espace « Fournisseurs pharmacie » du portail (ADR-098) avec les écrans du site servis au portail — doublon signalé (ADR-189)
+- [x] Laboratoire d'un site servi au portail : mêmes écrans et règles que le site, choix du site sous Référentiels › Laboratoire des sites, barre des rubriques du site ; réceptionner, prélever, saisir et valider restent au site (ADR-215)
 - [x] Import Excel des fournisseurs avec aperçu ligne par ligne puis écriture tout ou rien, export Excel par site ou tous sites
 - [x] Correction, archivage avec motif (refusé si commande en cours) et restauration d'un fournisseur depuis le portail
 - [x] Dossier fournisseur au portail identique à la clinique (catalogues, commandes, factures, produits et prix)
@@ -967,6 +1090,8 @@ admin.rivo.mg
 - [x] Espace Fournisseurs pharmacie entièrement en shadcn (ADR-099) : index en dossiers avec vue liste, création et import en fenêtres, et les quatorze pages de détail migrées avec leurs composants partagés
 - [x] Portail Super Administration entièrement en shadcn (ADR-099) : les 36 écrans et les composants partagés (`PageHeader`, `IconInput`, `Card`, `Breadcrumb`, `EmptyState`, `Explorer*`, `FolderCard`, `FormSection`, `ValidationErrorSummary`) quittent la police d'icônes et la palette DashWind, sans changer aucun contrat de props
 - [x] Navigation du portail regroupée en six blocs repliables (un seul ouvert), destinations et permissions inchangées ; sidebar redimensionnable à la souris, au tactile et au clavier, largeur conservée sur le poste (ADR-196)
+- [x] Modules rattachés au site alimentés par son rapport API réel : activité, caisse, patients et files Médecine/Soins/Chirurgie, période 7–90 jours, état ONLINE/OFFLINE sans faux zéro (ADR-232)
+- [x] Banc local distribué activable pour les trois sites, avec une API HTTP et une base SQLite indépendantes par site ; le portail ne lit jamais directement ces bases (ADR-043, ADR-232)
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste
 - [ ] Action « appliquer aux deux sites »
 - [ ] Résultat et reprise séparés en cas d’échec partiel

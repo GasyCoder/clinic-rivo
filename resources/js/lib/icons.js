@@ -43,12 +43,14 @@ import {
     Pencil,
     FileSpreadsheet,
     FileText,
+    FlaskConical,
     Folder,
     Inbox,
     Link2,
     List,
     ListChecks,
     Lock,
+    MapPin,
     Package,
     Pill,
     Receipt,
@@ -143,6 +145,9 @@ const ICONS = {
     user: User,
     users: Users,
     handshake: Handshake,
+    // ADR-220 — une demande d'analyses dans la corbeille.
+    flask: FlaskConical,
+    'map-pin': MapPin,
 };
 
 export const lucideIcon = (name) => ICONS[name] ?? Inbox;

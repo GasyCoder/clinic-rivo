@@ -22,6 +22,10 @@ class RolePermissionSeeder extends Seeder
         'ADMINISTRATION' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             // ADR-192 — une remise durable accordée à un patient est une dérogation habilitée.
             'discounts.view', 'discounts.approve',
             // ADR-190 — le RH voit les adresses ; le Super Admin les crée (ADR-197).
@@ -35,6 +39,11 @@ class RolePermissionSeeder extends Seeder
             'bonus_categories.view', 'bonus_categories.create', 'bonus_categories.update',
             'bonus_categories.archive', 'bonus_categories.restore',
             'bonus_awards.view', 'bonus_awards.validate', 'bonus_awards.pay', 'bonus_awards.cancel',
+            'advantage_entries.view', 'advantage_entries.create', 'advantage_entries.update', 'advantage_entries.delete',
+            'salary_payments.view', 'salary_payments.pay', 'salary_payments.cancel', 'salary_payments.export',
+            'salary_settings.view', 'salary_settings.update',
+            // ADR-229 — le RH ne verse plus les dettes du personnel (tout se décide et se verse au portail) ; il reste prévenu des retards.
+            'staff_debts.view',
             'patient_referrals.view', 'patient_referrals.gift',
             'employees.view', 'employees.create', 'employees.update',
             'employees.delete', 'employees.restore',
@@ -91,10 +100,17 @@ class RolePermissionSeeder extends Seeder
             'analysis_catalog.view', 'analysis_catalog.create', 'analysis_catalog.update',
             'analysis_catalog.activate', 'analysis_catalog.deactivate',
             'analysis_catalog.import', 'analysis_catalog.export',
+            // ADR-238 — les disciplines, avec le catalogue des analyses qu'elles rangent.
+            'lab_disciplines.view', 'lab_disciplines.create', 'lab_disciplines.update',
+            'lab_disciplines.archive', 'lab_disciplines.restore',
         ],
         'LOGISTICS' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'logistics.view', 'logistics.manage',
             'administrative_stock.view', 'administrative_stock.entry',
             'administrative_stock.exit', 'administrative_stock.inventory',
@@ -111,6 +127,14 @@ class RolePermissionSeeder extends Seeder
         'RECEPTION' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
+            // ADR-228 — seule la Caisse encaisse un remboursement en espèces.
+            'staff_debts.collect',
+            // Amendement ADR-216 quater — les résultats validés par le médecin, à remettre au patient.
+            'laboratory_results.validated_view',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'reception.view',
             // ADR-192 — la Caisse applique la remise en encaissant.
             'discounts.view', 'discounts.create',
@@ -165,6 +189,10 @@ class RolePermissionSeeder extends Seeder
         'MEDICINE' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'medical_record.view',
             'consultations.view', 'consultations.create', 'consultations.update',
             'consultations.delete',
@@ -214,6 +242,10 @@ class RolePermissionSeeder extends Seeder
             // reserved to SURGERY; laboratory_results.create to LABORATORY).
             'paraclinical_requests.view', 'paraclinical_requests.archive',
             'laboratory_orders.create', 'laboratory_orders.view', 'laboratory_results.view',
+            // Amendement ADR-216 du 2026-09-29 — le médecin peut demander qu'un résultat reçu soit refait.
+            'laboratory_results.return',
+            // Amendement ADR-216 quater — le médecin valide le résultat reçu.
+            'laboratory_results.approve',
             'imaging_orders.create', 'imaging_orders.view', 'imaging_results.create', 'imaging_results.update', 'imaging_templates.create', 'imaging_templates.update', 'imaging_templates.archive',
             'surgery.request', 'hospitalization.request', 'maternity.request',
             'transfer.request', 'pediatrics.request',
@@ -230,6 +262,10 @@ class RolePermissionSeeder extends Seeder
         'NURSE' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'care.view', 'care.create', 'care.update', 'care.complete',
             'vitals.view', 'vitals.create', 'vitals.update', 'medical_orders.view',
             'patients.medical_history.view',
@@ -259,6 +295,10 @@ class RolePermissionSeeder extends Seeder
         'SURGERY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule', 'surgery.reset',
             'surgery.preoperative.view', 'surgery.preoperative.validate',
             'surgery.intervention.create', 'surgery.intervention.update',
@@ -277,6 +317,10 @@ class RolePermissionSeeder extends Seeder
         'PHARMACY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'pharmacy.view', 'pharmacy.dispense', 'pharmacy.dispense.prepare_invoice', 'pharmacy.dispense.print',
             // ADR-104 — `pharmacy.counter_sales.create` quitte ce socle :
             // toute vente de médicament est désormais prise à la Réception,
@@ -316,13 +360,31 @@ class RolePermissionSeeder extends Seeder
             // to a settled invoice (ADR-049).
             'care_consumables.view', 'care_consumables.serve',
         ],
-        // Minimal follow-through only (request tracking + result entry) —
-        // sample/analysis workflow itself remains unbuilt.
+        // ADR-213 — la paillasse : saisie structurée, validation du biologiste,
+        // référentiel de microbiologie. ADR-214 : réception, prélèvements, rapports.
         'LABORATORY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
+            // ADR-228 — demander une dette depuis son compte.
+            'staff_debts.request',
+            // ADR-222 — l'assistant d'aide au logiciel.
+            'ai_assistant.use',
             'paraclinical_requests.view',
             'laboratory_orders.view', 'laboratory_results.view', 'laboratory_results.create',
+            'laboratory_results.validate', 'laboratory_results.flag_critical', 'laboratory_results.return',
+            'lab_microbiology.view', 'lab_microbiology.create', 'lab_microbiology.update',
+            'lab_microbiology.archive', 'lab_microbiology.restore',
+            // ADR-214
+            'laboratory_orders.receive', 'laboratory_orders.send_out',
+            // ADR-220 — la corbeille (delete / restore) n'est accordée à aucun rôle d'un site.
+            'laboratory_orders.update', 'laboratory_orders.archive',
+            'laboratory_samples.create', 'laboratory_samples.update',
+            'laboratory_reports.view', 'laboratory_reports.export',
+            'lab_sample_types.view', 'lab_sample_types.create', 'lab_sample_types.update',
+            'lab_sample_types.archive', 'lab_sample_types.restore',
+            // ADR-238 — les disciplines du laboratoire.
+            'lab_disciplines.view', 'lab_disciplines.create', 'lab_disciplines.update',
+            'lab_disciplines.archive', 'lab_disciplines.restore',
         ],
     ];
 

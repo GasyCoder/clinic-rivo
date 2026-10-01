@@ -9,7 +9,7 @@ import Icon from '@/Components/UI/Icon.vue';
 import ShadcnButton from '@/Components/Shadcn/Button.vue';
 import NewbornDossiers from '@/Components/Clinical/NewbornDossiers.vue';
 import EpisodeNextStepsCard from '@/Components/Reception/EpisodeNextStepsCard.vue';
-import { FileText, NotebookPen } from 'lucide-vue-next';
+import { CheckCircle2, Clock, FileCheck2, FileText, NotebookPen } from 'lucide-vue-next';
 import { formatDateTime } from '@/utilities/date';
 import VitalsRecordedAt from '@/Components/Clinical/VitalsRecordedAt.vue';
 import { formatMoney } from '@/utilities/money';
@@ -20,6 +20,8 @@ defineOptions({ layout: AppLayout });
 const props = defineProps({
     episode: { type: Object, required: true },
     billing: { type: Object, default: null },
+    /** ADR-216, amendement quater — résultats d'analyses validés par le médecin ; `null` sans le droit. */
+    labResults: { type: Array, default: null },
     /** ADR-144 — les bébés du dossier Maternité de ce passage ; `null` sans dossier Maternité ni droit `newborns.view`. */
     maternityBabies: { type: Object, default: null },
     capabilities: { type: Object, default: () => ({}) },
@@ -268,6 +270,31 @@ const vitalsRows = computed(() => {
                     <div v-if="episode.medical_discharge.death_causes"><dt class="text-xs font-medium uppercase tracking-wide text-slate-400">Causes</dt><dd class="mt-0.5 text-slate-700 dark:text-slate-200">{{ episode.medical_discharge.death_causes }}</dd></div>
                 </template>
             </dl>
+        </section>
+
+        <section v-if="labResults && labResults.length" class="overflow-hidden rounded-lg border border-border bg-card">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+                <div class="flex items-start gap-3">
+                    <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><FileCheck2 class="h-4 w-4" /></span>
+                    <div>
+                        <h2 class="text-base font-semibold text-foreground">Résultats d’analyses validés</h2>
+                        <p class="text-sm text-muted-foreground">Validés par le médecin : le compte rendu peut être remis au patient.</p>
+                    </div>
+                </div>
+                <ShadcnButton :as="Link" href="/reception/resultats-analyses" size="sm" variant="outline">Résultats à remettre</ShadcnButton>
+            </div>
+            <ul class="divide-y divide-border">
+                <li v-for="lab in labResults" :key="lab.uuid" class="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+                    <div class="min-w-0 space-y-1">
+                        <p class="flex flex-wrap items-center gap-1.5 text-sm text-foreground">
+                            <span v-for="name in lab.approved" :key="`a-${name}`" class="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"><CheckCircle2 class="h-3.5 w-3.5" />{{ name }}</span>
+                            <span v-for="name in lab.pending" :key="`p-${name}`" class="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"><Clock class="h-3.5 w-3.5" />{{ name }} · en attente</span>
+                        </p>
+                        <p class="text-xs text-muted-foreground"><template v-if="lab.lab_number">{{ lab.lab_number }} · </template>Validé<template v-if="lab.approved_by.length"> par {{ lab.approved_by.join(', ') }}</template> le {{ formatDateTime(lab.approved_at) }}</p>
+                    </div>
+                    <ShadcnButton as="a" :href="lab.pdf_url" target="_blank" rel="noopener" size="sm"><FileText class="h-4 w-4" />Compte rendu</ShadcnButton>
+                </li>
+            </ul>
         </section>
 
         <section v-if="capabilities.can_view_billing && billing" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">

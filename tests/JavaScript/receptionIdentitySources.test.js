@@ -144,9 +144,10 @@ test('la fiche partenaire se remplit sur sa propre page, en deux colonnes, adres
 
 test('un seul champ d’adresse pour les fiches : le partenaire et l’employé', () => {
     const field = read('resources/js/Components/Administration/AddressEntryField.vue');
-    const employee = read('resources/js/Pages/Administration/Employees/EmployeeForm.vue');
+    // ADR-221 — l'adresse d'un employé se règle à l'étape Contact de son dossier.
+    const employee = read('resources/js/Components/Administration/EmployeeFile/ContactSection.vue');
 
-    assert.match(employee, /<AddressEntryField\s+v-model:entry="form\.address_entry_uuid"/);
+    assert.match(employee, /<AddressEntryField[\s\S]*?:entry="form\.address_entry_uuid"/);
     assert.doesNotMatch(employee, /id="new_address_label"/, 'la fiche employé ne recopie plus le champ');
     assert.match(field, /entryId: \{ type: String, default: 'address_entry_uuid' \}/, 'le résumé d’erreurs mène toujours au champ');
     assert.match(field, /newLabelId: \{ type: String, default: 'new_address_label' \}/);

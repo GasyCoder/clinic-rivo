@@ -57,9 +57,9 @@ use App\Services\Pharmacy\MedicineStockService;
 use App\Support\Documents\MaternitySheetSection;
 use App\Support\EpisodeQueuePresenter;
 use App\Support\Maternity\MaternityEncounterFields;
-use App\Support\Medicine\PrescriptionDocument;
 use App\Support\MaternityActProfile;
 use App\Support\MaternityReference;
+use App\Support\Medicine\PrescriptionDocument;
 use App\Support\Paraclinical\ParaclinicalRequestPresenter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -367,7 +367,7 @@ class MaternityController extends Controller
                 ->with(ParaclinicalRequestPresenter::LAB_RELATIONS)
                 ->orderByDesc('requested_at')
                 ->get()
-                ->map(fn (LabRequest $lab) => $paraclinical->lab($lab, $active && $user->can('laboratory_orders.create')))
+                ->map(fn (LabRequest $lab) => $paraclinical->lab($lab, $active && $user->can('laboratory_orders.create'), $user))
                 ->all()),
             'imagingRequests' => ! $user->can('imaging_orders.view') ? null : ($record === null ? [] : ImagingRequest::query()
                 ->where('maternity_record_id', $record->getKey())

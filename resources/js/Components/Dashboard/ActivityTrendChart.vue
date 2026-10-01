@@ -14,6 +14,12 @@ const props = defineProps({
     title: { type: String, default: 'Activité des 7 derniers jours' },
     description: { type: String, default: 'Patients et activités visibles selon vos permissions.' },
     compact: { type: Boolean, default: false },
+    /** Ce que dit un graphique vide ; par défaut, celui de la vue d'ensemble (sept jours). */
+    emptyTitle: { type: String, default: 'Aucune activité sur les 7 derniers jours' },
+    emptyDescription: { type: String, default: 'La courbe apparaîtra dès le premier passage, patient ou encaissement enregistré.' },
+    format: { type: Function, default: (value) => new Intl.NumberFormat('fr-FR').format(value) },
+    axisFormat: { type: Function, default: null },
+    unitDescription: { type: String, default: 'patients ou enregistrements autorisés' },
 });
 
 const chart = {
@@ -203,7 +209,7 @@ const color = (tone) => colors[tone] ?? colors.navy;
                 >
                     <span class="h-2 w-2 rounded-full" :style="{ backgroundColor: hidden.has(item.key) ? '#cbd5e1' : color(item.tone) }"></span>
                     {{ item.label }}
-                    <strong class="font-heading tabular-nums text-foreground">{{ item.total }}</strong>
+                    <strong class="font-heading tabular-nums text-foreground">{{ format(item.total) }}</strong>
                 </Button>
                 <span v-if="hasActivity && allSeries.length > 1" class="ms-auto hidden text-[11px] text-muted-foreground lg:inline">Cliquez une activité pour la masquer</span>
             </div>
@@ -218,7 +224,7 @@ const color = (tone) => colors[tone] ?? colors.navy;
                     aria-labelledby="activity-chart-title activity-chart-description"
                 >
                     <title id="activity-chart-title">{{ viewMode === 'bars' ? 'Histogramme' : 'Courbes' }} de l’activité : {{ title }}</title>
-                    <desc id="activity-chart-description">Chaque série présente le nombre quotidien de patients ou d’enregistrements autorisés.</desc>
+                    <desc id="activity-chart-description">Chaque série présente la valeur quotidienne : {{ unitDescription }}.</desc>
 
                     <g v-for="tick in yTicks" :key="`tick-${tick}`">
                         <line
@@ -235,7 +241,7 @@ const color = (tone) => colors[tone] ?? colors.navy;
                             :y="yPosition(tick) + 4"
                             text-anchor="end"
                             class="fill-muted-foreground text-[11px]"
-                        >{{ tick }}</text>
+                        >{{ axisFormat ? axisFormat(tick) : format(tick) }}</text>
                     </g>
 
                     <g v-for="(label, index) in dateLabels" :key="dates[index]">
@@ -261,7 +267,7 @@ const color = (tone) => colors[tone] ?? colors.navy;
                                 rx="2.5"
                                 class="opacity-90 transition-opacity hover:opacity-100"
                             >
-                                <title>{{ item.label }} · {{ dateLabels[dateIndex] }} : {{ value }}</title>
+                                <title>{{ item.label }} · {{ dateLabels[dateIndex] }} : {{ format(value) }}</title>
                             </rect>
                         </template>
                     </g>
@@ -287,7 +293,7 @@ const color = (tone) => colors[tone] ?? colors.navy;
                             stroke-width="2"
                             vector-effect="non-scaling-stroke"
                         >
-                            <title>{{ item.label }} · {{ dateLabels[index] }} : {{ value }}</title>
+                            <title>{{ item.label }} · {{ dateLabels[index] }} : {{ format(value) }}</title>
                         </circle>
                     </g>
                 </svg>
@@ -296,8 +302,8 @@ const color = (tone) => colors[tone] ?? colors.navy;
 
         <div v-else class="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
             <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-muted text-muted-foreground ring-1 ring-inset ring-border"><LineChart class="h-5 w-5" /></span>
-            <h3 class="text-sm font-bold text-foreground">{{ allSeries.length ? 'Aucune activité sur les 7 derniers jours' : 'Aucune série disponible' }}</h3>
-            <p class="max-w-sm text-xs leading-5 text-muted-foreground">{{ allSeries.length ? 'La courbe apparaîtra dès le premier passage, patient ou encaissement enregistré.' : 'Aucune donnée compatible avec vos permissions n’est disponible pour cette période.' }}</p>
+            <h3 class="text-sm font-bold text-foreground">{{ allSeries.length ? emptyTitle : 'Aucune série disponible' }}</h3>
+            <p class="max-w-sm text-xs leading-5 text-muted-foreground">{{ allSeries.length ? emptyDescription : 'Aucune donnée compatible avec vos permissions n’est disponible pour cette période.' }}</p>
         </div>
     </Card>
 </template>

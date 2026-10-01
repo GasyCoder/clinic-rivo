@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, shallowRef, watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { Editor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
@@ -31,15 +31,25 @@ import { cn } from '@/lib/cn';
  * l'envoi (`EmailHtmlSanitizer::forSending`) : rien de ce qu'on voit ici ne
  * disparaît en partant. L'éditeur est créé une fois la page reprise par le
  * navigateur — jamais pendant le rendu serveur.
+ *
+ * `bare` : sans cadre, il occupe toute la hauteur de son conteneur (la fenêtre de
+ * rédaction) ; `toolbarPosition="bottom"` pose la barre de mise en forme sous le
+ * texte, au-dessus des boutons d'envoi, comme dans une messagerie ; `toolbar` la
+ * replie. Le texte d'invite s'affiche tant que le message est vide.
  */
 const props = defineProps({
     modelValue: { type: String, default: '' },
     placeholder: { type: String, default: 'Écrivez votre message…' },
     disabled: { type: Boolean, default: false },
+    bare: { type: Boolean, default: false },
+    toolbar: { type: Boolean, default: true },
+    /** top | bottom */
+    toolbarPosition: { type: String, default: 'top' },
 });
 
 const emit = defineEmits(['update:modelValue']);
 const editor = shallowRef(null);
+const empty = ref(!props.modelValue);
 
 onMounted(() => {
     editor.value = new Editor({
@@ -53,13 +63,19 @@ onMounted(() => {
         ],
         editorProps: {
             attributes: {
-                class: 'rivo-email-editor min-h-[14rem] max-h-[50vh] overflow-y-auto px-4 py-3 text-sm leading-relaxed text-foreground focus:outline-none',
+                class: props.bare
+                    ? 'rivo-email-editor min-h-full px-4 py-3 text-sm leading-relaxed text-foreground focus:outline-none sm:px-5'
+                    : 'rivo-email-editor min-h-[14rem] max-h-[50vh] overflow-y-auto px-4 py-3 text-sm leading-relaxed text-foreground focus:outline-none',
                 'aria-label': 'Corps du message',
                 'aria-multiline': 'true',
                 role: 'textbox',
             },
         },
-        onUpdate: ({ editor: instance }) => emit('update:modelValue', instance.getHTML()),
+        onCreate: ({ editor: instance }) => { empty.value = instance.isEmpty; },
+        onUpdate: ({ editor: instance }) => {
+            empty.value = instance.isEmpty;
+            emit('update:modelValue', instance.getHTML());
+        },
     });
 });
 
@@ -67,6 +83,7 @@ onMounted(() => {
 watch(() => props.modelValue, (value) => {
     if (editor.value && value !== editor.value.getHTML()) {
         editor.value.commands.setContent(value || '', false);
+        empty.value = editor.value.isEmpty;
     }
 });
 watch(() => props.disabled, (disabled) => editor.value?.setEditable(!disabled));
@@ -82,8 +99,9 @@ const run = (callback) => {
 /** Insère un texte déjà en HTML (un modèle) là où se trouve le curseur. */
 const insertHtml = (html) => run((chain) => chain.insertContent(html));
 const focus = () => editor.value?.commands.focus('start');
+const focusEnd = () => editor.value?.commands.focus('end');
 
-defineExpose({ insertHtml, focus });
+defineExpose({ insertHtml, focus, focusEnd });
 
 const tools = [
     { key: 'bold', label: 'Gras (Ctrl+B)', icon: Bold, action: (c) => c.toggleBold(), active: () => is('bold') },
@@ -108,8 +126,20 @@ const tools = [
 </script>
 
 <template>
-    <div :class="cn('overflow-hidden rounded-lg border border-input bg-background focus-within:ring-2 focus-within:ring-ring/40', disabled && 'opacity-70')">
-        <div role="toolbar" aria-label="Mise en forme du message" class="flex flex-wrap items-center gap-0.5 border-b border-border bg-muted/40 px-1.5 py-1">
+    <div
+        :class="cn(
+            bare
+                ? 'flex h-full min-h-0 flex-col bg-background'
+                : 'overflow-hidden rounded-lg border border-input bg-background focus-within:ring-2 focus-within:ring-ring/40',
+            disabled && 'opacity-70',
+        )"
+    >
+        <div
+            v-if="toolbar && toolbarPosition === 'top'"
+            role="toolbar"
+            aria-label="Mise en forme du message"
+            class="flex flex-nowrap items-center gap-0.5 overflow-x-auto border-b border-border bg-muted/40 px-1.5 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
             <template v-for="tool in tools" :key="tool.key">
                 <span v-if="tool.separator" class="mx-1 h-5 w-px bg-border" aria-hidden="true" />
                 <button
@@ -127,13 +157,50 @@ const tools = [
                 </button>
             </template>
         </div>
-        <EditorContent v-if="editor" :editor="editor" />
-        <div v-else class="min-h-[14rem] px-4 py-3 text-sm text-muted-foreground">{{ placeholder }}</div>
+
+        <div :class="cn('relative', bare && 'min-h-0 flex-1 cursor-text overflow-y-auto')" @click.self="bare && focusEnd()">
+            <EditorContent v-if="editor" :editor="editor" :class="bare && 'h-full'" />
+            <div v-else :class="cn('px-4 py-3 text-sm text-muted-foreground', bare ? 'sm:px-5' : 'min-h-[14rem]')">{{ placeholder }}</div>
+            <p
+                v-if="editor && empty"
+                :class="cn('pointer-events-none absolute start-0 top-0 select-none px-4 py-3 text-sm text-muted-foreground', bare && 'sm:px-5')"
+                aria-hidden="true"
+            >
+                {{ placeholder }}
+            </p>
+        </div>
+
+        <slot name="before-toolbar" />
+
+        <div
+            v-if="toolbar && toolbarPosition === 'bottom'"
+            role="toolbar"
+            aria-label="Mise en forme du message"
+            class="mx-3 mb-1 flex shrink-0 flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg border border-border bg-muted/50 px-1 py-0.5 shadow-sm [scrollbar-width:none] sm:mx-4 [&::-webkit-scrollbar]:hidden"
+        >
+            <template v-for="tool in tools" :key="tool.key">
+                <span v-if="tool.separator" class="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+                <button
+                    v-else
+                    type="button"
+                    :title="tool.label"
+                    :aria-label="tool.label"
+                    :aria-pressed="tool.active()"
+                    :disabled="disabled || !editor"
+                    :class="cn('inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground disabled:opacity-40', tool.active() && 'bg-background text-foreground shadow-sm')"
+                    @mousedown.prevent
+                    @click="run(tool.action)"
+                >
+                    <component :is="tool.icon" class="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+            </template>
+        </div>
     </div>
 </template>
 
 <style>
 .rivo-email-editor p { margin: 0 0 0.5rem; }
+.rivo-email-editor > :last-child { margin-bottom: 0; }
 .rivo-email-editor ul { list-style: disc; padding-left: 1.5rem; margin: 0 0 0.5rem; }
 .rivo-email-editor ol { list-style: decimal; padding-left: 1.5rem; margin: 0 0 0.5rem; }
 .rivo-email-editor blockquote { border-left: 3px solid hsl(var(--border)); padding-left: 0.75rem; color: hsl(var(--muted-foreground)); margin: 0 0 0.5rem; }

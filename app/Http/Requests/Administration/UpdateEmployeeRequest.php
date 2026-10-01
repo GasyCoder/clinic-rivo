@@ -15,10 +15,17 @@ class UpdateEmployeeRequest extends EmployeeDataRequest
             && $this->addressPermissionsAreValid();
     }
 
+    /**
+     * ADR-221 — la fiche s'enregistre section par section, automatiquement :
+     * chaque règle ne s'applique qu'au champ réellement envoyé. Un champ omis
+     * reste tel quel ; envoyé, il garde toute sa règle (le nom reste exigé).
+     */
     public function rules(): array
     {
         $employee = $this->route('employee');
 
-        return $this->employeeRules($employee instanceof Employee ? $employee : null);
+        return collect($this->employeeRules($employee instanceof Employee ? $employee : null))
+            ->map(fn (array $rules) => in_array('prohibited', $rules, true) ? $rules : ['sometimes', ...$rules])
+            ->all() + ['_autosave' => ['sometimes', 'boolean']];
     }
 }

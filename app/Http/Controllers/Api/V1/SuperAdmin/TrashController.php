@@ -81,4 +81,24 @@ class TrashController extends Controller
             ),
         ]);
     }
+
+    /** ADR-236 — vider la corbeille du site : ce qui n'a servi nulle part, selon les filtres. */
+    public function empty(Request $request, TrashDirectory $trash): JsonResponse
+    {
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'category' => ['nullable', Rule::in(['ALL', ...array_column(TrashCategory::options(), 'code')])],
+            'deleted_from' => ['nullable', 'date_format:Y-m-d'],
+            'deleted_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:deleted_from'],
+        ]);
+        $validated['category'] ??= 'ALL';
+        $report = $trash->empty($validated, CatalogActor::fromRemoteRequest($request));
+
+        return response()->json([
+            'message' => $report['deleted'] === 0
+                ? 'Rien à supprimer : tout ce qui reste a servi.'
+                : "{$report['deleted']} élément".($report['deleted'] > 1 ? 's' : '').' supprimé'.($report['deleted'] > 1 ? 's' : '').' définitivement.',
+            'data' => $report,
+        ]);
+    }
 }

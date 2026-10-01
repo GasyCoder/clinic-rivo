@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\SuperAdmin;
 
 use App\Enums\PaymentMethodCategory;
 use App\Http\Controllers\Controller;
+use App\Models\Bank;
 use App\Models\PaymentMethod;
 use App\Services\Cash\PaymentMethodManager;
 use App\Services\Catalog\CatalogActor;
@@ -30,6 +31,7 @@ class PaymentMethodController extends Controller
         $status = $validated['status'] ?? 'ALL';
 
         $methods = PaymentMethod::query()
+            ->with('bank')
             ->withCount('payments')
             ->when($status === 'ACTIVE', fn ($query) => $query->where('active', true))
             ->when($status === 'INACTIVE', fn ($query) => $query->where('active', false))
@@ -62,6 +64,13 @@ class PaymentMethodController extends Controller
                         'label' => $category->label(),
                         'icon' => $category->icon(),
                     ])->values(),
+                'banks' => Bank::query()
+                    ->where('active', true)
+                    ->orderBy('position')
+                    ->orderBy('code')
+                    ->get()
+                    ->map(fn (Bank $bank) => $this->serializeBank($bank))
+                    ->values(),
             ],
         ]);
     }
@@ -71,17 +80,21 @@ class PaymentMethodController extends Controller
         $this->authorizeActor($request, 'payment_methods.create');
         $validated = $request->validate([
             'code' => ['required', 'string', 'max:40'],
-            'name' => ['required', 'string', 'max:100'],
+            'name' => $this->nameRules($request),
             'category' => ['required', Rule::enum(PaymentMethodCategory::class)],
+            'bank_uuid' => $this->bankRules($request, creating: true),
+            'category_detail' => ['nullable', 'string', 'max:60'],
             'affects_cash_balance' => ['required', 'boolean'],
             'requires_reference' => ['required', 'boolean'],
         ]);
         $method = $manager->create(
             $validated['code'],
-            $validated['name'],
+            (string) ($validated['name'] ?? ''),
             PaymentMethodCategory::from($validated['category']),
+            $this->bank($validated),
             (bool) $validated['affects_cash_balance'],
             (bool) $validated['requires_reference'],
+            $validated['category_detail'] ?? null,
         );
 
         return response()->json([
@@ -94,18 +107,22 @@ class PaymentMethodController extends Controller
     {
         $this->authorizeActor($request, 'payment_methods.update');
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:100'],
+            'name' => $this->nameRules($request),
             'category' => ['required', Rule::enum(PaymentMethodCategory::class)],
+            'bank_uuid' => $this->bankRules($request, creating: false),
+            'category_detail' => ['nullable', 'string', 'max:60'],
             'affects_cash_balance' => ['required', 'boolean'],
             'requires_reference' => ['required', 'boolean'],
         ]);
         $method = PaymentMethod::query()->where('uuid', $paymentMethodUuid)->firstOrFail();
         $method = $manager->update(
             $method,
-            $validated['name'],
+            (string) ($validated['name'] ?? ''),
             PaymentMethodCategory::from($validated['category']),
+            $this->bank($validated),
             (bool) $validated['affects_cash_balance'],
             (bool) $validated['requires_reference'],
+            $validated['category_detail'] ?? null,
         );
 
         return response()->json([
@@ -148,10 +165,64 @@ class PaymentMethodController extends Controller
             'category' => $method->category->value,
             'category_label' => $method->category->label(),
             'category_icon' => $method->category->icon(),
+            'bank_uuid' => $method->bank?->uuid,
+            'bank' => $method->bank ? [...$this->serializeBank($method->bank), 'archived' => ! $method->bank->isAvailable()] : null,
+            'category_detail' => $method->category_detail,
             'active' => (bool) $method->active,
             'affects_cash_balance' => (bool) $method->affects_cash_balance,
             'requires_reference' => (bool) $method->requires_reference,
             'payments_count' => (int) ($method->payments_count ?? 0),
+        ];
+    }
+
+    /** @return array<int, mixed> ADR-239 — un mode « Banque » peut laisser son libellé vide : il prend le nom de la banque. */
+    private function nameRules(Request $request): array
+    {
+        $isBank = $request->input('category') === PaymentMethodCategory::Bank->value;
+
+        return [$isBank ? 'nullable' : 'required', 'string', 'max:100'];
+    }
+
+    /**
+     * @return array<int, mixed> Une banque du référentiel du site. Exigée à la
+     *                           création ; à la modification, le gestionnaire
+     *                           garde le mode générique déjà sans banque.
+     */
+    private function bankRules(Request $request, bool $creating): array
+    {
+        $isBank = $request->input('category') === PaymentMethodCategory::Bank->value;
+
+        return [
+            Rule::requiredIf($isBank && $creating),
+            Rule::prohibitedIf(! $isBank),
+            'nullable',
+            'uuid',
+            Rule::exists('banks', 'uuid'),
+        ];
+    }
+
+    /** @param array<string, mixed> $validated */
+    private function bank(array $validated): ?Bank
+    {
+        if (($validated['category'] ?? null) !== PaymentMethodCategory::Bank->value) {
+            return null;
+        }
+
+        if (blank($validated['bank_uuid'] ?? null)) {
+            return null;
+        }
+
+        return Bank::withTrashed()->where('uuid', $validated['bank_uuid'])->firstOrFail();
+    }
+
+    /** @return array<string, mixed> */
+    private function serializeBank(Bank $bank): array
+    {
+        return [
+            'uuid' => $bank->uuid,
+            'code' => $bank->code,
+            'name' => $bank->name,
+            'label' => "{$bank->code} — {$bank->name}",
         ];
     }
 

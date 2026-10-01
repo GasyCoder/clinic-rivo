@@ -5,7 +5,9 @@ namespace App\Services\Administration;
 use App\Enums\HrReferenceType;
 use App\Enums\PlanningShiftKind;
 use App\Models\AttendanceRecord;
+use App\Models\Bank;
 use App\Models\Employee;
+use App\Models\EmployeeBenefit;
 use App\Models\EmploymentContract;
 use App\Models\HrDocument;
 use App\Models\HrReferenceValue;
@@ -59,10 +61,18 @@ class HrPresenter
             'diploma' => $employee->diploma,
             'education_level' => $employee->education_level,
             'children_details' => $includePrivate ? $employee->children_details : null,
+            'children' => $includePrivate ? \App\Support\Hr\EmployeeChildren::normalize($employee->children) : [],
             'badge' => $employee->badge,
             'blouse' => $employee->blouse,
             'profession' => $employee->profession,
             'phone' => $employee->phone,
+            'phone_secondary' => $employee->phone_secondary,
+            'tshirt_size' => $employee->tshirt_size,
+            'blouse_size' => $employee->blouse_size,
+            'bloc_outfit' => $employee->bloc_outfit,
+            'shoe_size' => $employee->shoe_size,
+            'scrub_cap' => $employee->scrub_cap,
+            'clog' => $employee->clog,
             'email' => $employee->email,
             'address' => $employee->addressEntry?->label ?? $employee->address,
             'address_entry_uuid' => $employee->addressEntry?->uuid,
@@ -103,8 +113,64 @@ class HrPresenter
             'remuneration_type' => $employee->remuneration_type?->value,
             'remuneration_label' => $employee->remuneration_type?->label(),
             'remuneration_amount' => $employee->remuneration_amount,
+            // La case « Avantages » : true / false décidé, null = la fonction décide.
+            'benefits_enabled' => $employee->benefits_enabled,
+            'benefits_granted' => $employee->grantsBenefits(),
+            'benefits_by_job_title' => (bool) $employee->jobTitle?->grantsBenefits(),
+            'job_title' => $employee->jobTitle?->label,
+            'is_intern' => app(\App\Services\Administration\InternshipDirectory::class)->isIntern($employee),
+            // ADR-221 — la banque, choisie dans le module Banques ; archivée depuis, elle reste lisible.
+            'bank_uuid' => $employee->bank?->uuid,
+            'bank' => $employee->bank ? $this->bank($employee->bank) : null,
             'bank_account_number' => $employee->bank_account_number,
             'bank_account_holder' => $employee->bank_account_holder,
+            'salary_payment_mode' => $employee->salary_payment_mode?->value,
+            'salary_payment_label' => $employee->salary_payment_mode?->label(),
+            'mobile_money_accounts' => \App\Support\Hr\MobileMoneyAccounts::present($employee->mobile_money_accounts),
+        ];
+    }
+
+    /**
+     * ADR-221 — une banque du référentiel, telle qu'une liste ou une fiche la montre.
+     *
+     * @return array<string, mixed>
+     */
+    public function bank(Bank $bank): array
+    {
+        return [
+            'uuid' => $bank->uuid,
+            'code' => $bank->code,
+            'name' => $bank->name,
+            'label' => "{$bank->code} — {$bank->name}",
+            'available' => $bank->isAvailable(),
+        ];
+    }
+
+    /**
+     * ADR-221 — un avantage ou une prime déclaré. Confidentiel comme la
+     * rémunération : servi seulement avec `employees.payroll.view`.
+     *
+     * @return array<string, mixed>
+     */
+    public function benefit(EmployeeBenefit $benefit): array
+    {
+        return [
+            'uuid' => $benefit->uuid,
+            'benefit_type_uuid' => $benefit->benefitType?->uuid,
+            'type' => $benefit->benefitType?->label,
+            'type_code' => $benefit->benefitType?->code,
+            'amount' => $benefit->amount,
+            'reason' => $benefit->reason,
+            'frequency' => $benefit->frequency?->value,
+            'frequency_label' => $benefit->frequency?->label(),
+            'starts_on' => $benefit->starts_on?->toDateString(),
+            'ends_on' => $benefit->ends_on?->toDateString(),
+            'current' => $benefit->isCurrent(),
+            'archived' => $benefit->trashed(),
+            'delete_reason' => $benefit->delete_reason,
+            'deleted_at' => $benefit->deleted_at?->toIso8601String(),
+            'created_by' => RemoteActorAttribution::name($benefit->creator?->name, $benefit->external_created_by_name),
+            'created_at' => $benefit->created_at?->toIso8601String(),
         ];
     }
 

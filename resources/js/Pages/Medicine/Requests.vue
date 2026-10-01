@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
-import { Activity, Archive, ArchiveRestore, ChevronDown, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FlaskConical, HeartPulse, History, LayoutList, LoaderCircle, PenLine, Pencil, Printer, ScanLine, Search, Stethoscope, Trash2 } from 'lucide-vue-next';
+import { Activity, Archive, ArchiveRestore, ChevronDown, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FlaskConical, HeartPulse, History, LayoutList, LoaderCircle, LockKeyhole, PenLine, Pencil, Printer, ScanLine, Search, Send, Stethoscope, Trash2, Wallet, RotateCcw, SendHorizontal, BadgeCheck, FlaskRound } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
@@ -13,6 +13,10 @@ import ImagingReportDocument from '@/Components/Medicine/ImagingReportDocument.v
 import FormError from '@/Components/UI/FormError.vue';
 import { formatDateTime, formatRelativeTime } from '@/utilities/date';
 import { cn } from '@/lib/cn';
+import { labRowButton } from '@/utilities/labRowActions';
+import { LAB_STATE_LABELS } from '@/utilities/labWorkbench';
+import { paymentBadge } from '@/utilities/labReception';
+import { requestApprovalStatus, itemApprovalLine } from '@/utilities/labApproval';
 
 defineOptions({ layout: AppLayout });
 
@@ -24,10 +28,10 @@ defineOptions({ layout: AppLayout });
  * `cancelled_at` et du `resulted_at` de chaque ligne, et les compteurs sont
  * comptés sur ces mêmes faits. Rien n'est incrémenté ici.
  *
- * Il n'y a volontairement pas de filtre « Terminées » distinct de
- * « Résultat disponible » : rien n'enregistre qu'un médecin a pris
- * connaissance d'un résultat, et l'afficher prétendrait une lecture que
- * personne n'a faite.
+ * Amendement ADR-216 quater — un résultat d'analyse reçu se valide : le médecin
+ * le relit sur sa feuille, puis clique « Valider ». « À valider » les réunit, et
+ * la Réception ne voit un résultat qu'une fois validé. L'imagerie n'a pas cette
+ * étape : son compte rendu est écrit par le médecin lui-même.
  */
 const props = defineProps({
     requests: { type: Array, default: () => [] },
@@ -58,17 +62,26 @@ const nothingVisible = computed(() => ! props.can.lab && ! props.can.imaging);
  * Chacune répond à une question, et le serveur décide seul de qui appartient
  * à quoi — les compteurs comme la liste sortent du même classement.
  *
- * « Rendu récemment » et non « validé » : rien dans le système ne valide un
- * résultat. Il n'existe ni `validated_at`, ni permission de validation ; un
- * résultat est saisi, point. Nommer cet onglet « Validé » afficherait un
- * contrôle que personne n'a fait.
+ * Amendement ADR-216 quater — « À valider » d'abord : les résultats d'analyses
+ * reçus du laboratoire, que le médecin relit puis valide ; la Réception ne les
+ * voit qu'ensuite. Le serveur ouvre cette vue par défaut quand elle n'est pas vide.
  */
-const FILTERS = [
+const ALL_FILTERS = [
+    { key: 'to_validate', label: 'À valider', hint: 'Résultats reçus, à relire et valider', icon: BadgeCheck, tone: 'sky' },
     { key: 'active', label: 'Actives', hint: 'En attente d’un résultat', icon: Clock, tone: 'amber' },
     { key: 'recent', label: 'Rendues récemment', hint: 'Résultat des 7 derniers jours', icon: CircleCheck, tone: 'emerald' },
     { key: 'archived', label: 'Archivées', hint: 'Plus anciennes et demandes retirées', icon: Archive, tone: 'neutral' },
 ];
+// « À valider » ne concerne que les analyses : sans elles, la vue n'a pas d'objet.
+const FILTERS = computed(() => ALL_FILTERS.filter((filter) => filter.key !== 'to_validate' || props.can.lab));
 
+// ADR-219 — l'état d'une demande d'analyses au laboratoire, dans le même dessin que STATUS.
+const LAB_STATE_STYLES = {
+    to_do: { icon: FlaskRound, tone: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300' },
+    to_redo: { icon: RotateCcw, tone: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300' },
+    to_validate: { icon: SendHorizontal, tone: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300' },
+    validated: { icon: BadgeCheck, tone: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300' },
+};
 const STATUS = {
     REQUESTED: { label: 'En attente', icon: Clock, tone: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300' },
     IN_PROGRESS: { label: 'En cours', icon: LoaderCircle, tone: 'border-primary/30 bg-primary/10 text-primary' },
@@ -246,6 +259,13 @@ const submitWithdraw = () => {
         onSuccess: closeWithdraw,
     });
 };
+
+// ADR-219 — « Traiter » : la demande est prise en charge, puis la paillasse s'ouvre (le serveur redirige).
+const starting = ref(null);
+const startLab = (request) => {
+    starting.value = request.uuid;
+    router.post(`/laboratory/requests/${request.uuid}/start`, {}, { onFinish: () => { starting.value = null; } });
+};
 </script>
 
 <template>
@@ -277,7 +297,7 @@ const submitWithdraw = () => {
         <!-- Les compteurs viennent du serveur, comptés en base : recalculés
              depuis la page affichée, ils mentiraient dès la deuxième. -->
         <QueueCounters
-            class="lg:grid-cols-3"
+            :class="FILTERS.length === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'"
             :tiles="FILTERS.map((filter) => ({ ...filter, value: filter.key, count: counts[filter.key] ?? 0, active: activeFilter === filter.key }))"
             @select="selectFilter"
         />
@@ -332,7 +352,7 @@ const submitWithdraw = () => {
                             v-for="request in requests"
                             :key="`${request.kind}-${request.uuid}`"
                             :class="cn('align-top transition-colors hover:bg-accent/40',
-                                request.status === 'COMPLETED' && 'bg-emerald-50/40 dark:bg-emerald-950/10')"
+                                request.approval?.awaiting ? 'bg-sky-50/50 dark:bg-sky-950/10' : request.status === 'COMPLETED' && 'bg-emerald-50/40 dark:bg-emerald-950/10')"
                         >
                             <!-- PATIENT -->
                             <td class="px-4 py-3">
@@ -357,8 +377,17 @@ const submitWithdraw = () => {
                                     <li v-for="item in request.items" :key="item.uuid" class="flex items-start justify-between gap-3">
                                         <div class="min-w-0">
                                             <span class="font-semibold text-foreground">{{ item.exam }}</span>
-                                            <p v-if="item.resulted_at" class="text-[11px] text-emerald-700 dark:text-emerald-300">
-                                                Rendu le {{ formatDateTime(item.resulted_at) }}<template v-if="item.resulted_by"> par Dr {{ item.resulted_by }}</template>
+                                            <!-- ADR-216 — une analyse renvoyée à refaire après son
+                                                 envoi : le médecin sait qu'une correction arrive. -->
+                                            <p v-if="item.in_correction" class="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                                                En correction au laboratoire
+                                            </p>
+                                            <!-- Amendement ADR-216 quater — reçu, puis validé par le médecin. -->
+                                            <p v-else-if="itemApprovalLine(item, formatDateTime)" :class="cn('text-[11px] font-medium', itemApprovalLine(item, formatDateTime).tone === 'warning' ? 'text-sky-700 dark:text-sky-300' : 'text-emerald-700 dark:text-emerald-300')">
+                                                {{ itemApprovalLine(item, formatDateTime).text }}
+                                            </p>
+                                            <p v-else-if="item.resulted_at" class="text-[11px] text-emerald-700 dark:text-emerald-300">
+                                                {{ request.kind === 'lab' ? 'Envoyé le' : 'Rendu le' }} {{ formatDateTime(item.resulted_at) }}<template v-if="item.resulted_by"> par {{ request.kind === 'lab' ? '' : 'Dr ' }}{{ item.resulted_by }}</template>
                                                 <span
                                                     v-if="item.corrected_at"
                                                     class="ms-1.5 inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"
@@ -383,7 +412,9 @@ const submitWithdraw = () => {
                                                 <PenLine class="h-3.5 w-3.5" />Saisir
                                             </Button>
                                             <template v-if="item.resulted_at">
+                                                <!-- Une analyse se lit sur sa feuille, ouverte depuis « Actions » (ADR-216). -->
                                                 <Button
+                                                    v-if="request.kind !== 'lab'"
                                                     type="button"
                                                     size="sm"
                                                     variant="primary"
@@ -422,6 +453,9 @@ const submitWithdraw = () => {
                                         </div>
                                     </li>
                                 </ul>
+                                <p v-if="request.kind === 'lab' && request.recipient" class="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                                    <Send class="h-3 w-3" aria-hidden="true" />Résultats adressés à {{ request.recipient }}
+                                </p>
                                 <p v-if="request.notes" class="mt-1 line-clamp-1 text-xs text-muted-foreground" :title="request.notes">
                                     {{ request.notes }}
                                 </p>
@@ -437,10 +471,30 @@ const submitWithdraw = () => {
 
                             <!-- STATUT -->
                             <td class="px-4 py-3">
-                                <span :class="cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-bold', STATUS[request.status].tone)">
+                                <!-- ADR-219 — une analyse dit où en est le laboratoire : un seul statut,
+                                     le règlement en repère discret dessous. -->
+                                <template v-if="request.lab_state && request.bench_url">
+                                    <span :class="cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-bold', LAB_STATE_STYLES[request.lab_state].tone)">
+                                        <component :is="LAB_STATE_STYLES[request.lab_state].icon" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                        {{ LAB_STATE_LABELS[request.lab_state] }}
+                                    </span>
+                                </template>
+                                <span v-else-if="requestApprovalStatus(request)" :class="cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-bold', requestApprovalStatus(request).state === 'AWAITING' ? LAB_STATE_STYLES.to_validate.tone : LAB_STATE_STYLES.validated.tone)">
+                                    <BadgeCheck class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                    {{ requestApprovalStatus(request).label }}
+                                </span>
+                                <span v-else :class="cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-bold', STATUS[request.status].tone)">
                                     <component :is="STATUS[request.status].icon" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                     {{ STATUS[request.status].label }}
                                 </span>
+                                <p v-if="requestApprovalStatus(request)?.detail" class="mt-1 text-[11px] text-muted-foreground">{{ requestApprovalStatus(request).detail }}</p>
+                                <p
+                                    v-if="paymentBadge(request.payment)"
+                                    :class="cn('mt-1 flex items-center gap-1 text-[11px] font-medium', paymentBadge(request.payment).tone === 'warning' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')"
+                                    :title="paymentBadge(request.payment).hint"
+                                >
+                                    <Wallet class="h-3 w-3 shrink-0" aria-hidden="true" />{{ paymentBadge(request.payment).label }}
+                                </p>
                                 <p v-if="request.archived_at" class="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                                     <Archive class="h-3 w-3" aria-hidden="true" />Archivée le {{ formatDateTime(request.archived_at) }}
                                 </p>
@@ -453,6 +507,21 @@ const submitWithdraw = () => {
                                  icônes — chacune a son nom au survol. -->
                             <td class="px-4 py-3">
                                 <div class="flex items-center justify-end gap-1.5">
+                                    <!-- Amendement ADR-216 quater — un bouton qui dit ce qu'il fait :
+                                         « Vérifier » ouvre le compte rendu, que le médecin valide ensuite. -->
+                                    <Button
+                                        v-if="request.kind === 'lab' && request.results_url && ! request.bench_url"
+                                        :as="Link"
+                                        :href="request.results_url"
+                                        size="sm"
+                                        :variant="request.sealed ? 'white-outline' : request.can_approve ? 'primary' : 'white-outline'"
+                                        :title="request.sealed ? `Adressés à ${request.recipient ?? 'un confrère'} — ouvrir après confirmation` : request.can_approve ? 'Relire le compte rendu, puis valider' : 'Voir les résultats'"
+                                    >
+                                        <LockKeyhole v-if="request.sealed" class="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                                        <BadgeCheck v-else-if="request.can_approve" class="h-3.5 w-3.5" />
+                                        <Eye v-else class="h-3.5 w-3.5" />
+                                        {{ request.sealed ? 'Ouvrir' : request.can_approve ? 'Vérifier et valider' : 'Résultats' }}
+                                    </Button>
                                     <Button
                                         v-if="request.consultation_url"
                                         :as="Link"
@@ -464,6 +533,44 @@ const submitWithdraw = () => {
                                         aria-label="Ouvrir la consultation"
                                     >
                                         <Stethoscope class="h-4 w-4" />
+                                    </Button>
+
+                                    <!-- ADR-219 — le laboratoire agit comme dans sa file : Traiter, Continuer, Reprendre, Envoyer, Voir. -->
+                                    <template v-if="request.bench_url && request.bench_action">
+                                        <Button
+                                            v-if="request.bench_action === 'start'"
+                                            type="button"
+                                            size="sm"
+                                            :variant="labRowButton('start').variant"
+                                            :disabled="starting === request.uuid"
+                                            :title="`Prendre en charge et ouvrir la paillasse — ${request.patient.name}`"
+                                            @click="startLab(request)"
+                                        >
+                                            <LoaderCircle v-if="starting === request.uuid" class="h-3.5 w-3.5 animate-spin" />
+                                            <component :is="labRowButton('start').icon" v-else class="h-3.5 w-3.5" />{{ labRowButton('start').label }}
+                                        </Button>
+                                        <Button
+                                            v-else
+                                            :as="Link"
+                                            :href="request.bench_url"
+                                            size="sm"
+                                            :variant="labRowButton(request.bench_action).variant"
+                                            :title="`${labRowButton(request.bench_action).label} à la paillasse — ${request.patient.name}`"
+                                        >
+                                            <component :is="labRowButton(request.bench_action).icon" class="h-3.5 w-3.5" />{{ labRowButton(request.bench_action).label }}
+                                        </Button>
+                                    </template>
+                                    <Button
+                                        v-else-if="request.bench_url"
+                                        :as="Link"
+                                        :href="request.bench_url"
+                                        size="sm"
+                                        variant="white-outline"
+                                        icon
+                                        title="Ouvrir à la paillasse"
+                                        aria-label="Ouvrir à la paillasse"
+                                    >
+                                        <FlaskConical class="h-4 w-4" />
                                     </Button>
 
                                     <!-- ADR-131 — ranger une demande lue ; la
@@ -526,10 +633,16 @@ const submitWithdraw = () => {
                 </p>
             </template>
             <template v-else>
-                <p class="mt-2 text-sm font-semibold text-muted-foreground">Aucune demande pour ce filtre</p>
-                <p class="mt-1 text-xs text-muted-foreground">
-                    Les analyses et examens d’imagerie demandés en consultation apparaissent ici.
-                </p>
+                <template v-if="activeFilter === 'to_validate'">
+                    <p class="mt-2 text-sm font-semibold text-muted-foreground">Aucun résultat à valider</p>
+                    <p class="mt-1 text-xs text-muted-foreground">Un résultat d’analyse apparaît ici dès que le laboratoire l’a terminé et vous l’a envoyé.</p>
+                </template>
+                <template v-else>
+                    <p class="mt-2 text-sm font-semibold text-muted-foreground">Aucune demande pour ce filtre</p>
+                    <p class="mt-1 text-xs text-muted-foreground">
+                        Les analyses et examens d’imagerie demandés en consultation apparaissent ici.
+                    </p>
+                </template>
             </template>
         </Card>
 

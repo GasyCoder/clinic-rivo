@@ -8,7 +8,8 @@ import fs from 'node:fs';
 const read = (path) => fs.readFileSync(`resources/js/${path}`, 'utf8');
 
 const FIELD = 'Components/Administration/EmployeePhotoField.vue';
-const FORM = 'Pages/Administration/Employees/EmployeeForm.vue';
+// ADR-221 — la photo se règle dans l'étape Identité, la même à la création et dans la fiche.
+const FORM = 'Components/Administration/EmployeeFile/IdentityFields.vue';
 
 test('le champ photo garde son input monté, même sans son propre déclencheur', () => {
     const field = read(FIELD);
@@ -50,6 +51,11 @@ test('aucun composant du dossier employé n’est utilisé sans être importé',
         'Pages/Administration/Employees/Create.vue',
         'Pages/Administration/Employees/Edit.vue',
         'Components/Shadcn/Slider.vue',
+        // ADR-221 — la fiche en sections et le module Banques.
+        ...['EmployeeSectionCard', 'EmployeeStepBar', 'EmployeeRecap', 'IdentitySection', 'PostSection', 'ContactSection', 'MoreSection', 'PaySection', 'BankSection', 'BenefitsSection', 'BenefitCard']
+            .map((name) => `Components/Administration/EmployeeFile/${name}.vue`),
+        'Components/Administration/EmployeePayrollCard.vue',
+        'Pages/Administration/Banks/Index.vue',
     ];
     const missing = [];
 

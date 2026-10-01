@@ -40,7 +40,7 @@ class JobTitleAccountRoleTest extends TestCase
             'rivo.site.code' => 'A',
             'rivo.site.name' => 'Ambondromamy',
             'rivo.site_api.token' => 'clinic-test-token',
-            'rivo.professional_email.domain' => 'cbdc.mg',
+            'rivo.professional_email.domain' => 'cliniquesaintgeorges.mg',
         ]);
         $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class, ProfessionalProfileSeeder::class, HrReferenceSeeder::class]);
         $this->hr = User::factory()->create(['role_id' => Role::query()->where('code', 'ADMINISTRATION')->value('id')]);

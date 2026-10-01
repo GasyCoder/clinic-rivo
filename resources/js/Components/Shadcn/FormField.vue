@@ -29,7 +29,9 @@ const props = defineProps({
     class: { type: String, default: '' },
 });
 
-const rootClass = computed(() => cn('min-w-0', props.class));
+// `block` : un <label> est « en ligne », et un élément en ligne ignore l'espacement
+// vertical d'une pile (`space-y-*`) — le titre d'un bloc se collait au premier champ.
+const rootClass = computed(() => cn('block min-w-0', props.class));
 </script>
 
 <template>

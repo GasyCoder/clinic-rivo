@@ -1,4 +1,9 @@
 import {
+    Banknote,
+    LayoutList,
+    ChartPie,
+    ListChecks,
+    TestTube,
     AtSign,
     Activity,
     Ambulance,
@@ -13,6 +18,7 @@ import {
     CalendarDays,
     CalendarRange,
     ClipboardList,
+    FileCheck2,
     Clock,
     Copy,
     DoorOpen,
@@ -20,6 +26,7 @@ import {
     FileText,
     Gift,
     Medal,
+    Bug,
     FlaskConical,
     GraduationCap,
     Handshake,
@@ -28,6 +35,7 @@ import {
     Library,
     LayoutDashboard,
     Microscope,
+    Landmark,
     Network,
     Package,
     Pill,
@@ -69,6 +77,8 @@ export const CLINIC_WORKSPACES = [
     // (ADR-116).
     // ADR-212 — qui a recommandé la clinique aux nouveaux patients, et le cadeau remis.
     { key: 'referrals', group: 'clinical', text: 'Recommandations', description: 'Qui a recommandé la clinique, et le cadeau remis', icon: Gift, link: '/reception/recommandations', permission: 'patient_referrals.view', tone: 'navy' },
+    // ADR-216, amendement quater — les résultats d'analyses validés par le médecin, à remettre au patient.
+    { key: 'lab-results', group: 'clinical', text: 'Résultats à remettre', description: 'Résultats d’analyses validés par le médecin, et leur compte rendu', icon: FileCheck2, link: '/reception/resultats-analyses', permission: 'laboratory_results.validated_view', tone: 'green' },
     { key: 'visitors', group: 'clinical', text: 'Visiteurs', description: 'Entrées, sorties et pièces jointes des visiteurs', icon: IdCard, link: '/reception/visitors', permission: 'visitors.view', tone: 'navy' },
     { key: 'cash', group: 'clinical', text: 'Caisse', description: 'Factures, règlements, session', icon: Wallet, link: '/cash', activeLinks: ['/cash', '/receipts'], permission: 'cash.view', tone: 'green' },
     { key: 'patients', group: 'clinical', text: 'Patients', description: 'Dossiers et historique des passages', icon: UsersRound, link: '/patients', permission: 'patients.view', tone: 'cyan' },
@@ -90,7 +100,16 @@ export const CLINIC_WORKSPACES = [
     // ADR-111 — ce que la consultation propose vient d'ici : les protocoles
     // écrits par les médecins de la clinique, jamais une règle inventée.
     { key: 'clinical-protocols', group: 'clinical', text: 'Protocoles', description: 'Diagnostics et ordonnances types de la clinique', icon: BookOpenCheck, link: '/medicine/protocoles', permission: 'clinical_protocols.view', tone: 'ocean' },
-    { key: 'laboratory', group: 'clinical', text: 'Laboratoire', description: 'Demandes et résultats d’analyses', icon: FlaskConical, link: '/laboratory', permission: 'laboratory_orders.view', tone: 'cyan' },
+    // ADR-213 — l'entrée suit le droit de la route (`laboratory_results.view`) :
+    // un compte qui prescrit sans voir les résultats n'y a rien à faire.
+    { key: 'laboratory', group: 'clinical', text: 'Laboratoire', description: 'Paillasse, résultats et validation', icon: FlaskConical, link: '/laboratory', permission: 'laboratory_results.view', tone: 'cyan' },
+    // ADR-214 — la feuille de paillasse, les rapports et le référentiel des prélèvements.
+    { key: 'lab-worklist', group: 'clinical', text: 'Feuille de paillasse', description: 'Analyses à faire, par discipline', icon: ListChecks, link: '/laboratory/paillasse', permission: 'laboratory_results.view', tone: 'cyan' },
+    { key: 'lab-reports', group: 'clinical', text: 'Rapports du laboratoire', description: 'Activité, délais et disciplines', icon: ChartPie, link: '/laboratory/rapports', permission: 'laboratory_reports.view', tone: 'cyan' },
+    { key: 'lab-sample-types', group: 'clinical', text: 'Prélèvements & tubes', description: 'Types de prélèvement et tubes', icon: TestTube, link: '/laboratory/prelevements', permission: 'lab_sample_types.view', tone: 'cyan' },
+    // ADR-238 — les disciplines rangent la paillasse et le compte rendu.
+    { key: 'lab-disciplines', group: 'clinical', text: 'Disciplines', description: 'Hématologie, biochimie… et leur ordre', icon: LayoutList, link: '/laboratory/disciplines', permission: 'lab_disciplines.view', tone: 'cyan' },
+    { key: 'lab-microbiology', group: 'clinical', text: 'Germes & antibiotiques', description: 'Familles, germes et antibiotiques testés', icon: Bug, link: '/laboratory/microbiologie', permission: 'lab_microbiology.view', tone: 'cyan' },
     // care.view alone also powers the read-only projection embedded in
     // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on
     // ADR-157 — la file appartient à qui FAIT les soins : `care.create`.
@@ -135,7 +154,7 @@ export const CLINIC_WORKSPACES = [
         // /administration/users stays with « Utilisateurs & accès ».
         exact: true,
         // ADR-066 — the sidebar is the HR space's only navigation (no tab bar).
-        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/internships', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/departments', '/administration/job-titles', '/administration/settings', '/administration/staff-access', '/administration/bonus'],
+        activeLinks: ['/administration/employees', '/administration/contracts', '/administration/internships', '/administration/generated-documents', '/administration/attendance', '/administration/leave', '/administration/planning', '/administration/reports', '/administration/staff-block-credits', '/administration/departments', '/administration/job-titles', '/administration/settings', '/administration/staff-access', '/administration/bonus', '/administration/paie'],
         permission: 'employees.view',
         tone: 'navy',
         children: [
@@ -155,9 +174,13 @@ export const CLINIC_WORKSPACES = [
             { code: 'hr-block-credit', icon: Wallet, label: 'Crédit Bloc', link: '/administration/staff-block-credits', activeLinks: ['/administration/staff-block-credits'], permission: 'staff_block_credits.view' },
             // ADR-212 — les bonus du personnel : catégories, seuils, attributions.
             { code: 'hr-bonus', icon: Medal, label: 'Bonus', link: '/administration/bonus', activeLinks: ['/administration/bonus'], permission: 'bonus_awards.view' },
+            // ADR-227 — la paie du mois : salaire de base déclaré + avantages du mois, brut.
+            { code: 'hr-payroll', icon: Banknote, label: 'Paie du mois', link: '/administration/paie', activeLinks: ['/administration/paie'], permission: 'salary_payments.view' },
             // ADR-188 — les deux référentiels de structure ont leur module.
             { code: 'hr-departments', icon: Network, label: 'Départements', link: '/administration/departments', activeLinks: ['/administration/departments'], permission: 'hr_settings.view' },
             { code: 'hr-job-titles', icon: BriefcaseBusiness, label: 'Fonctions', link: '/administration/job-titles', activeLinks: ['/administration/job-titles'], permission: 'hr_settings.view' },
+            // ADR-221 — le référentiel des banques, proposé au compte bancaire d'un employé.
+            { code: 'hr-banks', icon: Landmark, label: 'Banques', link: '/administration/banks', activeLinks: ['/administration/banks'], permission: 'hr_settings.view' },
             { code: 'hr-settings', icon: Settings, label: 'Paramètres', link: '/administration/settings', activeLinks: ['/administration/settings'], permission: 'hr_settings.view' },
         ],
     },
@@ -171,7 +194,7 @@ export const CLINIC_WORKSPACES = [
     // visiteurs reste un lien depuis cette page pour qui a aussi ce droit.
     { key: 'guarding', group: 'management', text: 'Gardiennage', description: 'Contrôle de sortie des patients', icon: ShieldCheck, link: '/guarding', permission: 'guarding.view', tone: 'ocean' },
     { key: 'users', group: 'management', text: 'Utilisateurs & accès', description: 'Comptes et permissions', icon: UserRoundCog, link: '/administration/users', activeLinks: ['/administration/users'], permission: 'users.view', tone: 'cyan' },
-    { key: 'catalog', group: 'management', text: 'Référentiels & tarifs', description: 'Désignations et grilles tarifaires', icon: Tags, link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view', tone: 'navy' },
+    { key: 'catalog', group: 'management', text: 'Désignations & tarifs', description: 'Désignations et grilles tarifaires', icon: Tags, link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view', tone: 'navy' },
     // ADR-211 — les partenaires du site : médicaux (médecins, infirmiers…) et
     // autres (écoles, entreprises). L'accueil les consulte, l'Administration
     // les gère.
@@ -222,8 +245,15 @@ export const SIDEBAR_GROUPS = [
         key: 'reception-space',
         text: 'Réception',
         icon: ClipboardList,
-        members: ['reception', 'settlements', 'referrals', 'visitors'],
+        members: ['reception', 'settlements', 'lab-results', 'referrals', 'visitors'],
         labels: { reception: 'Accueil & passages' },
+    },
+    {
+        key: 'laboratory-space',
+        text: 'Laboratoire',
+        icon: FlaskConical,
+        members: ['laboratory', 'lab-worklist', 'lab-reports', 'lab-sample-types', 'lab-disciplines', 'lab-microbiology'],
+        labels: { laboratory: 'Paillasse' },
     },
     {
         key: 'referentials-space',
@@ -276,7 +306,7 @@ export const ROLE_FOCUS = {
     },
     LABORATORY: {
         lead: 'Les demandes d’analyses et leurs résultats.',
-        primary: { label: 'Ouvrir le Laboratoire', link: '/laboratory', icon: Activity, permission: 'laboratory_orders.view' },
+        primary: { label: 'Ouvrir le Laboratoire', link: '/laboratory', icon: Activity, permission: 'laboratory_results.view' },
         shortcuts: ['analysis_catalog', 'patients'],
         metrics: [],
     },

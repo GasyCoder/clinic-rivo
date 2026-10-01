@@ -9,6 +9,7 @@ use App\Enums\CashSessionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\CashRegister;
 use App\Models\PaymentMethod;
+use App\Models\User;
 use App\Services\Cash\CashRegisterManager;
 use App\Services\Cash\CashRegisterProfileService;
 use App\Services\Catalog\CatalogActor;
@@ -29,7 +30,7 @@ class CashRegisterController extends Controller
         $status = $validated['status'] ?? 'ACTIVE';
         $query = CashRegister::query()
             ->withCount('sessions')
-            ->with(['activeSession.opener:id,name', 'activeSession.locker:id,name', 'acceptedPaymentMethods']);
+            ->with(['assignedUser:id,uuid,name,active,deactivated_at', 'activeSession.opener:id,name', 'activeSession.locker:id,name', 'acceptedPaymentMethods']);
 
         if ($status !== 'ACTIVE') {
             $query->withTrashed();
@@ -65,6 +66,7 @@ class CashRegisterController extends Controller
                         'name' => $method->name,
                         'category_label' => $method->category->label(),
                     ])->values(),
+                'eligible_users' => $this->eligibleCashiers(),
             ],
         ]);
     }
@@ -88,8 +90,8 @@ class CashRegisterController extends Controller
     public function store(Request $request, CashRegisterManager $manager): JsonResponse
     {
         $this->authorizeActor($request, 'cash_registers.create');
-        $validated = $request->validate(['name' => ['required', 'string', 'max:255']]);
-        $register = $manager->create($validated['name']);
+        $validated = $request->validate($this->registerRules());
+        $register = $manager->create($validated);
 
         return response()->json([
             'message' => 'Caisse ajoutée au référentiel du site.',
@@ -100,9 +102,9 @@ class CashRegisterController extends Controller
     public function update(Request $request, string $cashRegisterUuid, CashRegisterManager $manager): JsonResponse
     {
         $this->authorizeActor($request, 'cash_registers.update');
-        $validated = $request->validate(['name' => ['required', 'string', 'max:255']]);
+        $validated = $request->validate($this->registerRules());
         $register = CashRegister::query()->where('uuid', $cashRegisterUuid)->firstOrFail();
-        $register = $manager->update($register, $validated['name']);
+        $register = $manager->update($register, $validated);
 
         return response()->json([
             'message' => 'Caisse mise à jour.',
@@ -249,6 +251,7 @@ class CashRegisterController extends Controller
     private function serialize(CashRegister $register): array
     {
         $register->loadMissing([
+            'assignedUser:id,uuid,name,active,deactivated_at',
             'activeSession.opener:id,name', 'activeSession.locker:id,name', 'acceptedPaymentMethods',
         ]);
         $session = $register->activeSession;
@@ -259,6 +262,13 @@ class CashRegisterController extends Controller
         return [
             'uuid' => $register->uuid,
             'name' => $register->name,
+            'color' => $register->color,
+            'opening_fund_amount' => $register->opening_fund_amount,
+            'assigned_user' => $register->assignedUser ? [
+                'uuid' => $register->assignedUser->uuid,
+                'name' => $register->assignedUser->name,
+                'active' => $register->assignedUser->isActive(),
+            ] : null,
             // Independent from archiving: a deactivated-but-not-archived
             // register simply drops out of the site's own /cash picker
             // without touching its soft-delete/history state.
@@ -297,5 +307,32 @@ class CashRegisterController extends Controller
         }
 
         return $actor;
+    }
+
+    /** @return array<string, array<int, string>> */
+    private function registerRules(): array
+    {
+        return [
+            'name' => ['required', 'string', 'max:255'],
+            'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'opening_fund_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99', 'decimal:0,2'],
+            'assigned_user_uuid' => ['nullable', 'uuid'],
+        ];
+    }
+
+    /** @return array<int, array{uuid: string, name: string}> */
+    private function eligibleCashiers(): array
+    {
+        return User::query()
+            ->with(['role:id,code', 'role.permissions:id,name', 'permissions:id,name'])
+            ->where('active', true)
+            ->whereNull('deactivated_at')
+            ->whereHas('role', fn ($role) => $role->where('code', 'RECEPTION'))
+            ->orderBy('name')
+            ->get()
+            ->filter(fn (User $user) => $user->hasPermissionTo('cash.open'))
+            ->map(fn (User $user) => ['uuid' => $user->uuid, 'name' => $user->name])
+            ->values()
+            ->all();
     }
 }

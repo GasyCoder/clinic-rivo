@@ -6,6 +6,7 @@ use App\Enums\HrReferenceType;
 use App\Models\HrReferenceValue;
 use App\Support\Hr\DefaultJobTitleAccountRoles;
 use App\Support\Hr\DefaultJobTitleDepartments;
+use App\Support\Hr\JobTitleBenefits;
 use Illuminate\Database\Seeder;
 
 class HrReferenceSeeder extends Seeder
@@ -42,6 +43,7 @@ class HrReferenceSeeder extends Seeder
             'MANAGER' => 'Gérant',
             'DENTIST' => 'Dentiste',
             'DENTAL_ASSISTANT' => 'Assistant Dentisterie',
+            'TSARASHOP' => 'Tsarashop',
         ],
         'CONTRACT_TYPE' => [
             'CDI' => 'CDI',
@@ -49,6 +51,16 @@ class HrReferenceSeeder extends Seeder
             'CONSULTANT' => 'Consultant',
             'INTERN' => 'Stagiaire',
             'VOLUNTEER' => 'Bénévole',
+        ],
+        // ADR-221 — les types d'avantage et de prime, proposés puis modifiables.
+        'BENEFIT_TYPE' => [
+            'LODGING' => 'Logement',
+            'TRANSPORT' => 'Transport',
+            'MEALS' => 'Repas',
+            'PHONE' => 'Téléphone',
+            'INSURANCE' => 'Assurance',
+            'BONUS' => 'Prime',
+            'OTHER' => 'Autre',
         ],
         // ADR-194 — les filières de stage, proposées puis modifiables.
         'INTERNSHIP_FIELD' => [
@@ -119,6 +131,8 @@ class HrReferenceSeeder extends Seeder
         DefaultJobTitleDepartments::apply();
         // ADR-199 — le rôle proposé par chaque fonction livrée, jamais par-dessus un réglage.
         DefaultJobTitleAccountRoles::apply();
+        // ADR-221 — « Médecin » ouvre droit aux avantages, jamais par-dessus un réglage.
+        JobTitleBenefits::apply();
 
         foreach (array_values(self::LEAVE_TYPES) as $position => $definition) {
             $code = array_search($definition, self::LEAVE_TYPES, true);

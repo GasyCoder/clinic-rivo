@@ -49,7 +49,7 @@ class TrashPortalTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->component('SuperAdmin/Trash/Index')
                 ->has('sites', 2)
-                ->has('categories', 9)
+                ->has('categories', 12)
                 ->where('filters.category', 'PATIENT')
                 ->where('filters.site', 'M')
                 ->where('filters.search', 'Rakoto')
@@ -80,6 +80,33 @@ class TrashPortalTest extends TestCase
             && $request->hasHeader('Idempotency-Key')
             && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'trash.restore')
             && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'patients.restore'));
+    }
+
+    public function test_emptying_the_trash_requires_typing_vider_and_reports_each_site(): void
+    {
+        Http::fake([
+            'https://m.test/api/v1/super-admin/trash' => Http::response(['message' => 'ok', 'data' => ['deleted' => 3, 'kept' => 1, 'kept_items' => [['category' => 'Patient', 'title' => 'RAKOTO Soa', 'reasons' => ['2 passages']]], 'skipped' => [], 'remaining' => false]], 200),
+            'https://a.test/api/v1/super-admin/trash' => Http::response(['message' => 'Indisponible'], 503),
+        ]);
+
+        $this->actingAs($this->superAdmin)->from('/super-admin/trash')
+            ->post('/super-admin/trash/empty', ['confirmation' => 'oui', 'site' => 'ALL', 'category' => 'ALL'])
+            ->assertSessionHasErrors('confirmation');
+        Http::assertNothingSent();
+
+        $this->actingAs($this->superAdmin)->from('/super-admin/trash')
+            ->post('/super-admin/trash/empty', ['confirmation' => 'VIDER', 'site' => 'ALL', 'category' => 'PATIENT'])
+            ->assertRedirect('/super-admin/trash')
+            ->assertSessionHas('bulk_report', fn (array $report) => $report['action'] === 'trash_empty'
+                && $report['deleted'] === 3
+                && $report['kept'] === 1
+                && $report['sites'][0]['ok'] === true
+                && $report['sites'][1]['ok'] === false);
+
+        Http::assertSent(fn ($request) => $request->method() === 'DELETE'
+            && $request->url() === 'https://m.test/api/v1/super-admin/trash'
+            && $request['category'] === 'PATIENT'
+            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'trash.force_delete'));
     }
 
     private function payload(string $siteCode, string $siteName): array

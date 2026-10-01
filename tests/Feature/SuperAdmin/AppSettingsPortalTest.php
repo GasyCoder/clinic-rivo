@@ -73,25 +73,53 @@ class AppSettingsPortalTest extends TestCase
         Http::assertSent(fn ($request) => str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'settings.view'));
     }
 
-    /** ADR-191 — « Paramètres » ouvre le premier module ; chaque module a sa page, les mêmes données, son propre enregistrement. */
-    public function test_settings_open_the_first_module_and_each_module_has_its_own_page(): void
+    public function test_settings_are_opened_from_their_single_owning_module(): void
     {
         Http::fake(['*' => Http::response(['data' => $this->sitePayload('M', 'Mampikony')])]);
 
         $this->actingAs($this->superAdmin)->get('/super-admin/settings')->assertRedirect('/super-admin/settings/identite');
         $this->actingAs($this->superAdmin)->get('/super-admin/settings?site=A')->assertRedirect('/super-admin/settings/identite?site=A');
 
-        foreach (AppSettingsController::SECTIONS as $section) {
+        foreach (AppSettingsController::CONTEXT_SECTIONS['system'] as $section) {
             $this->actingAs($this->superAdmin)
                 ->get("/super-admin/settings/{$section}?site=M")
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page
                     ->component('SuperAdmin/Settings/Index')
                     ->where('section', $section)
+                    ->where('context', 'system')
                     ->has('targets', 3)
                     ->has('themePresets.rivo')
                     ->has('numberingOptions.separators'));
         }
+
+        $routes = [
+            '/super-admin/sites/M/patients/settings/numerotation' => ['patients', 'numerotation'],
+            '/super-admin/sites/M/patients/settings/ages' => ['patients', 'ages'],
+            '/super-admin/finance/settings/monnaie?site=M' => ['finance', 'monnaie'],
+            '/super-admin/finance/settings/remises?site=M' => ['finance', 'remises'],
+            '/super-admin/human-resources/settings/matricules?site=M' => ['hr', 'matricules'],
+            '/super-admin/human-resources/settings/badges?site=M' => ['hr', 'badges'],
+            '/super-admin/human-resources/settings/direction?site=M' => ['hr', 'direction'],
+            '/super-admin/laboratory/settings/compte-rendu?site=M' => ['laboratory', 'compte-rendu'],
+            '/super-admin/sites/M/organization/settings/legal' => ['organization', 'legal'],
+            '/super-admin/sites/M/organization/settings/maintenance' => ['organization', 'maintenance'],
+        ];
+
+        foreach ($routes as $url => [$context, $section]) {
+            $this->actingAs($this->superAdmin)->get($url)->assertOk()->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/Settings/Index')
+                ->where('section', $section)
+                ->where('context', $context)
+                ->has('targets', 2));
+        }
+
+        $this->actingAs($this->superAdmin)
+            ->get('/super-admin/settings/monnaie?site=A')
+            ->assertRedirect('/super-admin/finance/settings/monnaie?site=A');
+        $this->actingAs($this->superAdmin)
+            ->get('/super-admin/settings/ages?site=A')
+            ->assertRedirect('/super-admin/sites/A/patients/settings/ages');
 
         $this->actingAs($this->superAdmin)->get('/super-admin/settings/inconnu')->assertNotFound();
     }

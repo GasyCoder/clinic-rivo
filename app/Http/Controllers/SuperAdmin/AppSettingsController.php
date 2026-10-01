@@ -4,11 +4,14 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Actions\Settings\ResetAppSettingsAction;
 use App\Actions\Settings\StoreAppSettingAssetAction;
+use App\Actions\Settings\TestAssistantConnectionAction;
 use App\Actions\Settings\UpdateAppSettingsAction;
+use App\Actions\Settings\UpdateAssistantSettingsAction;
 use App\Enums\AuthTemplate;
 use App\Enums\BadgeLogoStyle;
 use App\Enums\ProfileTemplate;
 use App\Http\Controllers\Controller;
+use App\Services\Assistant\AssistantSettingsPresenter;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\AppSettingsPresenter;
@@ -16,12 +19,15 @@ use App\Services\SuperAdmin\PortalSiteApiClient;
 use App\Support\Numbering\EmployeeNumberFormat;
 use App\Support\Numbering\PatientNumberFormat;
 use App\Support\Settings\AppSettingsRules;
+use App\Support\Settings\AssistantSettingsRules;
 use App\Support\Settings\ThemePresets;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
  * Les paramètres de l'application, cible par cible (ADR-184) : chaque site, et
@@ -35,22 +41,73 @@ class AppSettingsController extends Controller
 
     private const MAINTENANCE_PORTAL_REFUSAL = 'La maintenance se règle pour un site : tous les comptes du portail la traverseraient.';
 
-    /**
-     * ADR-191 — les modules des paramètres, chacun sa page. La même liste, dans le
-     * même ordre, que `resources/js/utilities/settingsSections.js` (vérifié par test) ;
-     * le premier s'ouvre quand on arrive sur « Paramètres ».
-     */
-    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'badges', 'monnaie', 'remises', 'legal', 'direction', 'visibilite', 'maintenance'];
+    /** ADR-237 — registre des réglages et de leur unique module propriétaire. */
+    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'matricules', 'badges', 'monnaie', 'remises', 'legal', 'direction', 'compte-rendu', 'visibilite', 'maintenance', 'assistant'];
 
-    /**
-     * La page d'un module. Sans module, le premier : comme dans les paramètres de
-     * ChatGPT ou de Claude, « Paramètres » ouvre directement ses réglages.
-     */
-    public function index(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, ?string $section = null): Response|RedirectResponse
+    public const CONTEXT_SECTIONS = [
+        'system' => ['identite', 'theme', 'avance', 'ecrans', 'visibilite', 'assistant'],
+        'patients' => ['numerotation', 'ages'],
+        'finance' => ['monnaie', 'remises'],
+        'hr' => ['matricules', 'badges', 'direction'],
+        'laboratory' => ['compte-rendu'],
+        'organization' => ['legal', 'maintenance'],
+    ];
+
+    /** « Apparence & système » ouvre son premier réglage ; les anciens liens métier redirigent. */
+    public function index(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, ?string $section = null): Response|RedirectResponse
     {
         if ($section === null) {
-            return redirect()->route('super-admin.settings.section', ['section' => self::SECTIONS[0], ...$request->query()]);
+            return redirect()->route('super-admin.settings.section', ['section' => self::CONTEXT_SECTIONS['system'][0], ...$request->query()]);
         }
+
+        $context = $this->contextOf($section);
+        if ($context !== 'system') {
+            return redirect()->to($this->canonicalUrl($context, $section, (string) $request->query('site')));
+        }
+
+        return $this->renderSettings($request, $client, $presenter, $assistantPresenter, $section, 'system');
+    }
+
+    public function finance(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, string $section): Response
+    {
+        return $this->renderContext($request, $client, $presenter, $assistantPresenter, $section, 'finance');
+    }
+
+    public function humanResources(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, string $section): Response
+    {
+        return $this->renderContext($request, $client, $presenter, $assistantPresenter, $section, 'hr');
+    }
+
+    public function laboratory(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, string $section): Response
+    {
+        return $this->renderContext($request, $client, $presenter, $assistantPresenter, $section, 'laboratory');
+    }
+
+    public function organization(Request $request, string $site, string $section, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter): Response
+    {
+        $site = mb_strtoupper($site);
+        abort_unless(in_array($site, $this->siteCodes(), true), 404);
+
+        return $this->renderContext($request, $client, $presenter, $assistantPresenter, $section, 'organization', $site);
+    }
+
+    public function patients(Request $request, string $site, string $section, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter): Response
+    {
+        $site = mb_strtoupper($site);
+        abort_unless(in_array($site, $this->siteCodes(), true), 404);
+
+        return $this->renderContext($request, $client, $presenter, $assistantPresenter, $section, 'patients', $site);
+    }
+
+    private function renderContext(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, string $section, string $context, ?string $fixedSiteCode = null): Response
+    {
+        abort_unless(in_array($section, self::CONTEXT_SECTIONS[$context] ?? [], true), 404);
+
+        return $this->renderSettings($request, $client, $presenter, $assistantPresenter, $section, $context, $fixedSiteCode);
+    }
+
+    private function renderSettings(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, string $section, string $context, ?string $fixedSiteCode = null): Response
+    {
 
         $portal = [
             'site' => ['code' => self::PORTAL, 'name' => 'Portail Super Admin'],
@@ -65,9 +122,19 @@ class AppSettingsController extends Controller
             ->map(fn (array $site) => [...$site, 'kind' => 'site'])
             ->all();
 
+        $targets = $context === 'system' ? [...$sites, $portal] : $sites;
+
         return Inertia::render('SuperAdmin/Settings/Index', [
             'section' => $section,
-            'targets' => [...$sites, $portal],
+            'context' => $context,
+            'fixedSiteCode' => $fixedSiteCode,
+            'targets' => $targets,
+            // ADR-222 — les réglages de l'assistant, lus seulement sur leur module et avec leur droit.
+            // Jamais sous le nom `assistant` : ce serait écraser la prop partagée qui fait
+            // apparaître la bulle de l'assistant, et elle disparaîtrait de tous les paramètres.
+            'assistantSettings' => $section === 'assistant' && $request->user()->can('ai_settings.view')
+                ? $this->assistantTargets($request, $client, $assistantPresenter)
+                : null,
             'limits' => [
                 'baby_max_age' => AppSettingsRules::BABY_MAX_AGE_LIMIT,
                 'child_max_age' => AppSettingsRules::CHILD_MAX_AGE_LIMIT,
@@ -99,6 +166,44 @@ class AppSettingsController extends Controller
                 'defaults' => ['patient' => PatientNumberFormat::DEFAULTS, 'employee' => EmployeeNumberFormat::DEFAULTS],
             ],
         ]);
+    }
+
+    private function contextOf(string $section): string
+    {
+        foreach (self::CONTEXT_SECTIONS as $context => $sections) {
+            if (in_array($section, $sections, true)) {
+                return $context;
+            }
+        }
+
+        abort(404);
+    }
+
+    private function canonicalUrl(string $context, string $section, string $site): string
+    {
+        $site = mb_strtoupper($site);
+        if (! in_array($site, $this->siteCodes(), true)) {
+            $site = $this->siteCodes()[0] ?? '';
+        }
+
+        if (in_array($context, ['patients', 'organization'], true)) {
+            return route("super-admin.settings.{$context}", ['site' => $site, 'section' => $section]);
+        }
+
+        $route = match ($context) {
+            'finance' => 'super-admin.settings.finance',
+            'hr' => 'super-admin.settings.hr',
+            'laboratory' => 'super-admin.settings.laboratory',
+            default => 'super-admin.settings.section',
+        };
+
+        return route($route, ['section' => $section, 'site' => $site]);
+    }
+
+    /** @return list<string> */
+    private function siteCodes(): array
+    {
+        return collect(config('rivo.clinics', []))->pluck('code')->map(fn ($code) => mb_strtoupper((string) $code))->values()->all();
     }
 
     public function update(Request $request, PortalSiteApiClient $client, UpdateAppSettingsAction $action): RedirectResponse
@@ -172,6 +277,28 @@ class AppSettingsController extends Controller
     }
 
     /**
+     * ADR-223 — l'aperçu du compte rendu d'analyses d'un site : son PDF, rendu par le
+     * site avec les réglages en cours de saisie. Le portail n'imprime aucun compte
+     * rendu : il ne s'en règle pas.
+     */
+    public function labReportPreview(Request $request, PortalSiteApiClient $client): HttpResponse
+    {
+        $target = $this->siteTarget($request, 'Le compte rendu d’analyses se règle pour un site : le portail n’en imprime aucun.');
+        $draft = $request->validate(AppSettingsRules::labReport(), AppSettingsRules::labReportMessages());
+        $result = $client->labReportPreview($target, $draft, $request->user());
+
+        if (! $result['ok']) {
+            return response()->json(['message' => $result['message'], 'errors' => $result['errors']], $result['status']);
+        }
+
+        return response((string) $result['body'], 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="apercu-compte-rendu.pdf"',
+            'Cache-Control' => 'no-store',
+        ]);
+    }
+
+    /**
      * ADR-192 — un coupon se crée sur un site, jamais sur le portail : le portail
      * n'émet aucune facture. Le site revalide tout et garde l'identité du Super
      * Administrateur.
@@ -222,6 +349,80 @@ class AppSettingsController extends Controller
         $validated = $request->validate(AppSettingsRules::maintenanceLift());
 
         return $this->relay($client->liftSiteMaintenance($target, $validated['reason'] ?? null, $request->user()), 'Maintenance levée.', 'maintenance');
+    }
+
+    /**
+     * ADR-222 — les réglages de l'assistant d'une cible. Le portail écrit dans sa base ;
+     * un site ne se règle que par son API. La clé saisie part au site dans le corps de
+     * la requête et n'est jamais renvoyée au navigateur.
+     */
+    public function updateAssistant(Request $request, PortalSiteApiClient $client, UpdateAssistantSettingsAction $action): RedirectResponse
+    {
+        $target = $this->target($request);
+        $validated = $request->validate(AssistantSettingsRules::settings(), AssistantSettingsRules::messages());
+
+        if ($target === self::PORTAL) {
+            $action->execute($validated, CatalogActor::fromUser($request->user()));
+
+            return back()->with('status', 'Réglages de l’assistant du portail enregistrés.');
+        }
+
+        return $this->relay($client->updateAssistantSettings($target, $validated, $request->user()), 'Réglages de l’assistant enregistrés.', 'assistant');
+    }
+
+    /** Retirer la clé : un geste à part, confirmé à l'écran — jamais l'effet d'un champ laissé vide. */
+    public function removeAssistantKey(Request $request, PortalSiteApiClient $client, UpdateAssistantSettingsAction $action): RedirectResponse
+    {
+        $target = $this->target($request);
+
+        if ($target === self::PORTAL) {
+            $action->removeKey(CatalogActor::fromUser($request->user()));
+
+            return back()->with('status', 'Clé d’API du portail retirée.');
+        }
+
+        return $this->relay($client->removeAssistantKey($target, $request->user()), 'Clé d’API retirée.', 'api_key');
+    }
+
+    /** « Tester la connexion » : le résultat revient en JSON, affiché sans recharger la page. */
+    public function testAssistant(Request $request, PortalSiteApiClient $client, TestAssistantConnectionAction $action): JsonResponse
+    {
+        $target = $this->target($request);
+        $validated = $request->validate(AssistantSettingsRules::test(), AssistantSettingsRules::messages());
+
+        if ($target === self::PORTAL) {
+            return response()->json($action->execute($validated, CatalogActor::fromUser($request->user())));
+        }
+
+        $result = $client->testAssistantConnection($target, $validated, $request->user());
+
+        if ($result['ok'] && is_array($result['data'])) {
+            return response()->json($result['data']);
+        }
+
+        return response()->json([
+            'ok' => false,
+            'reason' => 'site',
+            'message' => $result['message'] ?: 'Le site n’a pas pu faire le test.',
+            'errors' => $result['errors'] ?? [],
+        ], ($result['http_status'] ?? null) === 422 ? 422 : 200);
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function assistantTargets(Request $request, PortalSiteApiClient $client, AssistantSettingsPresenter $presenter): array
+    {
+        $targets = collect($client->assistantSettingsForAllSites($request->user()))
+            ->mapWithKeys(fn (array $site) => [$site['site']['code'] => [
+                'ok' => $site['ok'],
+                'status' => $site['status'],
+                'message' => $site['message'],
+                'data' => $site['data'],
+            ]])
+            ->all();
+
+        $targets[self::PORTAL] = ['ok' => true, 'status' => 'ONLINE', 'message' => null, 'data' => $presenter->payload()];
+
+        return $targets;
     }
 
     /** Un site, jamais le portail : les remises ne portent que sur les factures des sites, la maintenance que sur leurs comptes. */

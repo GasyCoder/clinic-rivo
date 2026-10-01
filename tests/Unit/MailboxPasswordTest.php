@@ -37,4 +37,27 @@ class MailboxPasswordTest extends TestCase
 
         $this->assertSame('zephyr.haynes.craig', ProfessionalEmailAddress::slug('  Zéphyr   Haynes-Craig '));
     }
+
+    /** Amendement du 2026-09-30 : prénom + nom trop longs donnent l'adresse la plus brève qui reste lisible. */
+    public function test_a_long_name_gives_a_short_address(): void
+    {
+        $cases = [
+            ['Zéphyr', 'Andrianina', 'zephyr.andrianina'],        // assez court : tel quel
+            ['Jean-Paul', 'Rabe', 'jean.paul.rabe'],
+            ['Latifah Olsen', 'Lee Park', 'latifah.lee'],          // premier prénom, premier nom
+            ['Tahina Hery', 'RAKOTONDRAZAKA', 't.rakotondrazaka'], // initiale du prénom
+            ['Fanomezantsoa Mialy', 'ANDRIAMANANTENASOAVINA', 'fanomezantsoa.a'], // initiale du nom
+            ['', 'RAKOTOMALALA Tahina Hery Nirina', 'rakotomalala.tahina'],
+            ['', '', ''],
+        ];
+
+        foreach ($cases as [$first, $last, $expected]) {
+            $local = ProfessionalEmailAddress::localPartFor($first, $last);
+            $this->assertSame($expected, $local, "$first $last");
+            $this->assertLessThanOrEqual(ProfessionalEmailAddress::PREFERRED_LENGTH, mb_strlen($local));
+            if ($local !== '') {
+                $this->assertTrue(ProfessionalEmailAddress::isValidLocalPart($local), $local);
+            }
+        }
+    }
 }

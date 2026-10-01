@@ -7,24 +7,21 @@ use App\Actions\Catalog\ArchiveCatalogTariffAction;
 use App\Actions\Catalog\CreateCatalogItemAction;
 use App\Actions\Catalog\RestoreCatalogItemAction;
 use App\Actions\Catalog\SetCatalogTariffAction;
+use App\Actions\Catalog\SyncCareActConsumablesAction;
 use App\Actions\Catalog\UpdateCatalogItemAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
-use App\Enums\ImagingModality;
-use App\Enums\ReceptionRoutingMode;
-use App\Enums\StaffCoveragePolicy;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\CatalogReasonRequest;
 use App\Http\Requests\Api\V1\SuperAdmin\ArchiveCatalogTariffRequest;
 use App\Http\Requests\Api\V1\SuperAdmin\SetCatalogTariffRequest;
 use App\Http\Requests\Api\V1\SuperAdmin\StoreCatalogItemRequest;
+use App\Http\Requests\Api\V1\SuperAdmin\SyncCareActConsumablesRequest;
 use App\Http\Requests\Api\V1\SuperAdmin\UpdateCatalogItemRequest;
-use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
-use App\Models\CatalogTariff;
-use App\Models\MutualOrganization;
 use App\Services\Catalog\CatalogActor;
+use App\Services\Catalog\CatalogDirectory;
 use App\Support\Money;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
@@ -36,72 +33,80 @@ use Illuminate\Validation\ValidationException;
 
 class CatalogController extends Controller
 {
+    public function __construct(private readonly CatalogDirectory $directory) {}
+
     public function index(Request $request): JsonResponse
     {
         $actor = CatalogActor::fromRemoteRequest($request);
         $this->authorizeActor($actor, 'catalog.items.view');
-        $canViewTariffs = $actor->can('catalog.tariffs.view');
-        $canViewMutualOrganizations = $actor->can('mutual_organizations.view');
         $validated = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', Rule::in(['ACTIVE', 'ARCHIVED', 'ALL'])],
             'type' => ['nullable', new Enum(CatalogItemType::class)],
             'module' => ['nullable', new Enum(CatalogModule::class)],
         ]);
-        $search = trim((string) ($validated['q'] ?? ''));
-        $status = $validated['status'] ?? 'ALL';
-
-        $query = CatalogItem::query()
-            ->when($canViewTariffs, fn ($query) => $query->with([
-                'currentStandardTariff.creator:id,name',
-                'currentMutualTariff.creator:id,name',
-                'tariffs' => fn ($query) => $query->with('creator:id,name')->latest('effective_from')->limit(20),
-            ])->withCount('tariffs'))
-            // Le lien Désignation ↔ catalogue des analyses (ADR-063) : combien de
-            // lignes techniques la prestation porte, et sa discipline, lue sur
-            // l'analyse racine — jamais recopiée sur la désignation.
-            ->withCount('analysisDefinitions as analyses_count')
-            ->addSelect(['analysis_discipline' => AnalysisCatalog::query()
-                ->select('exam_category')
-                ->whereColumn('analysis_catalogs.catalog_item_id', 'catalog_items.id')
-                ->whereNull('analysis_catalogs.parent_id')
-                ->orderBy('analysis_catalogs.display_order')
-                ->orderBy('analysis_catalogs.id')
-                ->limit(1)])
-            ->when($status === 'ARCHIVED', fn ($query) => $query->onlyTrashed())
-            ->when($status === 'ALL', fn ($query) => $query->withTrashed())
-            ->when($search !== '', fn ($query) => $query->where(function ($nested) use ($search) {
-                $nested->where('code', 'like', "%{$search}%")
-                    ->orWhere('name', 'like', "%{$search}%");
-            }))
-            ->when(filled($validated['type'] ?? null), fn ($query) => $query->where('type', $validated['type']))
-            ->when(filled($validated['module'] ?? null), fn ($query) => $query->where('module', $validated['module']))
-            ->orderBy('name');
 
         return response()->json([
-            'data' => [
-                'items' => $query->get()->map(fn (CatalogItem $item) => $this->serializeItem($item, $canViewTariffs))->values(),
-                'summary' => $this->summary($canViewTariffs),
-                'options' => $this->options(),
-                'mutual_organizations' => $canViewMutualOrganizations
-                    ? MutualOrganization::withTrashed()
-                        ->withCount([
-                            'coverages',
-                            'coverages as active_coverages_count' => fn ($query) => $query->active(),
-                        ])
-                        ->orderBy('normalized_name')
-                        ->get()
-                        ->map(fn (MutualOrganization $organization) => $this->serializeOrganization($organization))
-                        ->values()
-                    : [],
-                'mutual_organizations_summary' => $canViewMutualOrganizations
-                    ? $this->mutualOrganizationsSummary()
-                    : null,
-            ],
+            'data' => $this->directory->listing(
+                $validated,
+                $actor->can('catalog.tariffs.view'),
+                $actor->can('mutual_organizations.view'),
+            ),
             'meta' => [
                 'site' => ['code' => config('rivo.site.code'), 'name' => config('rivo.site.name')],
                 'generated_at' => now()->toIso8601String(),
             ],
+        ]);
+    }
+
+    /**
+     * Les listes de choix du formulaire d'une désignation (types, domaines,
+     * familles d'imagerie, parcours, politiques Personnel, grilles), sans le
+     * catalogue entier : la page « Nouvelle désignation » du portail n'a besoin
+     * que d'elles.
+     */
+    public function formOptions(Request $request): JsonResponse
+    {
+        $this->authorizeActor(CatalogActor::fromRemoteRequest($request), 'catalog.items.view');
+
+        return response()->json([
+            'data' => ['options' => $this->directory->options()],
+            'meta' => ['site' => ['code' => config('rivo.site.code'), 'name' => config('rivo.site.name')]],
+        ]);
+    }
+
+    /**
+     * Une désignation, archivée comprise, avec son historique tarifaire, les
+     * listes de choix et — pour qui peut le régler — les produits proposables
+     * comme matériel habituel.
+     */
+    public function show(Request $request, string $catalogUuid): JsonResponse
+    {
+        $actor = CatalogActor::fromRemoteRequest($request);
+        $this->authorizeActor($actor, 'catalog.items.view');
+        $item = CatalogItem::withTrashed()->where('uuid', $catalogUuid)->firstOrFail();
+
+        return response()->json([
+            'data' => $this->directory->item($item, $actor->can('catalog.tariffs.view'), $actor->can('catalog.items.update')),
+            'meta' => ['site' => ['code' => config('rivo.site.code'), 'name' => config('rivo.site.name')]],
+        ]);
+    }
+
+    /**
+     * ADR-072 / ADR-142 / ADR-169 — le matériel habituel d'un acte, réglé depuis
+     * le portail : la même action que sur le site, attribuée au Super Admin.
+     */
+    public function syncCareConsumables(
+        SyncCareActConsumablesRequest $request,
+        string $catalogUuid,
+        SyncCareActConsumablesAction $action,
+    ): JsonResponse {
+        $item = CatalogItem::query()->where('uuid', $catalogUuid)->firstOrFail();
+        $item = $action->execute($item, $request->validated('consumables', []), CatalogActor::fromRemoteRequest($request));
+
+        return response()->json([
+            'message' => "Matériel habituel de {$item->name} mis à jour.",
+            'data' => $this->directory->serializeItem($this->directory->load($item), true),
         ]);
     }
 
@@ -116,7 +121,7 @@ class CatalogController extends Controller
 
         return response()->json([
             'message' => "Désignation {$item->code} créée sur le site.",
-            'data' => $this->serializeItem($this->loadItem($item), true),
+            'data' => $this->directory->serializeItem($this->directory->load($item), true),
         ], 201);
     }
 
@@ -223,7 +228,7 @@ class CatalogController extends Controller
 
         return response()->json([
             'message' => "Désignation {$item->code} mise à jour.",
-            'data' => $this->serializeItem($this->loadItem($item), true),
+            'data' => $this->directory->serializeItem($this->directory->load($item), true),
         ]);
     }
 
@@ -254,7 +259,7 @@ class CatalogController extends Controller
 
         return response()->json([
             'message' => "Désignation {$item->code} restaurée.",
-            'data' => $this->serializeItem($this->loadItem($item), true),
+            'data' => $this->directory->serializeItem($this->directory->load($item), true),
         ]);
     }
 
@@ -345,7 +350,7 @@ class CatalogController extends Controller
 
         return response()->json([
             'message' => "Tarif {$category->label()} enregistré pour {$item->code}.",
-            'data' => $this->serializeItem($this->loadItem($item), true),
+            'data' => $this->directory->serializeItem($this->directory->load($item), true),
         ]);
     }
 
@@ -365,7 +370,7 @@ class CatalogController extends Controller
 
         return response()->json([
             'message' => "Tarif {$category->label()} de {$item->code} suspendu.",
-            'data' => $this->serializeItem($this->loadItem($item), true),
+            'data' => $this->directory->serializeItem($this->directory->load($item), true),
         ]);
     }
 
@@ -374,152 +379,5 @@ class CatalogController extends Controller
         if ($actor->cannot($permission)) {
             throw new AuthorizationException('Cette action distante n’est pas autorisée.');
         }
-    }
-
-    private function loadItem(CatalogItem $item): CatalogItem
-    {
-        return $item->fresh([
-            'currentStandardTariff.creator:id,name',
-            'currentMutualTariff.creator:id,name',
-            'tariffs' => fn ($query) => $query->with('creator:id,name')->latest('effective_from')->limit(20),
-        ])->loadCount(['tariffs', 'analysisDefinitions as analyses_count']);
-    }
-
-    /** @return array<string, int|null> */
-    private function summary(bool $canViewTariffs): array
-    {
-        return [
-            'active' => CatalogItem::query()->count(),
-            'archived' => CatalogItem::onlyTrashed()->count(),
-            'billable' => CatalogItem::query()->where('billable', true)->count(),
-            'without_standard_tariff' => $canViewTariffs
-                ? CatalogItem::query()->where('billable', true)->whereDoesntHave('currentStandardTariff')->count()
-                : null,
-            'without_mutual_tariff' => $canViewTariffs
-                ? CatalogItem::query()->where('billable', true)->whereDoesntHave('currentMutualTariff')->count()
-                : null,
-        ];
-    }
-
-    /** @return array<string, array<int, array<string, mixed>>> */
-    private function options(): array
-    {
-        return [
-            'types' => collect(CatalogItemType::cases())->map(fn ($type) => [
-                'value' => $type->value,
-                'label' => $type->label(),
-                'billable' => $type->mustBeBillable(),
-                'stockable' => $type->mustBeStockable(),
-            ])->all(),
-            'modules' => collect(CatalogModule::cases())->map(fn ($module) => [
-                'value' => $module->value,
-                'label' => $module->label(),
-            ])->all(),
-            // ADR-106 — la famille d'un examen d'imagerie, réglée au catalogue.
-            'imaging_modalities' => collect(ImagingModality::cases())->map(fn ($modality) => [
-                'value' => $modality->value,
-                'label' => $modality->label(),
-            ])->all(),
-            'routing_modes' => collect(ReceptionRoutingMode::cases())->map(fn ($mode) => [
-                'value' => $mode->value,
-                'label' => $mode->label(),
-            ])->all(),
-            'staff_coverage_policies' => collect(StaffCoveragePolicy::cases())->map(fn ($policy) => [
-                'value' => $policy->value,
-                'label' => $policy->label(),
-            ])->all(),
-            'tariff_categories' => collect(CatalogTariffCategory::cases())->map(fn ($category) => [
-                'value' => $category->value,
-                'label' => $category->label(),
-            ])->all(),
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function serializeItem(CatalogItem $item, bool $canViewTariffs): array
-    {
-        $standard = $canViewTariffs ? $item->currentStandardTariff : null;
-        $mutual = $canViewTariffs ? $item->currentMutualTariff : null;
-
-        return [
-            'uuid' => $item->uuid,
-            'code' => $item->code,
-            'name' => $item->name,
-            'type' => $item->type->value,
-            'type_label' => $item->type->label(),
-            'module' => $item->module->value,
-            'module_label' => $item->module->label(),
-            'imaging_modality' => $item->imaging_modality?->value,
-            'imaging_modality_label' => $item->imaging_modality?->label(),
-            'analyses_count' => (int) ($item->analyses_count ?? 0),
-            'analysis_discipline' => filled($item->analysis_discipline ?? null) ? trim((string) $item->analysis_discipline) : null,
-            'unit' => $item->unit,
-            'billable' => $item->billable,
-            'stockable' => $item->stockable,
-            'reception_selectable' => $item->reception_selectable,
-            'reception_routing_mode' => $item->reception_routing_mode?->value,
-            'reception_routing_label' => $item->reception_routing_mode?->label(),
-            'staff_coverage_policy' => $item->staff_coverage_policy->value,
-            'staff_coverage_policy_label' => $item->staff_coverage_policy->label(),
-            'care_requires_allergy_check' => $item->care_requires_allergy_check,
-            'care_recommends_vitals' => $item->care_recommends_vitals,
-            'description' => $item->description,
-            'archived' => $item->trashed(),
-            'archived_at' => $item->deleted_at?->toIso8601String(),
-            'archive_reason' => $item->delete_reason,
-            'current_standard_tariff' => $standard ? $this->serializeTariff($standard) : null,
-            'current_mutual_tariff' => $mutual ? $this->serializeTariff($mutual) : null,
-            'tariffs_count' => $canViewTariffs ? $item->tariffs_count : null,
-            'tariffs' => $canViewTariffs
-                ? $item->tariffs->map(fn (CatalogTariff $tariff) => $this->serializeTariff($tariff))->values()
-                : [],
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function serializeTariff(CatalogTariff $tariff): array
-    {
-        return [
-            'uuid' => $tariff->uuid,
-            'tariff_category' => $tariff->tariff_category->value,
-            'tariff_category_label' => $tariff->tariff_category->label(),
-            'amount' => $tariff->amount,
-            'currency' => $tariff->currency,
-            'effective_from' => $tariff->effective_from?->toIso8601String(),
-            'effective_until' => $tariff->effective_until?->toIso8601String(),
-            'change_reason' => $tariff->change_reason,
-            'current' => $tariff->isCurrent(),
-            'creator' => $tariff->creator?->name ?? $tariff->external_created_by_name,
-        ];
-    }
-
-    /** @return array<string, int> */
-    private function mutualOrganizationsSummary(): array
-    {
-        return [
-            'active' => MutualOrganization::query()->count(),
-            'archived' => MutualOrganization::onlyTrashed()->count(),
-            'active_coverages' => (int) MutualOrganization::query()
-                ->withCount(['coverages as active_coverages_count' => fn ($query) => $query->active()])
-                ->get()
-                ->sum('active_coverages_count'),
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function serializeOrganization(MutualOrganization $organization): array
-    {
-        return [
-            'uuid' => $organization->uuid,
-            'name' => $organization->name,
-            'coverage_rate' => $organization->coverage_rate,
-            'patient_rate' => Money::fromMinor(10_000 - Money::toMinor($organization->coverage_rate)),
-            'active' => ! $organization->trashed() && $organization->active,
-            'coverages_count' => (int) ($organization->coverages_count ?? 0),
-            'active_coverages_count' => (int) ($organization->active_coverages_count ?? 0),
-            'archived_at' => $organization->deleted_at?->toIso8601String(),
-            'archive_reason' => $organization->delete_reason,
-            'updated_at' => $organization->updated_at?->toIso8601String(),
-        ];
     }
 }

@@ -17,7 +17,10 @@ import { avatarTone, initialsOf, isEmail, recipientSuggestions } from '@/utiliti
  * Une pastille dont l'adresse n'est pas valable est rouge avant l'envoi.
  * Clavier : Entrée, virgule, point-virgule ou Tab valident l'adresse tapée ;
  * Retour arrière sur un champ vide retire la dernière ; ↑ ↓ parcourent les
- * propositions.
+ * propositions ; Échap les ferme sans rien effacer de ce qui est tapé.
+ *
+ * `bare` : sans cadre, pour une ligne « À » de la fenêtre de rédaction, qui porte
+ * elle-même son filet et son état d'erreur.
  */
 const props = defineProps({
     modelValue: { type: String, default: '' },
@@ -26,6 +29,7 @@ const props = defineProps({
     label: { type: String, required: true },
     invalid: { type: Boolean, default: false },
     placeholder: { type: String, default: '' },
+    bare: { type: Boolean, default: false },
 });
 const emit = defineEmits(['update:modelValue']);
 
@@ -42,6 +46,8 @@ const chips = ref(parse(props.modelValue));
 const draft = ref('');
 const focused = ref(false);
 const active = ref(0);
+// Échap ferme les propositions ; la frappe suivante les rouvre.
+const dismissed = ref(false);
 const input = ref(null);
 
 const serialize = (list) => list.map((chip) => (chip.name ? `${chip.name} <${chip.email}>` : chip.email)).join(', ');
@@ -65,6 +71,9 @@ watch(pending, emitChips);
 const suggestions = computed(() => recipientSuggestions(props.contacts, chips.value, typed.value));
 
 watch(suggestions, () => { active.value = 0; });
+watch(draft, () => { dismissed.value = false; });
+
+const listOpen = computed(() => focused.value && !dismissed.value && suggestions.value.length > 0);
 
 const add = (chip) => {
     const email = String(chip.email ?? '').trim();
@@ -94,24 +103,28 @@ const remove = (index) => {
 const onKeydown = (event) => {
     if (event.key === 'ArrowDown' && suggestions.value.length) {
         event.preventDefault();
+        dismissed.value = false;
         active.value = (active.value + 1) % suggestions.value.length;
     } else if (event.key === 'ArrowUp' && suggestions.value.length) {
         event.preventDefault();
         active.value = (active.value - 1 + suggestions.value.length) % suggestions.value.length;
     } else if (event.key === 'Enter') {
         event.preventDefault();
-        if (suggestions.value[active.value]) add(suggestions.value[active.value]);
+        if (listOpen.value && suggestions.value[active.value]) add(suggestions.value[active.value]);
         else commitDraft();
     } else if ((event.key === ',' || event.key === ';') && draft.value.trim()) {
         event.preventDefault();
         commitDraft();
     } else if (event.key === 'Tab' && draft.value.trim()) {
-        if (suggestions.value[active.value]) add(suggestions.value[active.value]);
+        if (listOpen.value && suggestions.value[active.value]) add(suggestions.value[active.value]);
         else commitDraft();
     } else if (event.key === 'Backspace' && !draft.value && chips.value.length) {
         remove(chips.value.length - 1);
-    } else if (event.key === 'Escape') {
-        draft.value = '';
+    } else if (event.key === 'Escape' && listOpen.value) {
+        // Seulement la liste : la fenêtre, elle, reste telle qu'elle est.
+        event.preventDefault();
+        event.stopPropagation();
+        dismissed.value = true;
     }
 };
 
@@ -138,8 +151,11 @@ const listId = computed(() => `${props.id}-suggestions`);
     <div class="relative">
         <div
             :class="cn(
-                'flex min-h-[var(--control-h)] w-full flex-wrap items-center gap-1.5 rounded-lg border border-input bg-background px-2 py-1.5 text-sm transition-colors focus-within:ring-2 focus-within:ring-ring/40',
-                invalid && 'border-destructive',
+                'flex w-full flex-wrap items-center gap-1.5 text-sm transition-colors',
+                bare
+                    ? 'min-h-9 bg-transparent py-1'
+                    : 'min-h-[var(--control-h)] rounded-lg border border-input bg-background px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring/40',
+                invalid && !bare && 'border-destructive',
             )"
             @click="input?.focus()"
         >
@@ -169,7 +185,7 @@ const listId = computed(() => `${props.id}-suggestions`);
                 autocomplete="off"
                 role="combobox"
                 :aria-label="label"
-                :aria-expanded="focused && suggestions.length > 0"
+                :aria-expanded="listOpen"
                 :aria-controls="listId"
                 :aria-invalid="invalid || undefined"
                 :placeholder="chips.length ? '' : placeholder"
@@ -182,10 +198,10 @@ const listId = computed(() => `${props.id}-suggestions`);
         </div>
 
         <ul
-            v-if="focused && suggestions.length"
+            v-if="listOpen"
             :id="listId"
             role="listbox"
-            class="absolute inset-x-0 top-full z-30 mt-1 overflow-hidden rounded-lg border border-border bg-popover py-1 text-sm shadow-lg"
+            :class="cn('absolute inset-x-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-border bg-popover py-1 text-sm shadow-lg', bare && '-mx-2')"
         >
             <li
                 v-for="(contact, index) in suggestions"

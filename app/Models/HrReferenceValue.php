@@ -71,6 +71,22 @@ class HrReferenceValue extends Model
             && (bool) ($this->metadata['internship'] ?? false);
     }
 
+    /**
+     * ADR-221 — une fonction ouvre-t-elle droit aux avantages et primes ? Réglé
+     * dans le module Fonctions ; absent vaut non.
+     */
+    public function grantsBenefits(): bool
+    {
+        return $this->type === HrReferenceType::JobTitle
+            && (bool) ($this->metadata['benefits_eligible'] ?? false);
+    }
+
+    /** ADR-221 — les avantages déclarés sous ce type. */
+    public function benefits(): HasMany
+    {
+        return $this->hasMany(EmployeeBenefit::class, 'benefit_type_id');
+    }
+
     public function departmentEmployees(): HasMany
     {
         return $this->hasMany(Employee::class, 'department_id');
@@ -109,7 +125,8 @@ class HrReferenceValue extends Model
             || $this->planningShifts()->exists()
             || $this->leaveRequests()->exists()
             || $this->attestationDocuments()->withTrashed()->exists()
-            || $this->internshipContracts()->withTrashed()->exists();
+            || $this->internshipContracts()->withTrashed()->exists()
+            || $this->benefits()->withTrashed()->exists();
     }
 
     protected function auditModule(): ?string

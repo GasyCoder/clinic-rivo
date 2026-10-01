@@ -10,6 +10,7 @@ use App\Rules\ReadableThemeColors;
 use App\Services\Settings\AppSettings;
 use App\Support\Billing\DiscountRules;
 use App\Support\Hr\BadgeDesign;
+use App\Support\Laboratory\LabReportDesign;
 use App\Support\Numbering\EmployeeNumberFormat;
 use App\Support\Numbering\PatientNumberFormat;
 use Illuminate\Support\Fluent;
@@ -28,10 +29,10 @@ final class AppSettingsRules
     public const CHILD_MAX_AGE_LIMIT = 20;
 
     /** Taille maximale de chaque fichier, en kilo-octets. */
-    public const ASSET_MAX_KB = ['logo' => 1024, 'icon' => 512, 'signature' => 512, 'background' => 2048, 'badge' => 512];
+    public const ASSET_MAX_KB = ['logo' => 1024, 'icon' => 512, 'signature' => 512, 'background' => 2048, 'badge' => 512, 'lab_logo' => 1024];
 
     /** SVG exclu : un fichier servi tel quel ne doit jamais pouvoir exécuter un script. */
-    public const ASSET_MIMES = ['logo' => 'png,jpg,jpeg,webp', 'icon' => 'png,ico,webp', 'signature' => 'png,jpg,jpeg,webp', 'background' => 'jpg,jpeg,png,webp', 'badge' => 'png,jpg,jpeg,webp'];
+    public const ASSET_MIMES = ['logo' => 'png,jpg,jpeg,webp', 'icon' => 'png,ico,webp', 'signature' => 'png,jpg,jpeg,webp', 'background' => 'jpg,jpeg,png,webp', 'badge' => 'png,jpg,jpeg,webp', 'lab_logo' => 'png,jpg,jpeg,webp'];
 
     private const HEX = '/^#[0-9a-fA-F]{6}$/';
 
@@ -94,7 +95,67 @@ final class AppSettingsRules
             // ADR-192 — remise personnel : facultative, sans valeur par défaut (la remise VIP
             // se règle avec les seuils VIP, dans son module).
             ...DiscountRules::pair('staff_discount_type', 'staff_discount_value', required: false),
+            // ADR-223 — le compte rendu d'analyses : vide = le compte rendu d'origine.
+            ...self::labReport(),
         ];
+    }
+
+    /**
+     * ADR-223 — les réglages du compte rendu d'analyses. Tous facultatifs : l'aperçu
+     * des paramètres envoie seulement ceux qu'il montre.
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    public static function labReport(): array
+    {
+        $rules = [];
+
+        foreach (LabReportDesign::COLORS as $field) {
+            $rules[$field] = ['sometimes', 'nullable', 'string', 'regex:'.self::HEX];
+        }
+
+        foreach (LabReportDesign::TEXTS as $field => $max) {
+            $rules[$field] = ['sometimes', 'nullable', 'string', 'max:'.$max];
+        }
+
+        foreach (LabReportDesign::CHOICES as $field => $values) {
+            $rules[$field] = ['sometimes', 'nullable', 'string', Rule::in($values)];
+        }
+
+        foreach (LabReportDesign::NUMBERS as $field => [$min, $max]) {
+            $rules[$field] = ['sometimes', 'nullable', 'integer', 'min:'.$min, 'max:'.$max];
+        }
+
+        foreach (array_keys(LabReportDesign::SWITCHES) as $field) {
+            $rules[$field] = ['sometimes', 'nullable', 'boolean'];
+        }
+
+        return $rules;
+    }
+
+    /** @return array<string, string> */
+    public static function labReportMessages(): array
+    {
+        $messages = [
+            'lab_report_template.in' => 'Choisissez un modèle proposé.',
+            'lab_report_font.in' => 'Choisissez une police proposée.',
+            'lab_report_signatory.in' => 'Choisissez qui signe le compte rendu.',
+        ];
+
+        foreach (LabReportDesign::COLORS as $field) {
+            $messages[$field.'.regex'] = 'La couleur s’écrit au format #RRVVBB, par exemple #1D4ED8.';
+        }
+
+        foreach (LabReportDesign::TEXTS as $field => $max) {
+            $messages[$field.'.max'] = "Ce texte du compte rendu tient en {$max} caractères au plus.";
+        }
+
+        foreach (LabReportDesign::NUMBERS as $field => [$min, $max]) {
+            $messages[$field.'.min'] = "La taille du texte va de {$min} à {$max} %.";
+            $messages[$field.'.max'] = "La taille du texte va de {$min} à {$max} %.";
+        }
+
+        return $messages;
     }
 
     /** @return array<string, array<int, mixed>> */
@@ -197,6 +258,7 @@ final class AppSettingsRules
             'child_max_age.max' => 'Un enfant a au plus '.self::CHILD_MAX_AGE_LIMIT.' ans.',
             'legal_email.email' => 'Adresse email invalide.',
             ...DiscountRules::messages('staff_discount_type', 'staff_discount_value'),
+            ...self::labReportMessages(),
         ];
     }
 

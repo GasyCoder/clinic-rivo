@@ -36,7 +36,7 @@ class WebmailTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const ADDRESS = 'soa.rakoto@cbdc.mg';
+    private const ADDRESS = 'soa.rakoto@cliniquesaintgeorges.mg';
 
     private const PASSWORD = 'secret-boite';
 
@@ -294,7 +294,7 @@ class WebmailTest extends TestCase
         $this->actingAs($user)->get('/messagerie/dossier/reception?libelle='.$label->uuid)->assertInertia(fn ($page) => $page->where('list.total', 1));
 
         // Le libellé d'un autre compte n'existe pas pour celui-ci.
-        [$other] = $this->titular('vola.rabe@cbdc.mg', 'Vola', 'Rabe');
+        [$other] = $this->titular('vola.rabe@cliniquesaintgeorges.mg', 'Vola', 'Rabe');
         $this->actingAs($other)->put("/messagerie/libelles/{$label->uuid}", ['name' => 'Pris', 'color' => 'red'])->assertNotFound();
 
         $this->actingAs($user)->put("/messagerie/libelles/{$label->uuid}", ['name' => 'Labo', 'color' => 'violet'])->assertSessionHasNoErrors();
@@ -315,7 +315,7 @@ class WebmailTest extends TestCase
 
         $this->actingAs($user)->post('/messagerie/envoyer', [
             'to' => 'Dr Vola <vola@exemple.mg>; labo@exemple.mg',
-            'bcc' => 'direction@cbdc.mg',
+            'bcc' => 'direction@cliniquesaintgeorges.mg',
             'subject' => 'Résultats de Mme R.',
             'body_html' => '<p>Bonjour <strong>docteur</strong></p><script>alert(1)</script><img src="x" onerror="alert(2)">',
             'attachments' => [UploadedFile::fake()->createWithContent('bilan.pdf', '%PDF-1.4')],
@@ -335,7 +335,7 @@ class WebmailTest extends TestCase
         $copy = array_values($box->folders['INBOX.Sent']['messages'])[0];
         $this->assertSame('Résultats de Mme R.', $copy['subject']);
         $this->assertContains('\\Seen', $copy['flags']);
-        $this->assertStringStartsWith('Bcc: direction@cbdc.mg', $copy['raw']);
+        $this->assertStringStartsWith('Bcc: direction@cliniquesaintgeorges.mg', $copy['raw']);
 
         $audit = AuditLog::query()->where('action', 'webmail.send')->sole();
         $this->assertSame(['vola@exemple.mg', 'labo@exemple.mg'], $audit->new_values['to']);
@@ -414,11 +414,11 @@ class WebmailTest extends TestCase
     public function test_colleagues_with_an_active_address_are_offered_as_contacts(): void
     {
         [$user] = $this->connected();
-        $this->titular('vola.rabe@cbdc.mg', 'Vola', 'Rabe');
+        $this->titular('vola.rabe@cliniquesaintgeorges.mg', 'Vola', 'Rabe');
 
         $this->actingAs($user)->get('/messagerie/dossier/reception')->assertInertia(fn ($page) => $page
             ->has('contacts', 1)
-            ->where('contacts.0.email', 'vola.rabe@cbdc.mg')
+            ->where('contacts.0.email', 'vola.rabe@cliniquesaintgeorges.mg')
             ->where('contacts.0.name', 'Vola Rabe'));
     }
 
@@ -539,7 +539,7 @@ class WebmailTest extends TestCase
     public function test_another_employees_box_opens_only_with_open_any_and_says_so_everywhere(): void
     {
         [$user] = $this->titular();
-        [, $other] = $this->titular('vola.rabe@cbdc.mg', 'Vola', 'Rabe');
+        [, $other] = $this->titular('vola.rabe@cliniquesaintgeorges.mg', 'Vola', 'Rabe');
 
         // Sans `webmail.open_any`, la boîte d'un autre ne s'ouvre pas, même en connaissant son identifiant.
         $this->actingAs($user)->post('/messagerie/connexion', ['mailbox' => $other->uuid, 'password' => self::PASSWORD])->assertForbidden();
@@ -551,19 +551,19 @@ class WebmailTest extends TestCase
             ->where('canOpenAny', true)
             ->where('own.address', self::ADDRESS)
             ->has('others', 1)
-            ->where('others.0.address', 'vola.rabe@cbdc.mg')
+            ->where('others.0.address', 'vola.rabe@cliniquesaintgeorges.mg')
             ->where('others.0.own', false));
 
         $this->actingAs($user)->post('/messagerie/connexion', ['mailbox' => $other->uuid, 'password' => self::PASSWORD])
             ->assertRedirect(route('webmail.index'));
         $connect = AuditLog::query()->where('action', 'webmail.connect')->latest('id')->first();
-        $this->assertSame('vola.rabe@cbdc.mg', $connect->new_values['address']);
+        $this->assertSame('vola.rabe@cliniquesaintgeorges.mg', $connect->new_values['address']);
         $this->assertFalse($connect->new_values['own_mailbox']);
         $this->assertSame('Vola Rabe', $connect->new_values['titular']);
 
         $this->app->forgetScopedInstances();
         $this->actingAs($user)->get('/messagerie/dossier/reception')->assertOk()->assertInertia(fn ($page) => $page
-            ->where('mailbox.address', 'vola.rabe@cbdc.mg')
+            ->where('mailbox.address', 'vola.rabe@cliniquesaintgeorges.mg')
             ->where('mailbox.owner', 'Vola Rabe')
             ->where('mailbox.own', false)
             ->where('mailbox.can_switch', true)
@@ -572,7 +572,7 @@ class WebmailTest extends TestCase
         $this->actingAs($user)->post('/messagerie/envoyer', ['to' => 'dr.vola@exemple.mg', 'subject' => 'Rendez-vous', 'body_html' => '<p>Bonjour</p>'])
             ->assertSessionHasNoErrors();
         $send = AuditLog::query()->where('action', 'webmail.send')->latest('id')->first();
-        $this->assertSame('vola.rabe@cbdc.mg', $send->new_values['from']);
+        $this->assertSame('vola.rabe@cliniquesaintgeorges.mg', $send->new_values['from']);
         $this->assertFalse($send->new_values['own_mailbox']);
 
         // Suspendue, elle se referme : RIVO revient à la boîte du compte, dont il faut le mot de passe.
@@ -661,7 +661,7 @@ class WebmailTest extends TestCase
     public function test_the_key_left_on_a_shared_device_never_opens_another_accounts_box(): void
     {
         [$soa] = $this->titular();
-        [$vola] = $this->titular('vola.rabe@cbdc.mg', 'Vola', 'Rabe');
+        [$vola] = $this->titular('vola.rabe@cliniquesaintgeorges.mg', 'Vola', 'Rabe');
         $soa->forceFill(['password' => Hash::make(self::PASSWORD)])->save();
         $vola->forceFill(['password' => Hash::make(self::PASSWORD)])->save();
 
@@ -729,7 +729,7 @@ class WebmailTest extends TestCase
     public function test_back_to_ones_own_box_from_a_colleagues_needs_no_password(): void
     {
         [$user] = $this->titular();
-        [, $other] = $this->titular('vola.rabe@cbdc.mg', 'Vola', 'Rabe');
+        [, $other] = $this->titular('vola.rabe@cliniquesaintgeorges.mg', 'Vola', 'Rabe');
         $user = $this->allow($user, 'webmail.open_any');
         $user->forceFill(['password' => Hash::make(self::PASSWORD)])->save();
 
@@ -774,17 +774,17 @@ class WebmailTest extends TestCase
     public function test_the_super_admin_lands_straight_in_the_portal_box_set_in_the_env(): void
     {
         $admin = $this->portalAdmin();
-        config(['rivo.webmail.portal' => ['address' => 'Direction@cbdc.mg', 'password' => 'secret-portail', 'name' => 'Direction']]);
+        config(['rivo.webmail.portal' => ['address' => 'Direction@cliniquesaintgeorges.mg', 'password' => 'secret-portail', 'name' => 'Direction']]);
         $uuid = '9d2f6a3e-8c1b-4f7a-9e2d-5b6c7d8e9f01';
         Http::fake(['https://a.test/api/v1/super-admin/professional-mailboxes' => Http::response([
             'data' => [
-                ['uuid' => $uuid, 'address' => 'vola.rabe@cbdc.mg', 'status' => 'ACTIVE', 'employee' => ['name' => 'Vola Rabe', 'job_title' => 'Sage-femme']],
-                ['uuid' => '1d2f6a3e-8c1b-4f7a-9e2d-5b6c7d8e9f02', 'address' => 'parti@cbdc.mg', 'status' => 'SUSPENDED', 'employee' => ['name' => 'Parti']],
+                ['uuid' => $uuid, 'address' => 'vola.rabe@cliniquesaintgeorges.mg', 'status' => 'ACTIVE', 'employee' => ['name' => 'Vola Rabe', 'job_title' => 'Sage-femme']],
+                ['uuid' => '1d2f6a3e-8c1b-4f7a-9e2d-5b6c7d8e9f02', 'address' => 'parti@cliniquesaintgeorges.mg', 'status' => 'SUSPENDED', 'employee' => ['name' => 'Parti']],
             ],
             'meta' => [],
         ])]);
-        $box = $this->factory->box('direction@cbdc.mg', 'secret-portail');
-        $this->factory->box('vola.rabe@cbdc.mg', self::PASSWORD);
+        $box = $this->factory->box('direction@cliniquesaintgeorges.mg', 'secret-portail');
+        $this->factory->box('vola.rabe@cliniquesaintgeorges.mg', self::PASSWORD);
 
         // Aucun choix de boîte, aucune saisie : ni à l'arrivée, ni en demandant à « changer ».
         $this->actingAs($admin)->get('/messagerie')->assertRedirect(route('webmail.folder', ['folder' => 'reception']));
@@ -792,7 +792,7 @@ class WebmailTest extends TestCase
         $this->actingAs($admin)->get('/messagerie/connexion?changer=1')->assertRedirect(route('webmail.index'));
         $this->actingAs($admin)->get('/messagerie/dossier/reception')->assertOk()->assertInertia(fn ($page) => $page
             ->component('Webmail/Index')
-            ->where('mailbox.address', 'direction@cbdc.mg')
+            ->where('mailbox.address', 'direction@cliniquesaintgeorges.mg')
             ->where('mailbox.owner', 'Direction')
             ->where('mailbox.own', true)
             ->where('mailbox.portal', true)
@@ -800,7 +800,7 @@ class WebmailTest extends TestCase
             ->where('webmail.connected', true)
             // Les adresses actives des sites restent proposées comme destinataires.
             ->has('contacts', 1)
-            ->where('contacts.0.email', 'vola.rabe@cbdc.mg'));
+            ->where('contacts.0.email', 'vola.rabe@cliniquesaintgeorges.mg'));
         $this->actingAs($admin)->get('/messagerie/dossier/envoyes')->assertOk();
 
         // Le mot de passe vit dans le .env, jamais dans la session ; l'ouverture est auditée une fois.
@@ -820,7 +820,7 @@ class WebmailTest extends TestCase
         $this->actingAs($admin)->post('/messagerie/envoyer', ['to' => 'fournisseur@gmail.com', 'subject' => 'Commande', 'body_html' => '<p>Bonjour</p>'])
             ->assertSessionHasNoErrors()
             ->assertSessionHas('status', 'Message envoyé.');
-        $this->assertSame('direction@cbdc.mg', $box->sent[0]->getFrom()[0]->getAddress());
+        $this->assertSame('direction@cliniquesaintgeorges.mg', $box->sent[0]->getFrom()[0]->getAddress());
         $this->assertSame('Direction', $box->sent[0]->getFrom()[0]->getName());
         $this->assertSame(['fournisseur@gmail.com'], AuditLog::query()->where('action', 'webmail.send')->sole()->new_values['to']);
     }
@@ -836,8 +836,8 @@ class WebmailTest extends TestCase
             ->where('portal', true));
 
         // Un mot de passe du .env que le serveur refuse : la page le dit, sans boucle vers l'ouverture.
-        config(['rivo.webmail.portal' => ['address' => 'direction@cbdc.mg', 'password' => 'faux', 'name' => null]]);
-        $this->factory->box('direction@cbdc.mg', 'secret-portail');
+        config(['rivo.webmail.portal' => ['address' => 'direction@cliniquesaintgeorges.mg', 'password' => 'faux', 'name' => null]]);
+        $this->factory->box('direction@cliniquesaintgeorges.mg', 'secret-portail');
         $this->app->forgetScopedInstances();
         $this->actingAs($admin)->get('/messagerie/dossier/reception')
             ->assertStatus(503)

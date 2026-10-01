@@ -53,20 +53,20 @@ class AccountActivationTest extends TestCase
     public function test_the_address_alone_says_which_step_comes_next_without_telling_who_exists(): void
     {
         $vola = $this->awaiting();
-        $ordinary = User::factory()->create(['role_id' => $this->roleId('RECEPTION'), 'email' => 'deja.la@cbdc.mg']);
+        $ordinary = User::factory()->create(['role_id' => $this->roleId('RECEPTION'), 'email' => 'deja.la@cliniquesaintgeorges.mg']);
 
-        $this->postJson('/login/identifier', ['email' => 'VOLA.RABE@cbdc.mg '])
+        $this->postJson('/login/identifier', ['email' => 'VOLA.RABE@cliniquesaintgeorges.mg '])
             ->assertOk()
             ->assertJsonPath('mode', 'activate')
             ->assertJsonPath('greeting.name', 'Vola RABE')
             ->assertJsonPath('greeting.first_name', 'Vola')
             ->assertJsonPath('greeting.job', 'médecin')
             ->assertJsonPath('greeting.site', 'Ambondromamy')
-            ->assertJsonPath('greeting.mailbox', 'vola.rabe@cbdc.mg')
+            ->assertJsonPath('greeting.mailbox', 'vola.rabe@cliniquesaintgeorges.mg')
             ->assertJsonMissingPath('greeting.password');
 
         // Un compte déjà utilisé, une adresse inconnue : la même réponse.
-        foreach ([$ordinary->email, 'personne@cbdc.mg'] as $email) {
+        foreach ([$ordinary->email, 'personne@cliniquesaintgeorges.mg'] as $email) {
             $this->postJson('/login/identifier', ['email' => $email])->assertOk()->assertExactJson(['mode' => 'password']);
         }
 
@@ -86,7 +86,7 @@ class AccountActivationTest extends TestCase
         $vola = $this->awaiting(sentHandover: true);
 
         $this->post('/login/premiere-connexion', [
-            'email' => 'vola.rabe@cbdc.mg',
+            'email' => 'vola.rabe@cliniquesaintgeorges.mg',
             'password' => self::CHOSEN,
             'password_confirmation' => self::CHOSEN,
         ], ['User-Agent' => 'Navigateur de test'])->assertRedirect('/')->assertSessionHas('status');
@@ -105,7 +105,7 @@ class AccountActivationTest extends TestCase
         $this->assertFalse($audit->new_values['mailbox_synced'], 'aucun accès à l’hébergeur sur ce site');
         $this->assertStringNotContainsString(self::CHOSEN, AuditLog::query()->get()->toJson(), 'jamais dans l’audit');
 
-        Notification::assertSentTo($vola, WelcomeToPlatform::class, fn (WelcomeToPlatform $welcome) => $welcome->mailbox === 'vola.rabe@cbdc.mg' && ! $welcome->mailboxReady);
+        Notification::assertSentTo($vola, WelcomeToPlatform::class, fn (WelcomeToPlatform $welcome) => $welcome->mailbox === 'vola.rabe@cliniquesaintgeorges.mg' && ! $welcome->mailboxReady);
         Notification::assertSentTo($vola, AccountActivatedMail::class);
         Notification::assertSentTo($hr, StaffAccessActivated::class, fn (StaffAccessActivated $notice) => $notice->name === 'Vola RABE' && $notice->handoverUuid !== null);
 
@@ -131,11 +131,11 @@ class AccountActivationTest extends TestCase
 
     public function test_only_an_account_awaiting_its_first_login_can_choose_a_password_this_way(): void
     {
-        $ordinary = User::factory()->create(['role_id' => $this->roleId('RECEPTION'), 'email' => 'deja.la@cbdc.mg']);
+        $ordinary = User::factory()->create(['role_id' => $this->roleId('RECEPTION'), 'email' => 'deja.la@cliniquesaintgeorges.mg']);
         $expired = $this->awaiting();
         $expired->forceFill(['activation_open_until' => now()->subMinute()])->save();
 
-        foreach ([$ordinary->email, $expired->email, 'personne@cbdc.mg'] as $email) {
+        foreach ([$ordinary->email, $expired->email, 'personne@cliniquesaintgeorges.mg'] as $email) {
             $this->post('/login/premiere-connexion', ['email' => $email, 'password' => self::CHOSEN, 'password_confirmation' => self::CHOSEN])
                 ->assertSessionHasErrors('email');
         }
@@ -161,7 +161,7 @@ class AccountActivationTest extends TestCase
     {
         Notification::fake();
         config(['rivo.professional_email' => [
-            'domain' => 'cbdc.mg',
+            'domain' => 'cliniquesaintgeorges.mg',
             'hosting' => ['url' => self::HOST, 'user' => 'flbe4406', 'token' => 'SECRET-TOKEN', 'quota_mb' => 1024, 'timeout' => 5],
         ]]);
         Http::fake([self::HOST.'/execute/Email/passwd_pop' => Http::response(['status' => 1])]);
@@ -170,7 +170,7 @@ class AccountActivationTest extends TestCase
         $this->post('/login/premiere-connexion', ['email' => $vola->email, 'password' => self::CHOSEN, 'password_confirmation' => self::CHOSEN])->assertRedirect('/');
 
         Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/passwd_pop')
-            && $request['email'] === 'vola.rabe' && $request['domain'] === 'cbdc.mg' && $request['password'] === self::CHOSEN);
+            && $request['email'] === 'vola.rabe' && $request['domain'] === 'cliniquesaintgeorges.mg' && $request['password'] === self::CHOSEN);
         $this->assertTrue(AuditLog::query()->where('action', 'user.activate')->sole()->new_values['mailbox_synced']);
         Notification::assertSentTo($vola, WelcomeToPlatform::class, fn (WelcomeToPlatform $welcome) => $welcome->mailboxReady);
         $this->assertTrue(session()->has('webmail.own'), 'la messagerie s’ouvrira sans redemander le mot de passe (ADR-200)');
@@ -180,7 +180,7 @@ class AccountActivationTest extends TestCase
     {
         Notification::fake();
         config(['rivo.professional_email' => [
-            'domain' => 'cbdc.mg',
+            'domain' => 'cliniquesaintgeorges.mg',
             'hosting' => ['url' => self::HOST, 'user' => 'flbe4406', 'token' => 'SECRET-TOKEN', 'quota_mb' => 1024, 'timeout' => 5],
         ]]);
         Http::fake([self::HOST.'/*' => Http::response(['status' => 0, 'errors' => ['Mot de passe trop faible.']])]);
@@ -198,7 +198,7 @@ class AccountActivationTest extends TestCase
 
     public function test_a_first_ordinary_login_or_a_reset_link_counts_as_the_first_login(): void
     {
-        $legacy = User::factory()->create(['role_id' => $this->roleId('RECEPTION'), 'email' => 'ancien@cbdc.mg']);
+        $legacy = User::factory()->create(['role_id' => $this->roleId('RECEPTION'), 'email' => 'ancien@cliniquesaintgeorges.mg']);
         $this->assertNull($legacy->activated_at);
 
         $this->post('/login', ['email' => $legacy->email, 'password' => 'password'])->assertRedirect('/');
@@ -210,7 +210,7 @@ class AccountActivationTest extends TestCase
     private function awaiting(bool $sentHandover = false): User
     {
         $doctor = HrReferenceValue::query()->create(['type' => HrReferenceType::JobTitle, 'code' => 'DOCTOR', 'label' => 'Médecin', 'active' => true]);
-        $user = User::factory()->create(['role_id' => $this->roleId('MEDICINE'), 'name' => 'Vola RABE', 'email' => 'vola.rabe@cbdc.mg', 'last_login_at' => null]);
+        $user = User::factory()->create(['role_id' => $this->roleId('MEDICINE'), 'name' => 'Vola RABE', 'email' => 'vola.rabe@cliniquesaintgeorges.mg', 'last_login_at' => null]);
         $user->forceFill(['activated_at' => null, 'activation_open_until' => now()->addDays(14)])->save();
 
         $employee = Employee::query()->create([
@@ -219,7 +219,7 @@ class AccountActivationTest extends TestCase
         ]);
         $employee->forceFill(['user_id' => $user->id])->save();
         ProfessionalMailbox::query()->create([
-            'employee_id' => $employee->id, 'address' => 'vola.rabe@cbdc.mg', 'status' => ProfessionalMailboxStatus::Active,
+            'employee_id' => $employee->id, 'address' => 'vola.rabe@cliniquesaintgeorges.mg', 'status' => ProfessionalMailboxStatus::Active,
             'requested_at' => now(), 'activated_at' => now(),
         ]);
 

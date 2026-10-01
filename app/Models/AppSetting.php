@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\Auditable;
 use App\Support\Hr\BadgeDesign;
+use App\Support\Laboratory\LabReportDesign;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -38,6 +39,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'director_name', 'director_title', 'signature_path',
     'legal_nif', 'legal_stat', 'legal_address', 'legal_phone', 'legal_email', 'bank_name', 'bank_account',
     'staff_discount_type', 'staff_discount_value',
+    // ADR-223 — le compte rendu d'analyses : chaque réglage de LabReportDesign::FIELDS, et son logo.
+    ...LabReportDesign::FIELDS, 'lab_report_logo_path',
     'updated_by', 'external_updated_by_uuid', 'external_updated_by_name',
 ])]
 class AppSetting extends Model
@@ -52,6 +55,9 @@ class AppSetting extends Model
             // ADR-209 — les interrupteurs et les nombres du badge.
             ...array_fill_keys(array_keys(BadgeDesign::SWITCHES), 'boolean'),
             ...array_fill_keys(array_keys(BadgeDesign::NUMBERS), 'integer'),
+            // ADR-223 — les interrupteurs et les nombres du compte rendu d'analyses.
+            ...array_fill_keys(array_keys(LabReportDesign::SWITCHES), 'boolean'),
+            ...array_fill_keys(array_keys(LabReportDesign::NUMBERS), 'integer'),
             'baby_max_age' => 'integer',
             'child_max_age' => 'integer',
             'ui_font_size' => 'integer',

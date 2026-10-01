@@ -13,11 +13,15 @@ class RestoreEmployeeAction
     {
         Gate::forUser($actor)->authorize('restore', $employee);
 
-        return DB::transaction(function () use ($employee): Employee {
-            $employee = Employee::withTrashed()->lockForUpdate()->findOrFail($employee->getKey());
-            $employee->restore();
+        return DB::transaction(fn (): Employee => $this->perform($employee));
+    }
 
-            return $employee->refresh();
-        });
+    /** Sans contrôle de droit : la corbeille (ADR-236) a vérifié les siens. */
+    public function perform(Employee $employee): Employee
+    {
+        $employee = Employee::withTrashed()->lockForUpdate()->findOrFail($employee->getKey());
+        $employee->restore();
+
+        return $employee->refresh();
     }
 }

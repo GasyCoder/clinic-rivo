@@ -4,12 +4,20 @@ namespace Tests\Feature\Api;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\MedicineForm;
 use App\Enums\PatientSex;
 use App\Enums\PatientType;
+use App\Enums\SupplierCatalogFileKind;
 use App\Models\AddressEntry;
 use App\Models\CatalogItem;
+use App\Models\Employee;
+use App\Models\EmploymentContract;
+use App\Models\HrReferenceValue;
+use App\Models\Medicine;
+use App\Models\MedicineSupplier;
 use App\Models\Patient;
 use App\Models\Role;
+use App\Models\SupplierCatalog;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -131,6 +139,100 @@ class SuperAdminTrashApiTest extends TestCase
     }
 
     /** @param array<int, string> $permissions */
+    public function test_emptying_the_trash_destroys_only_what_never_served_and_reports_the_rest(): void
+    {
+        $unused = AddressEntry::query()->create(['label' => 'Adresse en double', 'active' => true]);
+        $unused->delete_reason = 'Doublon';
+        $unused->delete();
+
+        $used = AddressEntry::query()->create(['label' => 'Adresse habitée', 'active' => true]);
+        $this->patient('PA-000009', 'Rasoa', 'Vola')->forceFill(['address_entry_id' => $used->id])->save();
+        $used->delete_reason = 'Renommée';
+        $used->delete();
+
+        $this->withHeaders($this->headers(['trash.force_delete']))
+            ->deleteJson('/api/v1/super-admin/trash', ['category' => 'ADDRESS_ENTRY'])
+            ->assertOk()
+            ->assertJsonPath('data.deleted', 0)
+            ->assertJsonPath('data.skipped', ['Adresses']);
+
+        $this->withHeaders($this->headers(['trash.force_delete', 'address_entries.restore']))
+            ->deleteJson('/api/v1/super-admin/trash', ['category' => 'ALL'])
+            ->assertOk()
+            ->assertJsonPath('data.deleted', 1)
+            ->assertJsonPath('data.kept', 1)
+            ->assertJsonPath('data.kept_items.0.title', 'Adresse habitée');
+
+        $this->assertNull(AddressEntry::withTrashed()->find($unused->id));
+        $this->assertNotNull(AddressEntry::withTrashed()->find($used->id));
+
+        $this->withHeaders($this->headers())
+            ->deleteJson('/api/v1/super-admin/trash')
+            ->assertForbidden();
+    }
+
+    public function test_archived_employees_and_contracts_appear_in_the_trash_and_empty_in_order(): void
+    {
+        $employee = Employee::query()->create(['employee_number' => 'EMP-9', 'last_name' => 'Doublon', 'sex' => 'F', 'active' => true]);
+        $type = HrReferenceValue::query()->create(['type' => 'CONTRACT_TYPE', 'code' => 'CDD', 'label' => 'CDD', 'active' => true]);
+        $contract = EmploymentContract::query()->create(['employee_id' => $employee->id, 'contract_type_id' => $type->id, 'starts_on' => '2026-01-01']);
+        $contract->delete_reason = 'Saisi deux fois';
+        $contract->delete();
+        $employee->delete_reason = 'Doublon';
+        $employee->delete();
+
+        $this->withHeaders($this->headers(['trash.view']))
+            ->getJson('/api/v1/super-admin/trash?category=EMPLOYEE')
+            ->assertOk()
+            ->assertJsonPath('data.0.reference', 'EMP-9')
+            ->assertJsonPath('data.0.can_force_delete', false)
+            ->assertJsonPath('data.0.force_delete_blockers', ['1 contrat']);
+
+        // Le contrat part d'abord, puis le dossier qui n'est plus désigné par rien.
+        $this->withHeaders($this->headers(['trash.force_delete', 'contracts.restore', 'employees.force_delete']))
+            ->deleteJson('/api/v1/super-admin/trash', ['category' => 'ALL'])
+            ->assertOk()
+            ->assertJsonPath('data.deleted', 2);
+
+        $this->assertNull(Employee::withTrashed()->find($employee->id));
+        $this->assertDatabaseHas('audit_logs', ['action' => 'employee.force_delete']);
+    }
+
+    public function test_a_supplier_catalog_that_was_imported_but_never_used_can_be_destroyed(): void
+    {
+        $supplier = MedicineSupplier::query()->create(['code' => 'PHL', 'name' => 'Pharmalife', 'created_by' => $this->localActor->id]);
+        $catalog = fn (string $name) => $supplier->catalogs()->create([
+            'original_name' => $name, 'path' => "suppliers/{$supplier->uuid}/{$name}", 'mime_type' => 'application/vnd.ms-excel',
+            'size' => 10, 'kind' => SupplierCatalogFileKind::Excel, 'imported_at' => now(), 'created_by' => $this->localActor->id,
+        ]);
+        $unused = $catalog('jamais-repris.xlsx');
+        $unused->items()->create(['reference' => 'A-1', 'medicine_label' => 'Zinc 20 mg', 'row_number' => 1]);
+        $used = $catalog('repris.xlsx');
+        $item = CatalogItem::query()->create(['code' => 'PH-0001', 'name' => 'Amoxicilline', 'type' => CatalogItemType::Medicine, 'module' => CatalogModule::Pharmacy, 'unit' => 'boîte', 'billable' => false, 'stockable' => true, 'created_by' => $this->localActor->id, 'updated_by' => $this->localActor->id]);
+        $medicine = Medicine::query()->create(['catalog_item_id' => $item->id, 'generic_name' => 'Amoxicilline', 'form' => MedicineForm::Tablet, 'strength' => '500 mg', 'active' => true, 'created_by' => $this->localActor->id, 'updated_by' => $this->localActor->id]);
+        $used->items()->create(['reference' => 'B-1', 'medicine_label' => 'Amoxicilline', 'row_number' => 1, 'linked_medicine_id' => $medicine->id]);
+        foreach ([$unused, $used] as $file) {
+            $file->delete_reason = 'Ancien tarif';
+            $file->delete();
+        }
+
+        $this->withHeaders($this->headers(['trash.view']))
+            ->getJson('/api/v1/super-admin/trash?category=SUPPLIER_CATALOG')
+            ->assertOk()
+            ->assertJson(fn ($json) => $json->where('data', fn ($rows) => collect($rows)->firstWhere('title', 'repris.xlsx')['force_delete_blockers'] === ['1 ligne rattachée à un médicament']
+                && collect($rows)->firstWhere('title', 'jamais-repris.xlsx')['can_force_delete'] === true)->etc());
+
+        $this->withHeaders($this->headers(['trash.force_delete', 'supplier_catalogs.restore']))
+            ->deleteJson('/api/v1/super-admin/trash', ['category' => 'SUPPLIER_CATALOG'])
+            ->assertOk()
+            ->assertJsonPath('data.deleted', 1)
+            ->assertJsonPath('data.kept', 1);
+
+        $this->assertNull(SupplierCatalog::withTrashed()->find($unused->id));
+        $this->assertDatabaseMissing('supplier_catalog_items', ['reference' => 'A-1']);
+        $this->assertNotNull(SupplierCatalog::withTrashed()->find($used->id));
+    }
+
     private function headers(array $permissions = [], ?string $actorUuid = null): array
     {
         return [

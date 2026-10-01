@@ -147,3 +147,27 @@
         scroll-behavior: auto !important;
     }
 }
+
+/*
+ * ADR-185 — un bloc de squelette : le même partout (Skeleton shadcn, forme
+ * photographiée d'un écran). Assez contrasté pour se voir en clair comme en
+ * sombre, avec un balayage ; les animations réduites (ci-dessus) l'arrêtent.
+ */
+.skeleton-bone {
+    overflow: hidden;
+    background-color: hsl(var(--foreground) / 0.08);
+}
+
+.skeleton-bone::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 30%, hsl(var(--card) / 0.7) 50%, transparent 70%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.6s linear infinite;
+}
+
+@keyframes skeleton-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}

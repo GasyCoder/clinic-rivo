@@ -505,6 +505,35 @@ final class ImapMailServer implements KeepsConnectionOpen, MailServer
         return is_resource($stream) && ! feof($stream) && ! preg_match('/^\* BYE/mi', $pending);
     }
 
+    /**
+     * Un NOOP, avec un délai court. Un routeur (NAT, box, veille du poste) qui oublie une
+     * connexion muette ne prévient aucun des deux bouts : aucune fin de flux n'arrive,
+     * `alive()` la croit ouverte, et la commande suivante attendrait tout le délai
+     * (constaté le 2026-09-30 : 20 s par lecture, puis « le serveur ne répond pas »).
+     */
+    public function probe(float $timeout): bool
+    {
+        $stream = $this->client->connection?->getStream();
+
+        if (! is_resource($stream) || feof($stream)) {
+            return false;
+        }
+
+        stream_set_timeout($stream, max(1, (int) ceil($timeout)));
+
+        try {
+            $this->protocol()->noop();
+
+            return true;
+        } catch (Throwable) {
+            return false;
+        } finally {
+            if (is_resource($stream)) {
+                stream_set_timeout($stream, (int) config('rivo.webmail.timeout', 20));
+            }
+        }
+    }
+
     public function disconnect(): void
     {
         try {

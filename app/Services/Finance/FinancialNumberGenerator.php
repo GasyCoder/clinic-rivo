@@ -37,6 +37,18 @@ class FinancialNumberGenerator
         return $this->next('patient_debt', 'DT');
     }
 
+    /** ADR-228 — une dette du personnel. */
+    public function staffDebt(): string
+    {
+        return $this->next('staff_debt', 'DP');
+    }
+
+    /** ADR-228 — le reçu d'un remboursement de dette encaissé à la Caisse. */
+    public function staffDebtReceipt(): string
+    {
+        return $this->next('staff_debt_receipt', 'RD');
+    }
+
     /** ADR-072 — Soins consumable slip handed to Pharmacy. */
     public function careConsumableRequest(): string
     {

@@ -207,6 +207,33 @@ class PortalSiteApiClient
     }
 
     /**
+     * ADR-228 — les demandes de dette du personnel qui attendent le DG, site par site.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function staffDebtsPendingForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/staff-debts/pending', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * ADR-229 — ce que chaque site a en jeu en dettes du personnel, pour « Tous les
+     * sites » dans Finance. Ni nom, ni motif, ni salaire.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function staffDebtsOverviewForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/staff-debts/overview', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
      * ADR-197 — l'accès du personnel de chaque site : employés sans compte, remises
      * au RH, rôles. Jamais un mot de passe.
      *
@@ -256,9 +283,9 @@ class PortalSiteApiClient
     }
 
     /** @return array<string, mixed> */
-    public function createCashRegister(string $siteCode, string $name, User $actor): array
+    public function createCashRegister(string $siteCode, array $data, User $actor): array
     {
-        return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers', ['name' => $name], $actor);
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers', $data, $actor);
     }
 
     /** @return array<string, mixed> */
@@ -268,9 +295,9 @@ class PortalSiteApiClient
     }
 
     /** @return array<string, mixed> */
-    public function updateCashRegister(string $siteCode, string $uuid, string $name, User $actor): array
+    public function updateCashRegister(string $siteCode, string $uuid, array $data, User $actor): array
     {
-        return $this->request($this->site($siteCode), 'PUT', 'super-admin/cash-registers/'.$uuid, ['name' => $name], $actor);
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/cash-registers/'.$uuid, $data, $actor);
     }
 
     /** @return array<string, mixed> */
@@ -385,6 +412,59 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'DELETE', 'super-admin/app-settings/reset', ['confirmation' => $confirmation], $actor);
     }
 
+    /**
+     * ADR-223 — l'aperçu du compte rendu d'analyses, rendu par le site lui-même
+     * (son en-tête, son logo) : le PDF revient tel quel, rien n'est gardé au
+     * portail. Une lecture (GET) : aucune clé d'idempotence, rien n'est enregistré.
+     *
+     * @param  array<string, mixed>  $draft
+     * @return array{ok: bool, status: int, message: string, errors: array<string, mixed>, body: ?string}
+     */
+    public function labReportPreview(string $siteCode, array $draft, User $actor): array
+    {
+        $site = $this->site($siteCode);
+        $apiUrl = trim((string) ($site['api_url'] ?? ''));
+        $token = trim((string) ($site['api_token'] ?? ''));
+        $failure = fn (string $message, int $status = 502, array $errors = []) => ['ok' => false, 'status' => $status, 'message' => $message, 'errors' => $errors, 'body' => null];
+
+        if ($apiUrl === '' || $token === '') {
+            return $failure('L’URL ou le jeton API de ce site n’est pas configuré.');
+        }
+
+        // Un interrupteur part en 1 / 0, que la validation « boolean » du site accepte.
+        $query = array_map(fn ($value) => is_bool($value) ? (int) $value : $value, $draft);
+
+        try {
+            $response = Http::withToken($token)
+                ->withHeaders([
+                    // JSON d'abord : un refus du site revient en JSON, un aperçu reste un PDF.
+                    'Accept' => 'application/json, application/pdf',
+                    'X-Request-UUID' => (string) Str::uuid(),
+                    'X-Rivo-Actor-UUID' => $actor->uuid,
+                    'X-Rivo-Actor-Name' => $actor->name,
+                    'X-Rivo-Actor-Permissions' => $actor->effectivePermissionNames()->implode(','),
+                ])
+                ->timeout(max(10, (int) config('rivo.site_api.timeout', 5)))
+                ->get(rtrim($apiUrl, '/').'/super-admin/app-settings/lab-report-preview', $query);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return $failure('Le site ne répond pas actuellement : l’aperçu n’a pas pu être rendu.');
+        }
+
+        if (! $response->successful() || ! str_starts_with((string) $response->header('Content-Type'), 'application/pdf')) {
+            $json = $response->json();
+
+            return $failure(
+                is_array($json) && filled($json['message'] ?? null) ? (string) $json['message'] : 'Le site a refusé de rendre l’aperçu.',
+                $response->status() === 422 ? 422 : 502,
+                is_array($json) && is_array($json['errors'] ?? null) ? $json['errors'] : [],
+            );
+        }
+
+        return ['ok' => true, 'status' => 200, 'message' => '', 'errors' => [], 'body' => $response->body()];
+    }
+
     /** Le fichier part tel quel, en multipart, jamais converti. @return array<string, mixed> */
     public function storeAppSettingAsset(string $siteCode, string $kind, UploadedFile $file, User $actor): array
     {
@@ -429,6 +509,50 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'POST', 'super-admin/app-settings/maintenance/lift', ['reason' => $reason], $actor);
     }
 
+    /**
+     * ADR-222 — les réglages de l'assistant IA de chaque site.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function assistantSettingsForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/assistant-settings', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * La clé éventuelle part dans le corps, de serveur à serveur ; le site ne la renvoie jamais.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function updateAssistantSettings(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/assistant-settings', $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function removeAssistantKey(string $siteCode, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/assistant-settings/key', [], $actor);
+    }
+
+    /**
+     * Un essai réel du fournisseur, qui peut prendre le délai réglé : attendu plus
+     * longtemps qu'un appel ordinaire, et jamais relancé (chaque essai est facturé).
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function testAssistantConnection(string $siteCode, array $data, User $actor): array
+    {
+        $timeout = min(130, max(15, (int) ($data['timeout_seconds'] ?? 60) + 10));
+
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/assistant-settings/test', $data, $actor, timeout: $timeout, attempts: 1);
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function usersForAllSites(User $actor, array $query = []): array
     {
@@ -465,6 +589,24 @@ class PortalSiteApiClient
             ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/reports/overview', ['days' => $days], $actor))
             ->values()
             ->all();
+    }
+
+    /**
+     * Le rapport d'un site précis, utilisé par son espace opérationnel dans le
+     * portail. La résolution du site et la normalisation ONLINE/OFFLINE restent
+     * centralisées ici : le contrôleur ne connaît ni URL ni jeton.
+     *
+     * @return array<string, mixed>
+     */
+    public function reportForSite(string $siteCode, User $actor, int $days): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'GET',
+            'super-admin/reports/overview',
+            ['days' => $days],
+            $actor,
+        );
     }
 
     /**
@@ -664,6 +806,18 @@ class PortalSiteApiClient
             ->all();
     }
 
+    /** Les listes de choix du formulaire d'une désignation, sur un site. */
+    public function catalogOptions(string $siteCode, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/catalog/options', [], $actor);
+    }
+
+    /** Une désignation d'un site, archivée comprise, avec son historique tarifaire. */
+    public function catalogItem(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/catalog/'.$uuid, [], $actor);
+    }
+
     /** @param array<string, mixed> $data */
     public function createCatalogItem(string $siteCode, array $data, User $actor): array
     {
@@ -722,6 +876,22 @@ class PortalSiteApiClient
             'POST',
             'super-admin/catalog/bulk/restore',
             ['uuids' => $uuids],
+            $actor,
+        );
+    }
+
+    /**
+     * ADR-072 / ADR-142 / ADR-169 — le matériel habituel d'un acte.
+     *
+     * @param  array<int, array{medicine_uuid: string, default_quantity: int|string}>  $consumables
+     */
+    public function syncCatalogCareConsumables(string $siteCode, string $uuid, array $consumables, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'PUT',
+            'super-admin/catalog/'.$uuid.'/care-consumables',
+            ['consumables' => $consumables],
             $actor,
         );
     }
@@ -1050,6 +1220,12 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'GET', $path, [], $actor);
     }
 
+    /** @return array<string, mixed> ADR-236 — vider la corbeille d'un site ; une seule tentative, délai allongé. */
+    public function emptyTrash(string $siteCode, array $filters, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/trash', $filters, $actor, timeout: 60, attempts: 1);
+    }
+
     /**
      * @param  array<int, string>  $supplierUuids
      */
@@ -1261,7 +1437,7 @@ class PortalSiteApiClient
     }
 
     /** @return array<string, mixed> */
-    private function request(array $site, string $method, string $path, array $payload, User $actor, ?UploadedFile $file = null, string $fileField = 'file'): array
+    private function request(array $site, string $method, string $path, array $payload, User $actor, ?UploadedFile $file = null, string $fileField = 'file', ?int $timeout = null, ?int $attempts = null): array
     {
         $identity = ['code' => $site['code'], 'name' => $site['name']];
         $apiUrl = trim((string) ($site['api_url'] ?? ''));
@@ -1289,8 +1465,8 @@ class PortalSiteApiClient
                     'X-Rivo-Actor-Name' => $actor->name,
                     'X-Rivo-Actor-Permissions' => $actor->effectivePermissionNames()->implode(','),
                 ])
-                ->timeout(max(1, (int) config('rivo.site_api.timeout', 5)))
-                ->retry(max(1, (int) config('rivo.site_api.retry_times', 2)), 150, throw: false);
+                ->timeout(max(1, $timeout ?? (int) config('rivo.site_api.timeout', 5)))
+                ->retry(max(1, $attempts ?? (int) config('rivo.site_api.retry_times', 2)), 150, throw: false);
 
             if ($method !== 'GET') {
                 $pending = $pending->withHeaders(['Idempotency-Key' => (string) Str::uuid()]);

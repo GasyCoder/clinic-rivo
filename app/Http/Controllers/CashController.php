@@ -13,6 +13,7 @@ use App\Models\CashSession;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
+use App\Services\StaffDebts\StaffDebtDirectory;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,7 +29,11 @@ class CashController extends Controller
      */
     public function index(Request $request): Response
     {
-        $registers = CashRegister::query()->where('active', true)->orderBy('name')->get();
+        $registers = CashRegister::query()
+            ->where('active', true)
+            ->with('assignedUser:id,name')
+            ->orderBy('name')
+            ->get();
 
         if ($registers->isEmpty()) {
             // No register configured at all keeps the exact legacy, unnamed
@@ -69,6 +74,10 @@ class CashController extends Controller
                 return [
                     'uuid' => $register->uuid,
                     'name' => $register->name,
+                    'color' => $register->color,
+                    'opening_fund_amount' => $register->opening_fund_amount,
+                    'assigned_user_name' => $register->assignedUser?->name,
+                    'is_assigned_to_me' => $register->isAssignedTo($request->user()),
                     'is_open' => $session?->status === CashSessionStatus::Open,
                     'is_locked' => $session?->status === CashSessionStatus::Locked,
                     // Only the opener can resume/consult it — a session opened
@@ -82,6 +91,14 @@ class CashController extends Controller
 
     public function show(Request $request, CashRegister $cashRegister): Response|RedirectResponse
     {
+        $cashRegister->loadMissing('assignedUser:id,name');
+
+        if (! $cashRegister->isAssignedTo($request->user())) {
+            return redirect()->route('cash.index')
+                ->with('status', "La caisse « {$cashRegister->name} » est attribuée à {$cashRegister->assignedUser?->name}. Elle ne peut être ouverte que par son titulaire.")
+                ->with('status_type', 'warning');
+        }
+
         $isLocked = CashSession::query()
             ->where('active_key', CashSession::activeKeyFor($cashRegister))
             ->where('status', CashSessionStatus::Locked->value)
@@ -221,7 +238,13 @@ class CashController extends Controller
             ->get();
 
         return Inertia::render('Cash/Show', [
-            'cashRegister' => $cashRegister ? ['uuid' => $cashRegister->uuid, 'name' => $cashRegister->name] : null,
+            'cashRegister' => $cashRegister ? [
+                'uuid' => $cashRegister->uuid,
+                'name' => $cashRegister->name,
+                'color' => $cashRegister->color,
+                'opening_fund_amount' => $cashRegister->opening_fund_amount,
+                'assigned_user_name' => $cashRegister->assignedUser?->name,
+            ] : null,
             'cashSession' => $session,
             'blockingSession' => $blockingSession,
             'summary' => $summary,
@@ -236,6 +259,8 @@ class CashController extends Controller
             'recentPayments' => $recentPayments,
             'recentSessions' => $recentSessions,
             'pharmacyLookup' => $this->pharmacyLookup($request),
+            // ADR-228 — les remboursements en espèces des dettes du personnel : seule la Caisse encaisse.
+            'staffDebts' => $request->user()->can('staff_debts.collect') ? app(StaffDebtDirectory::class)->forCash($request->user()) : null,
         ]);
     }
 

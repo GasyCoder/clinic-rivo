@@ -9,13 +9,13 @@ const handle = fs.readFileSync('resources/js/Components/Layout/SidebarResizeHand
 const layout = fs.readFileSync('resources/js/Layouts/AppLayout.vue', 'utf8');
 
 test('le menu du portail est classé en blocs repliables sans changer les destinations', () => {
-    for (const heading of ['Établissements', 'Finances', 'Référentiels', 'Pharmacie & stocks', 'Organisation', 'Accès & système']) {
+    for (const heading of ['Établissements', 'Finances', 'Référentiels', 'Laboratoire', 'Pharmacie & stocks', 'Organisation', 'Accès & système']) {
         assert.ok(menu.includes(`{ heading: '${heading}' }`), `bloc absent : ${heading}`);
     }
 
     for (const route of [
         '/super-admin/cash-registers', '/super-admin/payment-methods', '/super-admin/workspaces/finance',
-        '/super-admin/workspaces/tariffs', '/super-admin/stock', '/super-admin/workspaces/hr',
+        '/super-admin/workspaces/tariffs', '/super-admin/pharmacy', '/super-admin/stock', '/super-admin/workspaces/hr',
         '/super-admin/workspaces/users', '/super-admin/workspaces/roles', '/super-admin/settings',
     ]) {
         assert.ok(menu.includes(`link: '${route}'`), `destination perdue : ${route}`);
@@ -33,7 +33,16 @@ test('le bloc et le site actifs se déplient et une seule sous-destination est a
     assert.match(admin, /watch\(activeSectionKey,[\s\S]*?\{ immediate: true \}\)/);
     assert.match(admin, /watch\(activeSiteKey,[\s\S]*?\{ immediate: true \}\)/);
     assert.match(admin, /child\.code === 'OVERVIEW'[\s\S]*?!hasModuleQuery\.value/);
-    assert.match(admin, /\['HR', 'PHARMACY'\]\.includes\(child\.code\)/);
+    assert.doesNotMatch(admin, /\['HR', 'PHARMACY'\]\.includes\(child\.code\)/);
+    assert.match(menu, /moduleSitePaths\('laboratoire'\)/);
+    assert.match(menu, /moduleSitePaths\('pharmacie'\)/);
+    assert.match(menu, /moduleSitePaths\('rh'\)/);
+});
+
+test('les espaces multi-sites ont une seule entrée canonique hors des arbres de sites', () => {
+    assert.match(menu, /text: 'Laboratoires des sites'[\s\S]*?link: '\/super-admin\/laboratory'/);
+    assert.match(menu, /text: 'Pharmacies des sites'[\s\S]*?link: '\/super-admin\/pharmacy'/);
+    assert.match(menu, /text: 'Ressources humaines'[\s\S]*?link: '\/super-admin\/workspaces\/hr'/);
 });
 
 test('la sidebar du portail est un panneau redimensionnable accessible et mémorisé', () => {

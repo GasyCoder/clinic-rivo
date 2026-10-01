@@ -6,11 +6,13 @@ import {
     Building2,
     ChevronDown,
     FileText,
+    FlaskConical,
     Pill,
     ShieldCheck,
     Wallet,
 } from 'lucide-vue-next';
 import { menuMatchDepth } from '@/utilities/menuActivation';
+import { menuLinkPrefetch, warmMenuItem } from '@/utilities/menuPreload';
 import { lucideIcon } from '@/lib/icons';
 
 /**
@@ -35,6 +37,7 @@ const sectionIcons = {
     Établissements: Building2,
     Finances: Wallet,
     Référentiels: FileText,
+    Laboratoire: FlaskConical,
     'Pharmacie & stocks': Pill,
     Organisation: Briefcase,
     'Accès & système': ShieldCheck,
@@ -88,9 +91,7 @@ const isChildActive = (item, child) => {
     const childPath = child.link.split('?')[0];
 
     return page.url === child.link
-        || (child.code === 'OVERVIEW' && currentPath.value === childPath && !hasModuleQuery.value)
-        || (['HR', 'PHARMACY'].includes(child.code)
-            && (currentPath.value === childPath || currentPath.value.startsWith(`${childPath}/`)));
+        || (child.code === 'OVERVIEW' && currentPath.value === childPath && !hasModuleQuery.value);
 };
 </script>
 
@@ -193,12 +194,16 @@ const isChildActive = (item, child) => {
                         <Link
                             v-else
                             :href="item.link"
+                            v-bind="menuLinkPrefetch(item)"
                             :aria-current="isActive(item) ? 'page' : undefined"
                             :class="[
                                 'group relative flex items-center gap-2 rounded-md px-2 py-2 transition-colors',
                                 isActive(item) ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
                             ]"
                             @click="emit('navigate')"
+                            @mouseenter="warmMenuItem(item)"
+                            @focus="warmMenuItem(item, { data: true })"
+                            @touchstart.passive="warmMenuItem(item, { data: true })"
                         >
                             <span v-if="isActive(item)" class="absolute inset-y-1 start-0 w-0.5 rounded-e-full bg-primary" aria-hidden="true" />
                             <span class="grid size-7 shrink-0 place-items-center"><component :is="item.icon" class="size-4" /></span>

@@ -9,6 +9,8 @@ use App\Http\Controllers\Administration\UserController as AdministrationUserCont
 use App\Http\Controllers\AnesthesiaClearanceController;
 use App\Http\Controllers\AnesthesiaController;
 use App\Http\Controllers\AnesthesiaWorkspaceController;
+use App\Http\Controllers\Assistant\AssistantController;
+use App\Http\Controllers\Assistant\AssistantConversationController;
 use App\Http\Controllers\AttentionDigestController;
 use App\Http\Controllers\Auth\AccountActivationController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
@@ -18,6 +20,7 @@ use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BrandingAssetController;
 use App\Http\Controllers\CareController;
 use App\Http\Controllers\CashController;
+use App\Http\Controllers\CashStaffDebtController;
 use App\Http\Controllers\DeathRegisterController;
 use App\Http\Controllers\DiagnosticCatalogSearchController;
 use App\Http\Controllers\EpisodeController;
@@ -29,11 +32,12 @@ use App\Http\Controllers\HospitalizationController;
 use App\Http\Controllers\HospitalStayOrderController;
 use App\Http\Controllers\HospitalStaySelectionController;
 use App\Http\Controllers\InvoiceDiscountController;
-use App\Http\Controllers\LaboratoryController;
+use App\Http\Controllers\LabResultPdfController;
+use App\Http\Controllers\LabResultsController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
-use App\Http\Controllers\MaternityPrescriptionController;
 use App\Http\Controllers\MaternityNewbornController;
+use App\Http\Controllers\MaternityPrescriptionController;
 use App\Http\Controllers\Medicine\ClinicalProtocolController;
 use App\Http\Controllers\Medicine\ImagingReportTemplateController;
 use App\Http\Controllers\Medicine\ParaclinicalRequestDirectoryController;
@@ -53,11 +57,13 @@ use App\Http\Controllers\Reception\EpisodeFinancialContextController;
 use App\Http\Controllers\Reception\EpisodeNextStepController;
 use App\Http\Controllers\Reception\EpisodeServiceController;
 use App\Http\Controllers\Reception\EpisodeSettlementController;
+use App\Http\Controllers\Reception\LabResultHandoverController;
 use App\Http\Controllers\Reception\ReceptionEstimateController;
 use App\Http\Controllers\Reception\ReferralController;
 use App\Http\Controllers\Reception\ReferrerLookupController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\RobotsTxtController;
+use App\Http\Controllers\StaffDebtController;
 use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
 use App\Http\Controllers\SuperAdmin\AnalysisCatalogController as SuperAdminAnalysisCatalogController;
 use App\Http\Controllers\SuperAdmin\AppSettingsController as SuperAdminAppSettingsController;
@@ -76,8 +82,10 @@ use App\Http\Controllers\SuperAdmin\PharmacySupplierController as SuperAdminPhar
 use App\Http\Controllers\SuperAdmin\ProfessionalEmailController as SuperAdminProfessionalEmailController;
 use App\Http\Controllers\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\SuperAdmin\SiteHumanResourcesController;
+use App\Http\Controllers\SuperAdmin\SiteLaboratoryController;
 use App\Http\Controllers\SuperAdmin\SitePartnersController;
 use App\Http\Controllers\SuperAdmin\SitePharmacyController;
+use App\Http\Controllers\SuperAdmin\SiteStaffDebtsController;
 use App\Http\Controllers\SuperAdmin\StaffAccessController as SuperAdminStaffAccessController;
 use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
 use App\Http\Controllers\SuperAdmin\UserController as SuperAdminUserController;
@@ -109,6 +117,7 @@ use App\Http\Controllers\Webmail\WebmailController;
 use App\Http\Controllers\Webmail\WebmailLabelController;
 use App\Http\Controllers\Webmail\WebmailSessionController;
 use App\Http\Controllers\Webmail\WebmailTemplateController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', HomeController::class)->name('dashboard')->middleware('account.deployment');
@@ -154,7 +163,27 @@ Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.
         ->middleware('throttle:6,1');
     // ADR-191 — taille du texte, animations et contraste propres à ce compte.
     Route::put('/profil/apparence', [ProfileController::class, 'updateAppearance'])->name('profile.appearance.update');
+
+    // ADR-228 — « Mes dettes » : chacun demande une dette au DG et suit la sienne.
+    Route::get('/mes-dettes', [StaffDebtController::class, 'index'])->name('my-debts.index')->middleware('can:staff_debts.request');
+    Route::post('/mes-dettes', [StaffDebtController::class, 'store'])->name('my-debts.store')->middleware(['can:staff_debts.request', 'throttle:10,1']);
+    Route::post('/mes-dettes/{staffDebt}/retirer', [StaffDebtController::class, 'withdraw'])->name('my-debts.withdraw')->middleware('can:staff_debts.request');
 });
+
+// ADR-222 — l'assistant d'aide au logiciel, sur un site comme sur le portail : une
+// bulle déplaçable posée sur chaque page (AssistantWidget), qui n'appelle que ces
+// routes JSON. Il explique l'application, ne modifie rien et ne voit aucune donnée
+// de patient.
+Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.deployment', 'can:ai_assistant.use'])
+    ->prefix('assistant')
+    ->name('assistant.')
+    ->group(function () {
+        Route::get('/suggestions', [AssistantController::class, 'suggestions'])->name('suggestions');
+        Route::post('/messages', [AssistantController::class, 'ask'])->middleware('throttle:assistant-ai')->name('ask');
+        Route::get('/conversations', [AssistantConversationController::class, 'index'])->name('conversations.index');
+        Route::get('/conversations/{conversation}', [AssistantConversationController::class, 'show'])->whereUuid('conversation')->name('conversations.show');
+        Route::delete('/conversations/{conversation}', [AssistantConversationController::class, 'destroy'])->whereUuid('conversation')->name('conversations.destroy');
+    });
 
 // ADR-195 — la messagerie : les boîtes pro, chez l'hébergeur (IMAP/SMTP). Sa propre boîte
 // avec `webmail.view`, celle d'un autre employé avec `webmail.open_any` — sur un site, ou
@@ -194,6 +223,8 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
     ->name('super-admin.')
     ->group(function () {
         Route::get('/trash', [SuperAdminTrashController::class, 'index'])->name('trash.index')->middleware('can:trash.view');
+        // ADR-236 — vider la corbeille des sites choisis (ce qui n'a servi nulle part).
+        Route::post('/trash/empty', [SuperAdminTrashController::class, 'empty'])->name('trash.empty')->middleware('can:trash.force_delete');
         Route::delete('/trash/{site}/{category}/{uuid}', [SuperAdminTrashController::class, 'destroy'])->name('trash.force-delete')->middleware('can:trash.force_delete');
         Route::post('/trash/{site}/{category}/{uuid}/restore', [SuperAdminTrashController::class, 'restore'])->name('trash.restore')->middleware('can:trash.restore');
 
@@ -306,15 +337,39 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         // ADR-133 — seuils des patients VIP, réglés site par site par l'API du site.
         // ADR-184 — paramètres de l'application, site par site et pour le portail.
         Route::get('/settings', [SuperAdminAppSettingsController::class, 'index'])->name('settings.index')->middleware('can:settings.view');
-        // ADR-191 — une page par module ; « /settings » ouvre le premier.
+        // Les réglages techniques restent ici. Les réglages métier ont une
+        // seule adresse canonique dans leur module ; les anciennes adresses
+        // /settings/{section} sont conservées comme redirections.
         Route::get('/settings/{section}', [SuperAdminAppSettingsController::class, 'index'])
             ->whereIn('section', SuperAdminAppSettingsController::SECTIONS)
             ->name('settings.section')
+            ->middleware('can:settings.view');
+        Route::get('/finance/settings/{section}', [SuperAdminAppSettingsController::class, 'finance'])
+            ->whereIn('section', SuperAdminAppSettingsController::CONTEXT_SECTIONS['finance'])
+            ->name('settings.finance')
+            ->middleware('can:settings.view');
+        Route::get('/human-resources/settings/{section}', [SuperAdminAppSettingsController::class, 'humanResources'])
+            ->whereIn('section', SuperAdminAppSettingsController::CONTEXT_SECTIONS['hr'])
+            ->name('settings.hr')
+            ->middleware('can:settings.view');
+        Route::get('/laboratory/settings/{section}', [SuperAdminAppSettingsController::class, 'laboratory'])
+            ->whereIn('section', SuperAdminAppSettingsController::CONTEXT_SECTIONS['laboratory'])
+            ->name('settings.laboratory')
+            ->middleware('can:settings.view');
+        Route::get('/sites/{site}/organization/settings/{section}', [SuperAdminAppSettingsController::class, 'organization'])
+            ->whereIn('section', SuperAdminAppSettingsController::CONTEXT_SECTIONS['organization'])
+            ->name('settings.organization')
+            ->middleware('can:settings.view');
+        Route::get('/sites/{site}/patients/settings/{section}', [SuperAdminAppSettingsController::class, 'patients'])
+            ->whereIn('section', SuperAdminAppSettingsController::CONTEXT_SECTIONS['patients'])
+            ->name('settings.patients')
             ->middleware('can:settings.view');
         Route::put('/settings', [SuperAdminAppSettingsController::class, 'update'])->name('settings.update')->middleware('can:settings.update');
         Route::delete('/settings/reset', [SuperAdminAppSettingsController::class, 'reset'])->name('settings.reset')->middleware('can:settings.update');
         Route::post('/settings/assets/{kind}', [SuperAdminAppSettingsController::class, 'storeAsset'])->name('settings.assets.store')->middleware('can:settings.update');
         Route::delete('/settings/assets/{kind}', [SuperAdminAppSettingsController::class, 'destroyAsset'])->name('settings.assets.destroy')->middleware('can:settings.update');
+        // ADR-223 — l'aperçu du compte rendu d'analyses d'un site, rendu par son API.
+        Route::get('/settings/lab-report-preview', [SuperAdminAppSettingsController::class, 'labReportPreview'])->name('settings.lab-report-preview')->middleware(['can:settings.view', 'throttle:40,1']);
         // ADR-192 — les coupons de remise d'un site.
         Route::post('/settings/coupons', [SuperAdminAppSettingsController::class, 'storeCoupon'])->name('settings.coupons.store')->middleware('can:discount_coupons.create');
         Route::post('/settings/coupons/{coupon}/archive', [SuperAdminAppSettingsController::class, 'archiveCoupon'])->name('settings.coupons.archive')->middleware('can:discount_coupons.archive');
@@ -322,6 +377,10 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         // ADR-193 — la maintenance d'un site, par son API.
         Route::put('/settings/maintenance', [SuperAdminAppSettingsController::class, 'updateMaintenance'])->name('settings.maintenance.update')->middleware('can:app_maintenance.update');
         Route::post('/settings/maintenance/lift', [SuperAdminAppSettingsController::class, 'liftMaintenance'])->name('settings.maintenance.lift')->middleware('can:app_maintenance.update');
+        // ADR-222 — l'assistant IA d'un site ou du portail : réglages, clé, test de connexion.
+        Route::put('/settings/assistant', [SuperAdminAppSettingsController::class, 'updateAssistant'])->name('settings.assistant.update')->middleware('can:ai_settings.update');
+        Route::delete('/settings/assistant/key', [SuperAdminAppSettingsController::class, 'removeAssistantKey'])->name('settings.assistant.key.destroy')->middleware('can:ai_settings.update');
+        Route::post('/settings/assistant/test', [SuperAdminAppSettingsController::class, 'testAssistant'])->name('settings.assistant.test')->middleware(['can:ai_settings.update', 'throttle:10,1']);
         // ADR-190 — adresses email professionnelles : le portail seul parle à l'hébergeur.
         // ADR-197 — l'accès du personnel : adresse pro + compte RIVO en un geste, remis au RH du site.
         Route::get('/staff-access', [SuperAdminStaffAccessController::class, 'index'])->name('staff-access.index')->middleware('can:staff_access.view');
@@ -376,6 +435,8 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::get('/workspaces/tariffs/export', [SuperAdminCatalogController::class, 'export'])->name('tariffs.export')->middleware('can:catalog.tariffs.export');
         Route::get('/workspaces/tariffs/import-template', [SuperAdminCatalogController::class, 'template'])->name('tariffs.import-template')->middleware('can:catalog.tariffs.import');
         Route::post('/workspaces/tariffs/import', [SuperAdminCatalogController::class, 'import'])->name('tariffs.import')->middleware('can:catalog.tariffs.import');
+        Route::get('/workspaces/tariffs/items/create', [SuperAdminCatalogController::class, 'create'])->name('tariffs.items.create')->middleware('can:catalog.items.create');
+        Route::get('/workspaces/tariffs/items/{site}/{catalog}/edit', [SuperAdminCatalogController::class, 'edit'])->name('tariffs.items.edit')->middleware(['can:catalog.items.view', 'can:catalog.tariffs.view']);
         Route::post('/workspaces/tariffs/items', [SuperAdminCatalogController::class, 'store'])->name('tariffs.items.store')->middleware('can:catalog.items.create');
         Route::post('/workspaces/tariffs/items/bulk/archive', [SuperAdminCatalogController::class, 'bulkArchive'])->name('tariffs.items.bulk.archive')->middleware('can:catalog.items.delete');
         Route::post('/workspaces/tariffs/items/bulk/restore', [SuperAdminCatalogController::class, 'bulkRestore'])->name('tariffs.items.bulk.restore')->middleware(['can:trash.restore', 'can:catalog.items.restore']);
@@ -384,6 +445,7 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::post('/workspaces/tariffs/items/{site}/{catalog}/restore', [SuperAdminCatalogController::class, 'restore'])->name('tariffs.items.restore')->middleware(['can:trash.restore', 'can:catalog.items.restore']);
         Route::post('/workspaces/tariffs/items/{site}/{catalog}/tariffs', [SuperAdminCatalogController::class, 'setTariff'])->name('tariffs.values.store');
         Route::post('/workspaces/tariffs/items/{site}/{catalog}/tariffs/archive', [SuperAdminCatalogController::class, 'archiveTariff'])->name('tariffs.values.archive')->middleware('can:catalog.tariffs.archive');
+        Route::put('/workspaces/tariffs/items/{site}/{catalog}/care-consumables', [SuperAdminCatalogController::class, 'syncCareConsumables'])->name('tariffs.items.care-consumables.update')->middleware('can:catalog.items.update');
         Route::post('/workspaces/tariffs/mutual-organizations', [SuperAdminMutualOrganizationController::class, 'store'])->name('tariffs.mutual-organizations.store')->middleware('can:mutual_organizations.create');
         Route::get('/workspaces/tariffs/mutual-organizations/export', [SuperAdminMutualOrganizationController::class, 'export'])->name('tariffs.mutual-organizations.export')->middleware('can:mutual_organizations.export');
         Route::get('/workspaces/tariffs/mutual-organizations/import-template', [SuperAdminMutualOrganizationController::class, 'template'])->name('tariffs.mutual-organizations.import-template')->middleware('can:mutual_organizations.import');
@@ -449,6 +511,14 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::delete('/workspaces/roles/{site}/catalog/{permission}', [SuperAdminRoleController::class, 'destroyPermission'])->name('workspaces.permissions.destroy')->middleware('can:permissions.delete');
 
         Route::get('/workspaces/hr', SuperAdminHumanResourcesController::class)->name('workspaces.hr')->middleware('can:employees.view');
+        // ADR-229 — les dettes du personnel d'un site sont dans Finance : les
+        // anciennes adresses de la rubrique RH (ADR-228) mènent aux mêmes écrans.
+        // Avant le relais RH, qui les prendrait sinon.
+        Route::get('/sites/{site}/rh/dettes/{path?}', function (Request $request, string $site, string $path = '') {
+            $query = $request->getQueryString();
+
+            return redirect('/super-admin/sites/'.rawurlencode($site).'/finance/dettes'.($path !== '' ? '/'.$path : '').($query ? '?'.$query : ''));
+        })->where('path', '.*')->name('sites.hr.staff-debts.legacy');
         // ADR-187 — l'espace RH d'un site, géré depuis le portail par son API :
         // les écrans et les règles de /administration, relayés tels quels.
         Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/sites/{site}/rh/{path?}', SiteHumanResourcesController::class)
@@ -458,10 +528,31 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         // ADR-189 — la Pharmacie d'un site, vue et administrée depuis le portail :
         // les écrans et les règles de /pharmacy, relayés ; les actes physiques
         // restent au site.
+        Route::get('/pharmacy', [SitePharmacyController::class, 'overview'])
+            ->name('pharmacy.index')
+            ->middleware('can:pharmacy.view');
         Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/sites/{site}/pharmacie/{path?}', SitePharmacyController::class)
             ->where('path', '.*')
             ->name('sites.pharmacy')
             ->middleware('can:pharmacy.view');
+        // ADR-215 — le Laboratoire d'un site, vu depuis le portail : les écrans et
+        // les règles de /laboratory, relayés ; les gestes cliniques restent au site.
+        Route::get('/laboratory', [SiteLaboratoryController::class, 'overview'])
+            ->name('laboratory.index')
+            ->middleware('can:laboratory_results.view');
+        Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/sites/{site}/laboratoire/{path?}', SiteLaboratoryController::class)
+            ->where('path', '.*')
+            ->name('sites.laboratory')
+            ->middleware('can:laboratory_results.view');
+        // ADR-229 — les dettes du personnel, dans Finance : tous les sites, puis
+        // les écrans et les règles d'un site, relayés par son API.
+        Route::get('/finance/dettes', [SiteStaffDebtsController::class, 'overview'])
+            ->name('finance.staff-debts.index')
+            ->middleware('can:staff_debts.view');
+        Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/sites/{site}/finance/dettes/{path?}', SiteStaffDebtsController::class)
+            ->where('path', '.*')
+            ->name('sites.staff-debts')
+            ->middleware('can:staff_debts.view');
         // ADR-211 — les Partenaires d'un site, gérés depuis le portail par son API.
         Route::get('/partners', [SitePartnersController::class, 'overview'])
             ->name('partners.index')
@@ -485,6 +576,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/trash', [TrashController::class, 'index'])->name('trash.index')->middleware('can:trash.view');
     Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore')->middleware('can:trash.restore');
 
+    // ADR-229 — les dettes du personnel se gèrent dans Finance, au portail : l'ancienne
+    // rubrique RH (ADR-228) ramène à l'accueil, en le disant. Avant routes/hr.php.
+    Route::get('/administration/dettes/{path?}', fn () => redirect()->route('dashboard')
+        ->with('status', 'Les dettes du personnel se gèrent désormais dans Finance, au portail. Chacun suit les siennes dans « Mes dettes ».'))
+        ->where('path', '.*')
+        ->name('administration.staff-debts.legacy');
     // ADR-187 — l'espace RH, partagé avec l'API du portail (routes/hr.php).
     Route::prefix('administration')->name('administration.')->group(base_path('routes/hr.php'));
     Route::get('/logistics', LogisticsController::class)->name('logistics.index')->middleware('can:logistics.view');
@@ -501,10 +598,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/administration/users/{user}/deactivate', [AdministrationUserController::class, 'deactivate'])->name('administration.users.deactivate')->middleware('can:users.deactivate');
     Route::post('/administration/users/{user}/activate', [AdministrationUserController::class, 'activate'])->name('administration.users.activate')->middleware('can:users.activate');
 
-    // ADR-024 — catalogue et tarifs propres au site. Le serveur central
-    // appliquera ultérieurement ces opérations aux sites via leurs API,
-    // jamais par accès direct aux bases locales.
+    // ADR-024 — catalogue et tarifs propres au site. Le portail les règle par
+    // l'API du site ; les deux affichent le même écran (Pages/Catalog, ADR-044).
     Route::get('/administration/catalog', [AdministrationCatalogController::class, 'index'])->name('administration.catalog.index')->middleware('can:catalog.items.view');
+    // ADR-044, amendement du 2026-09-28 (ter) — une désignation a sa page, au site comme au portail.
+    Route::get('/administration/catalog/create', [AdministrationCatalogController::class, 'create'])->name('administration.catalog.create')->middleware('can:catalog.items.create');
+    Route::get('/administration/catalog/{catalogItem}/edit', [AdministrationCatalogController::class, 'edit'])->whereUuid('catalogItem')->name('administration.catalog.edit')->middleware('can:catalog.items.view');
     Route::post('/administration/catalog', [AdministrationCatalogController::class, 'store'])->name('administration.catalog.store')->middleware('can:catalog.items.create');
     Route::put('/administration/catalog/{catalogItem}', [AdministrationCatalogController::class, 'update'])->name('administration.catalog.update')->middleware('can:catalog.items.update');
     // Le tarif exige create lorsqu'il n'existe pas encore, update sinon :
@@ -579,6 +678,13 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/reception/recommandations', [ReferralController::class, 'index'])
         ->name('reception.referrals.index')
         ->middleware('can:patient_referrals.view');
+    // ADR-216, amendement quater — les résultats validés par le médecin, à remettre au patient.
+    Route::get('/reception/resultats-analyses', [LabResultHandoverController::class, 'index'])
+        ->name('reception.lab-results.index')
+        ->middleware('can:laboratory_results.validated_view');
+    Route::get('/reception/resultats-analyses/{labRequest}/pdf', [LabResultHandoverController::class, 'pdf'])
+        ->name('reception.lab-results.pdf')
+        ->middleware('can:laboratory_results.validated_view');
     Route::post('/reception/recommandations/{referral}/cadeau', [ReferralController::class, 'gift'])
         ->name('reception.referrals.gift')
         ->middleware('can:patient_referrals.gift');
@@ -744,6 +850,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/patients/{patient}/discounts', [PatientDiscountController::class, 'store'])->name('patients.discounts.store')->middleware('can:discounts.approve');
     Route::post('/patient-discounts/{patientDiscount}/cancel', [PatientDiscountController::class, 'cancel'])->name('patient-discounts.cancel')->middleware('can:discounts.approve');
     Route::get('/receipts/{receipt}', [ReceiptController::class, 'show'])->name('receipts.show')->middleware('can:receipts.view');
+    // ADR-228 — la Caisse encaisse le remboursement en espèces d'une dette du personnel.
+    Route::post('/cash/staff-debts/{staffDebt}/repayments', [CashStaffDebtController::class, 'collect'])->name('cash.staff-debts.collect')->middleware('can:staff_debts.collect');
+    Route::post('/cash/staff-debt-repayments/{staffDebtRepayment}/cancel', [CashStaffDebtController::class, 'reverse'])->name('cash.staff-debts.reverse')->middleware('can:staff_debts.collect');
+    Route::get('/cash/staff-debt-repayments/{staffDebtRepayment}/recu', [CashStaffDebtController::class, 'receipt'])->name('cash.staff-debts.receipt')->middleware('can:staff_debts.collect');
 
     Route::post('/patients/{patient}/episodes', [EpisodeController::class, 'store'])->name('episodes.store')->middleware('can:episodes.create');
 
@@ -816,6 +926,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // précise : `laboratory_orders.view` suffit à entrer, et chaque famille
     // est ensuite filtrée par son propre droit dans le contrôleur.
     Route::get('/medicine/demandes-examens', [ParaclinicalRequestDirectoryController::class, 'index'])->name('medicine.paraclinical-requests.index')->middleware('can:paraclinical_requests.view');
+    // ADR-216 — les résultats d'analyses envoyés au médecin, et l'ouverture
+    // confirmée d'un résultat adressé à un confrère.
+    Route::get('/resultats-analyses/{labRequest}', [LabResultsController::class, 'show'])->name('lab-results.show')->middleware('can:laboratory_orders.view');
+    Route::get('/resultats-analyses/{labRequest}/pdf', [LabResultPdfController::class, 'physician'])->name('lab-results.pdf')->middleware('can:laboratory_orders.view');
+    Route::post('/resultats-analyses/{labRequest}/valider', [LabResultsController::class, 'approve'])->name('lab-results.approve')->middleware('can:laboratory_results.approve');
+    Route::post('/resultats-analyses/{labRequest}/ouvrir', [LabResultsController::class, 'open'])->name('lab-results.open')->middleware('can:laboratory_orders.view');
 
     // ADR-113 — Hospitalisation : patients hospitalisés et fiche de régime.
     Route::get('/hospitalisation', [HospitalizationController::class, 'index'])->name('hospitalization.index')->middleware('can:hospitalization.view');
@@ -975,10 +1091,8 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/medicine/orientations/{episodeOrientation}/medical-referrals/{medicalReferral}/print', [MedicineController::class, 'printMedicalReferral'])->name('medicine.medical-referrals.print')->middleware('can:transfer.request');
     Route::post('/medicine/orientations/{episodeOrientation}/discharge', [MedicineController::class, 'discharge'])->name('medicine.discharge.store')->middleware('can:medical_discharge.create');
 
-    // Laboratoire — minimal, côté suivi/résultat uniquement : la demande
-    // vient de Médecine (CreateLabRequestAction), l'orientation existe déjà.
-    Route::get('/laboratory', [LaboratoryController::class, 'index'])->name('laboratory.index')->middleware('can:laboratory_results.view');
-    Route::post('/laboratory/items/{labRequestItem}/result', [LaboratoryController::class, 'recordResult'])->name('laboratory.items.result')->middleware('can:laboratory_results.create');
+    // ADR-213 / ADR-214 / ADR-215 — le Laboratoire, partagé avec l'API du portail (routes/laboratory.php).
+    Route::prefix('laboratory')->name('laboratory.')->group(base_path('routes/laboratory.php'));
 
     // Espace anesthésiste autonome. Il partage les mêmes dossiers cliniques
     // avec Chirurgie mais n'accorde jamais implicitement surgery.view.

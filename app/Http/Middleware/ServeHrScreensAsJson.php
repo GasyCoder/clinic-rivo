@@ -40,6 +40,9 @@ class ServeHrScreensAsJson
         $errors = $session->pull('errors');
         $status = $session->pull('status');
         $error = $session->pull('error');
+        // ADR-220 — le ton du message et le rapport d'une action groupée suivent jusqu'au portail.
+        $statusType = $session->pull('status_type');
+        $bulkReport = $session->pull('bulk_report');
 
         if ($errors instanceof ViewErrorBag && $errors->any()) {
             return new JsonResponse([
@@ -56,6 +59,8 @@ class ServeHrScreensAsJson
             'redirect' => $path.($query ? '?'.$query : ''),
             'status' => is_string($status) ? $status : null,
             'error' => is_string($error) ? $error : null,
+            'status_type' => is_string($statusType) ? $statusType : null,
+            'bulk_report' => is_array($bulkReport) ? $bulkReport : null,
         ]);
     }
 }

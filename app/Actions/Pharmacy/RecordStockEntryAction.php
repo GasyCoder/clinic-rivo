@@ -52,6 +52,15 @@ class RecordStockEntryAction
                 ]);
             }
 
+            // Un lot déjà périmé n'entre jamais en stock : il fausserait le FEFO et resterait
+            // en rayon sans pouvoir servir (ADR-036). Le jour de péremption reste utilisable.
+            $receivedOn = \Carbon\CarbonImmutable::parse($data['received_at'] ?? now()->toDateString())->startOfDay();
+            if (\Carbon\CarbonImmutable::parse($data['expires_at'])->startOfDay()->lt($receivedOn)) {
+                throw ValidationException::withMessages([
+                    'expires_at' => sprintf('Ce lot est déjà périmé (péremption le %s) : il n’entre pas en stock.', \Carbon\CarbonImmutable::parse($data['expires_at'])->format('d/m/Y')),
+                ]);
+            }
+
             $operation = PharmacyStockEntryOperation::from($data['operation']);
             $supplier = filled($data['supplier_uuid'] ?? null)
                 ? MedicineSupplier::query()->where('uuid', $data['supplier_uuid'])->lockForUpdate()->firstOrFail()

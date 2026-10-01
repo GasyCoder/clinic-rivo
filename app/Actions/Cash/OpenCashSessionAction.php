@@ -33,6 +33,18 @@ class OpenCashSessionAction
                         'cash_register_uuid' => 'Cette caisse n’est plus disponible. Choisissez-en une autre.',
                     ]);
                 }
+
+                if (! $register->isAssignedTo($actor)) {
+                    $register->loadMissing('assignedUser:id,name');
+
+                    throw ValidationException::withMessages([
+                        'cash_register_uuid' => "La caisse « {$register->name} » est attribuée à {$register->assignedUser?->name}. Choisissez une caisse qui vous est attribuée ou une caisse sans titulaire.",
+                    ]);
+                }
+
+                if ($register->opening_fund_amount !== null) {
+                    $openingAmount = $register->opening_fund_amount;
+                }
             } elseif (CashRegister::query()->exists()) {
                 // At least one register is configured (whether or not it's
                 // currently active) — never silently fall through to the

@@ -11,6 +11,7 @@ use App\Services\Webmail\MailServerFactory;
 use App\Services\Webmail\WebmailUnavailable;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\Webmail\FakeMailServerFactory;
+use Tests\Support\Webmail\KeptOpenMailServerFactory;
 use Tests\TestCase;
 
 /**
@@ -21,7 +22,7 @@ use Tests\TestCase;
  */
 class KeepAliveTest extends TestCase
 {
-    private const ADDRESS = 'soa.rakoto@cbdc.mg';
+    private const ADDRESS = 'soa.rakoto@cliniquesaintgeorges.mg';
 
     private const PASSWORD = 'secret-boite';
 
@@ -198,6 +199,106 @@ class KeepAliveTest extends TestCase
         pcntl_waitpid($child, $status);
     }
 
+    /**
+     * Constaté le 2026-09-30 : la box avait oublié la connexion muette depuis sept minutes ;
+     * `alive()` la croyait ouverte, et chaque clic attendait 40 s pour lire « le serveur ne
+     * répond pas ». Restée muette plus d'un battement, elle est vérifiée d'un NOOP avant
+     * d'être réutilisée, et rouverte s'il ne revient pas.
+     */
+    public function test_a_connection_forgotten_by_the_router_is_checked_then_replaced_before_it_is_reused(): void
+    {
+        $factory = $this->keptOpenFactory();
+        $worker = $this->keptOpenWorker($factory, heartbeat: 0);
+
+        $this->assertTrue($this->exchange($worker, [['method' => 'messages', 'args' => ['INBOX', 1, 25, []]]])['replies'][0]['ok']);
+        $factory->opened[0]->forgotten = true;
+
+        $later = $this->exchange($worker, [['method' => 'messages', 'args' => ['INBOX', 1, 25, []]]]);
+
+        $this->assertTrue($later['replies'][0]['ok'], 'le clic suivant lit la boîte, sans attendre le délai');
+        $this->assertSame('Résultats', $later['replies'][0]['value']['items'][0]['subject']);
+        $this->assertCount(2, $factory->opened, 'une nouvelle connexion');
+        $this->assertSame(1, $factory->opened[0]->calls, 'la connexion oubliée n’a plus servi');
+        $this->assertTrue($factory->opened[0]->disconnected);
+    }
+
+    public function test_a_connection_that_failed_is_never_used_again(): void
+    {
+        $factory = $this->keptOpenFactory();
+        $worker = $this->keptOpenWorker($factory);
+
+        $this->assertTrue($this->exchange($worker, [['method' => 'folders', 'args' => [true]]])['replies'][0]['ok']);
+        // Oubliée juste après : trop récente pour être vérifiée, la lecture échoue au bout du délai.
+        $factory->opened[0]->forgotten = true;
+
+        $request = $this->exchange($worker, [
+            ['method' => 'messages', 'args' => ['INBOX', 1, 25, []]],
+            ['method' => 'folders', 'args' => [true]],
+        ]);
+
+        $this->assertSame('unavailable', $request['replies'][0]['error']);
+        $this->assertTrue($request['replies'][1]['ok'], 'la demande suivante passe par une connexion neuve');
+        $this->assertCount(2, $factory->opened);
+
+        $next = $this->exchange($worker, [['method' => 'messages', 'args' => ['INBOX', 1, 25, []]]]);
+        $this->assertTrue($next['replies'][0]['ok'], 'et le clic suivant aussi : l’échec n’est pas gardé');
+        $this->assertCount(2, $factory->opened);
+    }
+
+    public function test_between_clicks_the_heartbeat_replaces_a_forgotten_connection(): void
+    {
+        $this->requireFork();
+        $factory = $this->keptOpenFactory();
+        $factory->forgotten = [true];
+        $path = $this->pool()->socketPath(self::ADDRESS, self::PASSWORD);
+        $report = $this->directory.'/heartbeat.json';
+
+        $child = $this->fork(function () use ($factory, $path, $report): void {
+            $this->keptOpenWorker($factory, heartbeat: 1, idle: 3, path: $path)->run();
+            file_put_contents($report, json_encode([
+                'opened' => count($factory->opened),
+                'first_dropped' => $factory->opened[0]->disconnected,
+                'second_probes' => ($factory->opened[1] ?? null)?->probes,
+            ]));
+        });
+
+        pcntl_waitpid($child, $status);
+        $result = json_decode((string) @file_get_contents($report), true);
+
+        $this->assertSame(2, $result['opened'] ?? null, 'rouverte au battement, sans attendre un clic');
+        $this->assertTrue($result['first_dropped']);
+        $this->assertGreaterThanOrEqual(1, $result['second_probes'], 'la nouvelle connexion est entretenue à son tour');
+        $this->assertFileDoesNotExist($path, 'et le processus s’arrête toujours seul, faute de clic');
+    }
+
+    /**
+     * Constaté le 2026-09-30 : lancé par `php artisan serve`, le processus gardait la prise
+     * d'écoute du port ; lancé par un script, le tube que ce script attendait. Il ne reçoit
+     * plus que son entrée et /dev/null.
+     */
+    public function test_the_worker_inherits_none_of_the_request_descriptors(): void
+    {
+        if (! is_dir('/proc/self/fd')) {
+            $this->markTestSkipped('/proc requis.');
+        }
+
+        $listening = stream_socket_server('tcp://127.0.0.1:0');
+        $number = null;
+        foreach (scandir('/proc/self/fd') as $entry) {
+            if (ctype_digit($entry) && str_starts_with((string) @readlink("/proc/self/fd/{$entry}"), 'socket:')) {
+                $number = (int) $entry;
+            }
+        }
+
+        $descriptors = (new \ReflectionMethod(MailboxConnectionPool::class, 'descriptors'))->invoke(null);
+        fclose($listening);
+
+        $this->assertSame(['pipe', 'r'], $descriptors[0], 'son entrée : le tube des identifiants');
+        $this->assertSame(['file', '/dev/null', 'w'], $descriptors[1]);
+        $this->assertNotNull($number);
+        $this->assertSame(['file', '/dev/null', 'r'], $descriptors[$number], 'la prise d’écoute n’est pas transmise');
+    }
+
     public function test_the_socket_directory_is_private(): void
     {
         $directory = $this->pool()->directory();
@@ -210,6 +311,19 @@ class KeepAliveTest extends TestCase
             'un autre mot de passe, un autre processus',
         );
         $this->assertStringNotContainsString(self::PASSWORD, $this->pool()->socketPath(self::ADDRESS, self::PASSWORD));
+    }
+
+    public function test_a_copy_on_another_database_never_joins_the_same_process(): void
+    {
+        $original = $this->pool()->socketPath(self::ADDRESS, self::PASSWORD);
+        $token = $this->pool()->token(self::ADDRESS, self::PASSWORD);
+
+        // Même code, même clé, même boîte : seule la base change — un serveur lancé sur un
+        // clone du portail. Il ne doit ni trouver la prise du portail, ni calculer son jeton.
+        config(['database.connections.'.config('database.default').'.database' => '/tmp/clone-du-portail.sqlite']);
+
+        $this->assertNotSame($original, $this->pool()->socketPath(self::ADDRESS, self::PASSWORD));
+        $this->assertNotSame($token, $this->pool()->token(self::ADDRESS, self::PASSWORD));
     }
 
     private function pool(): MailboxConnectionPool
@@ -227,6 +341,28 @@ class KeepAliveTest extends TestCase
             $password,
             hash('sha256', $this->pool()->token(self::ADDRESS, $password)),
             60,
+        );
+    }
+
+    private function keptOpenFactory(): KeptOpenMailServerFactory
+    {
+        $factory = new KeptOpenMailServerFactory;
+        $factory->box->seed('INBOX', ['subject' => 'Résultats']);
+
+        return $factory;
+    }
+
+    private function keptOpenWorker(KeptOpenMailServerFactory $factory, int $heartbeat = 60, int $idle = 60, ?string $path = null): MailboxWorker
+    {
+        return new MailboxWorker(
+            $factory,
+            $this->pool(),
+            $path ?? $this->pool()->socketPath(self::ADDRESS, self::PASSWORD),
+            self::ADDRESS,
+            self::PASSWORD,
+            hash('sha256', $this->pool()->token(self::ADDRESS, self::PASSWORD)),
+            $idle,
+            heartbeatSeconds: $heartbeat,
         );
     }
 

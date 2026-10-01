@@ -123,7 +123,7 @@ const tone = (state) => ({
         <!-- Les comptes de la remise : colonnes sur grand écran, empilés sur téléphone -->
         <div>
             <div class="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_minmax(0,0.9fr)] gap-4 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:grid" aria-hidden="true">
-                <span>Employé</span><span>Identifiant (RIVO et messagerie)</span><span>Rôle</span><span>Première connexion</span>
+                <span>Employé</span><span>Identifiant (compte et messagerie)</span><span>Rôle</span><span>Première connexion</span>
             </div>
             <ul class="divide-y divide-border border-t border-border sm:border-t-0" :aria-label="`Comptes de la remise (${count})`">
                 <li v-for="item in handover.items" :key="item.uuid" class="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_minmax(0,0.9fr)] sm:items-center sm:gap-4 sm:px-5 sm:py-2.5">

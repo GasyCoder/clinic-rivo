@@ -95,19 +95,21 @@ test('the settings read module by module: the open module in a card, the modules
     const controller = read('app/Http/Controllers/SuperAdmin/AppSettingsController.php');
     const routes = read('routes/web.php');
 
-    assert.match(menu, /text: 'Paramètres', link: '\/super-admin\/settings', permission: 'settings\.view'/);
+    assert.match(menu, /text: 'Apparence & système', link: '\/super-admin\/settings', permission: 'settings\.view'/);
+    assert.match(menu, /text: 'Configuration financière'[\s\S]*?link: '\/super-admin\/finance\/settings\/monnaie'/);
 
     // Une seule liste de modules : l'écran et le serveur (qui refuse tout autre module) disent la même.
-    const serverSections = [...controller.match(/public const SECTIONS = \[([^\]]+)\]/)[1].matchAll(/'([a-z]+)'/g)].map((match) => match[1]);
+    const serverSections = [...controller.match(/public const SECTIONS = \[([^\]]+)\]/)[1].matchAll(/'([a-z-]+)'/g)].map((match) => match[1]);
     assert.deepEqual(serverSections, [...SETTINGS_SECTION_IDS]);
     assert.match(routes, /Route::get\('\/settings\/\{section\}'[\s\S]*?->whereIn\('section', SuperAdminAppSettingsController::SECTIONS\)/);
-    assert.match(controller, /redirect\(\)->route\('super-admin\.settings\.section', \['section' => self::SECTIONS\[0\]/, '« Paramètres » ouvre directement le premier module');
+    assert.match(controller, /self::CONTEXT_SECTIONS\['system'\]\[0\]/, '« Apparence & système » ouvre son premier réglage');
 
     // Chaque module a son composant, en champs shadcn empilés ; la page l'affiche pour son module.
     const COMPONENTS = {
         identite: 'IdentitySettings', theme: 'ThemeSettings', avance: 'AdvancedSettings', ecrans: 'ScreenTemplates',
-        numerotation: 'NumberingSettings', ages: 'AgeBandSettings', badges: 'BadgeSettings', monnaie: 'CurrencySettings', remises: 'DiscountSettings', legal: 'LegalSettings',
-        direction: 'DirectionSettings', visibilite: 'SearchVisibilitySettings', maintenance: 'MaintenanceSettings',
+        numerotation: 'NumberingSettings', ages: 'AgeBandSettings', matricules: 'NumberingSettings', badges: 'BadgeSettings', monnaie: 'CurrencySettings', remises: 'DiscountSettings', legal: 'LegalSettings',
+        direction: 'DirectionSettings', 'compte-rendu': 'LabReportSettings', visibilite: 'SearchVisibilitySettings', maintenance: 'MaintenanceSettings',
+        assistant: 'AssistantSettings',
     };
     assert.deepEqual(Object.keys(COMPONENTS), [...SETTINGS_SECTION_IDS]);
     assert.match(section, /:id="`reglages-\$\{id\}`"/);
@@ -117,7 +119,8 @@ test('the settings read module by module: the open module in a card, the modules
     assert.match(field, /class="min-w-0 space-y-2"/, 'libellé, champ puis aide, empilés');
     for (const [id, name] of Object.entries(COMPONENTS)) {
         const component = read(`resources/js/Components/Settings/${name}.vue`);
-        assert.match(component, new RegExp(`<SettingsSection id="${id}"`), `${name} porte le module « ${id} »`);
+        if (name === 'NumberingSettings') assert.match(component, /:id="scope === 'employee' \? 'matricules' : 'numerotation'"/);
+        else assert.match(component, new RegExp(`<SettingsSection id="${id}"`), `${name} porte le module « ${id} »`);
         assert.match(component, /<SettingsField\b/, `${name} se lit en champs de formulaire`);
         assert.doesNotMatch(component, /OptionPills|Components\/UI\//, `${name} n’emploie que les primitives shadcn`);
         assert.match(page, new RegExp(`<${name}[\\s\\S]*?current\\.id === '${id}'`), `la page affiche ${name} pour « ${id} »`);
@@ -127,10 +130,14 @@ test('the settings read module by module: the open module in a card, the modules
     }
     assert.ok(SETTINGS_SECTIONS.every((item) => SETTINGS_GROUPS.some((group) => group.id === item.group)), 'chaque module appartient à un groupe');
     assert.equal(settingsUrl('theme', 'A'), '/super-admin/settings/theme?site=A');
+    assert.equal(settingsUrl('monnaie', 'A'), '/super-admin/finance/settings/monnaie?site=A');
+    assert.equal(settingsUrl('numerotation', 'A'), '/super-admin/sites/A/patients/settings/numerotation');
+    assert.equal(settingsUrl('badges', 'A'), '/super-admin/human-resources/settings/badges?site=A');
+    assert.equal(settingsUrl('legal', 'A'), '/super-admin/sites/A/organization/settings/legal');
     assert.equal(settingsUrl(null, ''), '/super-admin/settings');
 
     // L'en-tête : le titre, et le site réglé à sa droite ; un filet ; puis le menu des modules et le module ouvert.
-    assert.match(page, /<h2 class="text-2xl font-bold tracking-tight text-foreground">Paramètres<\/h2>/);
+    assert.match(page, /<h2 class="text-2xl font-bold tracking-tight text-foreground">\{\{ context\.label \}\}<\/h2>/);
     const switcher = read('resources/js/Components/Settings/SettingsSiteSwitcher.vue');
     assert.match(page, /<SettingsSiteSwitcher :targets="targets" :model-value="selectedCode" @update:model-value="selectTarget" \/>/, 'le site se choisit en un clic, et la page décide (confirmation si des modifications sont en cours)');
     assert.match(switcher, /<RadioGroup\b[\s\S]*?:aria-label="label"/, 'un groupe radio shadcn : flèches du clavier, un seul choix');
@@ -138,7 +145,7 @@ test('the settings read module by module: the open module in a card, the modules
     assert.match(switcher, /<RadioGroupItem :value="target\.site\.code" class="sr-only" \/>/);
     assert.match(switcher, /'non configuré'/);
     assert.match(switcher, /'injoignable'/, 'l’état de chaque site se lit avant de le choisir');
-    assert.match(page, /<SettingsNav :current="current\.id" :site-code="selectedCode" \/>/);
+    assert.match(page, /<SettingsNav :current="current\.id" :site-code="selectedCode" :context="props\.context" \/>/);
     assert.match(page, /<div class="w-full space-y-6 pb-16">/, 'toute la largeur de l’écran');
     assert.doesNotMatch(page, /max-w-6xl|lg:max-w-2xl/);
     assert.match(page, /lg:grid-cols-\[minmax\(0,1fr\)_16rem\]/, 'le module ouvert, puis le menu à sa droite');
@@ -181,7 +188,7 @@ test('the settings read module by module: the open module in a card, the modules
     assert.match(page, /<Button type="submit"[^>]*>/, 'l’enregistrement au bas du module, comme dans un formulaire shadcn');
     assert.match(nav, /:aria-current="section\.id === current \? 'page' : undefined"/);
     assert.match(nav, /active \? 'bg-primary\/10 font-medium text-primary hover:bg-primary\/10' : 'text-muted-foreground hover:bg-muted hover:text-foreground'/, 'le module ouvert se distingue');
-    assert.match(nav, /v-for="group in SETTINGS_GROUPS"/, 'les modules rangés par groupe');
+    assert.match(nav, /v-for="group in visibleGroups\(\)"/, 'le menu ne montre que les réglages du module propriétaire');
     assert.match(nav, /<component\s+:is="section\.icon"/, 'chaque module avec son icône');
     assert.match(section, /<component :is="entry\.icon"/, 'le titre du module reprend l’icône du menu');
     assert.match(nav, /:href="settingsUrl\(section\.id, siteCode\)"/, 'chaque module est une adresse, pour le site réglé');
@@ -201,7 +208,7 @@ test('the settings read module by module: the open module in a card, the modules
     assert.match(page, /:disabled="!resetSettingsConfirmed"/);
     assert.match(page, /router\.delete\('\/super-admin\/settings\/reset'/, 'la réinitialisation utilise son action serveur auditée');
     assert.match(page, /title="Réinitialiser tous les paramètres \?"/);
-    assert.match(page, /Les coupons et l’état de maintenance ne seront pas modifiés\./);
+    assert.match(page, /Les coupons, l’état de maintenance et les réglages de l’assistant IA ne seront pas modifiés\./);
     assert.match(asset, /router\.post\(`\/super-admin\/settings\/assets\/\$\{props\.kind\}`/);
     assert.match(asset, /forceFormData: true/);
     assert.match(asset, /title="`Retirer : \$\{label\.toLowerCase\(\)\} \?`"|:title="`Retirer : \$\{label\.toLowerCase\(\)\} \?`"/);

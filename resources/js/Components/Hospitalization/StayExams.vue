@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue';
-import { useForm, usePage } from '@inertiajs/vue3';
+import { Link, useForm, usePage } from '@inertiajs/vue3';
+import SealedLabResult from '@/Components/Laboratory/SealedLabResult.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
@@ -14,7 +15,7 @@ import ImagingReportDialog from '@/Components/Clinical/ImagingReportDialog.vue';
 import ImagingReportDocument from '@/Components/Medicine/ImagingReportDocument.vue';
 import { formatDateTime } from '@/utilities/date';
 import { doctorName } from '@/utilities/doctorName';
-import { Eye, FlaskConical, Hourglass, CircleCheck, Pencil, Printer, ScanLine, Search, Send, Undo2 } from 'lucide-vue-next';
+import { Eye, FileText, FlaskConical, Hourglass, CircleCheck, Pencil, Printer, ScanLine, Search, Send, Undo2 } from 'lucide-vue-next';
 
 /**
  * ADR-162 — analyses et imagerie demandées depuis le séjour.
@@ -192,13 +193,19 @@ const viewing = ref(null);
                         </span>
                     </div>
                     <p v-if="request.status === 'CANCELLED' && request.cancel_reason" class="mt-1 text-xs text-muted-foreground">Motif : {{ request.cancel_reason }}</p>
+                    <!-- ADR-216 — adressés à un confrère : les valeurs s'ouvrent après confirmation. -->
+                    <div v-if="request.sealed" class="mt-2"><SealedLabResult :seal="request.sealed" compact /></div>
                     <ul class="mt-2 space-y-1 text-sm">
                         <li v-for="item in request.items" :key="item.uuid" class="flex flex-wrap items-baseline gap-x-2">
-                            <component :is="item.resulted_at ? CircleCheck : Hourglass" class="h-3.5 w-3.5 self-center text-muted-foreground" :aria-label="item.resulted_at ? 'Résultat rendu' : 'En attente'" />
+                            <component :is="item.resulted_at ? CircleCheck : Hourglass" class="h-3.5 w-3.5 self-center text-muted-foreground" :aria-label="item.resulted_at ? 'Résultat envoyé par le laboratoire' : 'En attente'" />
                             <span class="font-medium text-foreground">{{ item.exam }}</span>
-                            <span v-if="item.result" class="text-xs text-muted-foreground">{{ item.result }}</span>
+                            <span v-if="item.in_correction" class="text-xs font-semibold text-amber-700 dark:text-amber-300">En correction au laboratoire</span>
+                            <span v-else-if="item.result" class="text-xs text-muted-foreground">{{ item.result }}</span>
                         </li>
                     </ul>
+                    <Link v-if="request.results_url" :href="request.results_url" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
+                        <FileText class="h-3.5 w-3.5" aria-hidden="true" /> Feuille de résultats
+                    </Link>
                 </li>
             </ul>
         </Card>

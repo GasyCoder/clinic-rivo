@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\Notifications\NotificationCenter;
 use App\Services\StaffAccess\StaffAccessWatcher;
+use App\Services\StaffDebts\StaffDebtWatcher;
 use App\Services\Webmail\WebmailAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -119,6 +120,11 @@ class NotificationController extends Controller
     {
         if (WebmailAccess::onPortal() && $request->user()->can('staff_access.view')) {
             app(StaffAccessWatcher::class)->syncSoon($request->user());
+        }
+
+        // ADR-228 — les demandes de dette du personnel, à décider par le DG.
+        if (WebmailAccess::onPortal() && $request->user()->can(StaffDebtWatcher::PERMISSION)) {
+            app(StaffDebtWatcher::class)->syncSoon($request->user());
         }
     }
 }

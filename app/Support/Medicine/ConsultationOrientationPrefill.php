@@ -7,6 +7,9 @@ use App\Enums\PrescriptionStatus;
 use App\Models\Consultation;
 use App\Models\ImagingRequest;
 use App\Models\LabRequest;
+use App\Models\User;
+use App\Services\Laboratory\LabResultAccess;
+use Illuminate\Support\Facades\Auth;
 
 /**
  * Ce qu'une demande de conduite à tenir emporte du dossier, composé une seule
@@ -38,12 +41,19 @@ final class ConsultationOrientationPrefill
             self::toPlainText($consultation->clinical_exam),
         ])->filter()->implode("\n");
 
+        // ADR-216 — un résultat d'analyse n'est repris qu'une fois envoyé, et
+        // jamais s'il est adressé à un confrère que le lecteur n'a pas ouvert.
+        $labAccess = app(LabResultAccess::class);
+        $viewer = Auth::user();
         $paraclinical = $consultation->labRequests()
             ->whereNull('cancelled_at')
             ->with('items')
             ->get()
             ->flatMap(fn (LabRequest $request) => $request->items->map(
-                fn ($item): string => self::paraclinicalLine($item->catalog_item_name_snapshot, $item->result_value),
+                fn ($item): string => self::paraclinicalLine(
+                    $item->catalog_item_name_snapshot,
+                    $item->isDelivered() && ! $labAccess->sealed($request, $viewer instanceof User ? $viewer : null) ? $item->result_value : null,
+                ),
             ))
             ->merge($consultation->imagingRequests()
                 ->whereNull('cancelled_at')

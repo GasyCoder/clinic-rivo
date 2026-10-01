@@ -4,7 +4,7 @@ import Separator from '@/Components/Shadcn/Separator.vue';
 import { SETTINGS_GROUPS, settingsSection } from '@/utilities/settingsSections';
 
 /**
- * La page d'un module des paramètres (ADR-191, amendement du 2026-09-25) : son
+ * La page partagée d'un réglage dans son module propriétaire (ADR-237) : son
  * icône et son groupe, un titre, une phrase, un filet, puis les champs empilés.
  * L'icône et le groupe sont ceux du menu (`settingsSections`), jamais recopiés.
  * Les actions du module (exporter, importer…) se placent à droite du titre.

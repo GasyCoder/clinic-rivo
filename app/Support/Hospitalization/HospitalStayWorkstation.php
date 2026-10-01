@@ -179,7 +179,7 @@ final class HospitalStayWorkstation
             ->with(ParaclinicalRequestPresenter::LAB_RELATIONS)
             ->orderByDesc('requested_at')
             ->get()
-            ->map(fn (LabRequest $request): array => $this->paraclinical->lab($request, $canCancel))
+            ->map(fn (LabRequest $request): array => $this->paraclinical->lab($request, $canCancel, $user))
             ->all();
     }
 

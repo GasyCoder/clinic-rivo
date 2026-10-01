@@ -62,28 +62,88 @@ class PortalTest extends TestCase
                 ->where('modules.11.code', 'GUARDING')
                 ->where('modules.13.code', 'PARTNERS')
                 ->where('modules.14.code', 'CATALOG')
-                ->has('adminNavigation', 3));
+                ->has('adminNavigation', 3)
+                ->has('adminNavigation.0.modules', 8)
+                ->where('adminNavigation.0.modules.0.code', 'OVERVIEW')
+                ->where('adminNavigation.0.modules.7.code', 'REPORTS'));
     }
 
-    public function test_each_site_exposes_all_module_navigation_without_querying_a_local_clinic_database(): void
+    public function test_site_navigation_contains_only_site_scoped_modules_and_keeps_legacy_module_routes(): void
     {
         $actor = $this->user('SUPER_ADMIN');
 
+        Http::fake(['*' => Http::response([
+            'data' => [
+                'generated_at' => now()->toIso8601String(),
+                'range' => ['days' => 30, 'from' => '2026-09-01', 'to' => '2026-09-30'],
+                'sections' => [
+                    'activity' => ['available' => true, 'today' => ['episodes' => 4, 'emergencies' => 1, 'new_patients' => 2], 'open_episodes' => 3, 'total_patients' => 25],
+                    'finance' => ['available' => false, 'reason' => 'Permission absente.'],
+                    'clinical' => ['available' => true, 'destinations' => []],
+                    'pharmacy' => ['available' => false, 'reason' => 'Permission absente.'],
+                    'people' => ['available' => false, 'reason' => 'Permission absente.'],
+                ],
+            ],
+        ], 200)]);
+
         foreach (['M', 'A', 'B'] as $siteCode) {
-            $this->actingAs($actor)->get("/super-admin/sites/{$siteCode}?module=LABORATORY")
+            $this->actingAs($actor)->get("/super-admin/sites/{$siteCode}?module=SURGERY")
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page
                     ->component('SuperAdmin/Sites/Show')
                     ->where('clinic.code', $siteCode)
-                    ->has('clinic.modules', 15)
-                    ->where('selectedModule.code', 'LABORATORY')
-                    ->where('selectedModule.areas.1', 'Prélèvements')
-                    ->where('selectedModule.areas.3', 'Résultats validés'));
+                    ->has('clinic.modules', 8)
+                    ->where('selectedModule.code', 'SURGERY')
+                    ->where('selectedModule.areas.1', 'Préopératoire')
+                    ->where('selectedModule.areas.3', 'Postopératoire')
+                    ->where('siteReport.ok', true)
+                    ->where('siteReport.data.sections.activity.today.episodes', 4)
+                    ->where('days', 30));
 
-            // ADR-189 — la Pharmacie n'a plus de vitrine : ses écrans sont ceux du site.
+            // ADR-189 / ADR-215 — la Pharmacie et le Laboratoire n'ont plus de
+            // vitrine : leurs écrans sont ceux du site.
             $this->actingAs($actor)->get("/super-admin/sites/{$siteCode}?module=PHARMACY")
                 ->assertRedirect("/super-admin/sites/{$siteCode}/pharmacie");
+            $this->actingAs($actor)->get("/super-admin/sites/{$siteCode}?module=LABORATORY")
+                ->assertRedirect("/super-admin/sites/{$siteCode}/laboratoire");
+            $this->actingAs($actor)->get("/super-admin/sites/{$siteCode}?module=HR")
+                ->assertRedirect("/super-admin/sites/{$siteCode}/rh");
+            $this->actingAs($actor)->get("/super-admin/sites/{$siteCode}?module=PARTNERS")
+                ->assertRedirect("/super-admin/sites/{$siteCode}/partenaires");
+            $this->actingAs($actor)->get("/super-admin/sites/{$siteCode}?module=CATALOG")
+                ->assertRedirect("/super-admin/workspaces/tariffs?site={$siteCode}");
         }
+
+        Http::assertSentCount(3);
+    }
+
+    public function test_a_site_workspace_exposes_an_api_failure_without_inventing_data(): void
+    {
+        Http::fake(['*' => Http::response(['message' => 'Maintenance du site.'], 503)]);
+
+        $this->actingAs($this->user('SUPER_ADMIN'))
+            ->get('/super-admin/sites/M?module=OVERVIEW&days=5000')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/Sites/Show')
+                ->where('siteReport.ok', false)
+                ->where('siteReport.status', 'ERROR')
+                ->where('siteReport.data', null)
+                ->where('days', 90));
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'days=90'));
+    }
+
+    public function test_pharmacy_has_one_multi_site_entry_point(): void
+    {
+        $this->actingAs($this->user('SUPER_ADMIN'))
+            ->get('/super-admin/pharmacy')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/Pharmacy/Index')
+                ->has('sites', 3)
+                ->where('sites.0.url', '/super-admin/sites/M/pharmacie')
+                ->where('sites.2.configured', true));
     }
 
     /**
@@ -176,7 +236,7 @@ class PortalTest extends TestCase
 
         $this->actingAs($actor)->get('/super-admin/workspaces/tariffs')
             ->assertOk()
-            ->assertInertia(fn ($page) => $page->component('SuperAdmin/Tariffs/Index'));
+            ->assertInertia(fn ($page) => $page->component('Catalog/Index'));
 
         // Comptes et rôles sont deux écrans réels et site par site
         // (ADR-100) — jamais l'espace générique de présentation.

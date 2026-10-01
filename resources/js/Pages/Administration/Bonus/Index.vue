@@ -13,6 +13,7 @@ import {
     Hourglass,
     Layers,
     Medal,
+    HandCoins,
     Pencil,
     Plus,
     RotateCcw,
@@ -32,6 +33,8 @@ import TabsList from '@/Components/Shadcn/TabsList.vue';
 import TabsTrigger from '@/Components/Shadcn/TabsTrigger.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
+import AdvantageEntriesDialog from '@/Components/Bonus/AdvantageEntriesDialog.vue';
+import AdvantageEntriesPanel from '@/Components/Bonus/AdvantageEntriesPanel.vue';
 import BonusCategoryDialog from '@/Components/Bonus/BonusCategoryDialog.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
@@ -58,12 +61,17 @@ const props = defineProps({
     /** `null` sans `bonus_categories.view` : l'onglet n'existe pas. */
     categories: { type: Array, default: null },
     staff: { type: Array, default: null },
+    /** Onglet ouvert à l'arrivée : « bonus » ou « entries » (`?onglet=saisis`). */
+    tab: { type: String, default: 'bonus' },
+    /** Avantages saisis (ADR-227) ; `null` sans `advantage_entries.view`. */
+    entries: { type: Object, default: null },
 });
 
 const { can } = usePermissions();
 
-const tab = ref(props.board.categories.length || ! props.categories ? 'month' : 'categories');
+const tab = ref(props.tab === 'entries' && props.entries ? 'entries' : (props.board.categories.length || ! props.categories ? 'month' : 'categories'));
 const filter = ref('all');
+const entriesOpen = ref(false);
 
 const FILTERS = [
     { value: 'all', label: 'Tout le personnel' },
@@ -155,21 +163,25 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
     <div class="w-full space-y-5">
         <PageHeader
             eyebrow="Ressources humaines · Pilotage"
-            title="Bonus du personnel"
-            description="Chaque catégorie compte un geste par mois. Qui atteint le seuil reçoit le montant, une fois validé par les RH ; le versement se fait hors RIVO."
+            title="Bonus et avantages du personnel"
+            description="Avantages : saisis pour chaque médecin (article et montant), ils rejoignent la paie du mois. Bonus : un seuil de patients par mois, compté par RIVO et validé par les RH. Le versement se fait hors RIVO."
             :icon="Medal"
         >
             <template #actions>
-                <Button v-if="categories && can('bonus_categories.create')" type="button" @click="openCategory()">
+                <Button v-if="entries && tab !== 'entries' && can('advantage_entries.create')" type="button" variant="outline" @click="entriesOpen = true">
+                    <HandCoins class="h-4 w-4" />Saisir des avantages
+                </Button>
+                <Button v-if="categories && ['month', 'categories'].includes(tab) && can('bonus_categories.create')" type="button" @click="openCategory()">
                     <Plus class="h-4 w-4" />Nouvelle catégorie
                 </Button>
             </template>
         </PageHeader>
 
         <Tabs v-model="tab">
-            <TabsList v-if="categories" aria-label="Bonus">
+            <TabsList aria-label="Bonus et avantages">
+                <TabsTrigger v-if="entries" value="entries"><HandCoins class="h-4 w-4" />Avantages des médecins · {{ entries.summary.count }}</TabsTrigger>
                 <TabsTrigger value="month"><Trophy class="h-4 w-4" />Bonus du mois</TabsTrigger>
-                <TabsTrigger value="categories"><Layers class="h-4 w-4" />Catégories · {{ activeCategories.length }}</TabsTrigger>
+                <TabsTrigger v-if="categories" value="categories"><Layers class="h-4 w-4" />Catégories · {{ activeCategories.length }}</TabsTrigger>
             </TabsList>
 
             <TabsContent value="month" class="space-y-5">
@@ -291,6 +303,10 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
                 </Card>
             </TabsContent>
 
+            <TabsContent v-if="entries" value="entries">
+                <AdvantageEntriesPanel :month="month" :current-month="currentMonth" :entries="entries" @add="entriesOpen = true" />
+            </TabsContent>
+
             <TabsContent v-if="categories" value="categories" class="space-y-4">
                 <Card v-if="! categories.length" class="px-6 py-10 text-center text-sm text-muted-foreground">Aucune catégorie pour l’instant.</Card>
                 <Card v-else class="overflow-hidden">
@@ -323,6 +339,14 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
             </TabsContent>
         </Tabs>
 
+        <AdvantageEntriesDialog
+            v-if="entries"
+            v-model:open="entriesOpen"
+            :month="month"
+            :current-month="currentMonth"
+            :doctors="entries.doctors"
+            :articles="entries.articles ?? []"
+        />
         <BonusCategoryDialog v-if="categories" v-model:open="categoryOpen" :category="editing" :measures="measures" :staff="staff ?? []" />
 
         <ConfirmModal

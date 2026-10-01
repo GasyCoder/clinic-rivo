@@ -7,8 +7,11 @@ use App\Enums\ReceptionNextStep;
 use App\Models\BillableItem;
 use App\Models\Episode;
 use App\Models\EpisodeReceptionNextStep;
+use App\Models\LabRequest;
+use App\Models\LabRequestItem;
 use App\Models\Patient;
 use App\Models\PatientNewbornLink;
+use App\Services\Laboratory\ValidatedLabResults;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Support\Documents\MaternitySheetSection;
 use App\Support\Documents\MedicalRecordSheet;
@@ -220,6 +223,26 @@ class EpisodeController extends Controller
                 ] : null,
             ],
             'billing' => $billing,
+            // ADR-216, amendement quater — les résultats d'analyses validés par le médecin,
+            // et leur compte rendu à remettre ; servis seulement avec le droit de les voir.
+            'labResults' => $user->can('laboratory_results.validated_view')
+                ? ValidatedLabResults::requests()->where('episode_id', $episode->id)
+                    ->with(['items' => fn ($items) => $items->orderBy('id'), 'items.approvedBy:id,name'])
+                    ->orderBy('id')->get()
+                    ->map(function (LabRequest $labRequest) {
+                        [$approved, $pending] = $labRequest->items->partition(fn (LabRequestItem $item) => $item->isApproved());
+
+                        return [
+                            'uuid' => $labRequest->uuid,
+                            'lab_number' => $labRequest->lab_number,
+                            'approved' => $approved->pluck('catalog_item_name_snapshot')->values(),
+                            'pending' => $pending->pluck('catalog_item_name_snapshot')->values(),
+                            'approved_at' => $approved->max('approved_at')?->toIso8601String(),
+                            'approved_by' => $approved->map(fn (LabRequestItem $item) => $item->approvedBy?->name)->filter()->unique()->values(),
+                            'pdf_url' => "/reception/resultats-analyses/{$labRequest->uuid}/pdf",
+                        ];
+                    })->values()
+                : null,
             // ADR-144 : les bébés du dossier Maternité de ce passage, et l'accès à leur dossier patient.
             'maternityBabies' => $maternity->forPassage($episode, $user),
             'capabilities' => [

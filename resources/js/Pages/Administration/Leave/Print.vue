@@ -47,7 +47,7 @@ const generateHref = (template) => hrUrl(`/administration/generated-documents/cr
                 <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><FileSignature class="h-5 w-5" /></span>
                 <div class="min-w-0">
                     <h1 class="font-heading text-base font-bold text-foreground">Document officiel du congé</h1>
-                    <p class="mt-0.5 text-sm text-muted-foreground">Le courrier ou la décision de congé composé par le Super Administrateur : la page 1 reprend {{ leave.employee.name }}, le type, les dates et le motif ; le texte du canevas suit, tel quel.</p>
+                    <p class="mt-0.5 text-sm text-muted-foreground">Le courrier ou la décision de congé composé par le Super Administrateur : la page 1 reprend {{ leave.employee.name }}, le type, les dates et le motif ; le texte du modèle suit, tel quel.</p>
                 </div>
             </div>
 
@@ -67,7 +67,7 @@ const generateHref = (template) => hrUrl(`/administration/generated-documents/cr
                 </Link>
             </div>
             <p v-else-if="leave.status === 'CANCELLED'" class="mt-4 text-sm text-muted-foreground">Ce congé est annulé : seule sa fiche de demande s’imprime.</p>
-            <p v-else-if="can('generated_documents.create')" class="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Aucun canevas de congé n’est publié pour ce site. Le Super Administrateur doit en composer un avec le contexte « Personnel + demande de congé ». En attendant, la fiche de demande s’imprime ci-dessous.</p>
+            <p v-else-if="can('generated_documents.create')" class="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Aucun modèle de congé n’est publié pour ce site. Le Super Administrateur doit en composer un avec le contexte « Personnel + demande de congé ». En attendant, la fiche de demande s’imprime ci-dessous.</p>
             <p v-else class="mt-4 text-sm text-muted-foreground">Votre compte n’a pas le droit de générer un document : seule la fiche de demande s’imprime.</p>
 
             <div v-if="documents.length" class="mt-4 border-t border-border pt-3">

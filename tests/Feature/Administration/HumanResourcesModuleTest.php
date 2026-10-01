@@ -22,7 +22,9 @@ use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
@@ -110,6 +112,15 @@ class HumanResourcesModuleTest extends TestCase
             ->assertSessionHasNoErrors();
         $this->assertFalse($contract->fresh()->trashed());
         $this->assertAudit($contract, 'restore');
+
+        // ADR-236 (amende l'ADR-066) — un contrat qui a produit un document ne se détruit jamais ;
+        // sans document, saisi à tort, il le peut, depuis la corbeille.
+        $this->assertFalse($contract->fresh()->isForceDeleteProtected());
+        DB::table('hr_documents')->insert([
+            'uuid' => (string) Str::uuid(), 'employee_id' => $employee->id, 'employment_contract_id' => $contract->id,
+            'category' => 'CONTRACT', 'title' => 'Contrat signé', 'original_name' => 'contrat.pdf', 'path' => 'hr/contrat.pdf',
+            'mime_type' => 'application/pdf', 'size' => 10, 'created_at' => now(), 'updated_at' => now(),
+        ]);
 
         $this->expectException(ForceDeleteForbiddenException::class);
         $contract->fresh()->forceDelete();

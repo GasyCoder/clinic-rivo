@@ -5,6 +5,7 @@ import { Head, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
+import { lucideIcon } from '@/lib/icons';
 import { usePermissions } from '@/composables/usePermissions';
 
 defineOptions({ layout: AppLayout });
@@ -102,7 +103,7 @@ const formatDateTime = (value) => value
                 @click="selectFilter('category', filterValues.category === category.code ? 'ALL' : category.code)"
             >
                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400">
-                    <Icon class="text-lg" :name="category.icon" />
+                    <component :is="lucideIcon(category.icon)" class="h-4.5 w-4.5" aria-hidden="true" />
                 </span>
                 <div class="min-w-0">
                     <p class="truncate text-xs font-medium text-slate-500">{{ category.label }}</p>
@@ -157,7 +158,7 @@ const formatDateTime = (value) => value
                         </p>
                     </div>
                     <div class="flex items-center gap-2 pe-4 text-xs font-medium text-slate-600 dark:text-slate-300">
-                        <Icon class="text-base text-slate-400" :name="record.category_icon" />
+                        <component :is="lucideIcon(record.category_icon)" class="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                         <span>{{ record.category_label }}</span>
                     </div>
                     <div class="pe-4 text-xs text-slate-500">

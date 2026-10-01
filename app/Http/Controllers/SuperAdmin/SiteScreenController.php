@@ -129,6 +129,12 @@ abstract class SiteScreenController extends Controller
             $redirect->with('error', $json['error']);
         }
 
+        foreach (['status_type', 'bulk_report'] as $key) {
+            if (filled($json[$key] ?? null)) {
+                $redirect->with($key, $json[$key]);
+            }
+        }
+
         return $redirect;
     }
 

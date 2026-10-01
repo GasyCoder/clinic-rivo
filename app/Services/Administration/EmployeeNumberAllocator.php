@@ -49,6 +49,36 @@ class EmployeeNumberAllocator
         return $numbers;
     }
 
+    /**
+     * Le matricule de la feuille du personnel : H (homme) ou F (femme), l'année d'entrée
+     * puis le jour et le mois de naissance — « F20151808 ». Rien n'est deviné : sans sexe,
+     * date d'entrée et date de naissance, ou si ce numéro est déjà pris, null.
+     *
+     * @param  array<int, string>  $reserved
+     */
+    public function fromProfile(?string $sex, ?string $hireDate, ?string $birthDate, array $reserved = []): ?string
+    {
+        if (! in_array($sex, ['M', 'F'], true) || ! $hireDate || ! $birthDate) {
+            return null;
+        }
+
+        try {
+            $hired = \Carbon\CarbonImmutable::parse($hireDate);
+            $born = \Carbon\CarbonImmutable::parse($birthDate);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $number = ($sex === 'M' ? 'H' : 'F').$hired->format('Y').$born->format('dm');
+        $taken = array_map(fn (string $value) => mb_strtoupper(trim($value)), $reserved);
+
+        if (in_array($number, $taken, true) || Employee::withTrashed()->where('employee_number', $number)->exists()) {
+            return null;
+        }
+
+        return $number;
+    }
+
     public function format(): EmployeeNumberFormat
     {
         return $this->settings->employeeNumbering();

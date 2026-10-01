@@ -86,8 +86,8 @@ const showList = computed(() => Boolean(props.documents));
             eyebrow="Ressources humaines"
             :title="folder ? folder.label : 'Documents'"
             :description="folder
-                ? `Les canevas « ${folder.label} » publiés par le Super Administrateur, et les documents produits avec eux. Un document reste figé : le modifier en crée une nouvelle version, l’ancienne est archivée.`
-                : 'Les documents du personnel, rangés par dossier : contrats, congés, attestations… Chaque dossier réunit ses canevas et les documents produits.'"
+                ? `Les modèles « ${folder.label} » publiés par le Super Administrateur, et les documents produits avec eux. Un document reste figé : le modifier en crée une nouvelle version, l’ancienne est archivée.`
+                : 'Les documents du personnel, rangés par dossier : contrats, congés, attestations… Chaque dossier réunit ses modèles et les documents produits.'"
             :icon="folder ? FolderOpen : Copy"
             tone="primary"
         >
@@ -106,7 +106,7 @@ const showList = computed(() => Boolean(props.documents));
             <form class="ms-auto w-full sm:w-80" role="search" @submit.prevent="search">
                 <label class="relative block">
                     <span class="sr-only">Rechercher un document</span>
-                    <IconInput v-model="query" :icon="Search" type="search" class="pe-9" :placeholder="folder ? `Chercher dans ${folder.label.toLowerCase()}…` : 'Personne, canevas, type…'" />
+                    <IconInput v-model="query" :icon="Search" type="search" class="pe-9" :placeholder="folder ? `Chercher dans ${folder.label.toLowerCase()}…` : 'Personne, modèle, type…'" />
                     <button v-if="query" type="button" class="absolute inset-y-0 end-2 my-auto grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-accent" aria-label="Effacer la recherche" @click="clearSearch"><X class="h-3.5 w-3.5" /></button>
                 </label>
             </form>
@@ -134,7 +134,7 @@ const showList = computed(() => Boolean(props.documents));
         <Card v-if="folder" class="p-5">
             <div class="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                    <h2 class="font-heading text-base font-bold text-foreground">Canevas de ce dossier</h2>
+                    <h2 class="font-heading text-base font-bold text-foreground">Modèles de ce dossier</h2>
                     <p class="text-sm text-muted-foreground">Composés au portail par le Super Administrateur. Choisissez-en un pour produire un document — la page 1 reprend la personne{{ folder.key === 'CONTRAT' ? ' et son contrat' : folder.key === 'CONGE' ? ' et son congé' : '' }}.</p>
                 </div>
             </div>
@@ -149,7 +149,7 @@ const showList = computed(() => Boolean(props.documents));
                 </div>
             </div>
             <p v-else class="mt-4 rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground">
-                Aucun canevas actif dans ce dossier. Le Super Administrateur le compose au portail (« Canevas de documents », dossier {{ folder.label }}).
+                Aucun modèle actif dans ce dossier. Le Super Administrateur le compose au portail (« Modèles de documents », dossier {{ folder.label }}).
             </p>
         </Card>
 

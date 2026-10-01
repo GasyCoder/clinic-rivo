@@ -4,27 +4,39 @@ namespace App\Services\Laboratory;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\LabEntryMode;
 use App\Models\AnalysisCatalog;
+use App\Models\LabDiscipline;
 use App\Models\CatalogItem;
 use App\Models\User;
 use App\Services\Catalog\CatalogActor;
+use App\Support\Laboratory\LabCriticalRange;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class AnalysisCatalogManager
 {
+    /** Ce que le formulaire envoie pour la discipline, jamais écrit tel quel (ADR-238). */
+    private const DISCIPLINE_INPUT = ['lab_discipline_uuid', 'new_discipline_name', 'exam_category'];
+
+    public function __construct(private readonly LabDisciplineManager $disciplines) {}
+
     /** @param array<string, mixed> $data */
     public function create(array $data, User|CatalogActor $actor): AnalysisCatalog
     {
         return DB::transaction(function () use ($data, $actor): AnalysisCatalog {
             $catalogActor = $this->actor($actor);
             [$catalogItem, $parent] = $this->relations($data);
+            $data = $this->criticalRanges($data);
+            $this->assertEntryMode($data);
+            $disciplineId = $this->disciplineId($data, $parent, null, $catalogActor);
 
             return AnalysisCatalog::query()->create([
-                ...Arr::except($data, ['catalog_item_uuid', 'parent_uuid']),
+                ...Arr::except($data, ['catalog_item_uuid', 'parent_uuid', ...self::DISCIPLINE_INPUT]),
                 'catalog_item_id' => $catalogItem->getKey(),
                 'parent_id' => $parent?->getKey(),
+                'lab_discipline_id' => $disciplineId,
                 'created_by' => $catalogActor->localUserId(),
                 'updated_by' => $catalogActor->localUserId(),
                 ...$catalogActor->externalAttribution('created'),
@@ -40,17 +52,25 @@ class AnalysisCatalogManager
             $catalogActor = $this->actor($actor);
             $locked = AnalysisCatalog::query()->lockForUpdate()->findOrFail($analysis->getKey());
             [$catalogItem, $parent] = $this->relations($data, $locked);
+            $data = $this->criticalRanges($data);
+            $this->assertEntryMode([...$locked->only(['result_type', 'entry_mode']), ...$data]);
+            $disciplineId = $this->disciplineId($data, $parent, $locked, $catalogActor);
 
             $locked->update([
-                ...Arr::except($data, ['catalog_item_uuid', 'parent_uuid']),
+                ...Arr::except($data, ['catalog_item_uuid', 'parent_uuid', ...self::DISCIPLINE_INPUT]),
                 'catalog_item_id' => $catalogItem->getKey(),
                 'parent_id' => $parent?->getKey(),
+                'lab_discipline_id' => $disciplineId,
                 'updated_by' => $catalogActor->localUserId(),
                 ...$catalogActor->externalAttribution('updated'),
             ]);
 
             if ($locked->wasChanged('catalog_item_id')) {
                 $this->synchronizeDescendantCatalogItem($locked, $catalogItem, $catalogActor);
+            }
+
+            if ($locked->wasChanged('lab_discipline_id')) {
+                $this->synchronizeDescendantDiscipline($locked);
             }
 
             return $locked->fresh(['catalogItem', 'parent']);
@@ -109,6 +129,8 @@ class AnalysisCatalogManager
             }
 
             $grandchildren = $childData['children'] ?? [];
+            $childData = $this->criticalRanges($childData, "children.{$index}.critical_ranges");
+            $this->assertEntryMode([...($existingChild?->only(['result_type', 'entry_mode']) ?? []), ...$childData], "children.{$index}.entry_mode");
             $payload = [
                 ...Arr::except($childData, ['uuid', 'children']),
                 'catalog_item_uuid' => $parent->catalogItem->uuid,
@@ -150,6 +172,79 @@ class AnalysisCatalogManager
         return $analysis->fresh();
     }
 
+    /**
+     * ADR-238 — un mode de saisie fixé doit convenir au type de résultat : la
+     * fiche ne propose que ceux-là, le serveur refuse les autres. Laissé vide
+     * (« Automatique »), il se déduit toujours d'un mode qui convient.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function assertEntryMode(array $data, string $errorKey = 'entry_mode'): void
+    {
+        $mode = LabEntryMode::tryFrom((string) ($data['entry_mode'] ?? ''));
+
+        if ($mode !== null && ! $mode->fitsResultType($data['result_type'] ?? null)) {
+            $type = self::RESULT_TYPE_LABELS[$data['result_type'] ?? ''] ?? (string) ($data['result_type'] ?? '');
+
+            throw ValidationException::withMessages([
+                $errorKey => "La saisie « {$mode->label()} » ne convient pas à un résultat « {$type} » : choisissez-en une de la liste, ou « Automatique ».",
+            ]);
+        }
+    }
+
+    private const RESULT_TYPE_LABELS = ['NUMERIC' => 'Numérique', 'TEXT' => 'Texte', 'CHOICE' => 'Choix', 'BOOLEAN' => 'Oui / Non'];
+
+    /**
+     * ADR-238 — la discipline d'une analyse. Une analyse dans un groupe prend
+     * celle de son groupe ; sinon celle choisie dans la liste, ou une nouvelle
+     * nommée dans la fiche. Une clé absente laisse la discipline en place.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function disciplineId(array $data, ?AnalysisCatalog $parent, ?AnalysisCatalog $current, CatalogActor $actor): ?int
+    {
+        if ($parent !== null) {
+            return $parent->lab_discipline_id;
+        }
+
+        if (filled($data['new_discipline_name'] ?? null)) {
+            return $this->disciplines->findOrCreate((string) $data['new_discipline_name'], $actor)->id;
+        }
+
+        if (! array_key_exists('lab_discipline_uuid', $data)) {
+            return $current?->lab_discipline_id;
+        }
+
+        if (blank($data['lab_discipline_uuid'])) {
+            return null;
+        }
+
+        $discipline = LabDiscipline::withTrashed()->where('uuid', $data['lab_discipline_uuid'])->first();
+
+        // Une discipline archivée reste acceptée pour l'analyse qui la porte déjà.
+        if ($discipline === null || ($discipline->trashed() && $discipline->id !== $current?->lab_discipline_id)) {
+            throw ValidationException::withMessages(['lab_discipline_uuid' => 'Choisissez une discipline de la liste.']);
+        }
+
+        return $discipline->id;
+    }
+
+    private function synchronizeDescendantDiscipline(AnalysisCatalog $group): void
+    {
+        $pending = $group->children()->get();
+
+        while ($pending->isNotEmpty()) {
+            $next = collect();
+
+            foreach ($pending as $descendant) {
+                $descendant->update(['lab_discipline_id' => $group->lab_discipline_id]);
+                $next->push(...$descendant->children()->get());
+            }
+
+            $pending = $next;
+        }
+    }
+
     private function actor(User|CatalogActor $actor): CatalogActor
     {
         return $actor instanceof User ? CatalogActor::fromUser($actor) : $actor;
@@ -159,6 +254,22 @@ class AnalysisCatalogManager
      * @param  array<string, mixed>  $data
      * @return array{CatalogItem, ?AnalysisCatalog}
      */
+    /**
+     * ADR-214 — les bornes critiques, relues en nombres (« 2,5 » vaut 2.5), la
+     * basse sous la haute ; une clé absente laisse les bornes en place.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function criticalRanges(array $data, string $errorKey = 'critical_ranges'): array
+    {
+        if (array_key_exists('critical_ranges', $data)) {
+            $data['critical_ranges'] = LabCriticalRange::normalize(is_array($data['critical_ranges']) ? $data['critical_ranges'] : null, $errorKey);
+        }
+
+        return $data;
+    }
+
     private function relations(array $data, ?AnalysisCatalog $current = null): array
     {
         $catalogItem = CatalogItem::query()

@@ -1809,7 +1809,8 @@ explicite `--reset` et est refusée tant que l’API concernée tourne.
 
 # ADR-044 — Pilotage central des désignations et tarifs par API de site
 
-**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire) ; depuis l'amendement du
+2026-09-28 (ter), le site et le portail partagent un seul écran des désignations et tarifs.
 
 L’espace Super Administration `Désignations & tarifs` n’est plus une maquette.
 Il interroge séparément les API de Mampikony, Ambondromamy et Boriziny et permet,
@@ -1839,6 +1840,126 @@ Le banc local de l’ADR-043 expose ces mêmes endpoints. Les prestations de tes
 sont ajoutées seulement lorsqu’aucune prestation clinique n’existe encore sur
 le site : un redémarrage ne recrée donc pas un tarif suspendu et n’écrase jamais
 une décision tarifaire saisie pendant les tests.
+
+## Amendement du 2026-09-28 — une catégorie à la fois, sans couleurs qui crient
+
+Constat du propriétaire sur `/super-admin/workspaces/tariffs?module=LABORATORY` : trop
+de choses à l'écran (cinq cartes-compteurs colorées, un bandeau jaune « À régler »,
+treize puces de domaine, des pastilles de discipline, des boutons « Configurer »
+ambre, des pastilles « Active » vertes), et les catégories mêlées dans une vue « Tous ».
+Demande : séparer complètement les désignations majeures, chacune comme une catégorie
+indépendante, dans une interface sobre en shadcn (ADR-099).
+
+```text
+navigation   une colonne à gauche : chaque catégorie (un domaine ; l'Imagerie par
+             famille, ADR-106) avec son nombre en service, puis « Mutuelles » ; sur
+             téléphone, la même liste en choix déroulant. Plus de vue « Tous » : on
+             ne voit jamais les désignations de deux catégories à la fois
+catégorie    en-tête (nom, nombre en service, avancement « N / M tarifées »), puis
+             des onglets Actives · Sans tarif standard · Sans tarif mutuelle ·
+             Archivées, comptés dans la catégorie ; dessous la recherche, la
+             discipline (Laboratoire), le type (s'il y en a plusieurs) et
+             « Points à vérifier » (sans politique Personnel, nom en double, sans
+             analyse technique), chacun seulement s'il a quelque chose à montrer
+recherche    limitée à la catégorie ; ce qu'elle trouve ailleurs est nommé
+             (« Aussi trouvé dans : Échographie (14) ») et s'ouvre d'un clic avec
+             la même recherche. Un lien `?q=CODE` venu du catalogue des analyses
+             ouvre la catégorie de ce code
+ligne        nom, puis code · unité · discipline · analyses en texte discret ;
+             repères neutres « Doublon », « Famille à choisir », « Sans analyse » ;
+             tarif, ou « Définir » en bouton discret ; actions dans un menu « … »
+Excel        un seul menu dans l'en-tête : exporter la catégorie, exporter tout le
+             site, importer, modèle. `export?module=` accepte une catégorie
+             (`LABORATORY`, `IMAGING:ULTRASOUND`, `IMAGING:UNCLASSIFIED`) ; la
+             famille non classée se lit sur l'absence de famille, jamais devinée
+retirés      les cartes-compteurs, le bandeau jaune, les puces de domaine, le choix
+             « Les deux grilles » (les onglets Sans tarif le remplacent), la
+             colonne État (les onglets séparent actives et archivées), le badge
+             « Écritures auditées » (la phrase d'en-tête le dit)
+```
+
+La couleur n'est plus portée que par l'action principale et l'avancement ; un état se
+lit par son mot. Une sélection ne survit ni à un changement de catégorie ni d'onglet :
+on n'agit jamais sur ce qu'on ne voit pas. Aucune permission, aucune règle tarifaire,
+aucune route d'écriture ne change ; l'API des sites n'est pas modifiée.
+
+## Amendement du 2026-09-28 (bis) — une désignation a sa propre page ; le motif d'un tarif peut être automatique
+
+Demande du propriétaire : la fenêtre « Nouvelle désignation » était peu logique (code avant le
+nom, « Module » et « Famille d'imagerie » séparés, motif à retaper à chaque tarif). Elle devient
+une page, et le champ Motif une case à cocher « Motif automatique ».
+
+```text
+pages        /super-admin/workspaces/tariffs/items/create?site=A&module=LABORATORY
+             (catalog.items.create) et …/items/{site}/{uuid}/edit (catalog.items.view +
+             catalog.tariffs.view) ; la liste n'a plus de fenêtre de désignation ni de tarif :
+             « Nouvelle désignation », le nom, « Modifier », un montant et « Définir » y mènent
+             (`?grille=MUTUAL#tarifs` ouvre la bonne grille)
+ordre        Catégorie et type → Identification (désignation, code, unité, description) →
+             Réception → Soins (acte de Soins) → Avantage Personnel → Tarifs. La catégorie se
+             choisit comme dans la liste : un domaine, ou une famille d'imagerie
+             (`categoryChoices`, `categoryFields`) ; « non classée » n'écrit aucune famille
+fiche        en modification, les deux tarifs côte à côte (montant, depuis quand, par qui),
+             « Modifier / Définir », « Suspendre » et l'historique ; archiver et restaurer
+             depuis l'en-tête ; une désignation archivée se lit en lecture seule
+barre        collante au bas : ce qui manque encore (« À compléter : le code, le tarif… »),
+             Annuler, Créer / Enregistrer — jamais un bouton grisé sans raison
+après        une création ramène à sa catégorie, ouverte sur son code ; une erreur du site
+             garde la page et ses champs
+```
+
+**Motif automatique**, cochée par défaut. C'est le portail qui écrit le motif, jamais le
+navigateur (`tariff_reason_auto` à la création, `reason_auto` pour un tarif) : « Tarif initial
+fixé à la création de la désignation (motif automatique). » et « Tarif mutuelle fixé à
+25 000 Ar depuis la fiche de la désignation (motif automatique). » Décochée, le motif s'écrit à
+la main et reste exigé. Suspendre un tarif et archiver une désignation gardent un motif écrit à
+la main : ce sont des décisions (ADR-009, ADR-010).
+
+L'API des sites gagne deux lectures, sans rien changer aux écritures :
+`GET /api/v1/super-admin/catalog/options` (les listes de choix du formulaire) et
+`GET /api/v1/super-admin/catalog/{uuid}` (une désignation, archivée comprise, avec son historique),
+toutes deux gardées par `catalog.items.view`. La page reçoit son site dans `targetSite`, jamais
+`site` : la prop partagée du même nom porte le menu du portail. Aucune permission nouvelle.
+
+## Amendement du 2026-09-28 (ter) — un seul écran pour le site et le portail
+
+Constat du propriétaire : `/administration/catalog` (site, ancien écran DashWind) et
+`/super-admin/workspaces/tariffs` (portail, refondu en shadcn) étaient deux écrans pour le même
+référentiel — deux listes, deux formulaires, deux lectures qui finissaient par diverger. Même remède
+que pour le catalogue des analyses (ADR-063, amendement du 2026-09-28) :
+
+```text
+lecture      App\Services\Catalog\CatalogDirectory : liste, compteurs, options, fiche, matériel
+             habituel — lue par le contrôleur du site ET par l'API que le portail interroge
+motif        App\Support\Catalog\CatalogTariffReason : les mêmes mots au site et au portail ;
+             au site, SetCatalogTariffRequest et StoreCatalogItemRequest l'écrivent sur
+             `reason_auto` / `tariff_reason_auto`, jamais le navigateur
+pages        Pages/Catalog/{Index,ItemForm} + Components/Catalog/*, rendues par les deux
+             contrôleurs avec `context.mode` = site | portal ; l'ancienne page du site et
+             Pages/SuperAdmin/Tariffs sont supprimées
+adresses     utilities/catalogUrls.js : /administration/catalog/… au site,
+             /super-admin/workspaces/tariffs/… au portail — jamais devinées
+site         pages de fiche (`/administration/catalog/create`, `/{uuid}/edit`) ; ni choix de
+             site, ni Excel, ni sélection multiple, ni mutuelles (elles se règlent au portail,
+             ADR-045) ; menu renommé « Désignations & tarifs »
+```
+
+Deux fonctions du seul ancien écran du site sont reprises, chacune là où elle a du sens :
+
+```text
+matériel habituel   section « Matériel habituel » de la fiche d'un acte de Soins, Maternité ou
+(ADR-072/142/169)   Chirurgie, au site et au portail. Le portail passe par
+                    `PUT /api/v1/super-admin/catalog/{uuid}/care-consumables` : la même action,
+                    qui revérifie `catalog.items.update` sur l'acteur distant et signe l'audit de
+                    son identité (ADR-187). Par défaut, seul le Super Admin détient ce droit.
+médicaments hors    catégorie « Médicaments à référencer » de la colonne de gauche, au site
+référentiel         seulement : une ligne d'ordonnance n'a pas d'UUID, et l'exposer par l'API
+(ADR-037)           obligerait à publier son identifiant SQL (ADR-050)
+```
+
+La fiche porte aussi « Demandable par le médecin » (`clinician_orderable`, ADR-055) pour un acte de
+Soins : l'ancien écran du site était le seul à le régler. Aucune permission, aucune règle tarifaire,
+aucune migration ne change.
 
 ---
 
@@ -2959,6 +3080,76 @@ L’import/export utilise Excel `.xlsx`; l’import est transactionnel, limité,
 met à jour par code et annule entièrement l’opération si une ligne est
 invalide. Les examens ECG/échographie restent des prestations
 `catalog_items` du module `IMAGING`, distinctes des analyses Laboratoire.
+
+## Amendement du 2026-09-28 — un seul écran pour le site et le portail
+
+Constat du propriétaire : `/administration/analyses` (site, DashWind) et
+`/super-admin/analyses` (portail, shadcn) étaient deux écrans différents pour
+le même catalogue, avec deux formulaires, deux listes et deux sérialisations.
+
+```text
+lecture      App\Services\Laboratory\AnalysisCatalogDirectory : liste, compteurs,
+             options du formulaire, fiche avec ses sous-analyses, ligne d'export —
+             lue par le contrôleur du site ET par l'API que le portail interroge
+pages        Pages/Analyses/{Index,Create,Edit} + Components/Analyses/{AnalysisForm,
+             SubAnalysesEditor}, rendues par les deux contrôleurs avec
+             `context.mode` = site | portal ; les copies Administration/ et
+             SuperAdmin/ sont supprimées
+adresses     utilities/analysisCatalogUrls.js : /administration/analyses/… sur un
+             site, /super-admin/analyses/{site}/… au portail — jamais devinées
+site         un seul site (le sien), sans choix de site ; import sans site
+             destinataire ; lien « Tarif » vers le catalogue clinique
+             (catalog.items.view), le portail garde « Tarifs & mutuelles »
+```
+
+Le site passe à shadcn (ADR-099) et gagne ce que le portail avait déjà :
+arbre par analyse principale, vues liste et grille, pagination, filtre par
+prestation à l'écran, menu Excel. Son statut par défaut devient « Toutes »,
+comme au portail. Le portail ne lit toujours aucune base de site (ADR-004).
+Aucune route, permission ni règle serveur ne change ; l'export du site est
+borné à 1 000 lignes, comme celui du portail.
+
+## Amendement du 2026-10-01 — la fiche d'une analyse en étapes, enregistrée toute seule
+
+Demande du propriétaire, sur `/super-admin/analyses/A/create` : un enregistrement
+automatique pendant la saisie, une interface shadcn, et des étapes plus logiques.
+C'est le schéma déjà retenu pour le dossier employé (ADR-221) : une fiche n'existe
+qu'une fois créée, donc on crée l'identité, puis tout le reste s'enregistre seul.
+
+```text
+création     l'étape Identité seule : prestation (recherche dans une liste
+             filtrable, accents ignorés), désignation, code, rang (Groupe /
+             Sous-analyse / Analyse simple) et groupe parent ; les autres étapes
+             se voient, verrouillées. « Créer et continuer » ouvre la fiche sur
+             l'étape Résultat (`after=edit`, `?etape=resultat`)
+étapes       Identité · Résultat · Normes · Sous-analyses (seulement pour un
+             groupe) · Récapitulatif ; chacune s'ouvre d'un clic, l'adresse la
+             garde (`?etape=`), une étape où il manque quelque chose ou qu'un
+             refus vise le dit dans la barre
+Résultat     le type d'abord (cartes Numérique, Texte, Choix, Oui/Non…) ; ce
+             qui ne le concerne pas n'est pas demandé : l'unité seulement pour un
+             résultat numérique, les valeurs proposées seulement pour un choix
+Normes       références par profil ; bornes critiques seulement si numérique
+Sous-analyses une ligne par résultat (désignation, code, type, unité), le détail
+             (normes, saisie, bornes, sous-groupe) replié ; retirer un résultat
+             déjà enregistré demande confirmation
+enregistré   ~1 s après la dernière saisie, par la même route, les mêmes droits
+             et la même validation qu'avant (au portail, par l'API du site) ;
+             retour sans message (`_autosave`). Rien ne part tant qu'un champ
+             obligatoire manque, et la barre du bas le nomme. « Continuer »
+             enregistre ce qui reste ; quitter une saisie refusée demande
+             confirmation
+```
+
+**Deux défauts corrigés.** Une sous-analyse nouvelle n'avait pas d'UUID côté
+écran : un second enregistrement l'aurait recréée. L'écran reprend désormais
+l'UUID que le serveur lui donne (par code, puis par rang), et le serveur refuse
+de toute façon un code déjà pris. La fiche chargeait aussi les sous-analyses
+**désactivées** : un enregistrement les aurait réactivées en silence. Seules les
+sous-analyses actives entrent dans le formulaire.
+
+Aucune route nouvelle, aucune permission ni migration ; les règles de
+`AnalysisCatalogManager` ne changent pas.
 
 ---
 
@@ -16685,6 +16876,56 @@ Limite : la forme est déduite de l'adresse, pas de la page elle-même (Inertia 
 composant d'arrivée qu'avec la réponse). Une page à l'adresse atypique reçoit la forme « liste ».
 Les pages hors mise en page principale (connexion, feuilles plein écran) n'en ont pas.
 
+## Amendement du 2026-10-01 — un squelette qui a la forme de l'écran, et qu'on voit
+
+Constat du propriétaire, avec la démo de Boneyard (boneyard.vercel.app) pour modèle : « je n'ai
+pas vu le chargement skeleton », puis « il ne prend pas la forme des pages, ni les cartes ».
+Quatre causes, vérifiées dans un navigateur :
+
+```text
+délai       200 ms : sur une page servie vite, le squelette n'apparaissait jamais
+couleur     gris à 96 % de clarté (`bg-muted`) avec un fondu, sur le fond de la page : invisible
+forme       trois formes capturées une fois sur trois pages prises au hasard, données à toutes
+            les autres — la « liste » faisait 262 px, sans compteurs ni tableau
+cartes      le composant Vue de Boneyard ne dessine jamais les surfaces (`filter(!c)`) : les
+            blocs flottaient sans carte autour
+```
+
+La règle devient :
+
+```text
+forme       chaque écran affiché est photographié par Boneyard (`snapshotBones`) pendant un
+            temps mort, ~1 s après son affichage et après chaque filtre ou onglet qui le change
+            (`usePageShapes`) ; la photo est rangée sous le motif de l'adresse — un segment qui
+            porte un chiffre devient `:id`, la requête est ignorée (`pageShapeKey`) ; la visite
+            suivante de cet écran en reprend la forme exacte
+largeur     une photo ne sert qu'à une largeur comparable (± 12 %) ; trois largeurs gardées
+            par écran (téléphone, tablette, ordinateur)
+inconnu     un écran jamais vu sur ce poste reçoit la forme générique de `PageSkeleton`
+dessin      `PageShapeSkeleton` : une surface arrondie redevient une carte bordée (`bg-card`),
+            une surface droite (ligne de tableau, bandeau) une surface plate, chaque contenu
+            un bloc à balayage
+bloc        un seul aspect, `.skeleton-bone` (shadcn.css) : `foreground` à 8 % et un balayage,
+            juste en clair comme en sombre ; le `Skeleton` shadcn l'emploie aussi, partout ;
+            les animations réduites (ADR-191) l'arrêtent
+délai       aucun : le squelette paraît dès le clic et reste au moins 450 ms
+premier     jamais au premier affichage : la page est déjà rendue par le serveur, et afficher
+affichage   le squelette avant l'hydratation ferait diverger client et serveur
+gardé       sur le poste (localStorage `rivo:page-shapes:v1`), 60 écrans au plus, 2 400 px de
+            haut au plus ; une forme ne contient que des rectangles — ni texte, ni donnée ;
+            stockage refusé ou abîmé : pas de forme, jamais une erreur
+```
+
+Remplace le délai de 200 ms ci-dessus. Le reste ne change pas : seuls les vrais changements de
+page, l'ancienne page montée et cachée, une seule annonce « Chargement de la page… ».
+
+**Retiré** : les trois captures faites d'avance (`resources/js/bones`), leur registre, la
+configuration et le script de capture. Elles donnaient à chaque écran la forme d'un autre.
+
+**Limite** : un bouton est photographié comme un seul bloc (compteurs cliquables, onglets) — c'est
+ainsi que Boneyard lit un élément de formulaire. Une page dont le contenu change beaucoup d'une
+visite à l'autre (liste vide puis pleine) montre la forme de la dernière visite.
+
 ---
 
 # ADR-186 — Le Super Admin du portail détient réellement toutes les permissions
@@ -17119,8 +17360,8 @@ RH ne demande plus l'adresse depuis la fiche. « Adresse seule » reste possible
 première connexion, celui qu'il choisit.
 
 Le CDC ne décrit aucune adresse email professionnelle : les règles ci-dessous sont celles du propriétaire.
-L'hébergeur est o2switch (cPanel) ; le domaine de test est `cbdc.mg`, remplacé par le domaine officiel de la
-clinique à son achat — il se règle dans l'environnement, jamais dans le code.
+L'hébergeur est o2switch (cPanel) ; le domaine est `cliniquesaintgeorges.mg`, le domaine officiel de la
+clinique (amendement du 2026-09-29) — il se règle dans l'environnement, jamais dans le code.
 
 ## Les arbitrages
 
@@ -17326,6 +17567,48 @@ assumées : un employé qui n'aura jamais d'adresse pro n'a pas d'email dans RIV
 **ne sont pas effacés** (ADR-010) : ils s'affichent en lecture seule et seront remplacés à l'activation d'une
 adresse pro. Aucune migration, aucune permission nouvelle. Les tests ne lisent plus les accès réels à
 l'hébergeur du poste (`phpunit.xml` les force à vide).
+
+## Amendement du 2026-09-29 — le domaine officiel remplace le domaine de test
+
+Le propriétaire a acquis `cliniquesaintgeorges.mg` et demande de retirer tout ce qui concernait le domaine de
+test. Aucune règle ne change : le domaine vient de `RIVO_PROFESSIONAL_EMAIL_DOMAIN`, lu partout.
+
+```text
+configuration   RIVO_PROFESSIONAL_EMAIL_DOMAIN=cliniquesaintgeorges.mg sur les sites et le portail ;
+                l'hébergeur du nouveau domaine est un autre compte cPanel, dont les accès se posent
+                dans le .env du portail et de chaque site (ADR-202)
+données         arbitrage du propriétaire : les adresses de test ne sont pas renommées, elles sont
+                retirées. Base du site réinitialisée (migrate:fresh --seed, après sauvegarde) ; au
+                portail, les enregistrements de boîtes créées sur le domaine de test sont supprimés.
+                L'audit du portail est conservé (ADR-010) : il garde la trace des boîtes réellement
+                créées chez l'ancien hébergeur, qui n'y sont pas supprimées par RIVO
+code et tests   plus aucune mention du domaine de test ; les tests écrivent @cliniquesaintgeorges.mg
+```
+
+Piège constaté : le portail local tourne avec `php artisan serve --env=admin --no-reload`, qui garde en mémoire
+les valeurs de `.env.admin` lues au démarrage. Changer le domaine exige de redémarrer ce serveur.
+
+## Amendement du 2026-09-30 — un nom trop long donne une adresse brève
+
+Constat du propriétaire, sur « Créer l'accès » : « Latifah Olsen Lee Park » donnait
+`latifah.olsen.lee.park` (22 caractères). La proposition reste modifiable ; seule sa forme change
+(`ProfessionalEmailAddress::localPartFor()`, lue par `suggest()`, donc partout où une adresse est proposée).
+
+```text
+tant que ça tient   tous les mots, comme avant : zephyr.andrianina, jean.paul.rabe
+au-delà de 20       la première forme qui tient en 20 caractères (PREFERRED_LENGTH), dans cet ordre :
+caractères            latifah.lee        premier prénom . premier nom
+                      t.rakotondrazaka   initiale du prénom . premier nom
+                      fanomezantsoa.a    premier prénom . initiale du nom
+                    si aucune ne tient : la plus courte
+un seul nom         tous les mots, puis les deux premiers, puis le premier
+homonyme            chiffre ajouté, comme avant (latifah.lee2) — jamais pour sa propre boîte déjà ouverte,
+                    qui comptait jusqu'ici comme « prise » par quelqu'un d'autre
+```
+
+Même jour, même fenêtre : « Compte RIVO » et « Rôle dans RIVO » deviennent « Compte » et « Rôle » ; les
+textes de la page « Accès du personnel » ne nomment plus l'application. Aucune permission, route ni
+migration ; aucune adresse existante n'est réécrite.
 
 ---
 
@@ -18350,6 +18633,94 @@ PHP-FPM, le PHP en ligne de commande est cherché à côté de php-fpm (sinon RI
 hébergé près du serveur de mail (même centre de données qu'o2switch), l'aller-retour tombe à quelques ms et tout
 devient instantané, processus ou pas. En local, `php artisan serve` n'a qu'un processus : un préchargement au
 survol y bloque le clic suivant ; `PHP_CLI_SERVER_WORKERS=4 php artisan serve --no-reload` l'évite.
+
+## Amendement du 2026-09-30 — une connexion oubliée par le routeur n'est plus gardée
+
+Constat du propriétaire, sur le portail : « Messagerie momentanément indisponible — Impossible de lire les
+dossiers : le serveur de messagerie ne répond pas » pour dg@cliniquesaintgeorges.mg, à chaque clic, après 40 s
+d'attente. Le serveur (kitty.o2switch.net) et le mot de passe étaient bons : une connexion neuve répondait en
+0,25 s.
+
+La cause était le processus de l'amendement quater. Lancé à la connexion, il avait gardé sa connexion IMAP
+muette sept minutes ; la box du poste l'avait oubliée sans prévenir aucun des deux bouts (aucune fin de flux,
+paquets jamais acquittés). `alive()` la croyait donc ouverte, chaque lecture attendait les 20 s du délai, et
+après l'échec la connexion était **gardée** — `dropIfDead()` interrogeait encore `alive()`, qui disait oui.
+Tous les clics suivants retombaient sur la même connexion morte.
+
+```text
+entretien       entre deux clics, un NOOP toutes les 60 s (RIVO_WEBMAIL_KEEP_ALIVE_HEARTBEAT, 15 au moins) :
+                la box ne l'oublie plus, et un NOOP qui ne revient pas (5 s) la fait rouvrir aussitôt,
+                jamais au moment du clic ; le processus s'arrête toujours après 10 min sans clic
+vérification    une connexion restée muette plus d'un battement (poste en veille) est éprouvée d'un
+                NOOP avant d'être réutilisée — quelques centaines de ms, au lieu du délai entier
+après un échec  la connexion n'est jamais réutilisée : l'état du flux est inconnu ; la demande suivante,
+                même dans la même requête, en ouvre une neuve
+```
+
+`KeepsConnectionOpen::probe()` / `ImapMailServer::probe()` : un NOOP avec un délai court, le délai d'origine
+rétabli ensuite. Le TCP keepalive n'est pas utilisable : PHP ne l'expose pas sur un flux TLS
+(`socket_import_stream` échoue, les options `socket` du contexte sont ignorées). Vérifié contre le vrai serveur
+(NOOP en 0,23 s, lecture suivante normale), contre un faux serveur muet (`alive()` vrai, NOOP faux en 2 s) et
+contre GreenMail. Aucune permission, aucune migration.
+
+**Descripteurs hérités, corrigé le même jour.** Le processus héritait de ceux de la requête qui le lance :
+sous `php artisan serve`, la prise d'écoute du port (8010 pour le portail) restait occupée dix minutes après un
+redémarrage, et un script qui attendait la fin de la requête attendait aussi la sienne.
+`MailboxConnectionPool::descriptors()` lui donne son tube d'entrée, `/dev/null` pour ses sorties, et `/dev/null`
+à la place de tout autre descripteur ouvert (`/proc/self/fd`).
+
+**Un processus par installation, corrigé le même jour.** Le portail affichait de nouveau « le serveur de
+messagerie ne répond pas » à chaque clic, alors que la boîte répondait en direct. Le processus qui gardait sa
+connexion avait été lancé par un serveur de vérification démarré sur un clone de la base du portail : même code,
+même clé, même boîte, donc même nom de prise. Le clone supprimé, ce processus ne pouvait plus écrire son cache
+(« attempt to write a readonly database ») et le portail, qui le rejoignait, recevait son erreur. Le nom de la
+prise et le jeton tiennent désormais compte de la base de l'installation (connexion, hôte, port, base) : une
+copie sur une autre base a son propre processus et ne rejoint jamais celui du portail.
+
+## Amendement du 2026-09-30 (bis) — une fenêtre de rédaction de messagerie, et une messagerie qui s'ouvre au clic
+
+Demande du propriétaire, capture de « Nouveau message » à l'appui : une fenêtre de rédaction comme dans une vraie
+messagerie, en shadcn, et une ouverture de la messagerie plus rapide.
+
+**La fenêtre de rédaction n'est plus une boîte de dialogue modale.** `ComposeDialog` est une fenêtre ancrée en bas
+à droite, sans voile : on lit, on change de dossier et on revient pendant qu'on écrit.
+
+```text
+trois tailles   ancrée (42 rem, bas à droite), agrandie (voile, Échap la ramène), réduite (barre de 20 rem
+                avec l'objet) ; le texte, les pièces et l'historique d'annulation survivent à la réduction ;
+                plein écran sur téléphone
+en-têtes        lignes sans cadre : De (l'adresse de la boîte), À, Cc / Cci à la demande, Objet ; le sujet
+                devient le titre de la fenêtre dès qu'il est écrit
+texte           occupe la place ; la mise en forme se range au-dessus des boutons et se replie (Aa),
+                choix gardé sur le poste
+pied            « Envoyer » d'abord (jamais un bouton submit : Entrée dans l'objet n'envoie rien), pièce
+                jointe, modèles, brouillon, corbeille ; Ctrl+Entrée envoie ; ce qui manque est dit à côté
+pièces          glisser-déposer sur toute la fenêtre, pastilles avec l'icône du type de fichier
+destinataires   Échap ferme les propositions sans effacer ce qui est tapé (il l'effaçait)
+quitter         changer de dossier garde la fenêtre ; quitter la messagerie avec un message commencé
+                demande confirmation (composeLeavesMessaging), fermer l'onglet aussi
+un seul à la    une nouvelle demande (Répondre, Transférer…) sur un message commencé demande s'il faut
+fois            le remplacer
+assistant       son bouton flottant s'efface tant que la fenêtre est ouverte : il en occupe le coin
+```
+
+Rien ne change côté serveur : les champs envoyés, l'envoi en arrière-plan de l'amendement du 2026-09-26, ses
+refus et le brouillon restent ceux d'avant.
+
+**La messagerie s'ouvre au clic.** Le temps perdu n'était pas dans Vue, mais avant : la connexion au serveur de
+messagerie (≈ 1 s depuis Madagascar), et l'éditeur de texte (tiptap/ProseMirror, 332 Ko) chargé avec la page.
+
+```text
+survol du menu     l'entrée « Messagerie » (site et portail) précharge sa page au survol et au focus, et
+                   son code dès le survol (utilities/menuPreload.js, menuWarm.js) ; gardée 30 s
+éditeur à part     la fenêtre de rédaction et les modèles sont chargés à part (defineAsyncComponent),
+                   pendant un temps mort après l'affichage de la boîte (requestIdleCallback), au plus tard
+                   au premier « Nouveau message »
+connexion          celle du processus de l'amendement quater, entretenue par le battement ci-dessus
+```
+
+Mesuré sur une copie du portail : la boîte s'affiche 80 ms après le clic quand le lien a été survolé. Aucune
+permission, aucune route, aucune migration.
 
 # ADR-196 — Navigation compacte et sidebar redimensionnable du portail
 
@@ -20227,3 +20598,2758 @@ imagerie / labo       le compte rendu corrigé (ADR-130) garde son auteur d'orig
 remboursement         un bonus versé par erreur ne se reprend pas dans RIVO : c'est hors RIVO
 dossier existant      une recommandation oubliée à la première venue ne se rattrape pas
 ```
+
+---
+
+# ADR-213 — La paillasse du Laboratoire : résultats structurés, microbiologie, validation
+
+**Status:** ACCEPTED (2026-09-28 — demande du propriétaire : intégrer dans RIVO les
+fonctionnalités de son application laboratoire `GasyCoder/labo-vuejs` — résultats,
+analyses, germes, bactéries, antibiogrammes — avec leur UI et UX) ; **complétée par
+l'ADR-214** (même jour) : réception et règlement, prélèvements, laboratoires extérieurs,
+bornes critiques, rapports — trois des points « signalés » ci-dessous y sont tranchés ;
+**amendée par l'ADR-216** (2026-09-29) : « Terminer » puis « Valider » deviennent un seul geste,
+« Envoyer au médecin », et il n'y a plus de biologiste distinct.
+
+**Complète l'ADR-063** (catalogue des analyses) et **l'ADR-068** (demandes d'analyses).
+Le CDC décrit le Laboratoire (demande, prélèvement, analyse, saisie, validation, résultat
+critique, impression) sans en fixer le détail : les modes de saisie, le référentiel de
+microbiologie et le score de Nugent sont **repris de labo-vuejs**, l'application que la
+clinique utilisait déjà. Aucune règle clinique n'est inventée ; ce qui n'y est pas est
+signalé plus bas.
+
+## Le résultat se saisit analyse par analyse du catalogue
+
+Une prestation du Laboratoire (`catalog_items`) porte ses définitions techniques
+(`analysis_catalogs`, ADR-063) : groupes, sous-analyses, unités, références. La paillasse
+présente cet arbre et enregistre **une ligne par analyse** (`lab_results`) : valeur,
+sélections, interprétation, position par rapport à la référence, instantané du libellé, de
+l'unité et de la référence (une correction du catalogue ne réécrit jamais un résultat,
+ADR-063).
+
+`analysis_catalogs.entry_mode` (`LabEntryMode`) dit comment la paillasse saisit :
+
+```text
+NUMERIC            nombre ; « 1,45 » accepté ; position BAS / NORMAL / ÉLEVÉ lue sur la référence
+TEXT               texte libre
+CHOICE, MULTI_CHOICE  une ou plusieurs valeurs de la liste prédéfinie
+NEG_POS            Négatif / Positif
+NEG_POS_VALUE      Négatif / Positif + une précision saisie (ex. titre)
+NEG_POS_CHOICE     Négatif / Positif + une précision de la liste
+ABSENCE_PRESENCE   Absence / Présence
+CULTURE            issue de la culture ; « Présence de germe(s) » nomme 1 à 6 germes
+NUGENT             trois sous-scores ; score /10 et lecture (0–3 normale, 4–6 intermédiaire, 7–10 vaginose)
+LABEL              un intitulé, sans résultat
+```
+
+Vide, le mode se déduit du type historique de labo-vuejs (conservé dans `source_metadata`)
+puis du type de résultat : la migration l'écrit pour les analyses existantes. Il se choisit
+dans le formulaire du catalogue (« Mode de saisie au laboratoire »).
+
+**L'interprétation est proposée, jamais imposée** : hors bornes → pathologique, dans la
+norme → normale, score de Nugent → sa lecture. Le technicien peut la changer ; le serveur ne
+la réécrit que s'il n'en a pas choisi. Ce n'est pas un diagnostic.
+
+## Le parcours d'une analyse demandée
+
+`lab_request_items.status` (`LabItemStatus`) :
+
+```text
+PENDING → IN_PROGRESS → COMPLETED → VALIDATED
+                 ↑            │          │
+                 └── TO_REDO ←┴──────────┘   (motif obligatoire)
+```
+
+```text
+saisie      enregistrée automatiquement (useAutosave) ; un brouillon, jamais rendu
+Terminer    exige au moins un résultat, un germe nommé pour une culture positive, les
+            trois sous-scores de Nugent ; écrit `result_value` (le résumé lisible) et
+            `resulted_at` — ce que Médecine, Maternité et le séjour lisent déjà
+Valider     le biologiste (`laboratory_results.validate`) ; une analyse, ou toute la demande
+Renvoyer    avec un motif ; une analyse validée ne se renvoie qu'avec le droit de valider
+```
+
+Une analyse terminée ou validée ne se modifie plus : elle se renvoie à refaire, et son
+résultat rendu reste lisible jusqu'au prochain « Terminer » (il a pu être lu). Une demande
+retirée par le prescripteur (ADR-079) ne se travaille plus. Les lignes déjà rendues avant
+cette décision passent « Terminée — à valider » : les dire validées inventerait une
+validation. `result_value`, `resulted_at` et `RecordLabResultAction` gardent leur sens ; une
+prestation sans définitions garde la saisie en un bloc.
+
+## Microbiologie : un référentiel par site
+
+`lab_bacterium_families`, `lab_bacteria`, `lab_antibiotics` : les familles, leurs germes et
+les antibiotiques testés pour la famille. Noms uniques sans accents ni casse ; archivage avec
+motif, restauration ; une entrée qui a servi n'est jamais supprimée. « Importer le référentiel
+de départ » reprend celui de labo-vuejs (`database/seeders/data/lab_microbiology.json`), une
+seule fois, sans rien écraser.
+
+Chaque germe nommé dans une culture ouvre son **antibiogramme** (`lab_antibiograms`,
+`lab_antibiogram_results`) : un antibiotique de la famille par ligne, Sensible / Intermédiaire
+/ Résistant, diamètre en mm facultatif, commentaire. Retirer le germe d'une culture encore
+ouverte retire son antibiogramme (c'est un brouillon).
+
+## Résultat critique
+
+Un résultat se signale critique **à la main** (`laboratory_results.flag_critical`), avec
+l'auteur et l'heure. Aucune borne critique n'est calculée : ni le CDC ni le catalogue ne
+portent de valeurs critiques, et en écrire serait inventer de la médecine.
+
+## Écrans (shadcn, ADR-099)
+
+```text
+/laboratory                        la file par demande : À faire, À refaire, À valider, Validées,
+                                   Toutes — comptes du serveur, urgences, résultats critiques
+/laboratory/requests/{uuid}        la paillasse : analyses à gauche, saisie à droite
+/laboratory/requests/{uuid}/impression   la feuille de résultats (« non validé » écrit tant
+                                   qu'il l'est), antibiogrammes compris
+/laboratory/microbiologie          familles, germes et antibiotiques
+```
+
+## Droits
+
+```text
+laboratory_results.view / create    existants ; l'entrée de menu suit désormais la route
+                                    (laboratory_results.view) au lieu de laboratory.view
+laboratory_results.validate         valider, renvoyer une analyse validée        LABORATORY
+laboratory_results.flag_critical    signaler un résultat critique                LABORATORY
+lab_microbiology.view/create/update/archive/restore                              LABORATORY
+```
+
+Enregistrés par la migration `2026_11_16_090000_create_laboratory_workbench` (ADR-064). Le
+Laboratoire n'encaisse toujours rien et n'affiche aucun montant (ADR-014).
+
+## Signalé, non tranché
+
+```text
+biologiste                validate est accordé à tout le rôle LABORATORY : la clinique n'a pas
+                          de profil biologiste distinct — le réserver se fait depuis le portail
+microbiologie à           non accordée par défaut à ADMINISTRATION : à décider
+l'Administration
+valeurs critiques         aucune donnée : le signalement reste manuel
+prélèvement, tubes,       non repris : aucune règle définie dans RIVO
+échantillons
+analyses externes,        non repris
+vérification du paiement
+avant analyse
+```
+
+---
+
+# ADR-214 — Laboratoire : réception, prélèvements, extérieur, bornes critiques, rapports
+
+**Status:** ACCEPTED (2026-09-28 — demande du propriétaire : « tous les fonctionnalités
+laboratoire » de `GasyCoder/labo-vuejs`, avec quatre arbitrages explicites ci-dessous) ;
+**le règlement ne retient plus le technicien depuis l'ADR-217** (2026-09-29) : la réception
+devient « Traiter », et rien n'attend avant la saisie
+
+**Complète l'ADR-213** (paillasse) et tranche trois de ses points signalés (prélèvement,
+analyses externes, contrôle du paiement). Le CDC §14 décrit le parcours — demande,
+« Payé ? Non → En attente », prélèvement, analyse, validation, résultat critique,
+impression — et ses droits (`laboratory.orders.receive`, `.samples.create`,
+`.reports.view/export`) sans en fixer le détail ; ce qui suit vient de labo-vuejs et des
+arbitrages du propriétaire.
+
+## Les arbitrages
+
+```text
+règlement     bloquer, sauf exceptions : une analyse à régler à la Caisse retient le
+              prélèvement ; jamais une urgence (ADR-021), un patient hospitalisé
+              (ADR-162) ni une analyse prise en charge à 100 % ; l'état se voit toujours
+prélèvement   suivi sans prix : aucun montant au laboratoire (ADR-014) ; facturer un
+              prélèvement, c'est une prestation du catalogue au tarif du Super Admin (ADR-024)
+critique      bornes réglables par analyse et par profil, signal proposé : au-delà, le
+              résultat est marqué critique d'office ; le laboratoire peut retirer la marque
+extérieur     une analyse confiée à un laboratoire extérieur se suit comme les autres :
+              son résultat est transcrit, signé « réalisée par … », validé par le biologiste
+```
+
+## Réception : numéro de laboratoire et contrôle du règlement
+
+`ReceiveLabRequestAction` (`POST /laboratory/requests/{uuid}/receive`,
+`laboratory_orders.receive`) verrouille la demande, relit le règlement
+(`LabPaymentClearance`, par analyse : SETTLED, NOTHING_DUE, DUE, TO_INVOICE, NOT_BILLED,
+CANCELLED), puis donne le **numéro de laboratoire** `{SITE}-L{aa}-{NNNNN}` (séquence
+annuelle verrouillée, `lab_number_sequences`) et peut enregistrer les prélèvements dans le
+même geste. Refusée — avec le nom des analyses à régler — tant qu'une analyse est DUE ou
+TO_INVOICE, sauf exemption figée sur la demande (`payment_exemption` EMERGENCY /
+HOSPITALIZED) et dans l'audit (`laboratory.request.receive`). Une analyse NOT_BILLED
+(aucun tarif) **ne bloque pas** : il n'y a rien à régler, et l'écran le dit pour que la
+Réception régularise (ADR-103). Le laboratoire n'encaisse rien : il renvoie à la Caisse.
+
+**Rien ne se saisit avant la réception** : `LabItemGuard` refuse l'enregistrement, la fin
+et l'antibiogramme d'une demande non reçue. Les demandes déjà travaillées avant cette
+décision sont réputées reçues à la date de leur premier geste (migration
+`2026_11_17_090000`) ; celles que personne n'a touchées restent à réceptionner.
+
+La file commence par **« À réceptionner »** (vue par défaut quand elle n'est pas vide),
+avec l'état du règlement de chaque demande — jamais un montant. Scanner un tube ou saisir
+un numéro de laboratoire dans la recherche ouvre la demande.
+
+## Prélèvements et étiquettes
+
+`lab_samples` : une ligne par tube, type de prélèvement et tube **figés** (renommer ne
+réécrit aucune étiquette), code-barres `{n° labo}-{rang}` unique. `RecordLabSamplesAction`
+(`laboratory_samples.create`, 1 à 10 tubes par ligne) ; un tube non conforme se déclare
+avec un motif (`RejectLabSampleAction`, `laboratory_samples.update`) et n'est jamais
+supprimé (ADR-010) : il garde sa trace et perd son étiquette. Les étiquettes
+(`/laboratory/requests/{uuid}/etiquettes`) portent patient, type, tube (pastille de la
+couleur du bouchon, jamais seule) et un **Code 128 B** tracé en SVG
+(`utilities/code128.js`, vérifié contre une implémentation de référence), sur rouleau
+50 × 25 mm ou planche A4 de 24.
+
+Référentiel par site (`lab_tube_types`, `lab_sample_types`, `lab_sample_types.*`,
+`/laboratory/prelevements`) : code et nom uniques archives comprises, archivage avec motif,
+restauration, un tube proposé par un type ne s'archive pas, **aucun prix**. Référentiel de
+départ importable (`database/seeders/data/lab_samples.json`), sans rien écraser.
+
+## Laboratoire extérieur
+
+`SendOutLabItemAction` (`laboratory_orders.send_out`) : laboratoire, référence, remarque,
+auteur et date ; « Faire ici » l'annule tant qu'aucun résultat n'est rendu. Une analyse
+confiée à l'extérieur quitte la feuille de paillasse et se suit par un filtre de la file
+(`?externe=1`) et sur son **bon d'envoi** (`/bon-envoi`, une feuille par laboratoire, sans
+montant). Le résultat revenu se transcrit à la paillasse, se valide par le biologiste et
+s'imprime « réalisée par <laboratoire> ».
+
+## Bornes critiques
+
+`analysis_catalogs.critical_ranges` : borne basse et haute par profil (générale, homme,
+femme, enfant garçon, enfant fille — le plus précis l'emporte, comme les références),
+saisies au catalogue (`CriticalRangesField`, `LabCriticalRange::normalize` : nombres,
+basse sous la haute). À l'enregistrement d'une valeur numérique :
+
+```text
+au-delà d'une borne      critique d'office (critical_source AUTO), bornes figées
+                         sur le résultat (critical_snapshot « < 2,5 ou > 6,5 »)
+retiré par le laboratoire  DISMISSED : le signal ne revient pas tant que la valeur
+                         ne change pas
+signalé à la main        MANUAL : jamais retiré par un enregistrement
+revenu entre les bornes  le signal automatique tombe
+```
+
+Sans borne saisie, rien ne change (ADR-213) : aucune valeur critique n'est inventée.
+
+## Conclusion, feuille de paillasse, historique, rapports
+
+```text
+conclusion générale   le biologiste (laboratory_results.validate), imprimée sous tous les résultats
+feuille de paillasse  /laboratory/paillasse : ce qui reste à faire ici, une feuille par
+                      discipline, urgences d'abord, imprimable en paysage avec la place
+                      des résultats ; seules les demandes reçues, jamais l'extérieur
+historique patient    /laboratory/patients/{uuid}/historique : chaque paramètre, ses
+                      valeurs demande par demande (12 dernières), figées à la saisie
+rapports              /laboratory/rapports (laboratory_reports.view) : activité, délais
+                      médians (« — » quand rien n'est mesuré, ADR-102), disciplines,
+                      analyses les plus demandées, origines, ce qui attend ; export Excel
+                      (laboratory_reports.export, audité) ; aucun montant
+```
+
+## Droits
+
+```text
+laboratory_orders.receive / .send_out
+laboratory_samples.create / .update
+laboratory_reports.view / .export
+lab_sample_types.view / .create / .update / .archive / .restore
+```
+
+Accordés au rôle LABORATORY par la migration `2026_11_17_090000` (ADR-064), à jouer sur
+chaque site et sur le portail (le Super Admin les reçoit, ADR-186).
+
+## Signalé, non tranché
+
+```text
+NOT_BILLED             une analyse sans tarif ne retient pas le prélèvement : à confirmer
+Maternité              une patiente suivie en Maternité sans séjour hospitalier n'est pas
+                       exemptée du règlement
+options de labo-vuejs  « urgence » et « à domicile » du prélèvement, prix des prélèvements,
+                       notes du technicien, envoi par SMS ou email, image de marque par
+                       laboratoire, commissions des prescripteurs, journaux de caisse : non
+                       repris (RIVO a sa Caisse, ses paramètres et son audit)
+Excel du catalogue     l'import et l'export des analyses ne portent pas les bornes critiques
+biologiste             validate reste accordé à tout le rôle LABORATORY (ADR-213)
+```
+
+
+---
+
+# ADR-215 — Le Super Admin lit le Laboratoire d'un site depuis le portail, et en gère les référentiels
+
+**Status:** ACCEPTED (2026-09-28 — demande du propriétaire : le Laboratoire d'un site visible depuis le
+portail, comme la Pharmacie ; même arbitrage que l'ADR-189 : tout voir, gérer ce qui n'est pas un geste
+fait sur le prélèvement)
+
+**Étend au Laboratoire le mécanisme des ADR-187 et ADR-189** (un espace d'un site servi au portail par son
+API) et **complète les ADR-213 et ADR-214**. Le CDC §18 donne au Super Admin un accès global et §2 dit que le
+portail « consulte et administre » les sites par API. Aucune règle du Laboratoire ne change.
+
+## Le constat
+
+« Établissements › site › Laboratoire » ne menait qu'à une vitrine (description et rubriques en texte). Le
+portail avait le catalogue des analyses (ADR-063), mais aucune demande, aucun résultat, aucun rapport ni aucun
+référentiel de prélèvement ou de microbiologie d'un site n'y était lisible.
+
+## L'arbitrage
+
+```text
+visible depuis le portail   la file, chaque demande et ses résultats, la feuille de résultats, les
+                            étiquettes, le bon d'envoi, la feuille de paillasse, l'historique d'un
+                            patient, les rapports et leur export
+géré depuis le portail      les référentiels du site : types de prélèvement et tubes (ADR-214),
+                            familles, germes et antibiotiques (ADR-213), référentiels de départ compris
+reste au site               tout geste fait sur une demande, par la personne qui a le prélèvement
+                            sous les yeux
+```
+
+## Un seul jeu de routes, servi deux fois
+
+`routes/laboratory.php` porte les routes du Laboratoire une seule fois :
+
+```text
+/laboratory/...                               le site, pour ses comptes (noms laboratory.* inchangés)
+/api/v1/super-admin/site-laboratory/...       la même, pour le portail, derrière le jeton du site
+                                              (rivo.remote-actor + rivo.hr-screens, ADR-187)
+/super-admin/sites/{site}/laboratoire/...     le relais du portail (SiteLaboratoryController,
+                                              SiteLaboratoryGateway, laboratory_results.view)
+/super-admin/laboratory                       le choix du site (Référentiels › Laboratoire des sites)
+```
+
+Le portail transmet la requête à l'API du site et affiche **la même page Vue** ; seuls les écrans
+`Laboratory/*` y sont acceptés. Jamais d'accès à la base du site (ADR-004, ADR-027). Un ancien lien
+`?module=LABORATORY` mène à ces écrans, comme les RH et la Pharmacie.
+
+## Les gestes cliniques restent au site, et le site le garantit
+
+Le middleware `rivo.site-only:laboratory` (`KeepPhysicalActsAtSite`, qui reçoit désormais un contexte et son
+message) refuse au Super Admin distant, avec un 403 qui dit pourquoi :
+
+```text
+réceptionner une demande, enregistrer un prélèvement, le déclarer non conforme
+saisir un résultat (structuré, antibiogramme, saisie en un bloc)
+terminer une analyse, la valider, valider toute la demande, la renvoyer à refaire
+signaler un résultat critique, conclure la demande
+confier une analyse à l'extérieur, ou l'annuler
+```
+
+Le refus vaut **même avec la permission** : c'est une règle de lieu, pas de droit. `LaboratoryController::show`
+sert au portail `can.site_only = true` et chaque droit de geste à `false` ; l'écran montre alors les gestes
+**verrouillés avec leur raison** (`LabSiteOnlyAction` : réceptionner, ajouter un prélèvement, valider les N
+analyses, terminer ou valider une analyse), jamais masqués (ADR-158), et la saisie se lit en lecture seule en
+disant pourquoi. Sur le site, les boutons sont rendus tels quels et le technicien garde exactement ses écrans.
+
+## Qui a fait quoi
+
+Le Super Admin agit comme `RemoteSuperAdmin` (ADR-187), sans compte local : une colonne auteur d'un
+référentiel reste vide, et l'audit porte son UUID et son nom. Aucun utilisateur n'est créé sur le site.
+
+## Côté écran
+
+Chaque adresse d'un écran du Laboratoire passe par `labUrl()` (`utilities/labUrl.js`, `utilities/labPath.js`) :
+inchangée sur le site, ramenée à `/super-admin/sites/{site}/laboratoire` sur le portail, qui fournit
+`laboratoryContext`. `LaboratoryPortalBar` reprend les rubriques du menu Laboratoire du site avec leurs droits
+(`labSections`, lues sur le groupe `laboratory-space` du menu), dit de quel site on lit le Laboratoire, permet
+de passer aux autres et rappelle que les gestes cliniques restent au site.
+
+## Ce qui ne change pas
+
+Les permissions de chaque écran et de chaque geste, revérifiées par le site ; le Laboratoire n'encaisse rien et
+n'affiche aucun montant (ADR-014) ; le catalogue des analyses reste un écran propre au portail (ADR-063). Aucune
+permission nouvelle, aucune migration. Le compte de test local reçoit les droits du Laboratoire, arrivés par
+migration après sa création (ADR-086).
+
+## Signalé, non tranché
+
+- Un biologiste qui validerait à distance depuis le portail : non prévu, la validation reste un geste du site.
+- Le middleware `rivo.hr-screens` sert désormais les RH, la Pharmacie, les Partenaires et le Laboratoire : son
+  nom ne dit plus tout ce qu'il fait (déjà signalé, ADR-189).
+- La réserve de l'ADR-186 sur la taille de l'en-tête des droits transmis vaut ici aussi.
+
+---
+
+# ADR-216 — Le technicien envoie les résultats au médecin ; l'envoi les valide
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire : « pour la clinique RIVO les
+médecins sont déjà biologistes, pas besoin de biologiste spécifique ; le technicien envoie directement
+les résultats au médecin référent du patient ; les autres peuvent voir quand même, avec une fenêtre de
+confirmation » ; trois arbitrages : envoyer = valider, le technicien choisit le destinataire, tout compte
+qui voit les analyses peut ouvrir après confirmation) ; **l'envoi ne vaut plus validation depuis
+l'amendement quater** (2026-09-29) : le médecin relit et valide, et la Réception ne voit qu'ensuite
+
+**Amende l'ADR-213** (Terminer puis Valider par le biologiste). Le CDC §14 cite « validation » sans dire
+qui valide ; labo-vuejs distingue un rôle Biologiste, que la clinique n'a pas : la règle est celle du
+propriétaire.
+
+## Un seul geste : « Envoyer au médecin »
+
+`SendLabResultsAction` (`POST /laboratory/requests/{uuid}/send`, droit `laboratory_results.validate`,
+site seulement — `rivo.site-only:laboratory`) remplace « Terminer » et « Valider » (actions, routes et
+boutons retirés) :
+
+```text
+choisir      les analyses à envoyer (une, plusieurs, ou toute la demande)
+contrôler    rien de saisi, culture positive sans germe, Nugent incomplet → refus nommé, rien ne part
+rendre       résultat composé, référence figée, resulted_at / validated_at / sent_at posés
+adresser     la demande garde son destinataire (results_recipient_id, results_addressed_at/by)
+tracer       audit laboratory.results.send ; notification au médecin (cloche, catégorie Laboratoire)
+```
+
+Tout ou rien. Envoyée, une analyse ne se modifie plus : une erreur se corrige par « Renvoyer à refaire »
+avec un motif, puis un nouvel envoi — le médecin est prévenu dans les deux cas (`LabResultReturned`,
+puis « Résultat corrigé »). `laboratory_results.validate` garde son nom (ADR-101), son libellé devient
+« Envoyer un résultat d'analyse au médecin ». Libellés : « À envoyer » (rendue, pas envoyée), « Envoyée ».
+
+## Le destinataire
+
+```text
+proposé      le prescripteur, s'il peut recevoir (LabResultRecipients::proposedFor)
+recevable    un compte actif qui peut prescrire ET lire des analyses (laboratory_orders.create +
+             laboratory_orders.view, socle + ALLOW − DENY) — jamais un nom de rôle (ADR-152)
+de l'accueil la réceptionniste ne prescrit pas : rien n'est proposé, le technicien choisit un médecin
+             ou « Aucun médecin — patient externe » (to_nobody), décision toujours explicite
+```
+
+## Le médecin ne voit que ce qui lui a été envoyé
+
+`lab_request_items.sent_at` (jamais effacé par une reprise, `isDelivered()`) décide de ce que lisent la
+consultation, le séjour, la Maternité, « Demandes d'examens », l'historique de grossesse et la conduite à
+tenir préremplie. Une analyse rendue mais pas encore envoyée reste au laboratoire ; une analyse reprise
+montre la valeur envoyée, marquée « En correction ». Une analyse demandée à l'accueil entre dans
+« Demandes d'examens » du médecin à qui elle est adressée. Les résultats se lisent sur
+`/resultats-analyses/{uuid}` (`laboratory_orders.view`), la feuille du laboratoire réduite à ce qui est envoyé.
+
+## Les autres voient, après confirmation
+
+`LabResultAccess` : lisent librement le destinataire, le prescripteur, le laboratoire
+(`laboratory_results.create`) et tout le monde pour une demande adressée à personne. Pour les autres, le
+serveur **ne sert aucune valeur** (feuille, paillasse, historique, dossiers) : l'écran dit « adressé à Dr … »
+(`SealedLabResult`), et « Ouvrir » demande confirmation. L'ouverture
+(`POST /resultats-analyses/{uuid}/ouvrir`) est auditée (`laboratory.results.open`) et vaut pour la session.
+
+## Reprise
+
+Migration `2026_11_18_090000` : colonnes nullables ; `sent_at` repris de `validated_at` pour les analyses
+déjà validées. Une analyse seulement « terminée » avant cette décision attend son envoi. Les demandes
+antérieures ne sont adressées à personne : elles se lisent comme avant, sans confirmation. À jouer sur
+chaque site et sur le portail.
+
+## Signalé, non tranché
+
+- La saisie « en un bloc » (analyse sans définition) rend l'analyse « À envoyer » ; elle ne part pas seule.
+- Pas d'envoi au patient (labo-vuejs le fait) : aucun canal n'est défini.
+- Une demande antérieure déjà validée reste lisible sans confirmation : elle n'a pas de destinataire.
+
+
+## Amendement du 2026-09-29 — « Renvoyer à refaire » a son propre droit
+
+Question du propriétaire : le bouton existe-t-il côté technicien, et se règle-t-il depuis le portail ? Il
+existait (« Renvoyer à refaire » / « Reprendre (à refaire) », au pied d'une analyse terminée ou envoyée), mais
+**sans droit propre** : il suivait `laboratory_results.create` pour une analyse terminée et
+`laboratory_results.validate` pour une analyse envoyée — impossible à accorder ou retirer seul, et masqué sans
+explication quand le droit manquait.
+
+```text
+droit        laboratory_results.return — « Renvoyer une analyse à refaire (terminée ou déjà envoyée
+             au médecin) », réglé dans « Rôles & permissions » › Résultats d'analyses
+serveur      route `can:laboratory_results.return` et ReturnLabItemAction::PERMISSION revérifié ; saisir
+             ou envoyer ne suffisent plus ; les règles d'état (terminée ou envoyée, motif, médecin
+             prévenu) ne changent pas
+écran        `can.return` servi par le serveur ; sans lui le bouton reste visible, verrouillé, avec le
+             droit à demander (ADR-158) ; sur le portail, verrouillé : c'est un geste du site (ADR-215)
+reprise      migration 2026_11_21_090000 : accordé aux rôles qui détenaient `.create` ou `.validate`, et
+             aux comptes qui les avaient en ALLOW ; un DENY n'est pas recopié. Le Super Admin le reçoit
+             à la migration du portail (ADR-186)
+```
+
+Conséquence signalée : un rôle dont le socle porte `laboratory_results.create` par décision du portail (NURSE
+sur un site local) garde le droit de renvoyer, comme avant ; le retirer est une décision du portail.
+
+## Amendement du 2026-09-29 (bis) — « Terminer » revient au pied de la saisie, l'envoi reste en haut
+
+Demande du propriétaire, en cinq points. Rien n'est remis en cause de ce que l'envoi signifie (il valide, pas
+de biologiste distinct) ; il redevient seulement un geste séparé de la fin de la saisie.
+
+```text
+Terminer l'analyse   au pied de chaque saisie (CompleteLabItemAction, POST …/items/{uuid}/complete,
+                     laboratory_results.create, site seulement) : résultat composé, référence figée ;
+                     la liste des tâches la marque « Terminée » (COMPLETED, ex-« À envoyer ») et l'écran
+                     passe à l'analyse suivante qui reste à faire
+Envoyer au médecin   en haut, seul bouton d'envoi : la fenêtre coche toutes les analyses terminées
+                     par défaut (« Tout envoyer (N) »), on en décoche pour n'en envoyer qu'une partie ;
+                     une analyse pas encore terminée est montrée, non cochable, et le serveur la
+                     refuse — « Tout envoyer » ne fait jamais partir une saisie à moitié faite
+Rouvrir la saisie    une analyse terminée mais pas envoyée se rouvre sans motif (ReopenLabItemAction,
+                     laboratory_results.create) : personne hors du laboratoire ne l'a lue ; envoyée,
+                     elle se renvoie à refaire avec un motif
+correction           une analyse envoyée puis reprise garde la valeur lue par le médecin : « Terminer »
+                     ne la réécrit pas, l'envoi la recompose
+médecin              « Demander à refaire » sur sa feuille de résultats, avec un motif, selon
+                     laboratory_results.return — accordé au socle MEDICINE (migration
+                     2026_11_22_090000), retirable depuis le portail ; le technicien qui avait
+                     envoyé est prévenu (LabRedoRequested) ; un résultat adressé à un confrère ne se
+                     reprend pas sans l'avoir ouvert
+droits du médecin    un médecin à qui l'on accorde laboratory_results.create (saisir, terminer) ou
+                     laboratory_orders.update (ajouter, retirer, renseigner) les exerce au
+                     laboratoire : sa feuille de résultats et « Demandes d'examens » y mènent
+                     (« Saisir au laboratoire » / « Modifier la demande ») ; aucun rôle codé en dur
+compte rendu         /laboratory/requests/{uuid}/impression passe en pleine largeur
+```
+
+## Amendement du 2026-09-29 (ter) — les résultats s'adressent à un, plusieurs ou tous les médecins
+
+Demande du propriétaire : dans « Envoyer au médecin », choisir tous les destinataires, un seul, ou quelques-uns.
+
+```text
+données        lab_request_recipients : une ligne par médecin destinataire (addressed_at, addressed_by) ;
+               lab_requests.results_recipient_id garde le premier, les destinataires déjà enregistrés
+               sont repris par la migration 2026_11_23_090000
+fenêtre        une liste à cocher des médecins qui peuvent recevoir (prescripteur en tête), « Tous les
+               médecins », et « Aucun médecin — patient externe » qui exclut les autres ; cochés à
+               l'ouverture : ceux déjà servis, sinon le prescripteur
+envoi          recipient_uuids[] (recipient_uuid seul reste accepté) ; chaque destinataire est vérifié
+               (prescrire et lire des analyses) et notifié ; les destinataires s'ajoutent à ceux déjà
+               servis, jamais retirés — un médecin qui a reçu une analyse continue de la lire librement
+lecture        chaque destinataire lit sans confirmation ; les autres voient « adressé à A, B » et
+               ouvrent après confirmation tracée ; « Renvoyer à refaire » prévient chacun d'eux
+```
+
+## Amendement du 2026-09-29 (quater) — le médecin valide le résultat reçu ; la Réception le remet ensuite
+
+Demande du propriétaire : « Lorsque l'analyse est terminée par le technicien, le médecin voit le statut
+Terminé et peut l'ouvrir ; il vérifie ou fait l'aperçu, et s'il est d'accord il clique Valider. L'analyse est
+marquée Validée, et dès lors la Réception voit les résultats ou le compte rendu. » Trois arbitrages : **tout
+compte avec le droit** valide ; un patient externe (« Aucun médecin ») est **validé à l'envoi** ; la
+Réception a une page **« Résultats à remettre »**. Divergence avec la première version de cet ADR
+(« l'envoi les valide ») signalée : l'envoi livre, le médecin valide.
+
+```text
+données       lab_request_items.approved_at / approved_by (migration 2026_11_24_090000) ; un résultat
+              déjà envoyé avant cette décision est réputé validé à la date de son envoi — le compter
+              « à valider » ferait remonter tout l'historique
+parcours      Terminer (technicien) → Envoyer (technicien) → « Terminé · à valider » (médecin) → Valider
+              → « Résultats validés » ; vu à la Réception
+valider       ApproveLabResultsAction, POST /resultats-analyses/{uuid}/valider : une analyse, ou toutes
+              celles qui attendent ; tout ou rien ; refusé pour un résultat adressé à un confrère non
+              ouvert, une demande retirée, une analyse reprise ou déjà validée ; audit
+              laboratory.results.approve
+externe       envoyé à « Aucun médecin » : validé à l'envoi, au nom du technicien
+correction    « Renvoyer à refaire » retire la validation ; le résultat corrigé et renvoyé se revalide
+droits        laboratory_results.approve (MEDICINE) — valider ; laboratory_results.validated_view
+              (RECEPTION) — voir et imprimer les résultats validés ; réglés depuis « Rôles & permissions »
+médecin       feuille des résultats : bandeau « N résultats terminés attendent votre validation »,
+              « Valider » par analyse et « Tout valider », confirmation ; le PDF porte « Résultats
+              validés par … le … »
+Demandes      vue « À valider » (par défaut quand elle n'est pas vide, les autres vues ne la comptent
+d'examens     pas), statut « Terminé · à valider » / « Résultats validés », ligne « Validé par … le … »
+              sous chaque analyse, bouton « Vérifier et valider » (ou « Résultats ») à la place de
+              l'œil nu ; une demande qui attend sa validation ne s'archive pas
+laboratoire   la paillasse dit « Chez le médecin · à valider » ou « Validée par … » sous chaque analyse
+Réception     /reception/resultats-analyses (menu Réception « Résultats à remettre ») : demandes qui
+              portent un résultat validé, Tous / Complets / Partiels, recherche, compte rendu PDF
+              limité aux analyses validées (antériorités validées seulement), à ouvrir, imprimer,
+              télécharger ; le détail du passage liste aussi ces résultats. Aucune valeur non validée
+              n'est servie
+```
+
+**Présentation (même jour).** Sur la feuille des résultats, l'état du compte rendu (à valider, validé, provisoire)
+n'est plus un bandeau ambre ou vert : c'est une ligne neutre au pied de l'en-tête, avec « Tout valider » à droite. La
+colonne « Analyses du compte rendu » s'élargit (20 rem) : une analyse par bloc, son nom en entier, son état en point
+de couleur et en mot (« Validé par … le … » en une seule ligne), puis « Valider » et « Demander à refaire » côte à côte.
+Aucune règle ni route ne change.
+
+**Signalé, non tranché.** Rien ne trace la remise du compte rendu au patient (« remis le … ») : à décider.
+La Réception n'est pas notifiée d'une validation — la liste est le canal. L'imagerie n'a pas d'étape de
+validation : son compte rendu est écrit par le médecin lui-même.
+---
+
+# ADR-217 — Le technicien traite la demande tout de suite : ni réception préalable, ni règlement qui bloque
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire : « technicien laboratoire :
+saisir des résultats de patient, terminer, envoyer au médecin ; le technicien peut tout faire —
+paillasse, autre… ; dans notre cas le technicien ne peut pas saisir les résultats », avec
+labo-vuejs comme modèle)
+
+**Amende l'ADR-214** (arbitrage « règlement : bloquer, sauf exceptions » et « rien ne se saisit
+avant la réception ») et **diverge du CDC §14** (« Payé ? Non → En attente »). La divergence est
+signalée, jamais masquée (ADR-020).
+
+## Le constat
+
+Une demande non réglée ne pouvait pas être réceptionnée, et une demande non réceptionnée ne
+pouvait pas recevoir de résultat : le bouton « Réceptionner la demande » restait grisé, la
+saisie fermée par « Réceptionnez d'abord la demande ». Le technicien, qui a le tube en main, ne
+pouvait rien faire. Dans labo-vuejs, le technicien clique **Traiter** et saisit ; le paiement ne
+passe jamais par lui.
+
+## La règle
+
+```text
+file         À traiter (pas commencée ou en cours) · À refaire · Terminées (à envoyer) · Envoyées · Toutes
+             plus de vue « À réceptionner » ; `?view=to_receive` mène à « À traiter »
+geste        chaque ligne a son bouton : Traiter (pas commencée) · Continuer (en cours) ·
+             Reprendre (à refaire) · Envoyer (terminée) · Voir ; sur le portail, « Voir »
+Traiter      POST /laboratory/requests/{uuid}/start : numéro de laboratoire, technicien, heure,
+             puis la paillasse s'ouvre ; idempotent (une demande commencée s'ouvre)
+saisie       la première saisie, un prélèvement, un envoi à l'extérieur ou au médecin prennent
+             la demande en charge s'il le faut (`LabItemGuard::ensureTakenUp`) : aucune étape
+             ne retient le technicien
+règlement    affiché pour information (« À régler à la Caisse : NFS — n'empêche pas l'analyse »),
+             tracé dans l'audit de la prise en charge (`unpaid`), jamais bloquant
+prélèvements facultatifs au moment de « Commencer le traitement », ajoutables ensuite
+paillasse    avancement par analyse (x/y résultats saisis, barre) et « N / M terminées »
+```
+
+Droit : prendre en charge demande `laboratory_results.create` **ou** `laboratory_orders.receive`
+(capacité `take-up-lab-request`). Aucune permission nouvelle, aucune migration.
+
+Ce qui ne change pas : le Laboratoire n'encaisse rien et n'affiche aucun montant (ADR-012,
+ADR-014) ; l'envoi au médecin valide le résultat (ADR-216) ; les gestes cliniques restent au
+site (ADR-215) ; urgence et patient hospitalisé gardent leur mention.
+
+## Signalé, non tranché
+
+```text
+règlement   plus rien ne l'exige avant la remise du résultat au patient externe — à décider si
+            la Caisse doit retenir la feuille imprimée d'un patient qui n'a pas réglé
+```
+
+---
+
+# ADR-218 — Note par ligne d'analyse et compte rendu de résultats en PDF
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire : « s'inspirer des logiques de
+labo-vuejs — conclusion partielle de chaque analyse — et surtout le compte rendu des résultats
+d'analyse en PDF », avec le compte rendu PDF de son laboratoire comme modèle) ; **amendée par
+l'ADR-219** (même jour) : la « conclusion de l'analyse » est retirée, la note de ligne devient la
+conclusion partielle.
+
+**Complète les ADR-213, ADR-214 et ADR-216**, **amende l'ADR-070 et l'ADR-118** pour les seuls
+résultats d'analyses : leur compte rendu est un PDF produit par le serveur, comme labo-vuejs le
+produisait. Le CDC §14 cite « impression » sans en fixer la forme.
+
+## Trois niveaux de conclusion, comme labo-vuejs
+
+```text
+note d'une ligne     `lab_analysis_notes` : une note par (analyse demandée, ligne du catalogue),
+                     groupes compris — « Notes : » sous la ligne, sous la dernière ligne d'un groupe
+conclusion partielle `lab_request_items.conclusion` (existante) : « Conclusion — NFS » sous l'analyse ;
+                     l'écran la nomme désormais « Conclusion de l'analyse »
+conclusion générale  `lab_requests.conclusion` (ADR-214), sous tout le compte rendu
+```
+
+La note se saisit à la paillasse (bouton « Note » par ligne, ouverte d'office quand elle existe), part avec
+l'enregistrement automatique (`notes: [{analysis_uuid, note}]`, `SaveLabResultsAction`) : une note vidée est
+effacée, une ligne étrangère à la prestation refusée (`notes.N.analysis_uuid`), 1 000 caractères au plus,
+auteur gardé (`written_by`), audité. Elle suit la saisie : une analyse envoyée ne se modifie plus (ADR-216).
+
+## Le compte rendu PDF
+
+`LabResultReport` compose une seule fois ce que le PDF imprime ; la vue Blade
+(`resources/views/pdf/laboratory/results.blade.php`, dompdf, A4) ne calcule rien :
+
+```text
+en-tête      logo, nom et coordonnées du site, NIF / STAT (ADR-184), couleur du site
+patient      identité, naissance et âge, sexe, dossier, prescription, prescripteur, n° de
+             laboratoire, destinataire, renseignement clinique
+sections     une par discipline du catalogue (HEMATOLOGIE, BIOCHIMIE…), colonnes
+             Résultat · Val. réf. · Antériorité ; lignes indentées selon l'arbre ; une
+             valeur pathologique en gras avec ↑ / ↓ ; « Valeur critique » ; antibiogramme
+             trié R, I, S ; un groupe sans résultat n'est pas imprimé
+antériorité  la dernière valeur de la même ligne chez ce patient, avec sa date
+pied         « Page n / N », patient et dossier sur chaque page, signature du laboratoire
+```
+
+Rien n'est recalculé : valeurs, unités et références sont celles figées à la saisie ; « 9.8 » s'écrit
+« 9,8 ». Le logo est ramené à 600 px et les polices sous-ensemble : environ 100 Ko par compte rendu.
+
+```text
+laboratoire  GET /laboratory/requests/{uuid}/resultats.pdf  (laboratory_results.view)
+             tout ce qui porte un résultat ; « Document provisoire » tant qu'une analyse
+             n'est pas envoyée ; servi aussi au portail par l'API du site (ADR-215)
+médecin      GET /resultats-analyses/{uuid}/pdf  (laboratory_orders.view)
+             seulement ce qui lui a été envoyé (ADR-216) ; une analyse reprise garde la
+             valeur envoyée, marquée « en correction » ; ses antériorités ne reprennent que
+             ce qui a été envoyé, jamais une demande adressée à un confrère non ouverte
+scellé       adressé à un confrère : 403 tant que l'ouverture n'est pas confirmée
+rien         404 plutôt qu'un PDF vide
+```
+
+`?telecharger=1` le donne en pièce jointe (`Resultats-<n° labo>-<patient>.pdf`), sinon il s'affiche. La page
+« Compte rendu » (`Laboratory/ResultsPrint`) montre le PDF dans la page, avec Imprimer, Ouvrir et Télécharger ;
+elle ne redessine plus de feuille HTML, qui finirait par dire autre chose que le PDF. La paillasse porte
+« Compte rendu PDF » et le téléchargement. Dépendance ajoutée : `barryvdh/laravel-dompdf`.
+
+## Signalé, non tranché
+
+```text
+signature   aucune image de signature du biologiste n'est réglée : le PDF laisse la place
+envoi       aucun envoi du PDF au patient (courriel, SMS) : aucun canal défini (ADR-216)
+anciens     un compte rendu d'avant cette décision n'est pas figé : le PDF se compose à la demande
+```
+
+Migration `2026_11_19_090000_create_lab_analysis_notes_table`, à jouer sur chaque site et sur le portail.
+Aucune permission nouvelle.
+
+## Amendement du 2026-09-29 — le bloc final ne part jamais seul sur une page
+
+Constat du propriétaire : un compte rendu d'une page et quelques lignes ouvrait une page 2 pour le seul bloc
+final (qui a envoyé, qui a validé, « Le responsable du laboratoire ») — il était insécable et ne tenait plus
+sous les derniers résultats. Demande : tout sur une page, ou faire descendre du contenu pour donner du poids à
+la page 2. Les deux sont faits, dans cet ordre (`LabResultReport::paginate()`) :
+
+```text
+1  rendu ordinaire      gardé si le bloc final est avec des résultats, et si la dernière page en porte au
+                        moins 4 (ou la conclusion générale)
+2  rendu resserré       espacements et corps réduits (8,2 pt), gardé s'il économise une page : un compte
+                        rendu légèrement trop long tient sur une seule
+3  lignes reportées     sinon, les dernières lignes (6 au plus, 3 laissées au moins) descendent avec le bloc
+                        final ; un titre ne reste pas seul au bas d'une page, une note ne part pas sans sa
+                        ligne, une analyse ne laisse pas son titre et une ligne au bas de la page ; la section
+                        descend entière quand la coupure tombe sur sa première ligne
+choix                   jamais le bloc final seul, puis le moins de pages, puis une dernière page assez
+                        remplie, puis, à égalité, la mise en page ordinaire
+```
+
+Chaque rendu relit où tombent les lignes (la vue les numérote : `data-row`, `data-kind`, `data-section`,
+`data-item` ; rappel dompdf `begin_frame`). Une coupure forcée au milieu d'une analyse reprend son nom
+(« Numération formule sanguine (suite) ») ; l'en-tête de la section se répète en haut de la page, comme dompdf
+le fait déjà. Le bloc final est aussi plus court : sa colonne de gauche passe à 64 %, les dates ne passent plus
+à la ligne. Un compte rendu d'une page ne coûte qu'un rendu ; au pire quatre (≈ 1 s). Aucune donnée, route ni
+permission ne change.
+
+---
+
+# ADR-219 — La paillasse se lit comme labo-vuejs : cartes par ligne, conclusion partielle, remise à zéro
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire, captures de labo-vuejs à l'appui :
+« mettre à jour l'UI et l'UX avec shadcn », « on peut annuler la conclusion ou note partielle »,
+« un bouton pour réinitialiser toute la saisie », « respecter gras ou non », « supprimer Conclusion de
+l'analyse, redondante avec la conclusion générale »)
+
+**Amende l'ADR-218** (la conclusion par analyse disparaît) et **complète l'ADR-213** (paillasse).
+
+## L'écran
+
+```text
+gauche   « Tâche(s) à traiter · x/N terminée(s) » : une carte par analyse — code, nom, état
+         (À faire, En cours, À envoyer, Envoyée, À refaire) en mot et en couleur, icône, barre
+         d'avancement ; « Extérieur » et « N critique(s) » en pastilles
+droite   l'analyse ouverte : initiales, nom, « x / N résultat(s) attendu(s) » ; puis une carte par
+         ligne du catalogue — mode de saisie (Numérique, Champ libre, Liste…), nom, « Norme : »
+         avec l'unité, antériorité, Résultat (« Observations » pour un champ libre),
+         Interprétation Auto · Normal · Patho, repères et « Critique » ; un groupe est un bandeau
+         en pointillés, ses lignes décalées dessous
+pied     collant : état de l'enregistrement automatique, Laboratoire extérieur, Renvoyer,
+         Enregistrer (tout de suite), Envoyer au médecin
+séparation  une barre verticale glissable entre les tâches et l'analyse (`ResizableSplit`,
+         souris, tactile, clavier, double-clic pour revenir à 25 %, bornes 17 à 45 %) ;
+         largeur gardée sur le poste (`rivo:laboratory:tasks-split`), jamais envoyée
+en-tête  le nom et son état sur une ligne ; dessous, le code, la barre « x / N résultat(s) »,
+         puis pathologiques et critiques en repères écrits
+```
+
+Un résultat numérique se saisit dans un grand champ (pleine largeur de sa colonne, chiffres en gras,
+unité dans le champ) dont la bordure et la ligne dessous disent, pendant la frappe, « Dans la norme »,
+« Au-dessus / En dessous de la norme », « Valeur critique » ou « Saisissez un nombre » (`numericHint`) ;
+Entrée passe à la valeur suivante, et un nombre se relit avec sa virgule (« 4,6 »). Ce repère aide à la
+saisie : l'interprétation reste proposée par le serveur (ADR-213).
+
+shadcn-vue seulement (ADR-099). Règles d'écran dans `utilities/labWorkbench.js` (`LAB_TASK_STATES`,
+`LAB_ENTRY_MODE_LABELS`, `designationWeight`, `analysisInitials`, `hasEntries`), testées.
+
+## Gras selon le catalogue
+
+Un nom d'analyse est en gras **seulement** si `analysis_catalogs.is_bold` est vrai, à l'écran
+(`font-bold` / `font-normal`, plus de demi-gras) comme sur le PDF, groupes compris — le PDF imprimait
+tous les groupes en gras.
+
+## Conclusion partielle
+
+La note de ligne de l'ADR-218 est la conclusion partielle : section « Conclusion (0/1) » sous chaque
+ligne et chaque groupe, « Ajouter une conclusion » → saisie → **Annuler** ou **Valider** ; une
+conclusion enregistrée se **Modifie** ou se **Supprime**. Valider et supprimer l'enregistrent aussitôt
+(même chemin, mêmes règles, même audit qu'à l'ADR-218 : vidée, elle est effacée).
+
+## Plus de conclusion par analyse
+
+`lab_request_items.conclusion` ne s'écrit plus : le champ quitte l'écran, et la saisie l'ignore. La
+conclusion générale (ADR-214) reste seule. La colonne est gardée et rien n'est effacé : une conclusion
+saisie avant cette décision reste lisible à la paillasse et s'imprime comme une note de l'analyse.
+
+## « Demandes d'examens » : le geste de la file du laboratoire
+
+Pour un compte du laboratoire (`laboratory_results.create`), une demande d'analyses porte dans
+`/medicine/demandes-examens` le même bouton que dans sa file (ADR-217) : **Traiter** (prise en charge puis
+paillasse, seulement avec le droit de prendre en charge), **Continuer**, **Reprendre**, **Envoyer**, **Voir**.
+Le serveur le choisit (`bench_action`, par `LabQueue::actionOf`) ; `utilities/labRowActions.js` le dessine,
+pour les deux pages. Un médecin n'a pas ce bouton : il lit les résultats envoyés, comme avant.
+
+Pour le laboratoire, la colonne Statut porte **un seul** statut : où en est le laboratoire (« À traiter »,
+« À refaire », « Terminée · à envoyer », « Envoyée », `lab_state`) à la place de « En attente », puis le
+règlement en repère discret dessous (« À régler à la Caisse », « Hospitalisé », « Non facturée »,
+`payment` de `LabPaymentClearance`), servi seulement au laboratoire et à qui a `billing.view` — jamais un
+montant, et il n'empêche rien (ADR-217). Un médecin garde le statut d'une demande (En attente, Résultat
+disponible…).
+
+## Réinitialiser la saisie
+
+`ResetLabResultsAction` (`POST /laboratory/items/{uuid}/reset`, `laboratory_results.create`, au site
+seulement — `rivo.site-only:laboratory`) efface les résultats, antibiogrammes et conclusions partielles
+d'une analyse, après confirmation qui dit ce qui sera effacé. Une analyse en cours redevient « à faire ».
+
+```text
+refusé   analyse déjà envoyée au médecin (sent_at) : elle a été lue, elle se corrige ligne par
+         ligne après « Renvoyer à refaire » (ADR-216, ADR-010) ; analyse rendue ou envoyée ;
+         demande retirée ; rien à effacer
+tracé    laboratory.results.reset, avec ce qui a été effacé (valeurs, notes, germes)
+écran    bouton seulement si `resettable` (servi par le serveur) et quelque chose est saisi ;
+         une saisie jamais enregistrée se vide sans appel au serveur
+```
+
+Aucune permission nouvelle, aucune migration.
+
+
+## Amendement du 2026-09-29 — un bouton principal, les autres gestes dans un menu
+
+Retour du propriétaire : « À refaire » introuvable, et trois boutons incompris (laboratoire extérieur,
+« Envoyer au médecin », « Enregistrer la conclusion »). Présentation seulement : aucune route, aucun droit,
+aucune règle serveur ne change.
+
+```text
+pied d'une analyse   l'état de l'enregistrement et une phrase : « La saisie s'enregistre seule.
+                     « Envoyer au médecin » valide le résultat et le lui transmet. » ; un seul bouton
+                     principal, « Envoyer au médecin » ; le bouton « Enregistrer » est retiré
+                     (l'enregistrement est automatique, et l'envoi fait partir ce qui reste)
+Autres actions       un menu : Renvoyer à refaire · Confier à un laboratoire extérieur · Réinitialiser
+                     la saisie ; chaque entrée dit ce qu'elle fait ou, indisponible, pourquoi —
+                     « Renvoyer à refaire » : « Possible une fois l'analyse terminée ou envoyée au
+                     médecin : avant, corrigez simplement la saisie », ou le droit à demander (ADR-158)
+laboratoire          renommé « Confier à un laboratoire extérieur » ; la fenêtre dit les trois temps :
+extérieur            bon d'envoi, résultat saisi ici au retour, envoi au médecin « réalisée par »
+conclusion générale  marquée facultative, expliquée (synthèse de toute la demande, imprimée sous les
+                     résultats, lue par le médecin) et enregistrée d'elle-même ; « Enregistrer la
+                     conclusion » est retiré ; « Envoyer au médecin » la fait partir d'abord
+```
+
+**Un intitulé n'est pas un groupe.** « Soit », dans la NFS, est une ligne « simple titre » de labo-vuejs
+(`entry_mode = LABEL`, niveau normal) : il sépare la formule leucocytaire en % de ses valeurs absolues. L'écran
+le présentait comme un « Groupe » avec une conclusion partielle, sans objet pour un séparateur. Il est désormais
+servi `is_label` et dessiné comme un intertitre suivi d'un filet, sans conclusion ; le serveur refuse une
+conclusion sur un intitulé (une ancienne peut encore s'effacer). Un vrai groupe (niveau `PARENT`) garde la
+sienne. Le PDF l'imprimait déjà en intertitre.
+---
+
+# ADR-220 — Demandes d'analyses : archiver, corriger, mettre à la corbeille, une à une ou en lot
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire : « intégrer actions et permissions :
+delete / edit pour les analyses de patients, paillasse, avec sélection multiple, mettre en archive / corbeille » ;
+quatre arbitrages : Modifier = retirer une analyse, renseignements, ajouter une analyse ; la corbeille jamais
+après un envoi au médecin ; archive et corbeille sont deux gestes ; le Laboratoire archive et modifie, la
+corbeille appartient au Super Admin)
+
+**Complète les ADR-213 à 217** et **applique les ADR-009, 010, 061 et 065**. Le CDC §14 ne décrit ni
+archivage ni corbeille d'une demande d'analyses : les règles ci-dessous sont celles du propriétaire.
+
+## Deux gestes distincts
+
+```text
+Archiver            ranger une demande TERMINÉE (toutes ses analyses envoyées au médecin) : elle quitte
+                    la file et vit dans la vue « Archivées ». Réversible, sans motif, aucun effet clinique
+                    ni financier. `lab_requests.lab_archived_at/by`, distinct de `archived_at` (ADR-131),
+                    qui range la demande côté médecin : ranger d'un côté ne range pas de l'autre.
+                    Renvoyer une analyse à refaire désarchive sa demande (du travail revient).
+Mettre à la         une demande saisie à tort (doublon, mauvais patient). Jamais après un envoi au médecin
+corbeille           — il a pu lire le résultat (ADR-010, ADR-216) ; une saisie en cours ne l'empêche pas.
+                    Motif exigé. Soft Delete (ADR-009) : la demande quitte toutes les listes (file, dossiers,
+                    parcours, historique), garde sa trace et se restaure depuis la Corbeille (ADR-061,
+                    ADR-065, catégorie « Demandes d'analyses »). Jamais détruite : suppression définitive
+                    refusée (`isForceDeleteProtected`).
+```
+
+Ce que la demande a elle-même facturé et qui attend encore est annulé (`ParaclinicalBillingRelease`, ADR-105) ;
+ce qui est déjà sur une facture reste à la Caisse, seule à toucher un montant facturé (ADR-012) — la réponse
+et le rapport le comptent. **Restaurer** refacture chaque analyse dont la facturation propre avait été annulée,
+sous la clé de la ligne suivie d'un rang (`lab_request_item:{uuid}:1`), au nom de qui restaure — depuis le
+portail, sans compte local, au nom de qui avait fait la demande ; un échec de facturation ne retient jamais la
+restauration (ADR-103). La restauration est refusée si la même analyse a été redemandée entre-temps pour ce
+passage.
+
+## Corriger une demande (au site seulement)
+
+```text
+Ajouter une analyse       du catalogue LABORATORY, jamais deux fois dans la demande ; facturée comme une
+                          demande du médecin, en reprenant la prestation de la Réception quand elle existe
+                          (ADR-105, ADR-109)
+Retirer une analyse       motif exigé ; jamais après un envoi au médecin ; jamais la dernière (la demande
+                          part alors à la corbeille) ; Soft Delete de la ligne, sa facturation propre en
+                          attente annulée
+Renseignements            le renseignement clinique, repris sur la feuille et le compte rendu ; l'ancienne
+                          valeur reste à l'audit
+```
+
+Une demande archivée se désarchive d'abord pour être corrigée. Une demande retirée par le prescripteur
+(ADR-079) ne se range, ne se corrige ni ne part à la corbeille.
+
+## Sélection multiple
+
+Sur la paillasse (`/laboratory`) et la feuille de paillasse : cases par demande, « tout sélectionner » (50 au
+plus). Paillasse : Archiver, Désarchiver, Corbeille ; feuille de paillasse : imprimer la sélection seulement,
+Corbeille. Chaque bouton compte ce qu'il prendra et dit pourquoi les autres non, avant le clic
+(`utilities/labSelection.js`). `POST /laboratory/requests/bulk` juge **chaque demande séparément** par
+l'action qui la juge seule (`BulkLabRequestAction`) ; une demande refusée n'empêche pas les autres, et le
+rapport (`LabBulkReport`) nomme la raison (même principe que l'ADR-090). Un audit par demande plus une ligne de
+synthèse (`laboratory.requests.bulk_*`).
+
+## Où, et avec quel droit
+
+```text
+laboratory_orders.archive   archiver / désarchiver        LABORATORY            site et portail
+laboratory_orders.update    ajouter, retirer, renseigner  LABORATORY            site seulement (rivo.site-only)
+laboratory_orders.delete    mettre à la corbeille         aucun rôle d'un site  site et portail
+laboratory_orders.restore   restaurer (+ trash.restore)   aucun rôle d'un site  Corbeille du site et du portail
+```
+
+Le Super Admin du portail reçoit tous ces droits (ADR-186) et les accorde nominativement. Migration
+`2026_11_20_090000_add_lab_request_archive_and_trash`, à jouer sur chaque site et sur le portail. Le relais du
+portail transmet désormais aussi le ton du message et le rapport d'un lot (`status_type`, `bulk_report`).
+
+## Signalé, non tranché
+
+```text
+orientation vers le Laboratoire   mettre une demande à la corbeille ne touche pas l'orientation
+                                  Médecine → Laboratoire (comme le retrait par le prescripteur, ADR-079)
+restauration depuis le portail    la facturation revient au nom du prescripteur, faute de compte local
+feuille imprimée partielle        une discipline dont aucune demande n'est cochée garde son en-tête
+```
+
+---
+
+# ADR-221 — Dossier employé en étapes enregistrées toutes seules ; module Banques ; avantages et primes
+
+> Numérotée **ADR-213** à sa rédaction ; renumérotée **ADR-221** au rebase sur `origin/dev` (2026-09-29), les numéros 213 à 220 étant déjà pris par le Laboratoire. Les références du code ont suivi.
+
+**Status:** ACCEPTED (2026-09-28 — demande explicite du propriétaire : « sauvegarde automatique, plus de long
+formulaire avec Continuer / Enregistrer ; salaire, indemnités pour stagiaire ou bénévole, avantages : prix, motif,
+chaque médecin uniquement ; un module Banques séparé » ; trois arbitrages, question par question)
+
+**Amende l'ADR-066/187/194/206** (chaque étape du dossier employé s'enregistre seule) et **complète l'ADR-206**
+(la banque du compte, les avantages et primes). Le CDC ne décrit ni salaire, ni avantage, ni banque (§17 ne liste
+que `employees.*`) : les règles ci-dessous sont celles du propriétaire. **Aucune paie n'est calculée** (ADR-066) :
+ni total, ni retenue, ni net.
+
+## Les arbitrages du propriétaire
+
+```text
+avantages   « chaque médecin uniquement » → par fonction, réglable : une case « Ouvre droit aux avantages
+            et primes » dans le module Fonctions ; « Médecin » (DOCTOR) cochée d'office, jamais par-dessus
+            une décision déjà prise ; aucun rôle ni fonction codé en dur (ADR-152)
+retenues    aucune : la règle de l'ADR-206 reste (salaire de base + avantages déclarés, sans retenue ni net)
+migrations  écrites, testées, puis appliquées sur les bases locales (site et portail)
+```
+
+## Le même parcours à étapes, enregistré tout seul
+
+Une première version remplaçait la création par une carte courte, puis la fiche par des sections sans ordre. Le
+propriétaire l'a refusée le même jour (« je n'ai pas besoin de cette fenêtre au début, garder la forme précédente,
+mais avec l'enregistrement automatique et Continuer ») : le parcours à étapes reste, **sans aucun bouton
+« Enregistrer »**.
+
+```text
+étapes         Identité · Contact · Poste · Compléments · Rémunération · Avantages · Banque · Récapitulatif
+               (Rémunération, Avantages et Banque seulement avec employees.payroll.*), une seule liste
+               (utilities/employeeSteps.js) lue par la création et la modification, barre EmployeeStepBar
+création       /administration/employees/create : l'étape Identité seule (genre, nom, prénoms, naissance,
+               photo facultative ; matricule proposé, ADR-191), les autres étapes affichées verrouillées ;
+               « Continuer » crée le dossier (after=edit) et ouvre la fiche sur /edit?section=contact
+stagiaire      même parcours (?stagiaire=1 → &stage=1) ; « Terminer et saisir le stage » ouvre le contrat
+               de stage (ADR-194)
+fiche          /administration/employees/{uuid}/edit (aussi au portail, ADR-187) : le même parcours ;
+               Précédent / « Continuer · <étape suivante> » ; toute étape s'ouvre d'un clic dans la barre,
+               ?section= en garde la trace dans l'adresse
+Continuer      attend l'enregistrement de l'étape ; une étape refusée ou incomplète retient la suite et
+               dit pourquoi — rien n'est perdu, rien ne part en silence
+Récapitulatif  chaque étape résumée avec son état (Enregistré, À compléter, Refusé), crayon pour y revenir ;
+               « Terminer » ouvre la fiche de l'employé
+```
+
+```text
+enregistrement   chaque section n'envoie que ses champs, ~1 s après la dernière saisie (debounce),
+                 par la même route que l'ancien bouton : PUT …/employees/{uuid} avec `_autosave`
+serveur          UpdateEmployeeRequest applique chaque règle au seul champ envoyé (`sometimes`) : un champ
+                 omis reste tel quel, un champ envoyé garde toute sa règle (le nom reste exigé) ; une
+                 sauvegarde automatique revient sur la fiche sans message (`back()`, aucun toast)
+indépendance     une erreur dans une section n'empêche pas les autres de s'enregistrer
+incomplet        rien ne part tant qu'une saisie serait refusée (salaire sans montant, numéro de compte sans
+                 titulaire, type de pièce sans numéro, nom vide) : la section dit ce qui manque
+statut           par section et en tête : « Enregistrement… », « Enregistré à HH:MM », « Échec » + Réessayer
+quitter          tout ce qui attend part d'abord ; une saisie incomplète ou refusée demande confirmation
+                 (useUnsavedChangesGuard) ; fermer l'onglet déclenche l'alerte du navigateur
+photo            part dès qu'elle est recadrée, seule, en multipart (ADR-194)
+adresse          une nouvelle adresse s'ajoute par un bouton : enregistrée à la frappe, elle créerait une
+                 entrée du référentiel par mot tapé
+```
+
+Garde serveur ajoutée : un envoi partiel qui passe à « Salaire » sans montant est refusé si aucun montant n'est
+déjà enregistré ; sinon le montant enregistré est gardé.
+
+## Rémunération
+
+Inchangée sur le fond (ADR-206) : Salaire (personnel, salaire de base mensuel) · Indemnité (stagiaire indemnisé) ·
+Non rémunéré (bénévole, stagiaire non indemnisé), avec son montant. Droits `employees.payroll.view/update`.
+
+## Module Banques
+
+`banks` (uuid, sigle unique « BOA », nom complet, code banque RIB et SWIFT facultatifs, téléphone, adresse, note,
+actif, ordre, Soft Delete avec motif) ; `/administration/banks` dans le menu RH (Pilotage), mêmes droits que
+Départements et Fonctions (`hr_settings.*`, aucune permission nouvelle), servi aussi au portail.
+
+```text
+doublons     refusés et nommés, archives comprises : même sigle, même nom sans accents ni casse, un nom
+             qui commence par l'autre (« Bank of Africa » / « Bank of Africa Madagascar »), ou dont le
+             premier mot est un sigle existant (« BOA Madagascar ») — BankName::duplicateOf
+archiver     motif obligatoire ; les fiches qui la portent la gardent, elle n'est plus proposée
+données      aucune reprise : aucune fiche ne portait de banque. BOA, BNI, BMOI, SBM ajoutées par la
+             migration si absentes, sans code banque ni SWIFT (non inventés)
+```
+
+La fiche choisit sa banque dans cette liste (`employees.bank_id`, envoyée en `bank_uuid`, résolue par
+`EmployeePayroll`, droit `employees.payroll.update`) ; une banque archivée reste acceptée pour la fiche qui la porte.
+
+## Avantages et primes
+
+`employee_benefits` : type (référentiel `BENEFIT_TYPE` des Paramètres RH : Logement, Transport, Repas, Téléphone,
+Assurance, Prime, Autre — modifiable), montant facultatif (avantage en nature), motif obligatoire, fréquence
+(`MONTHLY` chaque mois, `ONE_TIME` une fois — sans fin), début, fin facultative, auteur (compte local ou Super
+Admin du portail, `external_created_by_*`).
+
+```text
+ajouter    geste explicite (« Ajouter l'avantage ») ; refusé si la fonction n'ouvre pas droit
+           (message qui renvoie au module Fonctions) ou si le dossier est inactif / archivé
+corriger   sur place, enregistré tout seul ; possible même si la fonction a changé depuis
+retirer    motif obligatoire, Soft Delete : il reste lisible dans « Retirés » (ADR-009)
+droits     employees.payroll.update (écrire), employees.payroll.view (lire) : revérifiés par l'action
+lecture    fiche (carte Rémunération et banque : avantages en cours), impression, sans total ni net
+```
+
+Migrations `2026_11_14_090000_create_banks_table` et `2026_11_14_091000_create_employee_benefits_table`, à jouer
+sur chaque site et sur le portail. Aucune permission nouvelle.
+
+## Signalé, non tranché
+
+```text
+export / import Excel   la banque et les avantages n'y sont pas (comme la rémunération, ADR-206)
+référentiel central     les banques sont par site ; une liste poussée par le portail à tous les sites est à décider
+rendu                   vérifié par le build et les tests (PHP et JS), pas dans un navigateur
+```
+
+## Amendement du 2026-09-30 — l'étape Contact : téléphones côte à côte, email seulement en mise à jour
+
+Demande du propriétaire. Téléphone et Second téléphone sont sur une même ligne (une colonne sur téléphone).
+L'email n'est plus montré pendant la création : il n'existe qu'une fois l'accès créé (ADR-190, ADR-197), et un
+champ vide sans rien à y faire se lisait comme un oubli. La création mène à `/edit?section=contact&nouveau=1`
+(`&stage=1` pour un stagiaire) ; `nouveau=1` sert la prop `creating`, qui masque le champ. L'adresse garde ce
+paramètre en changeant d'étape, si bien qu'une actualisation pendant la création ne le fait pas réapparaître. Une
+fiche ouverte depuis la liste montre l'email, en lecture seule comme avant. Présentation seulement : ni règle, ni
+droit, ni donnée ne change — le serveur refusait déjà l'email à la saisie (ADR-190).
+
+---
+
+# ADR-222 — Assistant IA d'aide au logiciel (Laravel AI SDK), réglé par site depuis le portail
+
+> Numérotée **ADR-214** à sa rédaction ; renumérotée **ADR-222** au rebase sur `origin/dev` (2026-09-29), le numéro 214 étant déjà pris par le Laboratoire. Les références du code ont suivi.
+
+**Status:** ACCEPTED (2026-09-29 — spécification explicite du propriétaire) ; le bouton flottant devient une page
+du menu latéral (amendement du 2026-09-29), puis **une bulle déplaçable sur chaque page, qui remplace menu et page**
+(amendement bis du même jour) ; **« GasyCoder AI » : nom de l'assistant et fournisseur par défaut, comme les autres**
+(amendement bis) ; les règles fixes de l'agent vivent désormais dans `resources/ai/assistant-system-prompt.md`
+
+Le CDC ne décrit aucun assistant IA : les règles ci-dessous sont celles du propriétaire. L'assistant aide à
+**utiliser RIVO** — où cliquer, quel écran, quel droit, pourquoi un bouton est grisé, quelle étape vient
+ensuite. **Ce n'est pas un assistant médical** et, en V1, il ne fait **aucune action** : il lit l'aide et les
+droits du compte, l'utilisateur agit lui-même.
+
+## Architecture
+
+```text
+Vue (bouton flottant + panneau)  →  Laravel (/assistant/*)  →  ClinicAssistant (agent du SDK)
+                                                               →  Laravel AI SDK  →  fournisseur réglé
+```
+
+Le navigateur n'appelle jamais un fournisseur et ne voit jamais une clé. `laravel/ai` (SDK officiel, v1) est
+installé ; ce qu'il fournit n'est pas refait : agent (`Promptable`), conversations (`RemembersConversations`,
+tables `agent_conversations` / `agent_conversation_messages`), outils (`Tool`), flux (`stream()`), faux pour
+les tests (`ClinicAssistant::fake()`), exceptions de fournisseur.
+
+```text
+app/Ai/Agents/ClinicAssistant.php          l'agent : règles fixes, contexte, aide, 3 outils, 4 étapes au plus
+app/Ai/Agents/AssistantConnectionCheck.php « Tester la connexion » : 16 tokens, sans outil ni conversation
+app/Ai/Tools/SearchApplicationHelp.php     cherche dans l'aide (modules ouverts au compte seulement)
+app/Ai/Tools/ListAccessibleModules.php     les modules que le compte peut ouvrir
+app/Ai/Tools/GetModuleAccess.php           ses droits sur un module, et ceux qui lui manquent
+```
+
+Les trois outils sont **en lecture seule** et reçoivent le compte : ils ne voient que ce que ses droits
+ouvrent. Aucun outil n'écrit, ne crée ni ne modifie quoi que ce soit.
+
+## Réglages : par site et par portail, depuis Paramètres › Assistant IA
+
+`ai_assistant_settings` (une ligne par base, comme `app_settings`, ADR-184) : activé, fournisseur, modèle, clé,
+longueur d'une réponse (tokens), température, délai, questions par heure, questions par jour et par compte,
+budget mensuel de tokens, consignes de l'établissement. Une table à part, et non `app_settings`, parce que
+celle-ci est servie entière au navigateur et effacée par la réinitialisation (ADR-210) : la clé ne doit ni
+l'un ni l'autre. La réinitialisation ADR-210 ne touche donc pas l'assistant, et sa confirmation le dit.
+
+`AssistantConfiguration` est le **seul** lecteur de cette table et de la clé. Chaque valeur se résout dans
+l'ordre : réglage de la base → configuration du déploiement (`config/rivo.php` `assistant.*`, `RIVO_AI_*`, et
+pour la clé la variable du SDK `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`…) → « non configuré ». Le fournisseur est
+déclaré au SDK pour la requête sous un nom propre (`rivo-assistant`), sans toucher aux fournisseurs du `.env`.
+Aucun nom de modèle n'est écrit dans le code : la liste proposée vient des modèles par défaut du SDK
+(`AssistantModelCatalog`), et un autre se saisit à la main.
+
+Fournisseurs : OpenAI, Anthropic, Gemini, OpenRouter, Mistral, DeepSeek, Groq, xAI (`AssistantProvider`, ceux
+que le SDK sait appeler en texte).
+
+Le portail règle un site **uniquement par son API** (`/api/v1/super-admin/assistant-settings`, GET / PUT /
+DELETE `key` / POST `test`, jeton du site, idempotence, droits revérifiés, acteur distant audité) et se règle
+lui-même dans sa base. Le test de connexion d'un site part avec un délai allongé et sans nouvel essai.
+
+## La clé
+
+```text
+stockée     chiffrée (cast `encrypted`), attribut caché : jamais sérialisée
+affichée    ••••••••••••••••ABCD, seulement les 4 derniers caractères
+envoyée     au site, de serveur à serveur, dans le corps du PUT ; jamais renvoyée ni relue
+champ vide  la clé enregistrée est gardée, jamais remplacée par du vide
+remplacer   saisir la nouvelle clé ; changer de fournisseur sans nouvelle clé est refusé
+retirer     un geste à part (« Retirer la clé »), confirmé, audité
+session     `api_key` exclue des champs remis en session après un refus (`dontFlash`) : la session vit en base
+journaux    jamais : l'audit dit « remplacée » / « retirée » ; une erreur de fournisseur est journalisée
+            par sa catégorie, son code HTTP, le fournisseur et le modèle, jamais son message
+navigateur  ni prop Inertia, ni réponse JSON, ni stockage local ; le champ se vide après l'enregistrement
+```
+
+Audit : `ai_settings.update` (anciennes et nouvelles valeurs, sans la clé), `ai_settings.key_remove`.
+
+## Ce qui part au fournisseur — le strict nécessaire
+
+```text
+la question   nettoyée par PromptRedactor : email, téléphone, numéro de dossier / passage / matricule,
+              CIN, longue suite de chiffres → [numéro de dossier], [téléphone]… C'est la version nettoyée
+              qui est gardée dans la conversation. Un nom propre n'est pas reconnu : l'écran et les
+              consignes demandent de n'en saisir aucun
+le contexte   rôle, profil métier, site, adresse de la page (identifiants remplacés par {id}), écran,
+              section (#ordonnance), module, droits du compte sur ce module, modules qu'il peut ouvrir
+              (AssistantPageContext). Jamais le contenu, ni le titre de la page (il peut porter un nom)
+l'aide        les sections des fiches des seuls modules que le compte peut ouvrir (7 000 + 5 000
+              caractères au plus)
+l'historique  les 10 derniers messages de la conversation
+```
+
+Aucune donnée de patient n'est lue par l'assistant : aucun outil n'accède à un dossier.
+
+## Assistant non médical
+
+Les règles fixes de l'agent — qu'aucune consigne de l'établissement ne lève — interdisent diagnostic,
+traitement, dose et conduite médicale : la réponse renvoie au médecin ou au soignant, puis indique où la
+consigner dans le logiciel. Elles interdisent aussi d'inventer un menu, un bouton ou un droit, de détailler un
+module que le compte n'ouvre pas, et de prétendre avoir agi.
+
+## La base de connaissance
+
+`resources/ai/clinic-assistant/*.md` : 21 fiches, une par module réellement présent (général, réception,
+sorties & règlements, caisse, patients, soins, médecine, examens paracliniques, hospitalisation, chirurgie,
+anesthésie, maternité, pharmacie, transferts, pédiatrie, décès, gardiennage, RH, référentiels, accès,
+Super Administration), écrites depuis les routes, les écrans et ces décisions — libellés des boutons relus
+dans les composants. `AssistantKnowledge` déclare pour chaque module ses adresses, les droits qui l'ouvrent,
+ses mots-clés et ses questions proposées ; la recherche est lexicale (sans accents, par racines). Pas de base
+vectorielle : la documentation tient en quelques dizaines de sections, et `search()` est le seul point à
+remplacer si elle grandit.
+
+Une fiche se met à jour **avec** la fonctionnalité qu'elle décrit : un workflow changé sans sa fiche fait
+mentir l'assistant.
+
+## Écran
+
+Un bouton « Assistant » en bas à droite de la mise en page persistante (`AssistantLauncher`), un panneau
+latéral shadcn (`Sheet`, plein écran sur téléphone) : discussion, historique, nouvelle conversation, questions
+proposées selon la page et les droits, réponse en flux, arrêt, copie, Markdown sûr (échappé d'abord, balises
+ajoutées ensuite), erreurs en phrases simples. Il n'apparaît que si l'assistant est activé, configuré et que le
+compte a `ai_assistant.use` (prop partagée `assistant`, sans fournisseur ni modèle ni clé). Réglages :
+`AssistantSettings` (fournisseur, modèle, clé masquée, limites, consignes, « Tester la connexion »,
+consommation du jour et du mois).
+
+Le projet est en **JavaScript** (Vue 3), pas en TypeScript : les nouveaux fichiers suivent le projet, avec des
+types JSDoc. Introduire TypeScript pour ce seul module serait une seconde convention.
+
+## Flux et hébergement
+
+`POST /assistant/messages` répond en **Server-Sent Events** lus par `fetch` : ni WebSocket, ni serveur Node, ni
+Redis, ni file d'attente. `X-Accel-Buffering: no` demande au proxy de ne pas retenir le flux ; sur un
+hébergement mutualisé (o2switch) qui le retient quand même, la réponse arrive d'un bloc, sans autre différence.
+L'arrêt de l'utilisateur se lit entre deux morceaux, et la consommation est quand même enregistrée.
+
+## Conversations
+
+Celles du SDK, dans la base du site. Toute lecture passe par le propriétaire (`participant_type`,
+`participant_id`) : la conversation d'un autre compte répond « introuvable ». Le titre est la première question
+(tronquée) : aucune génération de titre, donc aucun appel de plus. Historique : 20 dernières conversations,
+40 messages rechargés ; suppression par son propriétaire.
+
+## Coûts et limites
+
+```text
+question           1 000 caractères au plus
+réponse            max output tokens réglable (100 à 4 000), 4 étapes d'outils au plus
+par heure          limiteur « assistant-ai », par compte (jamais par IP : un poste est partagé)
+par jour           nombre de questions par compte — facultatif
+par mois           budget de tokens de toute la base — facultatif
+```
+
+Chaque question écrit une ligne `ai_assistant_usages` (compte, conversation, fournisseur, modèle, statut,
+tokens d'entrée et de sortie comptés par le fournisseur, durée). Aucun montant n'est calculé : RIVO ne connaît
+pas les prix des fournisseurs. Les réglages affichent la consommation du jour et du mois.
+
+## Erreurs
+
+Jamais une erreur 500 ni un message de fournisseur à l'écran : `AssistantErrors` ramène chaque échec à une
+phrase — clé refusée, modèle inexistant, crédit épuisé, fournisseur surchargé ou limité, délai dépassé,
+réseau, flux interrompu, assistant désactivé ou non configuré, quota atteint.
+
+## Droits
+
+```text
+ai_assistant.use     se servir de l'assistant   ADMINISTRATION, LOGISTICS, RECEPTION, MEDICINE, NURSE,
+                                                SURGERY, PHARMACY, LABORATORY (sites) ; SUPER_ADMIN (portail)
+ai_settings.view     voir les réglages          SUPER_ADMIN du portail
+ai_settings.update   régler, clé, test          SUPER_ADMIN du portail
+```
+
+Migration `2026_11_16_091000_create_ai_assistant_tables` (tables et droits) et
+`2026_11_16_090000_create_agent_conversations_table` (conversations du SDK), à jouer sur chaque site et sur le
+portail ; le Super Admin reçoit ses droits à la migration (ADR-186).
+
+## Signalé, non tranché
+
+```text
+nom propre dans une question   non reconnu par le filtre ; seul l'avertissement de l'écran le prévient
+actions                        aucune en V1 (règle du propriétaire) ; en ajouter exigerait confirmation et audit
+fournisseur de secours         non construit ; un seul fournisseur par base
+consommation centrale          chaque base compte la sienne ; aucun tableau consolidé multi-sites
+fiches d'aide                  à tenir à jour à chaque évolution d'un workflow
+rendu                          vérifié par les tests et le build, pas dans un navigateur ni avec un vrai fournisseur
+```
+
+## Amendement du 2026-09-29 — une page ouverte depuis le menu, plus de bouton flottant
+
+Demande du propriétaire, avec une spécification d'interface de chat (écrite pour Next.js / React / TypeScript,
+adaptée ici à la pile du projet : Laravel, Inertia, Vue 3 en JavaScript avec JSDoc, shadcn-vue — ADR-099).
+Constat de départ : l'assistant, réservé à un bouton flottant qui n'apparaissait qu'une fois tout configuré,
+n'était vu de personne.
+
+```text
+entrée         « Assistant IA » (icône Sparkles) dans le menu latéral, après la Messagerie, sur les sites
+               (buildClinicMenu) et le portail ; rail replié : l'icône et son libellé au survol ; montré si
+               l'assistant est prêt, ou au Super Admin qui peut le régler. Il ne compte pas comme un module
+               métier (« N modules » sous le nom du compte, en tête du menu)
+page           /assistant (AssistantController::index, mêmes droits que les messages : ai_assistant.use) :
+               historique à gauche (panneau Sheet sur téléphone), en-tête « Assistant IA » et
+               « Nouvelle conversation », messages, zone de saisie ; hauteur de la fenêtre, la page ne défile pas
+pas prêt       la page s'ouvre quand même et le dit (data-assistant-unavailable) : au Super Admin, les étapes
+               et le lien vers Paramètres › Assistant IA du portail ; aux autres, « prévenez l'administrateur »
+retiré         AssistantLauncher (bouton flottant et panneau latéral)
+```
+
+**L'écran.** Bulles distinctes avec avatar (initiales du compte, étincelle pour l'assistant), Markdown sûr —
+tableaux compris, chaque cellule échappée —, « Copier » sous chaque réponse, « L'assistant écrit… » pendant le
+flux, « Réessayer » sous une réponse en erreur (la question repart telle quelle), défilement automatique. La
+zone de saisie grandit avec le texte ; Entrée envoie, Maj + Entrée va à la ligne ; l'envoi est désactivé à vide
+ou pendant une réponse. Supprimer une conversation se confirme. La conversation en cours survit à un changement
+de page, mais elle est **liée au compte** (un autre compte sur le même poste repart d'un état vide) et n'est
+jamais partagée au rendu serveur. La page d'où l'on vient est retenue (`rememberAssistantOrigin`, adresse sans
+requête ni fragment, jamais `/assistant`) : elle oriente les questions proposées et le contexte envoyé.
+
+**Questions proposées.** Un seul fichier, facile à éditer : `app/Ai/AssistantSuggestions.php` (`BY_MODULE`),
+dont chaque question a sa réponse dans la fiche du module — aucune question qui supposerait de lire des données
+(« combien de patients… ») ni une fonctionnalité absente. À l'ouverture, l'état vide salue l'utilisateur et
+propose des questions **groupées par module** (`AssistantKnowledge::suggestionGroups`) : le module de la page
+d'où l'on vient d'abord, puis ceux où le compte détient le plus de droits — son métier —, puis la navigation
+générale ; seulement des modules qu'il peut ouvrir. Chaque groupe a l'icône de son module
+(`utilities/assistantModules.js`). Après chaque réponse, deux ou trois **questions de suivi** (`followUps`,
+calculées par le serveur, jamais celle qu'on vient de poser) s'affichent sous la dernière réponse.
+
+**Prompt système.** Les règles fixes quittent le code pour `resources/ai/assistant-system-prompt.md`
+(`ClinicAssistant::SYSTEM_PROMPT`) : rôle, le logiciel (sites, portail, modules, vocabulaire — passage, prise en
+charge, orientation, conduite à tenir, sorties médicale et administrative, « seule la Caisse encaisse », droits
+et rôles), règles absolues (aucun avis médical, aucune donnée de patient, ne jamais inventer, seulement les
+modules ouverts, aucune action, refus poli du hors sujet, **une seule** question de clarification), langue
+(réponse dans celle de la question : français, malgache ou anglais ; les libellés d'écran restent en français)
+et réponse de secours quand l'aide ne sait pas. Le fichier manquant arrête l'agent plutôt que de le laisser
+répondre sans règles.
+
+**Laboratoire.** L'aide décrivait l'ancien Laboratoire (file « À analyser », « Enregistrer »), refait par les
+ADR-213 à 220. La fiche « Examens » devient deux fiches — sinon celle du Laboratoire dépassait les 7 000
+caractères de la fiche du module ouvert et partait tronquée :
+
+```text
+laboratory     /laboratory (laboratory_results.view) : Traiter, saisie enregistrée seule, conclusion
+               partielle, Terminer l'analyse, Envoyer au médecin (un, plusieurs, tous, patient externe),
+               Autres actions (Rouvrir, Renvoyer à refaire, extérieur, Réinitialiser), prélèvements et
+               étiquettes, référentiels, compte rendu PDF, archive et corbeille
+paraclinical   Demandes d'examens, /resultats-analyses et Réception › Résultats à remettre : le médecin
+               valide ce qui lui est envoyé (Vérifier et valider, laboratory_results.approve), la Réception
+               remet ce qui est validé (laboratory_results.validated_view), imagerie inchangée
+```
+
+Un test vérifie que chaque fiche tient dans le budget de la fiche du module ouvert, et que celle du Laboratoire
+décrit le parcours actuel. 22 fiches au lieu de 21.
+
+Aucune permission, route métier ni migration nouvelle ; la route `GET /assistant` s'ajoute aux routes de
+l'assistant, sous les mêmes droits.
+
+**Signalé, non tranché.** Les exemples de la spécification qui supposaient de lire des données (« combien de
+patients aujourd'hui », « quels médecins sont disponibles ») ne sont pas proposés : l'assistant ne lit aucune
+donnée (V1). La langue malgache dépend du modèle choisi : aucune traduction des fiches n'est faite, l'aide reste
+en français. Rendu vérifié par les tests et le build, pas dans un navigateur ni avec un vrai fournisseur.
+
+## Amendement du 2026-09-29 (bis) — une bulle sur chaque page ; GasyCoder AI ; réponses qui coulent
+
+Trois demandes du propriétaire, le même jour. Aucune permission, route métier ni migration nouvelle.
+
+**Une bulle, plus de menu ni de page.** L'entrée « Assistant IA » du menu et la page `/assistant` (amendement
+précédent) sont retirées : l'assistant est une bulle ronde à petit robot (`AssistantRobot`), posée par
+`AppLayout` sur chaque page (`AssistantWidget`), comme une bulle de messagerie.
+
+```text
+bulle         glissée partout à la souris, au doigt ou au clavier (flèches), collée au bord le plus proche,
+              jamais hors de l'écran ; un glisser n'ouvre rien ; jamais à l'impression
+fenêtre       petite (400 × 620), grande (780 × 860) ou plein écran — plein écran d'office sur téléphone ;
+              ouverte à côté de la bulle, vers le centre ; déplaçable par son en-tête ; Échap la réduit
+gardé         place de la bulle et taille de la fenêtre sur le poste seulement (localStorage, try/catch) ;
+              conversations sur le serveur, jamais sur le poste
+état          partagé par toute la visite et lié au compte (useAssistantWidget, useAssistantChat) :
+              un autre compte sur le poste repart d'un état vide ; rien de partagé au rendu serveur
+couches       z-index 1200 : au-dessus de l'en-tête et du menu, sous les toasts et les confirmations
+```
+
+`GET /assistant` n'existe plus ; la bulle lit du JSON (`/assistant/messages`, `/suggestions`,
+`/conversations`), sous les mêmes droits. Défaut corrigé : la page des Paramètres servait une prop `assistant`
+qui masquait la prop partagée du même nom — la bulle y disparaissait. Elle s'appelle désormais
+`assistantSettings`.
+
+**« GasyCoder AI ».** Le titre de la bulle et de sa fenêtre est le nom de l'assistant, « GasyCoder AI »
+(`RIVO_AI_BRAND`, prop partagée `assistant.name`) ; l'agent se présente sous ce nom. **GasyCoder AI est aussi un
+fournisseur comme les autres** : en tête de la liste, présélectionné quand rien n'est réglé
+(`RIVO_AI_PROVIDER`, défaut `gasycoder`), avec son modèle (proposé si `GASYCODER_AI_MODEL`, sinon saisi) et sa
+clé (saisie au portail, chiffrée, ou `GASYCODER_AI_API_KEY`) — exactement comme OpenAI ou DeepSeek. Il est appelé
+par le pilote « compatible OpenAI » du SDK (`AssistantProvider::driver()`) ; son adresse est la seule chose que
+le SDK ne connaît pas : `GASYCODER_AI_URL` dans le `.env` (`config/ai.php`, fournisseur `gasycoder`). Sans elle,
+l'écran le dit, le test de connexion répond « adresse manquante » sans rien appeler, et l'assistant reste « à
+configurer ». Une première version en faisait un « mode géré » verrouillé (modèle et clé imposés par le serveur) :
+retirée à la demande du propriétaire.
+
+**Les réponses coulent à l'écran.** Le flux était déjà réel côté serveur ; il devient visible : le contrôleur
+coupe la compression (`zlib.output_compression`, `no-gzip`) et ouvre le flux par un commentaire de 2 Ko pour
+qu'un proxy qui retient les premiers octets laisse passer chaque morceau ; l'écran dévoile le texte reçu en
+quelques images (`takeReveal`, jamais un caractère coupé), avec un curseur qui clignote au bout du texte
+(arrêté par « Réduire les animations »). « Copier » et les questions de suivi n'apparaissent qu'une fois tout le
+texte affiché.
+
+**Signalé, non tranché.** L'API de GasyCoder AI est supposée compatible OpenAI (`/chat/completions`) : une autre
+forme demanderait un pilote. Son adresse, sa console de clés (`GASYCODER_AI_CONSOLE_URL`, facultative) et ses
+modèles sont à fournir. La bulle a été vérifiée dans un navigateur (tailles, glisser, Échap, préférences) ; le
+flux, avec un vrai fournisseur derrière le proxy d'o2switch, reste à vérifier.
+
+---
+
+# ADR-223 — L'aspect du compte rendu d'analyses se règle par site, depuis le portail
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire : « Âge : 28 ans | Sexe : Féminin
+en parallèle ; gérer ou personnaliser ces résultats PDF dans les paramètres — couleurs des textes, masquer
+les lignes du bas (envoyé, validé, édité), le responsable du laboratoire ou le médecin ou les deux ou
+automatique (le médecin qui demande l'analyse), le pied de page, le site web, le QR code, le logo, le
+titre, le modèle, le fond des textes… ; tout ça dans le Super Admin »)
+
+**Complète l'ADR-218** (compte rendu PDF) et **l'ADR-184** (paramètres par site). Aucune règle des
+résultats ne change : valeurs, unités, références, notes, antériorités et validation restent celles du
+dossier (ADR-216, ADR-218). Le CDC §14 cite « impression » sans en fixer la forme.
+
+## Ce qui se règle
+
+`App\Support\Laboratory\LabReportDesign` porte 29 réglages, colonnes nullables de `app_settings`
+(migration `2026_11_25_090000`) — **une colonne vide = le compte rendu d'origine** :
+
+```text
+modèle        Classique (d'origine) · Bandeau (l'établissement sur un bandeau de couleur) · Sobre
+              (centré, filets gris) ; police sans / avec empattements ; taille du texte 90 à 120 %
+couleurs      principale (vide = celle du site), texte, fond des titres de section, fond du bloc
+              patient, valeurs hors norme ; sur un fond foncé le texte passe en blanc (inkOn) ;
+              une valeur critique reste toujours rouge
+en-tête       nom, sous-titre, titre du document (vide = aucun), logo, coordonnées, NIF / STAT,
+              QR code ; logo propre au compte rendu (fichier « lab_logo », privé, vide = logo du site)
+résultats     colonne Antériorité, lignes alternées
+bloc final    « envoyés au médecin par », « validés par », « Édité le », rappel du patient — chacun
+              masquable ; qui signe : le laboratoire, le médecin (qui a validé), les deux, ou
+              automatique ; intitulés de chaque signature
+bas de page   affiché ou non, texte (vide = l'établissement — site), patient, site web, numéros de page
+```
+
+Le bloc patient écrit désormais **« Âge : 28 ans | Sexe : Féminin »** sur une ligne, pour tous les sites.
+
+## Deux décisions, prises faute de règle et signalées
+
+```text
+QR code       il porte le numéro de laboratoire, rien d'autre (à défaut le numéro de passage) :
+              le scanner dans la file du laboratoire rouvre la demande (ADR-214). Masqué d'origine
+automatique   le médecin qui a demandé l'analyse, s'il peut recevoir des résultats (ADR-216) ;
+              une demande de l'accueil n'a pas de médecin prescripteur : c'est alors le premier
+              médecin destinataire des résultats ; sans médecin, le laboratoire
+```
+
+`LabResultReport::signatories()` écrit la règle une fois ; `compose()` sert `design`, `signatories`,
+`qr`. Le QR est rendu par `chillerlan/php-qrcode` (dépendance ajoutée), en PNG dans le PDF.
+
+## Où il se règle
+
+Paramètres › Établissement & documents › **Compte rendu d'analyses** (`LabReportSettings.vue`, module
+`compte-rendu`), en quatre onglets, avec les mêmes droits que les autres paramètres (`settings.view` /
+`settings.update`) et le même chemin : enregistré avec le formulaire commun par l'API du site
+(`PUT /api/v1/super-admin/app-settings`, audit `app_settings.update`), jamais par sa base (ADR-004).
+Le portail n'imprime aucun compte rendu : sur la cible « Portail », le module le dit.
+
+**L'aperçu est le vrai PDF**, rendu par le site lui-même (son en-tête, son logo) sur un patient et des
+résultats fictifs, avec les réglages en cours de saisie : `GET /api/v1/super-admin/app-settings/lab-report-preview`
+(`settings.view`), relayé par `GET /super-admin/settings/lab-report-preview?site_code=` (limité à 40 par
+minute). Une lecture : rien n'est enregistré, aucun dossier n'est lu, aucune clé d'idempotence.
+`LabResultReport::sample()` compose ce compte rendu fictif, écrit « Aperçu » en tête.
+
+La réinitialisation des paramètres (ADR-210) remet aussi le compte rendu d'origine et efface son logo.
+La liste des réglages est la même en PHP et en JS (`utilities/labReportDesign.js`, test de parité).
+
+## Signalé, non tranché
+
+```text
+couleur des critiques      toujours rouge : la rendre réglable brouillerait le seul signal d'alarme
+logo non enregistré        l'aperçu ne montre un nouveau logo qu'une fois enregistré
+rendu                      vérifié par les tests (PDF de chaque modèle) et le build, pas dans un navigateur
+```
+
+---
+
+# ADR-224 — Une caisse peut être attribuée à un caissier et porter son fond fixe
+
+**Status:** ACCEPTED (2026-09-29 — exigence explicite du propriétaire)
+
+Cette décision complète les ADR-058 à ADR-060. Un poste nommé peut être sans
+titulaire, ou attribué à un compte local actif dont le rôle est `RECEPTION` et
+qui détient effectivement `cash.open`. Lorsqu'il est attribué, seul ce compte
+peut ouvrir une nouvelle session sur ce poste. Le contrôle est exécuté dans
+`OpenCashSessionAction`, jamais seulement dans Vue. Une caisse sans titulaire
+reste ouvrable par tout compte autorisé, comme auparavant.
+
+Le titulaire ne peut pas être remplacé tant qu'une session est ouverte : la
+clôture avec comptage reste la seule façon de mettre fin à la garde en cours
+(ADR-060). Une désactivation ou une perte ultérieure du rôle/droit rend le
+poste indisponible jusqu'à sa réattribution ; elle ne transfère jamais la
+garde automatiquement.
+
+Chaque caisse porte aussi :
+
+```text
+color                 couleur hexadécimale de repérage, sans sens comptable
+opening_fund_amount   fond initial fixe, facultatif pour les anciennes caisses
+```
+
+Quand le fond est fixé, le serveur l'applique à l'ouverture même si un client
+envoie une autre valeur. Quand il est vide, la saisie manuelle historique reste
+possible. La fiche centrale présente sur trente jours les entrées/sorties en
+histogramme ou courbes et la répartition des entrées par mode de paiement. Ces
+données sont calculées par l'API du site ; le portail n'accède à aucune base
+opérationnelle.
+
+---
+
+# ADR-225 — Fiche du personnel : tailles de tenue, matériel remis et second téléphone
+
+**Status:** ACCEPTED (2026-09-30 — demande du propriétaire, à partir de la feuille de suivi du personnel de la clinique)
+
+**Complète l'ADR-066** (dossier Employé) et **l'ADR-221** (étapes enregistrées toutes seules). Le CDC ne décrit pas ces informations : la liste des champs est celle de la feuille du propriétaire. Aucune paie, aucun calcul, aucune permission nouvelle.
+
+## Ce qui manquait
+
+Comparée aux champs du dossier, la feuille portait six colonnes sans équivalent — Taille (T-shirt), Taille (blouse), Tenue bloc, Pointure, Callot, Sabot — et un second numéro dans la colonne CONTACT.
+
+```text
+employees.tshirt_size, blouse_size, shoe_size   tailles, texte libre (50 caractères)
+employees.bloc_outfit, scrub_cap, clog          tenue bloc, callot, sabot : taille ou Oui/Non, texte libre
+employees.phone_secondary                       second téléphone
+```
+
+Colonnes nullables (migration `2026_11_27_090000`) : aucun dossier existant n'est réécrit. « Badge » et « Blouse » restent les champs texte existants (Oui, Non ou référence).
+
+## Où ils se saisissent
+
+Étape « Compléments » (bloc « Matériel remis ») et étape « Contact » (« Second téléphone »), enregistrées toutes seules comme les autres (ADR-221). Ils sont lus par la fiche (masqués quand ils sont vides), la fiche imprimée et l'export Excel. Aucun droit particulier : ce sont des informations déclaratives du dossier, comme le badge et la blouse.
+
+## Import Excel
+
+Le modèle passe de 23 à 29 colonnes. Les en-têtes de la feuille sont reconnus tels quels (IMMATRICULE, CONTACT, Taille (Tshirt), Taille (Blouse), Tenue bloc, Pointure, Callot, Sabot). Une cellule CONTACT qui contient deux numéros séparés par « / », « ; », une virgule ou deux espaces est répartie entre téléphone et second téléphone. L'import reste atomique (ADR-066).
+
+## Signalé, non tranché
+
+```text
+tenue bloc, callot, sabot   taille ou Oui/Non : texte libre, jamais contraint — à resserrer si la clinique choisit
+matricule de la feuille     H/F + année d'entrée + jour et mois de naissance : saisi à la main, non généré (ADR-191 propose EMP-0001)
+```
+
+## Amendement du 2026-09-30 — les enfants forment une liste, et leur nombre en est la longueur
+
+Constat du propriétaire, sur l'étape « Compléments » : un nombre d'enfants et une note libre pouvaient se contredire (« 3 » et deux prénoms). Les deux sont fusionnés.
+
+```text
+employees.children     liste JSON (nullable) de {prénom, F/G, âge}, jusqu'à 20 enfants
+children_count         ne se saisit plus : c'est la longueur de la liste, posée par le serveur
+                       (EmployeeDataRequest), jamais celle que le navigateur enverrait
+children_details       l'ancienne note libre reste lisible et modifiable tant qu'elle existe ;
+                       elle n'est plus proposée à un dossier qui n'en a pas
+```
+
+- **Écran** : lignes « Prénom · Fille/Garçon · Âge » avec « Ajouter un enfant » et une corbeille par ligne, et un compteur « N enfants » qui suit la liste. Enregistrement automatique comme le reste (ADR-221). Une ligne restée vide est ignorée ; une ligne avec un sexe ou un âge mais sans prénom est refusée, et l'autosave attend qu'elle soit complète.
+- **Dossiers existants** : un nombre d'enfants déclaré sans liste est signalé (« N enfants déclarés avant la liste »). Il devient celui de la liste au premier enregistrement de la liste ; rien n'est réécrit avant.
+- **Import Excel** : la note de la feuille (« Mayrah(F, 3ans) Malyah(F, 3ans) ») est relue en liste quand elle se lit entièrement (`EmployeeChildren::parse`), et le nombre suit ; sinon elle reste une note, rien n'est deviné. Une note du type « Lucianah(F9ans, … » n'est donc pas transformée.
+- **Fiche, impression, export** : la liste est lue partout (prénoms et âges).
+
+Migration `2026_11_28_090000_add_children_list_to_employees`, à jouer sur chaque site et sur le portail. Aucune permission nouvelle.
+
+## Amendement du 2026-09-30 (bis) — le dossier RH de la clinique relu contre ses fichiers
+
+Le propriétaire a partagé le dossier Drive du personnel (Liste Personnel_AMB, Info personnels, Salaire, Avantage_Reference, formulaire de demande de congé). Chaque fichier a été comparé au module RH ; ce qui existait déjà n'est pas retouché, ce qui manquait est ajouté.
+
+```text
+déjà couvert        départements, fonctions (dont Pharmacien, Lingerie, Serveur, Gérant, Dentiste, Assistant Dentisterie),
+                    types de contrat (CDI, CDD, Consultant, Stagiaire, Bénévole), statuts Actif / Inactif, tous les champs
+                    d'identité, la demande de congé (adresse pendant le congé, téléphone d'urgence, intérim, reste à prendre,
+                    motif, dates), les primes (module Bonus)
+ajouté              fonction « Tsarashop » (elle figurait dans la liste des fonctions de la feuille, pas dans RIVO) ;
+                    banque ACCESS ; mode de paiement du salaire (virement bancaire, Mobile Money, espèces) avec le numéro
+                    Mobile Money — les colonnes BNI, BOA, ACCESS, MOBILE MONEY, ESPECE de la feuille de paie
+import Excel           la ligne d'en-têtes est trouvée même quand la première ligne n'est qu'une légende (la feuille du
+                    personnel en porte une) ; un téléphone numérique retrouve son 0 initial ; le sexe est lu dans la lettre
+                    H/F du matricule quand la colonne Genre est vide ; le statut « Bénévole » est accepté (en poste, non
+                    rémunéré) ; une ligne sans matricule reçoit celui de la clinique quand la fiche le permet
+matricule clinique  H (homme) ou F (femme) + année d'entrée + jour et mois de naissance : F20151808
+                    (EmployeeNumberAllocator::fromProfile). Rien n'est deviné : sans sexe, date d'entrée ou date de naissance,
+                    ou si le numéro est déjà pris, le matricule du modèle du site s'applique (ADR-191)
+```
+
+Le mode de paiement suit le droit de la rémunération (`employees.payroll.*`, ADR-206). Migration `2026_11_29_090000`, à jouer sur chaque site et sur le portail.
+
+**Signalé, non tranché**
+
+```text
+paie (feuille « Salaire »)   la feuille donne CNAPS = 1 % du brut et IRSA = 20 % de (brut − CNAPS − 350 000 Ar),
+                             soit 0,198 × brut − 70 000 ; net = 0,792 × brut + 70 000. Ces formules sont cohérentes entre elles,
+                             mais ni le plancher de l'IRSA, ni son arrondi, ni la période d'application ne sont
+                             donnés : ADR-066 tient toujours, aucune paie n'est calculée
+matricule                    la feuille l'annonce « 1 lettre + 6 chiffres » mais ses exemples en portent 8 (H20181007) ;
+                             l'ancien format « Site-Sexe-numéro » (M10001, stagiaires MS10001) de « Info personnels »
+                             est plus ancien : non repris
+genre                        RIVO l'exige ; 26 lignes de la feuille n'ont ni genre ni matricule : à compléter avant l'import
+sage-femme                   une ligne la classe au département Médecine ; la fonction n'existe qu'en Maternité (ADR-194)
+```
+
+## Amendement du 2026-09-30 (ter) — plusieurs comptes Mobile Money, chacun avec son opérateur et son titulaire
+
+Demande du propriétaire : un seul numéro Mobile Money ne suffisait pas. Une personne peut avoir un compte Orange et un compte Yas, et le nom enregistré chez l'opérateur doit être noté.
+
+```text
+employees.mobile_money_accounts   liste JSON de {opérateur, numéro, titulaire}, 5 au plus ;
+                                  remplace mobile_money_number (le numéro déjà noté est repris tel quel,
+                                  sans opérateur ni titulaire : rien n'est deviné)
+opérateurs                        MVola (Yas), Orange Money, Airtel Money (MobileMoneyOperator)
+règle                             une ligne remplie exige les trois : opérateur, numéro, nom sur le compte ;
+                                  une ligne restée vide est ignorée ; mêmes droits que la rémunération
+                                  (employees.payroll.*, ADR-206)
+écran                             étape Banque : « Ajouter un numéro » ; l'opérateur est proposé d'après le
+                                  préfixe (034/038 Yas, 032/037 Orange, 033 Airtel) tant que le RH n'en a pas
+                                  choisi un ; le nom de l'employé est proposé comme titulaire ; le numéro
+                                  s'écrit « 034 12 345 67 » ; les comptes restent affichés même si le mode
+                                  de paiement change
+```
+
+Lus sur la fiche (carte Rémunération et banque) et la fiche imprimée. Migration `2026_11_30_090000`, à jouer sur chaque site et sur le portail.
+
+---
+
+# ADR-226 — Salaire et avantages ensemble ; avantages à l'acte dans le module Bonus
+
+**Status:** ACCEPTED (2026-09-30 — demande du propriétaire, avec la feuille « Avantage_Reference » de la clinique : ECHO, ECG, CHIR, Chir Laparo, AUTO CHIR… en quantité × prix unitaire ; quatre arbitrages explicites) ; **les avantages comptés à l'acte sont retirés le 2026-10-01** à la demande du propriétaire (amendement de l'ADR-227) — la case « Avantages » (salaire et avantages ensemble) reste en vigueur
+
+**Amende l'ADR-206** (la rémunération n'était qu'un seul choix Salaire / Indemnité / Non rémunéré) et **l'ADR-221** (les avantages n'étaient ouverts que par la fonction). **Complète l'ADR-212** (bonus du personnel). Le CDC ne décrit ni avantage, ni prime à l'acte : les règles ci-dessous sont celles du propriétaire. Aucune paie n'est calculée (ADR-066) : un avantage est compté, validé et tracé, jamais retenu ni ajouté à un net.
+
+## Les arbitrages
+
+```text
+case « Avantages »   elle ouvre les avantages de la personne et l'emporte sur la fonction ;
+                     vide, la fonction décide comme avant (ADR-221)
+quantité             comptée par RIVO, jamais saisie
+ce qui est compté    les deux : actes réalisés, et patients référés
+bénéficiaires        employés et partenaires (ADR-211)
+```
+
+## Rémunération : salaire et avantages ensemble
+
+À l'étape Rémunération, un employé coche **Salaire**, **Avantages**, ou les deux ; **Non rémunéré** (bénévole) les exclut. Un stagiaire garde **Indemnité** (choisie d'office si rien n'est encore noté) ou **Non rémunéré**. `employees.benefits_enabled` (booléen nullable) porte la case ; `Employee::grantsBenefits()` = la case, sinon la fonction (`JobTitleBenefits`). Même droit que la rémunération (`employees.payroll.update`, `EmployeePayroll::FIELDS`). Les avantages déclarés à la main (étape Avantages, ADR-221) et le refus d'en ajouter suivent `grantsBenefits()`.
+
+## Avantages à l'acte, dans le module Bonus
+
+Onglet **« Avantages à l'acte »** de `/administration/bonus` (`?onglet=avantages`), servi aussi au portail (ADR-187).
+
+```text
+article     advantage_articles : nom unique, ce qu'il compte (AdvantageSource PERFORMED | REFERRED),
+            prix unitaire, description, actes du catalogue regroupés (advantage_article_items) ;
+            archivé avec motif, restauré, jamais supprimé
+compté      AdvantageMeter, sur des faits déjà enregistrés, dans le mois :
+  réalisés    compte rendu d'imagerie, résultat d'analyse, intervention (via l'acte de la demande
+              chirurgicale), acte de soins, acte de maternité — lus sur le compte de connexion relié
+              à la fiche (ADR-188) ; employés dont les avantages sont ouverts
+  référés     chaque acte de l'article facturé (non annulé, quantité comprise) sur le passage où le
+              patient recommandé est arrivé (ADR-212) — jamais ses passages suivants ; employés dont
+              les avantages sont ouverts, partenaires en service
+tableau     AdvantageBoard : par personne, Article · Compte · Qté · PU · Total, passages comptés
+valider     ValidateAdvantageAwardAction recompte, fige lignes (quantité, prix, total) et total sur
+            advantage_awards ; un seul en vigueur par personne et par mois (active_key) ; refusé pour
+            un mois futur ou un total nul ; changer un prix ensuite ne réécrit rien
+versé       marqué versé (note) hors RIVO ; annulé avec motif tant qu'il n'est pas versé ; jamais supprimé
+```
+
+Droits : ceux des bonus, sans permission nouvelle — `bonus_categories.*` pour les articles, `bonus_awards.*` pour valider, verser, annuler. Audit par les modèles (`Auditable`), acteur distant signé depuis le portail.
+
+## Signalé, non tranché
+
+```text
+QTE saisie à la main        refusée par l'arbitrage : un acte hors RIVO ne compte pas
+un acte, deux articles      compté dans chacun ; à éviter en configurant les articles
+patient référé ensuite      seul le passage d'arrivée compte ; un retour du patient ne rapporte rien
+formulaire « Référence »    Nom, Grade, Genre, Adresse, Tel de la feuille : couverts par la fiche employé
+                            ou partenaire, rien n'est ajouté
+```
+
+Migration `2026_12_01_090000_create_advantages`, à jouer sur chaque site et sur le portail.
+
+---
+
+# ADR-227 — Avantages saisis pour les médecins et paie du mois
+
+**Status:** ACCEPTED (2026-09-30 — demande du propriétaire, deux arbitrages explicites : une page « Paie du
+mois » ; deux boutons dans le module Bonus, « Saisir des avantages » à côté de « Nouvel article »)
+
+**Amende l'ADR-066** (RIVO ne stockait aucune paie : il en garde désormais une trace brute), **complète
+l'ADR-206** (salaire de base déclaré), **l'ADR-221** (avantages déclarés sur la fiche) et **l'ADR-226**
+(avantages à l'acte). Le CDC ne décrit aucune paie : les règles ci-dessous sont celles du propriétaire.
+Aucune retenue, aucune cotisation, aucun net n'est calculé.
+
+## Saisir des avantages
+
+Module Bonus › « Saisir des avantages » : la liste des **médecins** — les personnes en poste dont les
+avantages sont ouverts (`Employee::grantsBenefits()`, ADR-221/226), jamais un nom libre —, plusieurs
+lignes par médecin (montant > 0, motif libre ou proposé — ECHO…), un mois de paie commun. Compteurs et
+totaux par médecin et au total, en direct. Tout part d'un geste, tout ou rien
+(`SaveAdvantageEntriesAction`) : une ligne refusée est nommée (`lines.N.*`) et n'en laisse passer aucune.
+
+```text
+advantage_entries   employé, mois, montant, motif, statut PENDING | PAID, paie qui l'a porté, auteur
+                    (local ou Super Admin distant) ; Soft Delete avec motif, jamais détruit
+onglet              « Avantages saisis » (?onglet=saisis) : par médecin, nombre, en attente, payé, total
+corriger/supprimer  seulement en attente, et tant que la paie du mois n'est pas marquée payée
+```
+
+## Paie du mois
+
+`/administration/paie` (rubrique RH, servie aussi au portail — ADR-187) : pour chaque personne en poste
+dont la rémunération a un montant, ou qui a des avantages ce mois-ci,
+
+```text
+salaire de base déclaré (ADR-206)
++ avantages déclarés sur la fiche, en vigueur ce mois (ADR-221)
++ avantages saisis en attente (ADR-227)
+= montant à verser, brut       (l'avantage à l'acte de l'ADR-226 est retiré le 2026-10-01)
+```
+
+« Marquer payé » (`PaySalaryAction`) recompte côté serveur, fige lignes et total sur `salary_payments`
+(une seule paie en vigueur par personne et par mois, `active_key`), passe les avantages saisis « payé »
+et l'avantage à l'acte « versé ». Un mois à venir ne se paie pas. Le virement se fait **hors RIVO**.
+Annuler (motif obligatoire) garde la paie dans l'historique et remet ses avantages en attente.
+
+## Droits
+
+```text
+advantage_entries.view / create / update / delete   ADMINISTRATION
+salary_payments.view / pay / cancel                 ADMINISTRATION
+```
+
+Migration `2026_12_02_090000_create_advantage_entries_and_salary_payments`, sur chaque site et le portail.
+
+## Signalé, non tranché
+
+```text
+bonus ADR-212        les bonus par palier ne rejoignent pas la paie : ils restent versés à part
+retenues, net        aucun calcul (CNAPS, IRSA : règles non définies, ADR-066)
+« médecins »         la liste suit l'ouverture des avantages, pas un nom de fonction : une autre
+                     fonction cochée « Ouvre droit aux avantages » y figure aussi
+```
+
+
+## Amendement du 2026-10-01 — la saisie se lit médecin par médecin, les articles en un clic
+
+Constat du propriétaire : l'écran ouvert était « Nouvel article » des avantages comptés à l'acte (ADR-226),
+alors qu'il voulait écrire, pour chaque médecin, « ECHO 50 000 Ar, AUTO CHIR 70 000 Ar, CHOL 50 000 Ar… ».
+Présentation seulement : ni route, ni droit, ni règle de saisie ne change.
+
+```text
+fenêtre      « Saisir des avantages » en pleine largeur : médecins à gauche (recherche, nombre et total
+             de chacun), avantages du médecin choisi à droite — N°, article ou motif, montant, retirer —,
+             « Ajouter une ligne », total ; on passe d'un médecin à l'autre sans rien perdre, tout part
+             d'un seul « Enregistrer (N) » ; Entrée dans un montant ajoute une ligne
+en un clic   `entries.articles` (AdvantageEntryDirectory::articles) : les motifs déjà saisis, au dernier
+             montant utilisé ; un clic ajoute la ligne préremplie, un motif tapé qui nomme un article
+             connu reçoit son montant s'il est vide — toujours modifiable, jamais une règle
+onglet       « Avantages des médecins » en premier ; la lecture est une carte par médecin : la liste de
+             ses avantages (article, montant, statut), son total, en attente et payé
+```
+
+**Les avantages comptés à l'acte (ADR-226) sont retirés**, sur décision du propriétaire, le même jour :
+la saisie par médecin les remplace. Retirés : articles d'avantage (`advantage_articles`, leurs actes),
+`advantage_awards`, `salary_payments.advantage_award_id`, le comptage (`AdvantageMeter`, `AdvantageBoard`),
+leurs routes `/administration/bonus/avantages/articles*` et `/awards*`, l'onglet et sa fenêtre. La paie
+ne compte plus que salaire de base, avantages de la fiche et avantages saisis. La migration
+`2026_12_06_090000_drop_act_advantages` **s'arrête** si un avantage à l'acte validé ou versé existe : rien
+ne se perd en silence ; une paie déjà payée garde sa ligne figée « Avantages à l'acte », toujours lisible.
+`?onglet=avantages` mène à « Avantages des médecins ». Reste : la case « Avantages » du dossier
+(`employees.benefits_enabled`), qui ouvre la saisie pour une personne. Aucune permission retirée : les
+droits des bonus (`bonus_categories.*`, `bonus_awards.*`) restent ceux de l'ADR-212.
+
+---
+
+# ADR-228 — Dettes du personnel : demandées par l'employé, décidées par le DG, remboursées sur la paie ou à la Caisse
+
+**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire) ; **déplacée dans Finance au portail
+par l'ADR-229** (même jour) : le DG décide, ajuste, verse, remet et relance depuis Finance › Dettes du
+personnel ; la rubrique RH du site disparaît, et le RH ne verse plus. Limites, intérêts par tranche et
+dérogations s'ajoutent. Le reste (demande, retenue sur la paie, Caisse) est inchangé. **La demande est
+amendée par l'ADR-234** (2026-10-01) : l'employé ne demande plus que le montant (règles acceptées, motif
+facultatif), le DG fixe la mensualité et le premier mois, et une dette en cours ferme les demandes sauf
+autorisation du Super Admin.
+
+**Complète l'ADR-227** (paie du mois) et **applique l'ADR-012** (seule la Caisse encaisse). Le CDC ne
+décrit aucune avance ni dette consentie au personnel : les règles ci-dessous sont celles du propriétaire.
+La créance patient de l'ADR-090 est une autre chose et n'est pas touchée.
+
+## Le parcours
+
+```text
+REQUESTED    l'employé demande depuis son compte (/mes-dettes) : montant, mensualité, premier mois,
+             motif ; compte relié à sa fiche (ADR-188), en poste, une seule demande en attente ;
+             retirable tant que rien n'est décidé
+APPROVED     le DG accorde (montant, mensualité et premier mois ajustables ; retenue sur salaire ou
+             espèces à la Caisse) — ou refuse avec motif (REFUSED)
+ACTIVE       le RH constate le versement (date, moyen, référence) : l'argent part hors RIVO, comme
+             la paie ; aucun remboursement n'est dû avant
+SETTLED      tout est remboursé
+WRITTEN_OFF  le DG remet le reste, avec motif
+CANCELLED    retirée par l'employé, ou accord annulé avant versement
+```
+
+`StaffDebtTerms` vérifie les conditions de la même façon à la demande, à l'accord et à l'ajustement :
+montant et mensualité positifs, mensualité au plus égale au montant, premier mois jamais passé. Une retenue
+sur salaire exige un salaire déclaré (ADR-206). Chaque geste se fait sur la ligne verrouillée, s'audite et
+prévient l'employé (`StaffDebtUpdated`).
+
+## Rembourser
+
+```text
+paie du mois      PaySalaryAction retranche les retenues du brut (au plus le brut) ; chaque retenue devient
+                  un remboursement lié à la paie ; annuler la paie annule ses retenues et rouvre la dette
+Caisse            onglet « Dettes du personnel » de l'espace Caisse (StaffDebtCollectionPanel) : encaissement
+                  en espèces dans la session de celui qui encaisse (OwnOpenCashSession, ADR-058/059),
+                  mouvement de caisse, reçu imprimable (/cash/staff-debt-repayments/{uuid}/recu) ; une
+                  dette retenue sur salaire peut être remboursée en avance ici, la paie ne retient ensuite
+                  que ce qui reste
+annulation        un encaissement fait par erreur s'annule avec motif, dans la même caisse encore ouverte,
+                  par celui qui l'a ouverte (mouvement inverse) ; il reste dans l'historique, barré
+```
+
+Aucun remboursement n'est supprimé (ADR-010). La Caisse ne voit ni le motif ni le salaire : un nom, un
+numéro, une mensualité, un retard, un reste dû.
+
+## Où
+
+```text
+employé    Principal › Mes dettes (/mes-dettes)
+RH / DG    Ressources humaines › Dettes du personnel (/administration/dettes), servi aussi au portail
+           par l'API du site (ADR-187) : le DG décide depuis le portail
+DG         prévenu d'une demande par la cloche du portail (StaffDebtWatcher, lecture de
+           /api/v1/super-admin/staff-debts/pending, une fois par demande, marquée « Traité » ensuite)
+Caisse     onglet « Dettes du personnel » de /cash
+```
+
+## Droits
+
+```text
+staff_debts.request    demander depuis son compte          rôles opérationnels
+staff_debts.view       voir les dettes du personnel         ADMINISTRATION
+staff_debts.disburse   marquer versée une dette accordée    ADMINISTRATION
+staff_debts.decide     accorder, ajuster, refuser, annuler  SUPER_ADMIN du portail (DG, ADR-186)
+staff_debts.write_off  remettre le reste                    SUPER_ADMIN du portail
+staff_debts.collect    encaisser à la Caisse                RECEPTION
+```
+
+Migration `2026_12_03_090000_create_staff_debts`, à jouer sur chaque site et sur le portail.
+
+## Signalé, non tranché
+
+```text
+plafond        aucun plafond de montant ni de nombre de dettes en cours : c'est le DG qui décide
+intérêts       aucun
+départ         un employé qui quitte son poste avec une dette en cours : rien d'automatique
+```
+
+## Amendement du 2026-09-30 — « Mes dettes » en pleine largeur
+
+Demande du propriétaire : refaire l'écran `/mes-dettes` (UI et UX) en pleine largeur. Présentation, et
+trois chiffres de plus servis par le serveur ; aucune règle, route ni permission ne change.
+
+```text
+largeur        la page occupe toute la largeur ; les dettes à gauche, à droite « Ma fiche » et
+               « Comment ça se passe » (demande → décision du DG → versement par le RH →
+               remboursement, prévenu à chaque étape, motif lu par le DG et le RH seulement)
+repères        Reste à rembourser · Prochain remboursement (mois et montant) · Déjà remboursé ·
+               Demande en attente ; un bandeau dit le retard à remettre à la Caisse
+serveur        `space.summary` reçoit `next` (premier mois de l'échéancier des dettes en cours,
+               montants de ce mois additionnés), `repaid` et `arrears` — l'écran n'additionne rien
+avancement     chaque dette montre ses quatre étapes (fait, en cours, arrêtée, à venir, sans objet),
+               lues sur son état et son historique par `debtSteps()` (utilities/staffDebts.js) ;
+               une dette retirée, refusée ou dont l'accord est annulé dit où elle s'est arrêtée
+détail         demande, accord, remboursement (part, reste, prochain mois, retard) et échéancier ;
+               ouvert d'office pour une dette en cours, replié pour une dette close ;
+               filtre Toutes / En cours / Closes quand il y a des deux
+```
+
+`repaidShare()` est partagé avec la fiche d'une dette du RH. Test : `tests/JavaScript/staffDebts.test.js`.
+
+---
+
+# ADR-229 — Dettes du personnel dans Finance au portail : limites, intérêts par tranche, dérogations, relances
+
+**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire, quatre arbitrages)
+
+**Amende l'ADR-228** (où se gère une dette, et qui la verse) et **tranche deux de ses points signalés**
+(plafond, intérêts). Le CDC ne décrit aucune dette du personnel : les règles ci-dessous sont celles du
+propriétaire.
+
+## Les arbitrages du propriétaire
+
+```text
+où             tout au portail : Finance › Dettes du personnel décide, ajuste, verse, remet et
+               relance ; le site ne garde que « Mes dettes », la Caisse et la retenue sur la paie
+intérêt        par tranche de montant : chaque tranche porte un montant fixe (« 1 000 000 Ar →
+               300 000 Ar ») ou un pourcentage (« 25 % ») ; ajouté une fois, remboursé avec le
+               montant, figé à l'accord
+limites        montant minimum et maximum, durée maximale, mensualité ≤ % du salaire déclaré,
+               nombre de dettes en cours, ancienneté minimale, stagiaires exclus
+autres         vue de tous les sites, demandes suspendues avec un message, export Excel audité,
+               relance des remboursements en retard
+```
+
+## Tout au portail, par l'API du site
+
+`routes/staff_debts.php` n'est monté que sur l'API du site (`/api/v1/super-admin/site-staff-debts`,
+`rivo.remote-actor` + `rivo.hr-screens`) ; le portail relaie `/super-admin/sites/{site}/finance/dettes/...`
+(`SiteStaffDebtsController`, `SiteStaffDebtGateway`, écrans `Finance/StaffDebts/*` seulement) et affiche la
+même page Vue — jamais la base du site (ADR-004). Chaque geste est signé du Super Admin (ADR-187).
+
+```text
+/super-admin/finance/dettes                 tous les sites : à décider, à verser, reste dû, retards,
+                                            lus par GET /api/v1/super-admin/staff-debts/overview
+                                            (des nombres et des montants, jamais un nom)
+/super-admin/sites/{site}/finance/dettes    la liste, une dette, les réglages, l'export
+anciennes adresses                          /super-admin/sites/{site}/rh/dettes → Finance ;
+                                            /administration/dettes (site) → accueil, qui le dit
+```
+
+La rubrique « Dettes du personnel » quitte les RH (menu, rubriques RH, écrans relayés). Le module de
+permissions `staff_debts` passe de « Ressources humaines » à « Finance ». Dans l'écran, toute adresse passe
+par `staffDebtUrl()` ; `StaffDebtPortalBar` dit de quel site on lit les dettes et mène aux autres.
+
+**Le RH ne verse plus** : `staff_debts.disburse` est retiré au rôle ADMINISTRATION (migration, et
+`RolePermissionSeeder`), qui garde `staff_debts.view` pour être prévenu des retards. Le versement se
+constate au portail, l'argent partant toujours hors RIVO (ADR-228). La cloche du portail compte ce qui est
+à décider **et** à verser (`StaffDebtWatcher`, `to_disburse` servi par l'API du site).
+
+## Les réglages du site
+
+`staff_debt_settings` (une ligne par base, `StaffDebtSetting`, audité avec l'acteur distant), réglés depuis
+Finance › Dettes du personnel › Réglages (`staff_debts.settings`, `UpdateStaffDebtSettingsAction`). Une
+valeur vide ne pose aucune limite ; sans réglage, tout reste comme à l'ADR-228. Les nouvelles règles valent
+pour les demandes et décisions à venir : aucune dette accordée n'est recalculée.
+
+```text
+demandes         ouvertes ou suspendues, avec le message montré à l'employé
+montant          minimum et maximum
+durée            nombre de mois au plus (intérêt compris dans ce qui est à rembourser)
+salaire          mensualités ≤ N % du salaire déclaré, dettes déjà engagées comprises ; seul le
+                 plafond encore disponible est servi à l'employé, jamais son salaire
+dettes en cours  nombre au plus de dettes accordées ou en remboursement
+ancienneté       N mois depuis la date d'entrée (une date absente bloque, et le dit)
+stagiaires       exclus ou non (InternshipDirectory, ADR-207)
+```
+
+`StaffDebtRules` porte ces règles une seule fois. **À la demande de l'employé, une limite dépassée est un
+refus** nommé par champ ; **à la décision du DG, c'est une dérogation** : l'écran la montre, l'accord est
+refusé (422, `derogation`) tant qu'elle n'est pas confirmée (`accept_derogations`), puis elle reste écrite
+sur la dette (`staff_debts.derogations`) et dans l'audit. Un ajustement ne revérifie que les montants et
+les mensualités (la mensualité seule une fois la dette versée).
+
+La mensualité minimale annoncée pour tenir la durée est arrondie à l'ariary supérieur : 1 000 000 Ar en
+12 mois demandent 83 334 Ar, pas 83 333 (qui ne rembourserait pas dans la durée).
+
+## L'intérêt, par tranche
+
+`StaffDebtInterest` : de … à … (la dernière tranche peut être sans plafond), un montant fixe ou un
+pourcentage d'au plus 100, 20 tranches au plus, sans chevauchement (refus nommé). Le pourcentage est
+arrondi à l'ariary (`Money::percentage`). Un montant qu'aucune tranche ne couvre n'a pas d'intérêt.
+
+```text
+à la demande     requested_interest_amount : ce que l'employé a vu
+à l'accord       interest_amount, interest_mode, interest_value : figés ; le DG peut remettre
+                 l'intérêt (interest_waived)
+remboursement    le plan, la paie, la Caisse et le reste dû portent sur montant + intérêt
+                 (StaffDebt::totalDueMinor)
+ajustement       avant versement, l'intérêt suit le nouveau montant ; après, il ne bouge plus
+```
+
+`utilities/staffDebts.js` (`interestFor`, `totalWithInterest`, `ruleIssues`) écrit les mêmes règles pour
+l'aperçu pendant la saisie — vérifié par test sur les mêmes cas que le serveur, qui recalcule toujours.
+
+## Relances et export
+
+```text
+automatique   rivo:staff-debts:remind, chaque jour à 08:00 sur le site : une dette en espèces en
+              retard est relancée une fois par mois (arrears_notified_for) — l'employé et les
+              comptes qui voient les dettes (le RH) sont prévenus
+à la main     « Relancer » sur la dette, au portail (staff_debts.decide), même déjà relancée ;
+              audité staff_debt.remind ; refusé sans retard
+export        Excel de la vue et de la recherche (staff_debts.export), 5 000 lignes au plus,
+              audité staff_debt.export avec les numéros exportés
+```
+
+## Droits
+
+```text
+staff_debts.settings   régler limites et intérêts     SUPER_ADMIN du portail
+staff_debts.export     exporter la liste               SUPER_ADMIN du portail
+staff_debts.disburse   retiré au rôle ADMINISTRATION   SUPER_ADMIN du portail
+```
+
+Migration `2026_12_04_090000_create_staff_debt_settings_and_interest`, à jouer sur chaque site et sur le
+portail (le Super Admin reçoit les deux droits par l'ADR-186).
+
+## Signalé, non tranché
+
+```text
+intérêt en cas de remise         remettre le reste d'une dette (ADR-228) remet aussi son intérêt
+salaire revu après l'accord      la limite « % du salaire » se vérifie à la demande et à la décision ;
+                                 un salaire qui baisse ensuite ne revoit pas une dette accordée
+intérêt annuel / par mois        non retenu : l'intérêt est un montant unique, pas un taux dans le
+                                 temps — un retard ne coûte rien de plus
+```
+
+## Amendement du 2026-09-30 — pas de demande sans montant minimum et maximum
+
+Constat du propriétaire : sur Ambondromamy, qui n'avait rien réglé, un employé a demandé une dette de
+500 000 000 Ar ; la demande est partie au DG. C'était la règle écrite plus haut (« une valeur vide ne pose
+aucune limite »). Arbitrage explicite : **les demandes restent fermées au personnel tant que le site n'a pas
+réglé le montant minimum et le montant maximum**. Divergence signalée avec le texte d'origine de cette ADR.
+
+```text
+blocage          StaffDebtRules::requestBlocker() : demandes fermées par le Super Admin (son message
+                 d'abord), puis montants non réglés — « le DG doit d'abord régler le montant minimum
+                 et le montant maximum » (LIMITS_MISSING) ; refus serveur, bouton masqué à l'écran
+réglages         ouvrir les demandes exige le minimum et le maximum, chacun supérieur à 0 Ar
+                 (UpdateStaffDebtSettingsAction, refus nommé par champ) ; fermées, elles se règlent
+                 sans eux ; les autres limites restent facultatives
+présenté         present() sert amount_limits_set et accepting_requests ; la page du portail dit
+                 « Demandes fermées au personnel : montant minimum et maximum à régler » ou affiche la
+                 fourchette (« De 50 000 Ar à 10 000 000 Ar par dette ») ; la vue de tous les sites
+                 marque « Montants à régler »
+inchangé         la fourchette réglée s'applique à la demande (refus) et à la décision du DG
+                 (dérogation écrite) ; une demande déjà faite avant le réglage se décide normalement
+```
+
+Aucun montant n'est inventé à la place du site. La page « Dettes du personnel » du portail range aussi ses
+cinq compteurs en une seule bande compacte (`QueueCounters compact`, cinq colonnes sur grand écran) au lieu
+de deux rangées de grandes cartes. Aucune permission ni migration.
+
+---
+
+# ADR-230 — Dettes du personnel : pénalité de retard, règlement au départ, documents à signer
+
+**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire ; tranche les deux points laissés
+ouverts par les ADR-228 et ADR-229)
+
+**Complète l'ADR-228 et l'ADR-229.** Le CDC ne décrit aucune dette du personnel : les règles ci-dessous sont
+celles du propriétaire. Aucune permission nouvelle.
+
+## Pénalité de retard
+
+```text
+qui               seulement un remboursement en espèces à la Caisse : une retenue sur salaire n'est
+                  jamais en retard par la faute de l'employé (la paie retient, ou le salaire manque)
+règle             réglée par site (Finance › Dettes › Réglages) : taux mensuel ≤ 10 %, délai de grâce
+                  0 à 60 jours, plafond ≤ 100 % du montant emprunté, exigé dès qu'un taux est réglé ;
+                  vide = aucune pénalité
+figée             copiée sur la dette à l'accord du DG (penalty_rate, penalty_grace_days,
+                  penalty_cap_rate) ; le DG peut accorder sans pénalité (waive_penalty) ; un réglage
+                  changé ensuite ne touche aucune dette accordée
+liquidée          pour le mois M, le 1er du mois suivant + le délai de grâce : taux × montant encore
+                  en retard à ce moment, arrondi à l'ariary ; un remboursement pendant la grâce l'évite ;
+                  jamais sur une pénalité (un remboursement paie d'abord le montant et son intérêt) ;
+                  une par mois au plus (index unique), plafonnée au total
+tâche             rivo:staff-debts:penalties, chaque jour à 07:30 sur le site ; rattrape les mois
+                  manqués sans jamais liquider deux fois le même
+remise            par le DG (staff_debts.write_off), motif obligatoire, auditée ; jamais supprimée
+```
+
+`staff_debt_penalties` (`StaffDebtPenalty`) garde la période, la base, le taux, le montant et la remise
+(auteur local ou distant, motif). `StaffDebtPenalties` porte la règle une seule fois ; le reste dû inclut les
+pénalités non remises (`StaffDebtLedger`), l'employé et le RH sont prévenus.
+
+## Règlement au départ
+
+Une dette encore en remboursement dont la personne a quitté la clinique (fiche inactive ou archivée) apparaît
+dans la vue **« À régler au départ »**. Le DG (`staff_debts.decide`) règle le reste dû, une seule fois, en
+combinant au choix :
+
+```text
+retenue          sur le solde de tout compte, faite hors RIVO comme la paie, constatée ici à sa date
+                 (jamais à venir, jamais avant le versement) : remboursement « solde de tout compte »
+remise           partielle ou totale du montant et de son intérêt ; les pénalités se remettent à part
+                 (case « remettre les pénalités ») ; toute remise exige staff_debts.write_off
+accord amiable   le reste, en espèces à la Caisse, sur un nouvel échéancier ; le retard se compte
+                 depuis sa reprise (schedule_offset) ; la pénalité continue seulement si le DG la garde
+```
+
+Une note est obligatoire : elle figure sur le protocole. `SettleStaffDebtDepartureAction` verrouille la dette,
+refuse une personne encore en poste ou un départ déjà réglé, fige ce qui a été convenu dans `departure_terms`
+(reste avant, pénalités remises, retenue, remise, reste, échéancier) et l'audite (`staff_debt.departure_settle`).
+Tout remis → dette remise ; rien ne reste → soldée ; sinon elle continue en espèces.
+
+## Documents à signer
+
+```text
+reconnaissance de dette   dès l'accord : montant reçu, intérêt, total, échéancier, versement, règle de
+                          pénalité figée (ou « aucune pénalité » pour une retenue sur salaire)
+protocole de départ       une fois le départ réglé : reste dû, déjà remboursé, retenue, remise,
+                          pénalités remises, reste et échéancier, observations
+```
+
+`StaffDebtDocuments` lit la dette telle qu'elle est enregistrée ; `Finance/StaffDebts/Document` l'imprime
+(`PaperSheet`), sans rien recalculer. Deux signatures à la main : l'employé (« Lu et approuvé ») et le
+directeur réglé dans les paramètres (ADR-184) ; RIVO n'appose aucune signature. 404 pour une dette jamais
+accordée ou un départ non réglé. Même droit que la fiche de la dette (`staff_debts.view`).
+
+Migration `2026_12_05_090000_add_staff_debt_penalties_and_departure`, à jouer sur chaque site et sur le portail.
+
+## Signalé, non tranché
+
+```text
+pénalité d'une retenue salariale   jamais : le salaire qui manque n'est pas un retard de l'employé
+départ avant versement             une dette accordée non versée s'annule (ADR-228), elle ne se règle pas
+                                   au départ
+recouvrement forcé                 hors RIVO : aucun contentieux n'est modélisé
+```
+
+---
+
+# ADR-231 — Un module a un seul domicile dans la navigation Super Admin
+
+**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire : éviter les doublons entre les modules
+d'un établissement et les mêmes modules affichés comme espaces indépendants dans le portail)
+
+## Le défaut
+
+Le même Laboratoire apparaissait sous chaque établissement et sous « Laboratoire des sites ». Le même schéma
+existait pour la Pharmacie, les RH, les Partenaires, la Logistique, le Gardiennage et les Référentiels. Ces
+liens menaient parfois aux mêmes écrans relayés, parfois à une vitrine et à un vrai écran : la navigation ne
+permettait plus de savoir quelle entrée était la bonne.
+
+## La règle
+
+Chaque module reçoit un seul domicile de navigation dans le portail :
+
+```text
+par site        Vue du site, Réception, Caisse, Patients, Médecine, Soins, Chirurgie, Rapports
+par module      Laboratoire, Pharmacie, Ressources humaines, Logistique, Gardiennage,
+                Partenaires, Référentiels & tarifs
+```
+
+`PortalDirectory::modules()` reste le registre canonique complet. `navigation_scope` et `permission` sont
+déclarés avec chaque module ; `siteModules()` alimente seul les arbres d'établissements. La page d'un site
+filtre encore ces entrées par permission et le contrôleur revérifie le droit demandé côté Laravel.
+
+Un espace par module reste bien propre à chaque base : son entrée autonome est un sélecteur de site ou un
+comparatif, puis les vrais écrans du site sont relayés par son API. Elle ne crée aucune base commune et aucune
+lecture SQL inter-site. `/super-admin/pharmacy` devient le point d'entrée des Pharmacies, comme
+`/super-admin/laboratory` pour les Laboratoires. Stock médicaments et Fournisseurs restent des sous-espaces
+de pilotage de la Pharmacie, pas une seconde Pharmacie.
+
+Le Laboratoire opérationnel possède son propre bloc « Laboratoire » dans le menu. Seul « Catalogue des
+analyses » reste dans « Référentiels » : gérer un référentiel et travailler dans le Laboratoire ne sont pas
+la même tâche.
+
+Les anciennes adresses `/super-admin/sites/{site}?module=...` restent valides : un module autonome redirige
+vers sa route canonique en conservant le site. Dans le menu, une page relayée (`.../{site}/laboratoire`,
+`.../{site}/pharmacie`, `.../{site}/rh`, `.../{site}/partenaires`) active l'entrée du module, jamais l'arbre de
+l'établissement. Aucune règle métier, permission distante ni restriction des gestes physiques ne change.
+
+---
+
+# ADR-232 — Les modules rattachés au site affichent les données réelles de son API
+
+**Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire : rendre fonctionnelles les API de
+tous les sites actifs et supprimer les cartes génériques « API requise »)
+
+## Contrat
+
+Les huit modules dont le domicile est l'établissement (ADR-231) ne sont plus des vitrines. Leur route
+`/super-admin/sites/{site}?module=...` appelle le rapport du **site sélectionné** par
+`GET /api/v1/super-admin/reports/overview`, à travers `PortalSiteApiClient` : jamais la base clinique.
+
+```text
+Vue du site               activité, patients et file active des services
+Réception / Patients      passages, urgences, nouveaux patients et épisodes ouverts
+Caisse                    facturé, encaissé, reste dû et factures sur la période
+Médecine / Soins /
+Chirurgie                 orientations en attente, en cours et terminées du service
+Rapports                  activité, finance, pharmacie et personnel
+```
+
+La fenêtre est bornée à 7–90 jours avant l'appel. Le statut montré est celui de la **réponse réelle**
+(`ONLINE`, `OFFLINE`, `ERROR`, `UNCONFIGURED`), pas seulement la présence d'une URL dans la configuration.
+Un site injoignable ne produit aucun compteur. Une section refusée par les permissions affiche « — » et
+son motif ; elle ne devient jamais un faux zéro. Un zéro n'est affiché que si le site a répondu et a compté
+zéro.
+
+Ces pages sont des tableaux de lecture et de pilotage. Elles n'autorisent aucun geste physique distant :
+l'encaissement reste uniquement à Réception / Caisse, et les actes cliniques restent sur le site. Les
+modules indépendants Laboratoire, Pharmacie, RH et Partenaires conservent leurs écrans relayés dédiés.
+
+## Développement distribué
+
+Le banc local garde une base SQLite indépendante par clinique et des API sur les ports 8001, 8002 et 8003
+(`php artisan rivo:local-apis`). Le portail peut conserver une API de développement existante pour un site
+et utiliser le banc local pour les autres. Les jetons restent dans `.env.admin`, jamais dans Git.
+
+---
+
+# ADR-233 — La paie calcule les retenues légales selon des paramètres propres au site
+
+**Status:** ACCEPTED (2026-10-01 — demande explicite du propriétaire : « logique normale de paiement », quatre
+arbitrages : barème Madagascar paramétrable, charges patronales pour information, bulletin / paie en lot / mode de
+paiement / journal Excel, paramètres dans la Paie avec un droit dédié)
+
+**Amende l'ADR-066, l'ADR-206, l'ADR-225 et l'ADR-227**, qui refusaient tout calcul de CNAPS, d'IRSA ou de net
+faute de règles officielles. La règle n'est toujours pas écrite dans le code : elle devient un **paramètre du
+site**, relu et activé par le RH. Le CDC ne décrit aucune paie.
+
+## Le calcul
+
+```text
+brut                 salaire de base déclaré + avantages de la fiche + avantages saisis (ADR-227)
+CNAPS salarié        taux × min(brut, plafond)                         arrondi à l'ariary
+organisme médical    taux × min(brut, plafond)  (OSTIE / SMIE…)        arrondi à l'ariary
+base imposable       brut − CNAPS − organisme médical                  arrondie vers le bas si réglé
+IRSA                 somme des tranches × leur taux − réduction par enfant à charge,
+                     jamais sous le minimum quand la base dépasse la tranche à 0 %
+dettes (ADR-228)     retenues sur ce qui reste après les retenues légales, jamais plus
+net à verser         brut − retenues légales − dettes
+charges patronales   mêmes bases, taux employeur : information (bulletin, totaux, coût employeur)
+```
+
+`PayrollCalculator` calcule en centimes entiers (`Money`), sur des règles reçues — jamais écrites dans la classe.
+`PayrollBoard::draft()` est le seul calcul, partagé par le tableau et par « Marquer payé ». Les enfants à charge
+sont ceux de la fiche (ADR-225). Non rémunéré : aucune retenue ; indemnité de stage : aucune, sauf réglage
+contraire (`allowance_subject`).
+
+## Les paramètres
+
+`payroll_settings`, une ligne par base : activation, taux salarié/employeur et plafond de la CNAPS et de
+l'organisme médical (et son nom), tranches IRSA (plafonds croissants, la dernière sans plafond), IRSA minimum,
+réduction par enfant, arrondi de la base, indemnités de stage soumises ou non. Page **Paie du mois › Paramètres**
+(`/administration/paie/parametres`), servie aussi au portail (ADR-187), avec une **simulation** calculée par le
+serveur sur les valeurs en cours de saisie (rien n'est enregistré).
+
+Sans ligne enregistrée, la page propose le barème courant à Madagascar — CNAPS 1 % / 13 %, organisme médical 1 % /
+5 %, IRSA 0 % jusqu'à 350 000 Ar, puis 5 %, 10 %, 15 %, 20 % au-delà de 600 000 Ar, minimum 3 000 Ar, réduction de
+2 000 Ar par enfant — **désactivé** et marqué « à vérifier par votre comptable » ; les plafonds (8 fois le salaire
+minimum) ne sont pas proposés. Tant que le RH n'active pas, rien ne change : net = brut − dettes, comme avant.
+
+Une paie marquée payée **fige** ses lignes, ses retenues légales (`legal_deductions_amount`), ses charges
+patronales (`employer_charges_amount`), les paramètres utilisés (`payroll_snapshot`) et son mode de paiement
+(`payment_mode`, `payment_details` : banque et compte, comptes Mobile Money, espèces). Modifier les paramètres
+ensuite ne réécrit aucune paie payée. `deductions_amount` compte désormais toutes les retenues (légales et dettes).
+
+## La page Paie du mois
+
+```text
+cartes          à payer (net), brut, retenues légales, retenues de dettes, charges patronales (coût du mois), payées
+bandeau         « Retenues légales non activées » tant qu'elles le sont, avec le lien vers les paramètres
+ligne           mode de paiement, brut, retenues, net ; chaque retenue en ligne ; charges patronales dessous
+sélection       « Marquer payées » : chaque paie recomptée et figée séparément par la même action, rapport des
+                refus (comme l'ADR-090) ; bulletins et exports de la sélection
+bulletin        un par page (PaperSheet) : employeur (NIF, STAT), salarié, gains, retenues, net, mode de paiement,
+                charges patronales, signatures ; « provisoire » tant que la paie n'est pas payée
+exports         journal de paie (une ligne par salarié, détail des retenues) et liste de virement (par mode et
+                banque), en Excel, audités (`payroll.export`)
+```
+
+## Droits
+
+```text
+salary_settings.view     voir les paramètres de paie            ADMINISTRATION
+salary_settings.update   modifier les paramètres de paie        ADMINISTRATION
+salary_payments.export   exporter journal et liste de virement  ADMINISTRATION
+```
+
+Migration `2026_12_07_090000_create_payroll_settings`, à jouer sur chaque site et sur le portail (le Super Admin
+reçoit les droits par l'ADR-186). Audit : `PayrollSetting` (ancienne et nouvelle valeur), `payroll.bulk_pay`,
+`payroll.export`.
+
+## Signalé, non tranché
+
+```text
+barème                  proposé, à faire valider par le comptable de la clinique avant activation
+plafonds                CNAPS et organisme médical : à renseigner (8 × salaire minimum en vigueur)
+avantages en nature     tous les avantages sont soumis comme le salaire ; une exonération partielle n'est
+                        pas prévue
+déclarations            aucune déclaration CNAPS / IRSA ni état nominatif n'est produit
+doublon de dossier      une même personne avec deux dossiers employés (deux matricules) apparaît deux fois :
+                        c'est une donnée à corriger dans les dossiers, pas une règle de paie
+```
+
+## Amendement du 2026-10-01 — cohérence relue, écran en tableau / grille / détail
+
+Question du propriétaire : la paie est-elle reliée et cohérente avec les dettes et le reste ? Relu :
+
+```text
+dettes (ADR-228)      retenue après les retenues légales, jamais plus que ce qui reste ; une fois par
+                      mois et par dette ; retenue partielle dite et reportée ; payer crée un
+                      remboursement lié à la paie, annuler l'annule et rouvre la dette — cohérent
+avantages (ADR-227)   saisis et déclarés repris au mois, figés « payé » ; annuler les remet en attente
+calcul unique         le tableau et « Marquer payé » appellent le même draft(), sous verrou au paiement
+défaut corrigé        le salaire de base ignorait la date d'entrée : en remontant les mois, une
+                      personne embauchée en octobre était payable pour septembre. Aucun salaire pour
+                      un mois qui se termine avant l'entrée ; le mois d'entrée se paie entier (aucun
+                      prorata n'est défini)
+```
+
+Écran : trois présentations — **Tableau** (une ligne par personne, montants alignés, détail
+dépliable), **Grille** (une carte par personne) et **Détail** (chaque carte avec ses lignes) —, choix
+gardé sur le poste. Onglets **Toutes / À payer / Payées** avec leur nombre, recherche (nom, matricule,
+fonction, service, sans accents), filtres service, mode de paiement et « avec retenue de dette » ; les
+cartes « À payer » et « Payées » ouvrent leur onglet ; l'adresse garde l'état (`?vue=a-payer&q=…`).
+Actions d'une paie toujours à droite : le geste attendu en bouton (« Marquer payé », sinon « Bulletin »),
+le reste dans « … » avec la raison d'une entrée indisponible ; « Exporter » (bulletins, journal,
+virements) porte sur ce qui est affiché. Le serveur sert toutes les lignes du mois et calcule chaque
+montant ; l'écran trie et filtre (`utilities/payrollBoard.js`). Aucune permission ni migration.
+
+**Signalé, non tranché.** Une personne qui quitte la clinique en cours de mois (fiche inactive)
+disparaît de la paie de ce mois : son dernier salaire et un éventuel prorata ne sont pas définis.
+Le mode « Espèces » n'écrit aucun mouvement dans une session de caisse : le salaire versé en espèces
+reste hors RIVO, comme le virement. Un remboursement anticipé en espèces (ADR-228) réduit le reste dû
+mais n'évite pas la retenue du mois sur la paie.
+
+---
+
+# ADR-234 — La demande de dette ne porte que le montant ; une dette en cours ferme les demandes
+
+**Status:** ACCEPTED (2026-10-01 — demande explicite du propriétaire)
+
+**Amende l'ADR-228** (ce que l'employé saisit) et **l'ADR-229** (ce qui se vérifie à la demande). Le CDC ne
+décrit aucune dette du personnel : les règles ci-dessous sont celles du propriétaire.
+
+## Ce que l'employé saisit
+
+```text
+avant   montant, remboursement par mois, premier mois, motif (obligatoire)
+après   montant, « J'ai lu et j'accepte les règles et les conditions », motif (facultatif)
+```
+
+Le remboursement par mois et le premier mois sont fixés par le DG à sa décision, selon le montant et ce
+que le salaire permet. Envoyés quand même, ils sont refusés en les nommant (`prohibited`). À la demande,
+seul le montant se vérifie (minimum et maximum du site) ; la durée maximale et la part du salaire
+s'appliquent à la décision du DG, comme dérogation à confirmer (ADR-229).
+
+`staff_debts.requested_installment`, `requested_first_period` et `reason` deviennent facultatifs : les
+demandes d'avant gardent ce qu'elles proposaient, les nouvelles n'en ont pas. Une demande sans mensualité
+n'a ni plan ni échéancier tant que le DG n'a pas décidé (`StaffDebtLedger::nextPeriod` le sait).
+
+## Les règles acceptées sont gardées telles qu'elles ont été lues
+
+`StaffDebtRules::conditions()` écrit les règles en phrases, une fois : fourchette du montant, décision du
+DG (montant, mensualité, premier mois, mode), durée maximale, part du salaire, tranches d'intérêt, pénalité
+de retard, dettes en cours au plus, rien retenu avant le versement, une dette à la fois sauf autorisation,
+règlement au départ (ADR-230), reconnaissance de dette. L'écran les montre telles quelles ; la demande les
+garde (`accepted_terms`) avec l'heure (`terms_accepted_at`). L'écran envoie l'empreinte des règles lues
+(`terms_version`, `conditionsVersion()`) : si elles ont changé entre la lecture et l'envoi, la demande est
+refusée et la case se décoche. Le DG relit sur la fiche de la dette les règles acceptées.
+
+## Une dette en cours ferme les demandes
+
+Une dette accordée ou en remboursement (`StaffDebtRules::ENGAGED`) ferme les demandes de son titulaire :
+il pourra en demander une autre une fois soldée. Un compte qui a reçu du Super Admin
+`staff_debts.request_additional` peut demander malgré tout — accordé à **aucun rôle** par défaut, posé
+compte par compte depuis « Rôles & permissions » (exception `ALLOW`, ADR-022). Ce droit ne lève ni « une
+seule demande en attente », ni le maximum de dettes en cours du site. La demande garde le nombre de dettes
+en cours à son envoi (`engaged_at_request`), lu par le DG (« demandée alors que 1 dette était en cours »).
+
+## Côté DG
+
+La fiche dit « À fixer par vous : la demande ne porte que le montant ». La mensualité est vide, le premier
+mois proposé est le mois suivant ; les durées proposées respectent la durée maximale du site
+(`quickMonths`) et « Au plus permis » reprend la mensualité que le salaire permet encore. « Ajustée » ne
+compare plus que le montant pour une demande sans mensualité. « Ses autres dettes en cours » compte aussi
+une dette accordée pas encore versée.
+
+## Droits et données
+
+```text
+staff_debts.request_additional   demander pendant une dette en cours   aucun rôle ; SUPER_ADMIN du portail
+```
+
+Migration `2026_12_06_090000_staff_debt_request_by_amount`, à jouer sur chaque site et sur le portail.
+
+## Signalé, non tranché
+
+```text
+autorisation ponctuelle    le droit vaut pour le compte, pas pour une seule demande : le retirer après
+                           usage est un geste du Super Admin
+premier mois proposé       le mois suivant la décision ; le DG le change à volonté
+```
+
+---
+
+# ADR-235 — Audit de cohérence RH et Pharmacie : gardes d'intégrité ajoutées
+
+**Status:** ACCEPTED (2026-10-01 — demande du propriétaire : « vérifier cohérence et logique de donnée puis
+corriger, côté RH et Pharmacie »)
+
+Les données locales ont été interrogées (invariants), puis le code qui les produit relu. Tiennent déjà : stock
+d'un lot = somme de ses mouvements, aucune réservation au-delà du stock, totaux de commandes et de factures,
+reçu ≤ commandé, aucun chevauchement de congés ou de présences, enfants = liste. Ce qui a été corrigé :
+
+```text
+RH
+contrats             un salarié n'a qu'un contrat à la fois : deux contrats non archivés qui se chevauchent
+                     sont refusés à la création, à la modification et à la restauration (ContractPeriodGuard,
+                     message qui nomme le contrat en place). Constaté : le même CDI saisi deux fois à 47 s
+                     d'écart ; un CDD d'un jour posé sur un CDI. Garde d'intégrité comme celles des
+                     présences et des congés (ADR-066) : le contrat « en cours » lu par les stages (ADR-207),
+                     les documents (ADR-208) et la paie doit être unique
+période d'essai      ne finit pas après la fin du contrat (elle pouvait)
+archivage            refusé tant qu'une session de présence est ouverte : la personne resterait « présente »
+                     sans fin ; on enregistre d'abord son heure de sortie
+présences            un fait constaté ne se saisit pas à l'avance (10 min de marge pour l'horloge du poste) ;
+                     le planning sert à prévoir
+paie                 mode de paiement incomplet (aucun mode, virement sans numéro de compte, Mobile Money sans
+                     numéro) signalé sur la ligne, filtrable (« À compléter ») et rappelé à la confirmation —
+                     sans bloquer : la fiche s'enregistre toute seule pendant la saisie (ADR-221)
+
+Pharmacie
+réception            un lot déjà périmé ne se réceptionne pas (le jour de péremption reste utilisable,
+                     ADR-036) ; l'entrée en stock le refuse aussi, quel que soit le chemin. Constaté : 8 lots
+                     entrés le jour même de leur péremption
+délivrance           une réservation posée sur un lot périmé ou désactivé avant le règlement bloquait la
+                     délivrance (« Réallouez le stock ») sans qu'aucun écran ne le permette. Elle est reportée
+                     sur les lots valides du même médicament, en FEFO, sans entamer ce qui est réservé pour
+                     d'autres ; l'ancienne réservation est libérée avec son motif. Lots valides insuffisants :
+                     rien ne bouge, le refus dit combien il manque
+facture fournisseur  refusée sur une commande jamais envoyée, ou annulée sans aucune livraison ; une facture
+                     déjà rattachée se corrige toujours
+```
+
+Aucune permission ni migration. **Données déjà enregistrées non modifiées** (ADR-010) : à reprendre à la main —
+contrats en double du même salarié (archiver le doublon, donner une fin au CDD), lots déjà périmés en stock
+(ajustement « péremption »), deux salariés payés par virement sans numéro de compte.
+
+**Signalé, non tranché.** Une demande de congé en attente ou un créneau de planning à venir n'empêchent pas
+d'archiver un dossier ; un employé désactivé (`active = false`) peut encore recevoir présence, congé ou créneau.
+
+---
+
+# ADR-236 — Supprimer depuis la liste des employés : archiver, restaurer, détruire un dossier jamais utilisé, repérer les doublons
+
+**Status:** ACCEPTED (2026-10-01 — demande du propriétaire, capture de `/administration/employees` montrant des
+dossiers en double : « comment supprimer ça par l'interface, ces fonctionnalités manquent »)
+
+**Complète l'ADR-066** (dossier Employé, archivage réversible) et **ouvre une exception étroite à l'ADR-009/010**, sur le
+modèle de l'ADR-062 (compte jamais utilisé). Le CDC (§11, §17) ne prévoit que `employees.delete` (archiver) et
+`employees.restore` ; la suppression physique est la décision du propriétaire.
+
+## Ce qui manquait
+
+L'archivage existait, mais seulement depuis la fiche d'un employé, un par un ; la liste n'avait ni archiver, ni
+suppression, ni sélection hors badges. Un dossier saisi deux fois (import relancé, double saisie) restait pour toujours,
+même archivé, alors qu'il n'avait servi nulle part.
+
+## Depuis la liste
+
+```text
+une ligne         Archiver (motif obligatoire, la liste reste ouverte), Restaurer, Supprimer définitivement
+une sélection     Badges · Archiver · Restaurer · Supprimer définitivement, chacun avec le nombre de dossiers
+                  qu'il prendra ; POST /administration/employees/bulk (50 au plus), chaque dossier jugé
+                  séparément par l'action qui le juge seul, rapport des refus (comme l'ADR-090)
+fiche employé     « Supprimer définitivement » sur un dossier archivé, et le repère « Doublon possible »
+```
+
+## Supprimer définitivement : seulement ce qui n'a servi nulle part
+
+`ForceDeleteEmployeeAction` (`DELETE /administration/employees/{uuid}/force`, droit `employees.force_delete`) :
+
+```text
+déjà archivé          on archive d'abord, avec un motif ; on ne détruit qu'ensuite
+n'a servi nulle part  ni compte de connexion relié, ni aucune ligne d'une des tables qui désignent un employé
+                      (contrats, présences, congés, planning, documents, avantages, paie, bonus, dettes,
+                      crédit Bloc, lien patient, prise en charge Personnel, recommandation, adresse pro)
+part avec lui         sa présence dans le personnel d'une catégorie de bonus, sa photo
+trace                 audit `employee.force_delete` avec matricule, nom, naissance et motif d'archivage
+```
+
+`App\Support\Hr\EmployeeUsage` porte ce registre une seule fois ; `Employee::isForceDeleteProtected()` le lit, et la
+liste le lit pour une page entière en une requête par table (`blockersFor`). **Un test compare le registre aux clés
+étrangères réelles de la base** : une table ajoutée plus tard qui désigne un employé sans y figurer fait échouer la
+suite. Un dossier qui a servi le dit (« Il a servi (2 présences) : il reste archivé »), à l'écran comme dans le refus
+du serveur.
+
+`employees.force_delete` (migration `2026_12_08_090000`) n'est accordé à **aucun rôle d'un site** ; le Super Admin le
+reçoit à la migration du portail (ADR-186) et l'accorde nominativement. Sans lui, le bouton reste visible et
+verrouillé, avec le droit à demander (ADR-158).
+
+## Doublons possibles
+
+`EmployeeDuplicates` repère les dossiers en service de même nom et prénom (sans accents, casse ni espaces doubles) et,
+quand les deux sont connues, de même date de naissance. Un repère, jamais une décision : deux homonymes existent.
+Compteur et bandeau « Voir les doublons » (`?status=duplicates`), « Doublon possible · EMP-0002 » sur la ligne,
+bandeau sur la fiche avec le lien vers l'autre dossier. Le RH garde le bon dossier, archive l'autre, puis le supprime
+s'il n'a servi nulle part.
+
+## Signalé, non tranché
+
+```text
+fusion de deux dossiers   non construite : déplacer contrats, présences, paies… d'un dossier vers l'autre
+                          réécrirait un historique — à décider si des doublons ont tous deux servi
+doublon d'un stagiaire    repéré parmi tous les dossiers, mais la liste « Employés » n'affiche pas les stagiaires
+```
+
+## Amendement du 2026-10-01 — « Vider la corbeille », et les employés et contrats dans la corbeille
+
+Demande du propriétaire, sur `/super-admin/trash` : « normalement on a un réglage pour vider la corbeille ». Deux
+arbitrages explicites : **un bouton manuel** (aucune purge automatique) ; **employés et contrats** rejoignent la
+corbeille.
+
+```text
+Vider la corbeille   bouton du portail (`trash.force_delete`) : pour le site et la catégorie choisis, et la
+                     recherche et les dates en cours, chaque site supprime définitivement ce qui n'a servi nulle
+                     part, par la même règle que la suppression d'un seul élément ; ce qui a servi reste,
+                     restaurable. Saisir « VIDER » est exigé (comme l'ADR-210). Rapport par site : supprimés,
+                     conservés avec leur raison (30 nommés au plus), catégories sautées faute de droit,
+                     « il en reste » au-delà de 500 éléments par catégorie et par geste
+ordre                contrats, catalogues et commandes d'abord, adresses en dernier : un élément qui n'est plus
+                     désigné que par un autre élément de la corbeille part dans le même geste
+chemin               POST /super-admin/trash/empty → DELETE /api/v1/super-admin/trash (une seule tentative,
+                     60 s), `TrashDirectory::empty()` ; jamais la base d'un site (ADR-004)
+Employés             catégorie EMPLOYEE : restaurer (`employees.restore`), supprimer définitivement
+                     (`employees.force_delete` en plus de `trash.force_delete`) par `ForceDeleteEmployeeAction`
+Contrats             catégorie EMPLOYMENT_CONTRACT : restaurer (`contracts.restore`, sans chevaucher un autre
+                     contrat, ADR-235) ; supprimer définitivement s'il n'a produit ni pièce RH ni document généré
+```
+
+**Amende l'ADR-066**, qui écrivait que les contrats « refusent toujours la suppression physique » : un contrat saisi à
+tort ou en double, qui n'a produit aucun document, peut désormais être détruit depuis la corbeille.
+
+Les factures fournisseurs et les demandes d'analyses restent, comme avant, toujours conservées : « Vider » ne les
+supprime jamais. Une purge automatique après N jours n'est pas construite — à décider si le besoin apparaît.
+
+## Amendement du 2026-10-01 (bis) — un catalogue fournisseur importé mais jamais repris se supprime
+
+Constat du propriétaire : un catalogue mis à la corbeille restait « A servi » alors qu'il n'avait jamais été utilisé.
+La règle de l'ADR-098 bloquait **tout catalogue importé** (« Conservé : 4889 ligne importées ») : importer n'est pas
+servir. Un catalogue ne retient sa suppression que si l'une de ses lignes est **rattachée à un médicament** de la
+clinique ou a **donné un prix d'achat**, même clos depuis (ADR-183) — `SupplierCatalog::usage()`. Des lignes seulement
+importées partent avec leur fichier. Les raisons s'écrivent au bon pluriel (« 5 lignes rattachées à un médicament,
+13 prix d'achat », « 2 lots reçus ») et la colonne d'action de la corbeille ne coupe plus « A servi ».
+
+---
+
+# ADR-237 — Les paramètres métier vivent dans leur module propriétaire
+
+**Status:** ACCEPTED (2026-10-01 — exigence explicite du propriétaire)
+
+**Amende l'ADR-191.** L'écran unique et les composants de formulaire restent partagés, mais le menu « Paramètres »
+ne doit plus être un catalogue de règles métier sans rapport entre elles. Chaque réglage n'a qu'une adresse canonique :
+
+```text
+Patients par site       numérotation patients/passages, tranches d'âge
+Finances                monnaie, remise du personnel, coupons
+Ressources humaines     matricules, badges, direction et signature RH
+Laboratoire             présentation du compte rendu d'analyses
+Établissement           identité légale, maintenance du site
+Apparence & système     identité visuelle, thème, affichage, écrans, moteurs de recherche, assistant IA
+```
+
+La « Numérotation » de l'ADR-191 est scindée : le format patient/passage appartient à Patients ; le matricule employé
+appartient aux Ressources humaines. Les anciennes routes `/super-admin/settings/{section}` redirigent vers le module
+propriétaire, afin de ne casser aucun favori et de ne jamais présenter deux écrans concurrents.
+
+Le déplacement est une organisation de navigation, pas une nouvelle règle métier : mêmes validations, mêmes droits
+`settings.view` / `settings.update`, mêmes audits et mêmes actions. Un site continue d'être lu et écrit exclusivement
+par son API ; le portail n'accède jamais à sa base. Les réglages propres à un métier ne proposent pas « Réinitialiser
+tous les paramètres », geste transversal qui reste uniquement dans « Apparence & système ».
+
+---
+
+# ADR-238 — Disciplines du laboratoire en référentiel ; la saisie suit le type de résultat
+
+**Status:** ACCEPTED (2026-10-01 — exigence explicite du propriétaire : « lorsque je coche Quel résultat, la Saisie
+au laboratoire doit être cohérente avec ce qui est coché », « comment ajouter une nouvelle discipline ? c'est mieux
+de créer une nouvelle table »)
+
+**Complète l'ADR-063** (catalogue des analyses), **l'ADR-213** (modes de saisie de la paillasse) et **l'ADR-214**
+(feuille de paillasse, compte rendu). Le CDC §14 cite les analyses sans dire comment elles se rangent ni se saisissent.
+
+## Le constat
+
+```text
+discipline    un texte libre sur chaque analyse : à Ambondromamy, 161 « BIOCHIMIE » et 9 « BIOCHIME » (faute de
+              frappe) — deux feuilles de paillasse et deux sections du compte rendu pour une seule discipline ;
+              les sous-analyses avaient chacune leur champ, que la paillasse ignorait
+saisie        « Quel résultat » et « Saisie au laboratoire » étaient indépendants : « Oui / Non » saisi en
+              « Culture et antibiogramme » s'enregistrait ; « Automatique — selon le type de résultat » mentait
+              pour les analyses importées, dont le mode vient de leur ancien type de labo-vuejs
+```
+
+## Les disciplines, un référentiel par site
+
+`lab_disciplines` (uuid, nom, `normalized_name` unique — casse, accents et espaces ignorés —, ordre d'impression,
+en service ou non, Soft Delete avec motif) ; `analysis_catalogs.lab_discipline_id`. `exam_category` reste, **copie du
+nom**, pour tout ce qui le lit déjà (paillasse, compte rendu, désignations) : renommer une discipline réécrit la copie.
+
+```text
+écran         Laboratoire › Disciplines (/laboratory/disciplines, LabDisciplineController) : ajouter, renommer,
+              réordonner, mettre hors service, archiver (motif ; refusé tant qu'une analyse la porte),
+              restaurer, fusionner — le geste qui répare « BIOCHIME » dans « BIOCHIMIE », audité
+              lab_discipline.merge. Un nom déjà porté, archives comprises, ne se recrée pas
+fiche         une liste des disciplines en service, ou « Nouvelle discipline » nommée sur place (retrouve une
+              discipline du même nom, jamais un doublon ; exige lab_disciplines.create). Une sous-analyse prend
+              la discipline de son groupe et la suit quand le groupe en change
+ordre         la feuille de paillasse et les sections du compte rendu suivent l'ordre du référentiel
+              (LabDisciplines::sorter), « Sans discipline » en dernier
+texte seul    une analyse enregistrée avec le seul texte (données de développement, ancien laboratoire)
+              retrouve la discipline du même nom, ou la crée (AnalysisCatalog::booted)
+portail       monté dans routes/laboratory.php, donc géré aussi depuis le portail par l'API du site (ADR-215)
+```
+
+**Reprise** (migration `2026_12_09_090000`) : une discipline par texte déjà écrit, sous l'orthographe la plus
+fréquente ; une sous-analyse prend celle de son groupe principal. **Une faute de frappe n'est jamais fusionnée
+d'office** : ce serait deviner ; elle se fusionne à la main, une fois.
+
+## Un mode de saisie qui va au type de résultat
+
+`LabEntryMode::resultTypes()` porte la règle une seule fois ; la fiche ne propose que les modes du type coché
+(`entryModesFor`), le serveur refuse les autres (`AnalysisCatalogManager::assertEntryMode`, clé `entry_mode`,
+aussi pour les sous-analyses) :
+
+```text
+Numérique   Valeur numérique
+Texte       Texte libre · Culture et antibiogramme · Score de Nugent · Titre sans saisie
+Choix       Choix dans une liste · Plusieurs choix · Négatif / Positif + précision · Négatif / Positif ·
+            Négatif / Positif + valeur · Absence / Présence
+Oui / Non   Négatif / Positif · Négatif / Positif + valeur · Absence / Présence
+```
+
+Changer de type remet un mode qui ne va plus sur « Automatique ». « Automatique » dit ce qu'il donne réellement et
+d'où (`effective_entry_mode`, `entry_mode_source` : fixé, type historique, type de résultat). Un type historique de
+labo-vuejs n'est lu que s'il va au type de résultat : changer le type change la saisie. La migration aligne le type
+de résultat des analyses dont la saisie réelle ne lui allait pas ; la paillasse ne change pas, seul le type affiché
+dit enfin ce qu'elle fait.
+
+**Ajouter un mode de saisie ne se fait pas depuis un écran** : chaque mode est du code (champ, contrôle,
+interprétation, impression). Un mode créé par formulaire serait un nom sans comportement (même raison que
+l'ADR-101) ; il se demande au développement.
+
+## Droits
+
+```text
+lab_disciplines.view / create / update / archive / restore   LABORATORY, ADMINISTRATION
+```
+
+Enregistrés par la migration (ADR-064), à jouer sur chaque site et sur le portail (le Super Admin les reçoit,
+ADR-186). Fusionner exige `update` et `archive`.
+
+## Signalé, non tranché
+
+```text
+« BIOCHIME »            reste une discipline à part sur chaque site tant que le laboratoire ne l'a pas fusionnée
+modes Choix             Négatif / Positif et Absence / Présence acceptés aussi en « Choix », parce que des analyses
+                        importées les portent ainsi ; les réserver à « Oui / Non » est à décider
+Excel du catalogue      l'import et l'export ne portent pas la discipline : elle se règle dans la fiche
+
+---
+
+# ADR-239 — Un mode de paiement « Banque » désigne une banque du référentiel ; « Autre » nomme sa catégorie
+
+**Status:** ACCEPTED (2026-10-01 — exigence explicite du propriétaire : « lorsque Catégorie = Banque on peut choisir
+la liste des banques qui existent déjà ; lorsqu'on clique Autre catégorie on peut saisir un champ », et la page
+`/super-admin/payment-methods` refaite en shadcn)
+
+**Complète l'ADR-221** (référentiel des banques par site) et **l'ADR-058** (modes de paiement par site). Aucune règle
+d'encaissement ne change : seule la Réception / Caisse encaisse (ADR-012).
+
+## La règle
+
+```text
+Banque      payment_methods.bank_id : une banque active du référentiel du site (RH › Banques), exigée à la
+            création. Libellé facultatif : vide, il devient « BOA — Bank of Africa » ; un libellé écrit
+            (« Chèque BOA ») est gardé. Plusieurs modes peuvent désigner la même banque
+Autre       payment_methods.category_detail (60 caractères) : la catégorie nommée en clair (« Carte bancaire »),
+            exigée ; elle se lit « Autre · Carte bancaire »
+les autres  ni banque ni précision : le serveur les efface, le portail ne les envoie pas
+```
+
+**Rien d'inventé sur l'existant.** Les modes génériques déjà en service — « Chèque » et « Virement bancaire » en
+catégorie Banque, « Autre » sans précision — ne sont reliés à rien par la migration et restent modifiables tels
+quels : leur imposer une banque ou une précision fabriquerait une donnée. Ils se lisent « Banque · toutes banques ».
+Une banque archivée depuis reste lisible et acceptée sur le mode qui la désignait (« banque archivée ») ; elle n'est
+plus proposée à un nouveau mode. Une banque désignée par un mode ne se supprime pas définitivement
+(`Bank::isForceDeleteProtected`), et la base le refuse aussi (`restrictOnDelete`).
+
+`PaymentMethodManager` porte ces règles ; l'API du site (`/api/v1/super-admin/payment-methods`) sert les banques
+actives dans `meta.banks` et revérifie tout ; le portail ne relaie que les champs de la catégorie choisie.
+
+## L'écran
+
+`/super-admin/payment-methods` en shadcn (ADR-099) : sites en onglets avec leur état, compteurs-filtres (Tous,
+Actifs, Désactivés, Fond de caisse), recherche (libellé, code, banque, précision, sans accents) et filtre par
+catégorie, tableau avec icône et pastilles. La fiche s'ouvre dans une fenêtre : la catégorie se choisit en cartes ;
+« Banque » fait apparaître la liste cherchable des banques du site (et le lien vers RH › Banques quand il n'y en a
+aucune), « Autre » le champ « Précisez la catégorie ». Le code se propose (BANK_BOA, OTHER_CARTE_BANCAIRE…) tant
+qu'on ne l'a pas écrit, et ne change plus après la création ; les réglages de caisse usuels de la catégorie sont
+proposés à la création, jamais imposés. Désactiver ou réactiver passe par une confirmation. Règles d'écran dans
+`utilities/paymentMethods.js`.
+
+Migration `2026_12_10_090000_link_payment_methods_to_banks`, à jouer sur chaque site. Aucune permission nouvelle.
+
+## Signalé, non tranché
+
+```text
+mobile money   les opérateurs (MVola, Orange Money, Airtel Money) restent des libellés écrits : un référentiel
+               d'opérateurs n'a pas été demandé
+
+---
+
+# ADR-240 — « Modèles de documents » : une gestion documentaire au portail
+
+**Status:** ACCEPTED (2026-10-01 — demande explicite du propriétaire : « mettre à jour UI et UX de
+`/super-admin/workspaces/document-templates` avec shadcn, en faire une vraie gestion documentaire, rendre
+plus logique la création, et changer le nom du module »)
+
+**Complète l'ADR-070, l'ADR-087 et l'ADR-208** (canevas, page 1, dossiers). Présentation et vocabulaire
+seulement : aucune route, permission, donnée ni règle serveur ne change ; les URL restent
+`/super-admin/workspaces/document-templates`.
+
+## Le nom
+
+« Canevas de documents » devient **« Modèles de documents »**, dans l'espace **« Gestion documentaire »**.
+Un canevas est un mot d'atelier ; ce que le RH choisit est un modèle. Le mot change partout où il se lit :
+menu du portail, pages du portail, messages de retour (portail et API du site), pages RH (Documents,
+Contrats, Congés), aide de l'assistant. Il est écrit une fois (`MODULE_NAME`, `utilities/documentTemplates.js`).
+Les commentaires, classes CSS (`canevas-page-break`) et noms de code ne changent pas.
+
+## La liste : une arborescence et des fichiers
+
+```text
+en-tête       « Documents produits » (RH du site) et « Nouveau modèle »
+sites         onglets, comme avant ; un site injoignable le dit
+repères       modèles en service · proposés au RH · documents produits · à vérifier (cliquable)
+gauche        les dossiers : « Tous les modèles », les sept connus, puis ceux d'un type libre,
+              chacun « proposés au RH / en service »
+droite        fil d'Ariane, recherche (sans accents, tous les mots), Liste ou Grille (gardé sur le poste),
+              états En service · Proposés au RH · Inactifs · À vérifier · Archivés, comptés dans le dossier
+ligne         « Générer » quand le modèle est proposé au RH, le reste dans un menu « … »
+              (voir la fiche, modifier, dupliquer, proposer / retirer du RH, archiver, restaurer)
+fiche         panneau latéral : état, type, données reprises (champs de la page 1, d'où le RH le voit),
+              écart de contexte signalé (ADR-207), documents produits, aperçu du texte
+```
+
+« À vérifier » : un modèle de contrat ou de congé réglé sur d'autres données reprises, qui ne reprendrait
+pas les dates (ADR-207). L'adresse suit le site, le dossier et l'état (`?site=&dossier=&statut=`), sans
+rappeler les sites. Plus aucun composant DashWind (`FolderCard`, `PageHeader`) sur ces pages.
+
+## La fiche d'un modèle : dans l'ordre où l'on décide
+
+```text
+1 · Dossier            un dossier connu (cartes) ou « Autre type… » écrit à la main ; un dossier connu
+                       règle d'office les données reprises
+2 · Données reprises   ce que le RH verra en page 1 ; un nouveau modèle ne présume rien
+3 · Identification     nom, description, « Proposé au RH »
+4 · Pages              liste avec extrait, monter, descendre, dupliquer, supprimer
+texte                  à droite, page par page, sur fond de papier ; import Word ou PDF
+```
+
+Une frise dit ce qui est fait ; « Créer le modèle » / « Enregistrer » attend le dossier, les données
+reprises, le nom et du texte, et dit ce qui manque. Plus aucune fenêtre du navigateur (`confirm`, `alert`) :
+supprimer une page, remplacer une page par un import, quitter sans enregistrer passent par une fenêtre de
+l'application ; un import échoué s'affiche au-dessus du texte. « Historique » devient « Versions » ; revenir
+à une version demande un motif, comme avant.
+
+## Signalé, non tranché
+
+```text
+texte vide          « du texte » est exigé à l'écran seulement ; le serveur accepte toujours un modèle vide
+aperçu de la liste  lu dans la réponse du site (`content_html`), déjà servie avec chaque modèle
+```
+
+## Amendement du 2026-10-01 — la fiche dans un panneau, la feuille sur toute la largeur
+
+Demande du propriétaire : la colonne de gauche (dossier, données reprises, nom, pages) prenait la place de la
+feuille. Elle est rangée dans un panneau latéral à droite (`Sheet`), ouvert par « Fiche du modèle » (avec
+« N/4 » fait), par une pastille d'avancement ou par « ouvrir la fiche » ; la feuille occupe toute la largeur.
+Ce qui manque à la fiche est dit sous les pastilles, et « Créer le modèle » ouvre le panneau au lieu de rester
+grisé ; choisir ou ajouter une page referme le panneau.
+
+Un nouveau modèle commence par un choix : **Importer un fichier Word ou PDF** (zone de dépôt ou sélection,
+`.docx`/`.pdf` seulement ; la feuille s'ouvre une fois le fichier importé) ou **Créer et écrire directement**
+(la feuille s'ouvre aussitôt). Un modèle existant ou déjà écrit ouvre la feuille directement ; « Importer Word
+ou PDF » reste dans la barre de la feuille. Présentation seulement : ni route, ni règle, ni donnée ne change.
+
+## Amendement du 2026-10-01 (bis) — pages nommées, feuille A4 réelle, « Annuler » dans la fiche
+
+Demande du propriétaire, sur l'éditeur d'un modèle :
+
+```text
+nom de page     chaque page peut porter un nom (« Préambule », 60 caractères), renommé sur place
+                (crayon, Entrée / Échap) dans les onglets et dans la fiche ; vide = « Page N ».
+                Repère d'écriture seulement : il n'est jamais imprimé, et n'est enregistré que s'il
+                n'est pas vide ; dupliquer donne « (copie) »
+feuille A4      la page s'écrit sur une vraie feuille 210 × 297 mm, marges d'impression comprises
+                (25 / 20 mm), zoom Ajuster / 75 / 100 / 125 % ; un trait marque la fin de la zone
+                imprimable
+débordement     un texte qui dépasse la zone imprimable le dit en rouge, avec « Nouvelle page » ;
+                rien n'est coupé ni déplacé d'office
+aperçu          une feuille A4 par page, comme à l'impression
+fiche           les changements sont gardés au fil de la saisie et partent au site avec
+                Enregistrer / Créer le modèle ; « Annuler » rend la fiche telle qu'elle était à son
+                ouverture (dossier, données reprises, nom, pages et leurs noms)
+```
+
+Présentation seulement : ni route, ni permission, ni règle serveur ne change.
+

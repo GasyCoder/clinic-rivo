@@ -11,10 +11,14 @@ import { SETTINGS_GROUPS, sectionsOf, settingsUrl } from '@/utilities/settingsSe
  * dessus du module. Changer de module est une vraie navigation : l'adresse, le
  * bouton Précédent et la garde des modifications non enregistrées suivent.
  */
-defineProps({
+const props = defineProps({
     current: { type: String, required: true },
     siteCode: { type: String, required: true },
+    context: { type: String, default: 'system' },
 });
+
+const groupSections = (groupId) => sectionsOf(groupId).filter((section) => section.owner === props.context);
+const visibleGroups = () => SETTINGS_GROUPS.filter((group) => groupSections(group.id).length > 0);
 
 /**
  * Sur un écran étroit, la ligne défile : le module ouvert y est ramené en vue,
@@ -40,10 +44,10 @@ const linkClass = (active) => cn(
         class="relative flex gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1.5 shadow-sm lg:block lg:space-y-3 lg:overflow-visible lg:p-2"
         aria-label="Modules des paramètres"
     >
-        <div v-for="group in SETTINGS_GROUPS" :key="group.id" class="contents lg:block">
-            <p class="hidden px-3 pb-1 pt-1.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground lg:block">{{ group.label }}</p>
+        <div v-for="group in visibleGroups()" :key="group.id" class="contents lg:block">
+            <p v-if="context === 'system'" class="hidden px-3 pb-1 pt-1.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground lg:block">{{ group.label }}</p>
             <Link
-                v-for="section in sectionsOf(group.id)"
+                v-for="section in groupSections(group.id)"
                 :key="section.id"
                 :href="settingsUrl(section.id, siteCode)"
                 :aria-current="section.id === current ? 'page' : undefined"

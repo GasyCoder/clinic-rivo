@@ -13,6 +13,11 @@ enum TrashCategory: string
     case SupplierCatalog = 'SUPPLIER_CATALOG';
     case SupplierInvoice = 'SUPPLIER_INVOICE';
     case PurchaseOrder = 'PURCHASE_ORDER';
+    // ADR-220 — une demande d'analyses saisie à tort, jamais après un envoi au médecin.
+    case LabRequest = 'LAB_REQUEST';
+    // ADR-236 — un dossier employé ou un contrat archivés : restaurables, détruits seulement s'ils n'ont servi nulle part.
+    case Employee = 'EMPLOYEE';
+    case EmploymentContract = 'EMPLOYMENT_CONTRACT';
 
     public function label(): string
     {
@@ -26,6 +31,9 @@ enum TrashCategory: string
             self::SupplierCatalog => 'Catalogues fournisseurs',
             self::SupplierInvoice => 'Factures fournisseurs',
             self::PurchaseOrder => 'Commandes fournisseurs (brouillons)',
+            self::LabRequest => 'Demandes d’analyses',
+            self::Employee => 'Employés',
+            self::EmploymentContract => 'Contrats',
         };
     }
 
@@ -41,6 +49,9 @@ enum TrashCategory: string
             self::SupplierCatalog => 'Catalogue fournisseur',
             self::SupplierInvoice => 'Facture fournisseur',
             self::PurchaseOrder => 'Commande fournisseur',
+            self::LabRequest => 'Demande d’analyses',
+            self::Employee => 'Employé',
+            self::EmploymentContract => 'Contrat',
         };
     }
 
@@ -56,6 +67,9 @@ enum TrashCategory: string
             self::SupplierCatalog => 'file-text',
             self::SupplierInvoice => 'money',
             self::PurchaseOrder => 'truck',
+            self::LabRequest => 'flask',
+            self::Employee => 'user',
+            self::EmploymentContract => 'file-text',
         };
     }
 
@@ -71,6 +85,21 @@ enum TrashCategory: string
             self::SupplierCatalog => 'supplier_catalogs.restore',
             self::SupplierInvoice => 'supplier_invoices.restore',
             self::PurchaseOrder => 'purchase_orders.restore',
+            self::LabRequest => 'laboratory_orders.restore',
+            self::Employee => 'employees.restore',
+            self::EmploymentContract => 'contracts.restore',
+        };
+    }
+
+    /**
+     * Le droit métier qui s'ajoute à `trash.force_delete` pour détruire un élément. Le plus
+     * souvent celui de le restaurer ; un dossier employé a le sien (ADR-236).
+     */
+    public function forceDeletePermission(): string
+    {
+        return match ($this) {
+            self::Employee => 'employees.force_delete',
+            default => $this->restorePermission(),
         };
     }
 

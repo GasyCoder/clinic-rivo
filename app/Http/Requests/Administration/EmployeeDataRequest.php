@@ -20,6 +20,18 @@ abstract class EmployeeDataRequest extends FormRequest
     {
         $normalized = [];
 
+        // Les comptes Mobile Money restés vides ne comptent pas.
+        if ($this->exists('mobile_money_accounts')) {
+            $normalized['mobile_money_accounts'] = \App\Support\Hr\MobileMoneyAccounts::normalize($this->input('mobile_money_accounts'));
+        }
+
+        // Les lignes d'enfants restées vides ne comptent pas.
+        if ($this->exists('children')) {
+            $normalized['children'] = \App\Support\Hr\EmployeeChildren::normalize($this->input('children'));
+            // Le nombre d'enfants est la longueur de la liste : les deux ne se contredisent jamais.
+            $normalized['children_count'] = count($normalized['children']);
+        }
+
         foreach ([
             'employee_number', 'first_name', 'last_name',
             'identity_document_number', 'phone',
@@ -77,14 +89,35 @@ abstract class EmployeeDataRequest extends FormRequest
 
         return [
             'remuneration_type' => ['nullable', new Enum(EmployeeRemunerationType::class)],
+            'benefits_enabled' => ['nullable', 'boolean'],
             'remuneration_amount' => [
                 'nullable',
-                Rule::requiredIf(fn () => EmployeeRemunerationType::tryFrom((string) $this->input('remuneration_type'))?->hasAmount() ?? false),
+                // Un envoi partiel (une section de la fiche) sans le type relit le type enregistré.
+                Rule::requiredIf(fn () => $this->remunerationType()?->hasAmount() ?? false),
                 'numeric', 'min:0', 'max:999999999.99', 'decimal:0,2',
             ],
+            // ADR-221 — la banque, choisie dans le module Banques (EmployeePayroll la résout).
+            'bank_uuid' => ['nullable', 'uuid'],
             'bank_account_number' => ['nullable', 'string', 'max:50', 'regex:/^[A-Z0-9][A-Z0-9 -]*$/'],
             'bank_account_holder' => ['nullable', 'required_with:bank_account_number', 'string', 'max:150'],
+            'salary_payment_mode' => ['nullable', new Enum(\App\Enums\SalaryPaymentMode::class)],
+            'mobile_money_accounts' => ['nullable', 'array', 'max:'.\App\Support\Hr\MobileMoneyAccounts::MAX],
+            'mobile_money_accounts.*.operator' => ['required', new Enum(\App\Enums\MobileMoneyOperator::class)],
+            'mobile_money_accounts.*.number' => ['required', 'string', 'max:20', 'regex:/^\+?[0-9][0-9 ]{7,18}$/'],
+            'mobile_money_accounts.*.holder' => ['required', 'string', 'max:150'],
         ];
+    }
+
+    /** Le type envoyé, sinon celui déjà enregistré sur la fiche modifiée. */
+    private function remunerationType(): ?EmployeeRemunerationType
+    {
+        if ($this->exists('remuneration_type')) {
+            return EmployeeRemunerationType::tryFrom((string) $this->input('remuneration_type'));
+        }
+
+        $employee = $this->route('employee');
+
+        return $employee instanceof Employee ? $employee->remuneration_type : null;
     }
 
     /** @return array<string, array<int, mixed>> */
@@ -155,12 +188,23 @@ abstract class EmployeeDataRequest extends FormRequest
             'identity_document_issued_at' => ['nullable', 'string', 'max:255'],
             'marital_status' => ['nullable', new Enum(MaritalStatus::class)],
             'children_count' => ['nullable', 'integer', 'min:0', 'max:65535'],
+            'children' => ['nullable', 'array', 'max:20'],
+            'children.*.name' => ['required', 'string', 'max:100'],
+            'children.*.sex' => ['nullable', 'in:F,G'],
+            'children.*.age' => ['nullable', 'integer', 'min:0', 'max:60'],
             'diploma' => ['nullable', 'string', 'max:255'],
             'education_level' => ['nullable', 'string', 'max:255'],
             'children_details' => ['nullable', 'string', 'max:5000'],
             'badge' => ['nullable', 'string', 'max:255'],
             'blouse' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:50'],
+            'phone_secondary' => ['nullable', 'string', 'max:50'],
+            'tshirt_size' => ['nullable', 'string', 'max:50'],
+            'blouse_size' => ['nullable', 'string', 'max:50'],
+            'bloc_outfit' => ['nullable', 'string', 'max:50'],
+            'shoe_size' => ['nullable', 'string', 'max:50'],
+            'scrub_cap' => ['nullable', 'string', 'max:50'],
+            'clog' => ['nullable', 'string', 'max:50'],
             // ADR-190 : l'email d'un employé est son adresse professionnelle, posée par sa
             // création ; il ne se saisit ni à la création, ni à la modification, ni à l'import.
             'email' => ['prohibited'],
@@ -200,6 +244,14 @@ abstract class EmployeeDataRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
+            // ADR-221 — un envoi partiel qui passe au salaire sans montant ne laisse pas un salaire vide.
+            $employee = $this->route('employee');
+            if ($this->exists('remuneration_type') && ! $this->exists('remuneration_amount')
+                && ($this->remunerationType()?->hasAmount() ?? false)
+                && ! ($employee instanceof Employee && $employee->remuneration_amount !== null)) {
+                $validator->errors()->add('remuneration_amount', 'Indiquez le montant du salaire ou de l’indemnité.');
+            }
+
             if ($this->filled('address_entry_uuid') && $this->filled('new_address_label')) {
                 $validator->errors()->add(
                     'new_address_label',
@@ -246,12 +298,28 @@ abstract class EmployeeDataRequest extends FormRequest
             'identity_document_issued_at' => 'lieu de délivrance de la pièce',
             'marital_status' => 'situation matrimoniale',
             'children_count' => 'nombre d’enfants',
+            'children' => 'enfants',
+            'children.*.name' => 'prénom de l’enfant',
+            'children.*.sex' => 'sexe de l’enfant',
+            'children.*.age' => 'âge de l’enfant',
             'diploma' => 'diplôme',
             'education_level' => 'niveau',
             'children_details' => 'détails des enfants',
             'badge' => 'badge',
             'blouse' => 'blouse',
             'phone' => 'téléphone',
+            'phone_secondary' => 'second téléphone',
+            'salary_payment_mode' => 'mode de paiement',
+            'mobile_money_accounts' => 'comptes Mobile Money',
+            'mobile_money_accounts.*.operator' => 'opérateur',
+            'mobile_money_accounts.*.number' => 'numéro Mobile Money',
+            'mobile_money_accounts.*.holder' => 'nom du titulaire Mobile Money',
+            'tshirt_size' => 'taille de T-shirt',
+            'blouse_size' => 'taille de blouse',
+            'bloc_outfit' => 'tenue bloc',
+            'shoe_size' => 'pointure',
+            'scrub_cap' => 'callot',
+            'clog' => 'sabot',
             'email' => 'adresse email',
             'address_entry_uuid' => 'adresse',
             'new_address_label' => 'nouvelle adresse',
@@ -264,6 +332,7 @@ abstract class EmployeeDataRequest extends FormRequest
             'remuneration_amount' => 'montant',
             'bank_account_number' => 'numéro de compte bancaire',
             'bank_account_holder' => 'titulaire du compte',
+            'bank_uuid' => 'banque',
         ];
     }
 

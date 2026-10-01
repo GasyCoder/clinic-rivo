@@ -14,8 +14,10 @@ import {
     ChevronUp,
     ClipboardList,
     Crown,
+    HandCoins,
     Handshake,
     FileText,
+    FlaskConical,
     GripVertical,
     History,
     MapPin,
@@ -33,6 +35,8 @@ import { usePermissions } from '@/composables/usePermissions';
 import { useSidebarOrder } from '@/composables/useSidebarOrder';
 import { buildClinicMenu, visibleMenu } from '@/utilities/clinicMenu';
 import { menuMatchDepth } from '@/utilities/menuActivation';
+import { menuLinkPrefetch, warmMenuItem } from '@/utilities/menuPreload';
+import { WEBMAIL_MENU_WARM } from '@/utilities/menuWarm';
 import AdminMenu from './AdminMenu.vue';
 
 const visibility = defineModel('visibility');
@@ -102,6 +106,10 @@ const clinicMenu = computed(() => buildClinicMenu({
     webmail: page.props.webmail?.available === true,
 }));
 
+/** Les pages relayées d'un module appartiennent à son entrée autonome. */
+const moduleSitePaths = (segment) => (page.props.adminNavigation ?? [])
+    .map((site) => `/super-admin/sites/${site.code}/${segment}`);
+
 const adminMenu = computed(() => [
     { heading: 'Vue centrale' },
     { icon: TrendingUp, text: overviewLabel.value, link: '/' },
@@ -118,23 +126,66 @@ const adminMenu = computed(() => [
     { icon: Wallet, text: 'Caisses des sites', link: '/super-admin/cash-registers', permission: 'cash_registers.view' },
     { icon: ClipboardList, text: 'Modes de paiement', link: '/super-admin/payment-methods', permission: 'payment_methods.view' },
     { icon: Wallet, text: 'Rapports financiers', link: '/super-admin/workspaces/finance', permission: 'reports.financial.view' },
+    {
+        icon: Settings,
+        text: 'Configuration financière',
+        link: '/super-admin/finance/settings/monnaie',
+        activeLinks: ['/super-admin/finance/settings'],
+        permission: 'settings.view',
+    },
+    // ADR-229 — les dettes du personnel de chaque site : décidées, versées et réglées ici.
+    {
+        icon: HandCoins,
+        text: 'Dettes du personnel',
+        link: '/super-admin/finance/dettes',
+        permission: 'staff_debts.view',
+        activeLinks: ['/super-admin/finance/dettes', ...(page.props.adminNavigation ?? []).map((site) => `/super-admin/sites/${site.code}/finance/dettes`)],
+    },
     { heading: 'Référentiels' },
     { icon: FileText, text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
-    { icon: FileText, text: 'Canevas de documents', link: '/super-admin/workspaces/document-templates', permission: 'document_templates.view' },
+    { icon: FileText, text: 'Modèles de documents', link: '/super-admin/workspaces/document-templates', permission: 'document_templates.view' },
     { icon: Activity, text: 'Catalogue des analyses', link: '/super-admin/analyses', permission: 'analysis_catalog.view' },
     { icon: MapPin, text: 'Adresses & localités', link: '/super-admin/addresses', permission: 'address_entries.view' },
     { icon: BedDouble, text: 'Services, chambres & lits', link: '/super-admin/hospital-beds', permission: 'hospital_beds.view' },
     { icon: Crown, text: 'Patients VIP', link: '/super-admin/patient-vip', permission: 'patient_vip.view' },
     // ADR-211 — les partenaires de chaque site, gérés par son API.
-    { icon: Handshake, text: 'Partenaires', link: '/super-admin/partners', permission: 'partner_organizations.view' },
+    {
+        icon: Handshake,
+        text: 'Partenaires',
+        link: '/super-admin/partners',
+        activeLinks: ['/super-admin/partners', ...moduleSitePaths('partenaires')],
+        permission: 'partner_organizations.view',
+    },
+    { heading: 'Laboratoire' },
+    // ADR-215 — le Laboratoire de chaque site, lu par son API ; ses référentiels s'y gèrent.
+    {
+        icon: FlaskConical,
+        text: 'Laboratoires des sites',
+        link: '/super-admin/laboratory',
+        activeLinks: ['/super-admin/laboratory', '/super-admin/laboratory/settings', ...moduleSitePaths('laboratoire')],
+        permission: 'laboratory_results.view',
+    },
     { heading: 'Pharmacie & stocks' },
+    {
+        icon: Pill,
+        text: 'Pharmacies des sites',
+        link: '/super-admin/pharmacy',
+        activeLinks: ['/super-admin/pharmacy', ...moduleSitePaths('pharmacie')],
+        permission: 'pharmacy.view',
+    },
     { icon: Pill, text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
     { icon: Building2, text: 'Fournisseurs pharmacie', link: '/super-admin/pharmacy-suppliers', permission: 'medicine_suppliers.view' },
     { heading: 'Organisation' },
-    { icon: Briefcase, text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },
+    {
+        icon: Briefcase,
+        text: 'Ressources humaines',
+        link: '/super-admin/workspaces/hr',
+        activeLinks: ['/super-admin/workspaces/hr', '/super-admin/human-resources/settings', ...moduleSitePaths('rh')],
+        permission: 'employees.view',
+    },
     { icon: AtSign, text: 'Emails professionnels', link: '/super-admin/professional-emails', permission: 'professional_emails.view' },
     // ADR-195 — la boîte du portail, réglée dans son .env : le Super Admin y arrive directement.
-    { key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', permission: 'webmail.view' },
+    { key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', permission: 'webmail.view', warm: WEBMAIL_MENU_WARM },
     { icon: Package, text: 'Logistique & équipements', link: '/super-admin/workspaces/logistics', permission: 'logistics.view' },
     { icon: ShieldCheck, text: 'Gardiennage', link: '/super-admin/workspaces/guarding', permission: 'guarding.view' },
     { heading: 'Accès & système' },
@@ -143,7 +194,7 @@ const adminMenu = computed(() => [
     { icon: Users, text: 'Utilisateurs', link: '/super-admin/workspaces/users', permission: 'users.view', activeLinks: ['/super-admin/workspaces/users', '/super-admin/staff-access'] },
     { icon: ShieldCheck, text: 'Rôles & permissions', link: '/super-admin/workspaces/roles', permission: 'roles.view' },
     { icon: Trash2, text: 'Corbeille', link: '/super-admin/trash', permission: 'trash.view' },
-    { icon: Settings, text: 'Paramètres', link: '/super-admin/settings', permission: 'settings.view' },
+    { icon: Settings, text: 'Apparence & système', link: '/super-admin/settings', permission: 'settings.view' },
     { icon: History, text: 'Audit & APIs', link: '/super-admin/workspaces/audit', permission: 'audit.view' },
 ]);
 
@@ -370,6 +421,7 @@ const closeMobile = () => {
                 <Link
                     v-else-if="item.link"
                     :href="item.link"
+                    v-bind="menuLinkPrefetch(item)"
                     :aria-current="isActive(item) ? 'page' : undefined"
                     :title="item.text"
                     :class="[
@@ -379,6 +431,9 @@ const closeMobile = () => {
                         !isActive(item) ? 'hover:bg-accent/60' : '',
                     ]"
                     @click="closeMobile"
+                    @mouseenter="warmMenuItem(item)"
+                    @focus="warmMenuItem(item, { data: true })"
+                    @touchstart.passive="warmMenuItem(item, { data: true })"
                 >
                     <!-- L'état actif se repère à sa **position**, pas à sa
                          teinte. En thème sombre, le survol (`accent`, clarté

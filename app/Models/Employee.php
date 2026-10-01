@@ -7,9 +7,11 @@ use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
 use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
+use App\Enums\SalaryPaymentMode;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\SoftDeletable;
+use App\Support\Hr\EmployeeUsage;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -27,11 +29,16 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'identity_document_type', 'identity_document_number',
     'identity_document_issued_on', 'identity_document_issued_at',
     'marital_status', 'children_count', 'diploma', 'education_level',
-    'children_details', 'badge', 'blouse', 'profession', 'phone', 'email',
+    'children_details', 'children', 'badge', 'blouse', 'profession', 'phone', 'email',
+    // Fiche du personnel : second contact, tailles de tenue et matériel remis.
+    'phone_secondary', 'tshirt_size', 'blouse_size', 'bloc_outfit', 'shoe_size', 'scrub_cap', 'clog',
     'address', 'address_entry_id', 'observation', 'active',
     'photo_path', 'photo_updated_at',
     // ADR-206 — rémunération déclarée et compte bancaire (droits employees.payroll.*).
-    'remuneration_type', 'remuneration_amount', 'bank_account_number', 'bank_account_holder',
+    'remuneration_type', 'remuneration_amount', 'benefits_enabled', 'bank_account_number', 'bank_account_holder',
+    'salary_payment_mode', 'mobile_money_accounts',
+    // ADR-221 — la banque du compte, choisie dans le référentiel des banques.
+    'bank_id',
 ])]
 class Employee extends Model
 {
@@ -54,6 +61,10 @@ class Employee extends Model
             'identity_document_issued_on' => 'date',
             'marital_status' => MaritalStatus::class,
             'children_count' => 'integer',
+            'children' => 'array',
+            'benefits_enabled' => 'boolean',
+            'salary_payment_mode' => SalaryPaymentMode::class,
+            'mobile_money_accounts' => 'array',
             'active' => 'boolean',
             'photo_updated_at' => 'datetime',
             'remuneration_type' => EmployeeRemunerationType::class,
@@ -68,6 +79,18 @@ class Employee extends Model
         return $this->belongsTo(User::class);
     }
 
+    /** ADR-221 — la banque de son compte, choisie dans le module Banques. */
+    public function bank(): BelongsTo
+    {
+        return $this->belongsTo(Bank::class);
+    }
+
+    /** ADR-221 — ses avantages et primes déclarés, retirés compris seulement avec withTrashed(). */
+    public function benefits(): HasMany
+    {
+        return $this->hasMany(EmployeeBenefit::class);
+    }
+
     public function addressEntry(): BelongsTo
     {
         return $this->belongsTo(AddressEntry::class);
@@ -76,6 +99,16 @@ class Employee extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(HrReferenceValue::class, 'department_id');
+    }
+
+    /**
+     * Les avantages sont ouverts pour cette personne : la case « Avantages » de l'étape
+     * Rémunération décide ; tant qu'elle n'a jamais été touchée, c'est sa fonction
+     * (module Fonctions). Un dossier inactif ou archivé n'en reçoit plus.
+     */
+    public function grantsBenefits(): bool
+    {
+        return $this->benefits_enabled ?? (bool) $this->jobTitle?->grantsBenefits();
     }
 
     public function jobTitle(): BelongsTo
@@ -144,17 +177,10 @@ class Employee extends Model
         return $this->active && ! $this->trashed();
     }
 
+    /** ADR-236 — un dossier n'est détruit que s'il n'a servi nulle part : le registre le dit. */
     public function isForceDeleteProtected(): bool
     {
-        return $this->patientLinks()->exists()
-            || $this->episodeStaffCoverages()->exists()
-            || $this->staffBlockCreditMovements()->exists()
-            || $this->contracts()->withTrashed()->exists()
-            || $this->attendanceRecords()->exists()
-            || $this->leaveRequests()->exists()
-            || $this->interimLeaveRequests()->exists()
-            || $this->planningShifts()->exists()
-            || $this->hrDocuments()->withTrashed()->exists();
+        return EmployeeUsage::blockers($this) !== [];
     }
 
     protected function auditModule(): ?string

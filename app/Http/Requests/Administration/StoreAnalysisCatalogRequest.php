@@ -4,7 +4,9 @@ namespace App\Http\Requests\Administration;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\LabEntryMode;
 use App\Models\AnalysisCatalog;
+use App\Support\Laboratory\LabCriticalRange;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -37,13 +39,16 @@ class StoreAnalysisCatalogRequest extends FormRequest
             'level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
             'designation' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'exam_category' => ['nullable', 'string', 'max:100'],
+            'lab_discipline_uuid' => ['nullable', 'uuid'],
+            'new_discipline_name' => ['nullable', 'string', 'max:120'],
             'result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
+            'entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'reference_general' => ['nullable', 'string', 'max:255'],
             'reference_male' => ['nullable', 'string', 'max:255'],
             'reference_female' => ['nullable', 'string', 'max:255'],
             'reference_child_male' => ['nullable', 'string', 'max:255'],
             'reference_child_female' => ['nullable', 'string', 'max:255'],
+            ...LabCriticalRange::rules(''),
             'unit' => ['nullable', 'string', 'max:60'],
             'predefined_values' => ['nullable', 'array', 'max:30'],
             'predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],
@@ -61,13 +66,14 @@ class StoreAnalysisCatalogRequest extends FormRequest
             'children.*.level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
             'children.*.designation' => ['required', 'string', 'max:255'],
             'children.*.description' => ['nullable', 'string', 'max:2000'],
-            'children.*.exam_category' => ['nullable', 'string', 'max:100'],
             'children.*.result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
+            'children.*.entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'children.*.reference_general' => ['nullable', 'string', 'max:255'],
             'children.*.reference_male' => ['nullable', 'string', 'max:255'],
             'children.*.reference_female' => ['nullable', 'string', 'max:255'],
             'children.*.reference_child_male' => ['nullable', 'string', 'max:255'],
             'children.*.reference_child_female' => ['nullable', 'string', 'max:255'],
+            ...LabCriticalRange::rules('children.*.'),
             'children.*.unit' => ['nullable', 'string', 'max:60'],
             'children.*.predefined_values' => ['nullable', 'array', 'max:30'],
             'children.*.predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],
@@ -84,13 +90,14 @@ class StoreAnalysisCatalogRequest extends FormRequest
             'children.*.children.*.level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
             'children.*.children.*.designation' => ['required', 'string', 'max:255'],
             'children.*.children.*.description' => ['nullable', 'string', 'max:2000'],
-            'children.*.children.*.exam_category' => ['nullable', 'string', 'max:100'],
             'children.*.children.*.result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
+            'children.*.children.*.entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'children.*.children.*.reference_general' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_male' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_female' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_child_male' => ['nullable', 'string', 'max:255'],
             'children.*.children.*.reference_child_female' => ['nullable', 'string', 'max:255'],
+            ...LabCriticalRange::rules('children.*.children.*.'),
             'children.*.children.*.unit' => ['nullable', 'string', 'max:60'],
             'children.*.children.*.predefined_values' => ['nullable', 'array', 'max:30'],
             'children.*.children.*.predefined_values.*' => ['required', 'string', 'max:100', 'distinct'],

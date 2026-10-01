@@ -39,7 +39,7 @@ class UpdateEmployeeAction
 
         Gate::forUser($actor)->authorize('update', $employee);
         // ADR-206 — rémunération et compte bancaire : un droit à part, revérifié ici.
-        $data = EmployeePayroll::prepare($data, $actor);
+        $data = EmployeePayroll::prepare($data, $actor, $employee);
 
         // ADR-194 — une nouvelle photo remplace l'ancienne ; « retirer » la
         // supprime. L'ancien fichier n'est effacé qu'une fois le dossier écrit.

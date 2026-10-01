@@ -83,6 +83,8 @@ class HrStructureRequest extends FormRequest
             'account_profile_code' => [
                 Rule::excludeUnless($type === HrReferenceType::JobTitle), 'sometimes', 'nullable', 'string',
             ],
+            // ADR-221 — ouvre droit aux avantages et primes. Omis = inchangé.
+            'benefits_eligible' => [Rule::excludeUnless($type === HrReferenceType::JobTitle), 'sometimes', 'boolean'],
         ];
     }
 

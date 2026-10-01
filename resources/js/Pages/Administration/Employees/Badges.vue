@@ -448,8 +448,8 @@ const printBadges = () => window.print();
                     <Palette class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     <span>
                         Couleurs, textes, polices, format du porte-badge, QR code et papier par défaut se règlent pour le site dans
-                        <Link v-if="onPortal" :href="settingsHref" class="font-medium text-primary hover:underline">Paramètres › Badge du personnel</Link>
-                        <span v-else class="font-medium text-foreground">Paramètres › Badge du personnel</span>
+                        <Link v-if="onPortal" :href="settingsHref" class="font-medium text-primary hover:underline">Ressources humaines › Badge du personnel</Link>
+                        <span v-else class="font-medium text-foreground">Ressources humaines › Badge du personnel</span>
                         (Super Admin).
                     </span>
                 </p>

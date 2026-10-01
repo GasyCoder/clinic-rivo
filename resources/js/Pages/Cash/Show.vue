@@ -3,13 +3,16 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import {
     ArrowLeft,
+    Banknote,
     CircleDollarSign,
     Coins,
     FileText,
+    HandCoins,
     LockKeyhole,
     ReceiptText,
     ShieldCheck,
     ShoppingBag,
+    UserRound,
     UsersRound,
     WalletCards,
 } from 'lucide-vue-next';
@@ -27,6 +30,7 @@ import FormLabel from '@/Components/UI/FormLabel.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import IconInput from '@/Components/UI/IconInput.vue';
 import CashOriginFilter from '@/Pages/Cash/Partials/CashOriginFilter.vue';
+import StaffDebtCollectionPanel from '@/Components/Cash/StaffDebtCollectionPanel.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
@@ -45,6 +49,8 @@ const props = defineProps({
     recentPayments: Array,
     recentSessions: Array,
     pharmacyLookup: Object,
+    // ADR-228 — les dettes du personnel à rembourser en espèces ; absent sans le droit d'encaisser.
+    staffDebts: { type: Object, default: null },
 });
 
 const { can } = usePermissions();
@@ -121,7 +127,7 @@ const scannerVideo = ref(null);
 let qrScanner = null;
 let pharmacyLookupTimer = null;
 
-const openForm = useForm({ opening_amount: 0, notes: '', cash_register_uuid: props.cashRegister?.uuid ?? '' });
+const openForm = useForm({ opening_amount: props.cashRegister?.opening_fund_amount ?? 0, notes: '', cash_register_uuid: props.cashRegister?.uuid ?? '' });
 const closeForm = useForm({ actual_closing_amount: '', notes: '', cash_register_uuid: props.cashRegister?.uuid ?? '' });
 const paymentForm = useForm({
     invoice_uuid: '',
@@ -564,17 +570,22 @@ onBeforeUnmount(() => {
     <Head :title="cashRegister ? `Caisse — ${cashRegister.name}` : 'Caisse'" />
 
     <div class="mx-auto w-full max-w-[1500px] space-y-4">
-        <header class="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <header class="relative overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            <span v-if="cashRegister?.color" class="absolute inset-x-0 top-0 h-1" :style="{ backgroundColor: cashRegister.color }" aria-hidden="true" />
             <div class="grid gap-4 px-5 py-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
                 <div class="flex min-w-0 items-center gap-3.5">
-                    <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15"><WalletCards class="h-5 w-5" /></span>
+                    <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15" :style="cashRegister?.color ? { color: cashRegister.color } : undefined"><WalletCards class="h-5 w-5" /></span>
                     <div class="min-w-0">
                         <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">Réception · Encaissement</p>
                         <div class="mt-1 flex min-w-0 items-center gap-2.5">
                             <h1 class="truncate font-heading text-2xl font-bold tracking-tight text-foreground">{{ cashRegister ? cashRegister.name : 'Caisse' }}</h1>
                             <Badge class="shrink-0" :variant="sessionLocked ? 'warning' : cashSession ? 'success' : 'outline'"><LockKeyhole class="h-3.5 w-3.5" />{{ sessionLocked ? 'Session verrouillée' : cashSession ? 'Session ouverte' : 'Session fermée' }}</Badge>
                         </div>
-                        <p class="mt-1 truncate text-sm text-muted-foreground">Factures validées, tickets Pharmacie et reçus de ce poste. Chaque caisse tient sa propre session.</p>
+                        <div v-if="cashRegister" class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span class="inline-flex items-center gap-1.5"><UserRound class="h-3.5 w-3.5" />Titulaire : <strong class="font-semibold text-foreground">{{ cashRegister.assigned_user_name ?? 'Tous les caissiers autorisés' }}</strong></span>
+                            <span class="inline-flex items-center gap-1.5"><Banknote class="h-3.5 w-3.5" />Fond initial : <strong class="font-semibold tabular-nums text-foreground">{{ cashRegister.opening_fund_amount === null ? 'À saisir à l’ouverture' : formatMoney(cashRegister.opening_fund_amount) }}</strong></span>
+                        </div>
+                        <p v-else class="mt-1 truncate text-sm text-muted-foreground">Factures validées, tickets Pharmacie et reçus de ce poste. Chaque caisse tient sa propre session.</p>
                     </div>
                 </div>
 
@@ -702,7 +713,7 @@ onBeforeUnmount(() => {
                 <p class="mt-0.5 text-xs leading-5 text-slate-400">Une session ouverte est obligatoire avant tout encaissement et toute émission de reçu.</p>
             </div>
             <form v-if="can('cash.open')" class="flex flex-wrap items-end gap-3 px-4 py-4" @submit.prevent="openCash">
-                <FormGroup class="!mb-0 w-full sm:w-52"><FormLabel class="mb-1.5" for="opening_amount">Fond de caisse <span class="text-red-500">*</span></FormLabel><Input id="opening_amount" v-model="openForm.opening_amount" type="number" min="0" step="0.01" required /><FormError v-if="openForm.errors.opening_amount">{{ openForm.errors.opening_amount }}</FormError></FormGroup>
+                <FormGroup class="!mb-0 w-full sm:w-52"><FormLabel class="mb-1.5" for="opening_amount">Fond de caisse <span class="text-red-500">*</span></FormLabel><Input id="opening_amount" v-model="openForm.opening_amount" type="number" min="0" step="0.01" :disabled="cashRegister?.opening_fund_amount !== null" required /><p v-if="cashRegister?.opening_fund_amount !== null" class="mt-1 text-[11px] text-muted-foreground">Montant fixé pour ce poste.</p><FormError v-if="openForm.errors.opening_amount">{{ openForm.errors.opening_amount }}</FormError></FormGroup>
                 <FormGroup class="!mb-0 w-full flex-1 sm:min-w-56"><FormLabel class="mb-1.5" for="open_notes">Note d’ouverture</FormLabel><Input id="open_notes" v-model="openForm.notes" placeholder="Observation facultative" /><FormError v-if="openForm.errors.notes">{{ openForm.errors.notes }}</FormError></FormGroup>
                 <Button size="rg" variant="primary" type="submit" :disabled="openForm.processing"><Icon class="text-lg" name="unlock" /><span class="ms-2">{{ openForm.processing ? 'Ouverture…' : 'Ouvrir la caisse' }}</span></Button>
                 <FormError v-if="openForm.errors.cash_register_uuid" class="w-full">{{ openForm.errors.cash_register_uuid }}</FormError>
@@ -712,7 +723,7 @@ onBeforeUnmount(() => {
 
         <Card class="overflow-hidden">
             <div class="border-b border-border p-2">
-                <div class="grid grid-cols-3 items-stretch gap-1" role="tablist" aria-label="Opérations de la caisse">
+                <div :class="['grid items-stretch gap-1', staffDebts ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3']" role="tablist" aria-label="Opérations de la caisse">
                     <button
                         v-if="can('billing.view')"
                         id="cash-invoices-tab"
@@ -754,6 +765,20 @@ onBeforeUnmount(() => {
                         <CircleDollarSign class="h-4 w-4" />
                         <span class="truncate">Paiements</span>
                         <span class="border-s border-gray-200 ps-2 tabular-nums text-slate-400 dark:border-gray-800">{{ recentPayments.length }}</span>
+                    </button>
+                    <button
+                        v-if="staffDebts"
+                        id="cash-staff-debts-tab"
+                        type="button"
+                        role="tab"
+                        :aria-selected="activeLedgerTab === 'staff-debts'"
+                        aria-controls="cash-staff-debts-panel"
+                        :class="['flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30', activeLedgerTab === 'staff-debts' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground']"
+                        @click="activeLedgerTab = 'staff-debts'"
+                    >
+                        <HandCoins class="h-4 w-4" />
+                        <span class="truncate">Dettes du personnel</span>
+                        <span class="rounded-full bg-background px-1.5 py-0.5 tabular-nums text-muted-foreground ring-1 ring-border">{{ staffDebts.debts.length }}</span>
                     </button>
                 </div>
             </div>
@@ -935,6 +960,10 @@ onBeforeUnmount(() => {
                         </tbody>
                     </table>
                 </div>
+            </div>
+
+            <div v-if="activeLedgerTab === 'staff-debts' && staffDebts" id="cash-staff-debts-panel" role="tabpanel" aria-labelledby="cash-staff-debts-tab">
+                <StaffDebtCollectionPanel :staff-debts="staffDebts" :cash-register-uuid="cashRegister?.uuid ?? null" :operational="cashOperational" />
             </div>
         </Card>
 

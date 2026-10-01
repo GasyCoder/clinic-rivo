@@ -27,9 +27,9 @@ const plural = (count, word) => `${count} ${word}${count > 1 ? 's' : ''}`;
 
 /**
  * Ce qu'un dossier contient, en deux lignes courtes (une tuile fait ~150 px) :
- * ses canevas, puis ses documents.
+ * ses modèles, puis ses documents.
  */
-export const folderSummary = (folder) => (folder.templates ? `${folder.templates} canevas` : 'Aucun canevas');
+export const folderSummary = (folder) => (folder.templates ? plural(folder.templates, 'modèle') : 'Aucun modèle');
 export const folderDocuments = (folder) => {
     if (! folder.documents && ! folder.archived) return 'Aucun document';
 

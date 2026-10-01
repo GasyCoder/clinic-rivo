@@ -65,9 +65,9 @@ const counter = (folder) => (folder.role === 'drafts' ? folder.total : folder.un
 </script>
 
 <template>
-    <nav class="flex h-full flex-col gap-5" aria-label="Dossiers de la messagerie">
+    <nav class="flex h-full flex-col gap-4" aria-label="Dossiers de la messagerie">
         <!-- La boîte ouverte : titulaire, adresse, et ce qu'on peut faire d'elle. -->
-        <div class="rounded-xl border border-border bg-muted/30 p-3">
+        <div class="rounded-xl border border-border bg-card p-3 shadow-sm">
             <div class="flex items-center gap-3">
                 <span :class="cn('grid h-10 w-10 shrink-0 place-items-center rounded-full text-sm font-bold', avatarTone(mailbox.address))" aria-hidden="true">
                     {{ initialsOf({ name: mailbox.owner, email: mailbox.address }) }}
@@ -155,42 +155,45 @@ const counter = (folder) => (folder.role === 'drafts' ? folder.total : folder.un
             </Popover>
         </div>
 
-        <Button type="button" class="w-full justify-center" @click="emit('compose')">
-            <SquarePen class="h-4 w-4" aria-hidden="true" /> Nouveau message
+        <Button type="button" size="lg" class="w-full justify-start shadow-sm" @click="emit('compose')">
+            <SquarePen class="h-4 w-4" aria-hidden="true" /> <span class="flex-1 text-start">Nouveau message</span>
         </Button>
 
-        <ul class="space-y-0.5">
-            <li v-for="folder in system" :key="folder.key">
-                <Link
-                    :href="folderUrl(folder.key)"
-                    v-bind="folderLink"
-                    :aria-current="shown === folder.key && !labelShown ? 'page' : undefined"
-                    :class="cn(
-                        'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                        shown === folder.key && !labelShown ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                    )"
-                    @click="emit('navigate')"
-                >
-                    <component :is="ICONS[folder.icon] ?? Folder" class="h-4 w-4 shrink-0" aria-hidden="true" />
-                    <span class="flex-1 truncate">{{ folder.name }}</span>
-                    <span
-                        v-if="counter(folder) > 0"
-                        :class="cn('inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums', folder.role === 'drafts' ? 'bg-muted text-muted-foreground' : 'bg-destructive text-destructive-foreground')"
-                        :aria-label="folder.role === 'drafts' ? `${counter(folder)} brouillons` : `${counter(folder)} non lus`"
-                    >{{ counter(folder) }}</span>
-                </Link>
-            </li>
-        </ul>
+        <div>
+            <p class="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Boîte aux lettres</p>
+            <ul class="space-y-0.5">
+                <li v-for="folder in system" :key="folder.key">
+                    <Link
+                        :href="folderUrl(folder.key)"
+                        v-bind="folderLink"
+                        :aria-current="shown === folder.key && !labelShown ? 'page' : undefined"
+                        :class="cn(
+                            'group flex items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+                            shown === folder.key && !labelShown ? 'border-primary/15 bg-primary/10 text-primary shadow-sm' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                        )"
+                        @click="emit('navigate')"
+                    >
+                        <component :is="ICONS[folder.icon] ?? Folder" class="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span class="flex-1 truncate">{{ folder.name }}</span>
+                        <span
+                            v-if="counter(folder) > 0"
+                            :class="cn('inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums', folder.role === 'drafts' ? 'bg-muted text-muted-foreground' : 'bg-destructive text-destructive-foreground')"
+                            :aria-label="folder.role === 'drafts' ? `${counter(folder)} brouillons` : `${counter(folder)} non lus`"
+                        >{{ counter(folder) }}</span>
+                    </Link>
+                </li>
+            </ul>
+        </div>
 
         <div v-if="custom.length">
-            <p class="mb-1 px-3 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Dossiers</p>
+            <p class="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Dossiers personnels</p>
             <ul class="space-y-0.5">
                 <li v-for="folder in custom" :key="folder.key">
                     <Link
                         :href="folderUrl(folder.key)"
                         v-bind="folderLink"
                         :aria-current="shown === folder.key && !labelShown ? 'page' : undefined"
-                        :class="cn('flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors', shown === folder.key && !labelShown ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground')"
+                        :class="cn('flex items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30', shown === folder.key && !labelShown ? 'border-primary/15 bg-primary/10 font-medium text-primary shadow-sm' : 'text-muted-foreground hover:bg-accent hover:text-foreground')"
                         @click="emit('navigate')"
                     >
                         <Folder class="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -203,7 +206,7 @@ const counter = (folder) => (folder.role === 'drafts' ? folder.total : folder.un
 
         <div>
             <div class="mb-1 flex items-center justify-between px-3">
-                <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Libellés</p>
+                <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Libellés</p>
                 <Button type="button" variant="ghost" size="xs" icon title="Nouveau libellé" aria-label="Nouveau libellé" @click="emit('new-label')">
                     <Plus class="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
@@ -244,7 +247,7 @@ const counter = (folder) => (folder.role === 'drafts' ? folder.total : folder.un
         </div>
 
         <div v-if="contacts.length">
-            <p class="mb-1 px-3 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Collègues</p>
+            <p class="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Contacts rapides</p>
             <ul class="space-y-0.5">
                 <li v-for="contact in visibleContacts" :key="contact.email">
                     <button
@@ -269,7 +272,7 @@ const counter = (folder) => (folder.role === 'drafts' ? folder.total : folder.un
             <UserRound class="h-3.5 w-3.5" aria-hidden="true" /> Aucun autre collègue n’a encore d’adresse active.
         </p>
 
-        <div class="mt-auto rounded-xl border border-border p-3">
+        <div class="rounded-xl border border-border bg-card p-3 shadow-sm">
             <template v-if="percent !== null">
                 <div class="mb-1.5 flex items-center justify-between text-xs">
                     <span class="font-medium text-foreground">Espace utilisé</span>

@@ -96,66 +96,45 @@ const removeError = computed(() => Object.values(removeForm.errors)[0] ?? '');
             <Button v-if="can('advantage_entries.create')" type="button" @click="emit('add')"><Plus class="h-4 w-4" />Saisir des avantages</Button>
         </Card>
 
-        <Card v-else class="overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead class="bg-muted/40 text-xs text-muted-foreground">
-                        <tr>
-                            <th scope="col" class="px-4 py-2 text-start font-medium">Médecin</th>
-                            <th scope="col" class="px-4 py-2 text-end font-medium">Avantages</th>
-                            <th scope="col" class="px-4 py-2 text-end font-medium">En attente</th>
-                            <th scope="col" class="px-4 py-2 text-end font-medium">Payé</th>
-                            <th scope="col" class="px-4 py-2 text-end font-medium">Total</th>
-                        </tr>
-                    </thead>
-                    <template v-for="person in entries.people" :key="person.uuid">
-                        <tbody class="border-t border-border">
-                            <tr class="bg-card">
-                                <td class="px-4 py-2">
-                                    <span class="flex items-center gap-2">
-                                        <Stethoscope class="h-4 w-4 shrink-0 text-muted-foreground" />
-                                        <span>
-                                            <span class="block font-semibold text-foreground">{{ person.name }}</span>
-                                            <span class="block text-xs text-muted-foreground">{{ [person.employee_number, person.job_title].filter(Boolean).join(' · ') }}</span>
-                                        </span>
-                                    </span>
-                                </td>
-                                <td class="px-4 py-2 text-end tabular-nums text-foreground">{{ person.count }}</td>
-                                <td class="px-4 py-2 text-end tabular-nums text-muted-foreground">{{ formatMoney(person.pending_total) }}</td>
-                                <td class="px-4 py-2 text-end tabular-nums text-muted-foreground">{{ formatMoney(person.paid_total) }}</td>
-                                <td class="px-4 py-2 text-end font-semibold tabular-nums text-foreground">{{ formatMoney(person.total) }}</td>
-                            </tr>
-                            <tr v-for="entry in person.entries" :key="entry.uuid" class="text-xs">
-                                <td class="py-1.5 pe-4 ps-10">
-                                    <span class="font-medium text-foreground">{{ entry.reason }}</span>
-                                    <span class="text-muted-foreground"> · {{ entry.created_by }} · {{ formatDateTime(entry.created_at) }}</span>
-                                </td>
-                                <td class="px-4 py-1.5 text-end">
-                                    <Badge :variant="entry.status === 'PAID' ? 'success' : 'warning'">{{ entry.status_label }}</Badge>
-                                </td>
-                                <td class="px-4 py-1.5 text-end tabular-nums text-foreground" colspan="2">{{ formatMoney(entry.amount) }}</td>
-                                <td class="px-4 py-1.5 text-end">
-                                    <span v-if="entry.editable" class="inline-flex gap-1">
-                                        <Button v-if="can('advantage_entries.update')" type="button" variant="ghost" size="icon" :aria-label="`Modifier ${entry.reason}`" @click="openEdit(person, entry)"><Pencil class="h-4 w-4" /></Button>
-                                        <Button v-if="can('advantage_entries.delete')" type="button" variant="ghost" size="icon" class="text-destructive hover:text-destructive" :aria-label="`Supprimer ${entry.reason}`" @click="removeForm.clearErrors(); removing = { person, entry }"><Trash2 class="h-4 w-4" /></Button>
-                                    </span>
-                                    <span v-else class="text-muted-foreground">Payé avec la paie</span>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </template>
-                    <tfoot class="border-t-2 border-border bg-muted/30 text-sm">
-                        <tr>
-                            <th scope="row" class="px-4 py-2 text-start font-semibold text-foreground">Total · {{ entries.summary.people }} médecin{{ entries.summary.people > 1 ? 's' : '' }}</th>
-                            <td class="px-4 py-2 text-end tabular-nums text-foreground">{{ entries.summary.count }}</td>
-                            <td class="px-4 py-2 text-end tabular-nums text-muted-foreground">{{ formatMoney(entries.summary.pending_total) }}</td>
-                            <td class="px-4 py-2 text-end tabular-nums text-muted-foreground">{{ formatMoney(entries.summary.paid_total) }}</td>
-                            <td class="px-4 py-2 text-end font-bold tabular-nums text-foreground">{{ formatMoney(entries.summary.total) }}</td>
-                        </tr>
-                    </tfoot>
-                </table>
+        <template v-else>
+            <div class="grid gap-4 xl:grid-cols-2">
+                <Card v-for="person in entries.people" :key="person.uuid" class="flex flex-col overflow-hidden">
+                    <header class="flex items-center gap-3 border-b border-border px-4 py-3">
+                        <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Stethoscope class="h-5 w-5" /></span>
+                        <div class="min-w-0 flex-1">
+                            <p class="truncate text-sm font-bold text-foreground">{{ person.name }}</p>
+                            <p class="truncate text-xs text-muted-foreground">{{ [person.job_title, person.employee_number].filter(Boolean).join(' · ') }}</p>
+                        </div>
+                        <span class="text-end">
+                            <span class="block text-[11px] text-muted-foreground">{{ person.count }} avantage{{ person.count > 1 ? 's' : '' }}</span>
+                            <span class="block text-base font-bold tabular-nums text-primary">{{ formatMoney(person.total) }}</span>
+                        </span>
+                    </header>
+                    <ol class="flex-1 divide-y divide-border" :aria-label="`Avantages de ${person.name}`">
+                        <li v-for="entry in person.entries" :key="entry.uuid" class="flex items-center gap-3 px-4 py-2">
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-sm font-semibold text-foreground">{{ entry.reason }}</span>
+                                <span class="block truncate text-[11px] text-muted-foreground">{{ entry.created_by }} · {{ formatDateTime(entry.created_at) }}</span>
+                            </span>
+                            <span class="shrink-0 text-sm font-semibold tabular-nums text-foreground">{{ formatMoney(entry.amount) }}</span>
+                            <Badge :variant="entry.status === 'PAID' ? 'success' : 'warning'" class="shrink-0">{{ entry.status_label }}</Badge>
+                            <span v-if="entry.editable" class="inline-flex shrink-0 gap-0.5">
+                                <Button v-if="can('advantage_entries.update')" type="button" variant="ghost" size="icon" :aria-label="`Modifier ${entry.reason}`" @click="openEdit(person, entry)"><Pencil class="h-4 w-4" /></Button>
+                                <Button v-if="can('advantage_entries.delete')" type="button" variant="ghost" size="icon" class="text-destructive hover:text-destructive" :aria-label="`Supprimer ${entry.reason}`" @click="removeForm.clearErrors(); removing = { person, entry }"><Trash2 class="h-4 w-4" /></Button>
+                            </span>
+                        </li>
+                    </ol>
+                    <footer class="flex flex-wrap justify-between gap-2 border-t border-border bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
+                        <span>En attente <strong class="tabular-nums text-foreground">{{ formatMoney(person.pending_total) }}</strong></span>
+                        <span>Payé <strong class="tabular-nums text-foreground">{{ formatMoney(person.paid_total) }}</strong></span>
+                    </footer>
+                </Card>
             </div>
-        </Card>
+            <div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
+                <span class="font-semibold text-foreground">Total · {{ entries.summary.people }} médecin{{ entries.summary.people > 1 ? 's' : '' }} · {{ entries.summary.count }} avantage{{ entries.summary.count > 1 ? 's' : '' }}</span>
+                <span class="text-base font-bold tabular-nums text-foreground">{{ formatMoney(entries.summary.total) }}</span>
+            </div>
+        </template>
 
         <ConfirmModal
             :open="editing !== null"

@@ -65,3 +65,30 @@ export function entriesPayload(rows) {
 
     return lines;
 }
+
+/** « 50000.00 » → « 50 000 » : le montant proposé d'un article, prêt à être relu dans le champ. */
+export function amountInput(value) {
+    const amount = parseAmount(value);
+    if (amount === null) return '';
+    const [whole, decimals] = amount.toFixed(2).split('.');
+    const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+
+    return decimals === '00' ? grouped : `${grouped},${decimals}`;
+}
+
+/** Une ligne préremplie depuis un article proposé (ECHO · 50 000) ; le montant reste modifiable. */
+export function lineFromArticle(article) {
+    return { reason: String(article?.label ?? '').trim(), amount: amountInput(article?.amount) };
+}
+
+/** L'article proposé qui porte ce libellé (accents et casse ignorés), ou `null`. */
+export function findArticle(articles, label) {
+    const key = normalizeLabel(label);
+    if (! key) return null;
+
+    return (articles ?? []).find((article) => normalizeLabel(article.label) === key) ?? null;
+}
+
+function normalizeLabel(value) {
+    return String(value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+}

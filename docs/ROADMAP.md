@@ -838,6 +838,7 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [ ] Configurer les articles de la feuille « Avantage_Reference » (ECHO, ECG, CHIR…) et leurs prix sur chaque site (ADR-226)
 - [x] « Saisir des avantages » dans le module Bonus : liste des médecins, plusieurs avantages par médecin (montant, motif, mois), totaux en direct, correction et suppression tant que non payés (ADR-227)
 - [x] Paie du mois : salaire de base + avantages du mois = montant brut à verser, « Marquer payé » fige et empêche un second paiement, annulation motivée ; virement hors RIVO (ADR-227)
+- [x] Saisie des avantages médecin par médecin : liste des médecins à gauche, ses avantages (article, montant) à droite, articles connus ajoutés en un clic à leur prix ; lecture en une carte par médecin (ADR-227, amendement du 2026-10-01)
 - [ ] Bonus par palier (ADR-212) dans la paie, retenues et net — à décider (ADR-227)
 - [x] Dettes du personnel : demande depuis son compte, décision du DG au portail (accord ajusté, refus, remise), versement constaté au portail (par le RH avant l'ADR-229), remboursement retenu sur la paie ou encaissé à la Caisse avec reçu (ADR-228)
 - [x] « Mes dettes » refait en pleine largeur : prochain remboursement, déjà remboursé et retard servis par le serveur, avancement de chaque dette en quatre étapes, détail replié pour une dette close, déroulé expliqué à côté (ADR-228, amendement du 2026-09-30)

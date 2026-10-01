@@ -3,6 +3,8 @@
 namespace Tests\Feature\Administration;
 
 use App\Enums\AdvantageEntryStatus;
+use App\Enums\AdvantageSource;
+use App\Models\AdvantageArticle;
 use App\Enums\SalaryPaymentStatus;
 use App\Models\AdvantageEntry;
 use App\Models\Employee;
@@ -60,12 +62,28 @@ class PayrollTest extends TestCase
         $this->assertSame(3, AdvantageEntry::query()->count());
         $this->assertSame('150000.50', (string) AdvantageEntry::query()->where('reason', 'ECHO')->value('amount'));
 
-        $this->actingAs($this->hr)->get('/administration/bonus?onglet=saisis&mois=2026-09')
+        $this->actingAs($this->hr)->get('/administration/bonus?onglet=saisis&mois=2026-09')->tap(fn ($r) => $r->status() === 500 ? dump($r->exception?->getMessage()) : null)
             ->assertInertia(fn (Assert $page) => $page
                 ->where('tab', 'entries')
                 ->where('entries.summary.count', 3)
                 ->where('entries.summary.people', 2)
                 ->has('entries.doctors', 2)
+                ->etc());
+    }
+
+    public function test_known_articles_are_proposed_with_their_amount(): void
+    {
+        $doctor = $this->employee('EMP-D1', benefits: true);
+        AdvantageArticle::query()->create(['name' => 'AUTO CHIR', 'source' => AdvantageSource::Performed, 'unit_price' => '70000', 'active' => true]);
+        AdvantageArticle::query()->create(['name' => 'Retiré', 'source' => AdvantageSource::Performed, 'unit_price' => '1000', 'active' => false]);
+        AdvantageEntry::query()->create(['employee_id' => $doctor->id, 'period' => '2026-08-01', 'amount' => '40000', 'reason' => 'Écho', 'status' => AdvantageEntryStatus::Pending, 'created_by' => $this->hr->id]);
+        AdvantageEntry::query()->create(['employee_id' => $doctor->id, 'period' => '2026-08-01', 'amount' => '50000', 'reason' => 'ECHO', 'status' => AdvantageEntryStatus::Pending, 'created_by' => $this->hr->id]);
+
+        $this->actingAs($this->hr)->get('/administration/bonus?onglet=saisis&mois=2026-09')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('entries.articles', 2)
+                ->where('entries.articles.0', ['label' => 'AUTO CHIR', 'amount' => '70000.00', 'kind' => 'article'])
+                ->where('entries.articles.1', ['label' => 'ECHO', 'amount' => '50000.00', 'kind' => 'history'])
                 ->etc());
     }
 

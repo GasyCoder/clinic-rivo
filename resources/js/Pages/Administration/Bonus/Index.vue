@@ -175,7 +175,7 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
             :icon="Medal"
         >
             <template #actions>
-                <Button v-if="entries && can('advantage_entries.create')" type="button" variant="outline" @click="entriesOpen = true">
+                <Button v-if="entries && tab !== 'entries' && can('advantage_entries.create')" type="button" variant="outline" @click="entriesOpen = true">
                     <HandCoins class="h-4 w-4" />Saisir des avantages
                 </Button>
                 <Button v-if="categories && ['month', 'categories'].includes(tab) && can('bonus_categories.create')" type="button" @click="openCategory()">
@@ -186,9 +186,9 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
 
         <Tabs v-model="tab">
             <TabsList aria-label="Bonus et avantages">
+                <TabsTrigger v-if="entries" value="entries"><HandCoins class="h-4 w-4" />Avantages des médecins · {{ entries.summary.count }}</TabsTrigger>
                 <TabsTrigger value="month"><Trophy class="h-4 w-4" />Bonus du mois</TabsTrigger>
-                <TabsTrigger value="advantages"><Gift class="h-4 w-4" />Avantages à l’acte</TabsTrigger>
-                <TabsTrigger v-if="entries" value="entries"><HandCoins class="h-4 w-4" />Avantages saisis · {{ entries.summary.count }}</TabsTrigger>
+                <TabsTrigger value="advantages"><Gift class="h-4 w-4" />Avantages comptés à l’acte</TabsTrigger>
                 <TabsTrigger v-if="categories" value="categories"><Layers class="h-4 w-4" />Catégories · {{ activeCategories.length }}</TabsTrigger>
             </TabsList>
 
@@ -364,7 +364,7 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
             :month="month"
             :current-month="currentMonth"
             :doctors="entries.doctors"
-            :reasons="entries.reasons"
+            :articles="entries.articles ?? []"
         />
         <BonusCategoryDialog v-if="categories" v-model:open="categoryOpen" :category="editing" :measures="measures" :staff="staff ?? []" />
 

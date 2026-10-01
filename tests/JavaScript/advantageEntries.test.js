@@ -34,3 +34,16 @@ test('entriesPayload ignores blank lines and refuses an incomplete one', () => {
     ]);
     assert.equal(entriesPayload({ a: [{ amount: '1000', reason: '', period }] }), null);
 });
+
+test('an article prefills its line with a readable amount', async () => {
+    const { amountInput, lineFromArticle, findArticle } = await import('../../resources/js/utilities/advantageEntries.js');
+    assert.equal(amountInput('50000.00'), '50 000');
+    assert.equal(amountInput('1500.50'), '1 500,50');
+    assert.equal(amountInput(null), '');
+    assert.deepEqual(lineFromArticle({ label: 'ECHO', amount: '50000.00' }), { reason: 'ECHO', amount: '50 000' });
+    assert.deepEqual(lineFromArticle({ label: 'Garde', amount: null }), { reason: 'Garde', amount: '' });
+    const articles = [{ label: 'Écho', amount: '50000.00' }, { label: 'AUTO CHIR', amount: '70000.00' }];
+    assert.equal(findArticle(articles, 'echo')?.amount, '50000.00');
+    assert.equal(findArticle(articles, 'auto chir')?.label, 'AUTO CHIR');
+    assert.equal(findArticle(articles, 'CHOL'), null);
+});

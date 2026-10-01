@@ -22207,6 +22207,27 @@ retenues, net        aucun calcul (CNAPS, IRSA : règles non définies, ADR-066)
                      fonction cochée « Ouvre droit aux avantages » y figure aussi
 ```
 
+
+## Amendement du 2026-10-01 — la saisie se lit médecin par médecin, les articles en un clic
+
+Constat du propriétaire : l'écran ouvert était « Nouvel article » des avantages comptés à l'acte (ADR-226),
+alors qu'il voulait écrire, pour chaque médecin, « ECHO 50 000 Ar, AUTO CHIR 70 000 Ar, CHOL 50 000 Ar… ».
+Présentation seulement : ni route, ni droit, ni règle de saisie ne change.
+
+```text
+fenêtre      « Saisir des avantages » en pleine largeur : médecins à gauche (recherche, nombre et total
+             de chacun), avantages du médecin choisi à droite — N°, article ou motif, montant, retirer —,
+             « Ajouter une ligne », total ; on passe d'un médecin à l'autre sans rien perdre, tout part
+             d'un seul « Enregistrer (N) » ; Entrée dans un montant ajoute une ligne
+en un clic   `entries.articles` (AdvantageEntryDirectory::articles) : les articles d'avantage actifs à
+             leur prix unitaire, puis les motifs déjà saisis au dernier montant utilisé ; un clic ajoute
+             la ligne préremplie, un motif tapé qui nomme un article reçoit son montant s'il est vide —
+             toujours modifiable, jamais une règle
+onglet       « Avantages des médecins » en premier ; la lecture est une carte par médecin : la liste de
+             ses avantages (article, montant, statut), son total, en attente et payé
+             (« Avantages à l'acte » devient « Avantages comptés à l'acte »)
+```
+
 ---
 
 # ADR-228 — Dettes du personnel : demandées par l'employé, décidées par le DG, remboursées sur la paie ou à la Caisse

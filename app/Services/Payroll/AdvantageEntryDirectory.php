@@ -75,7 +75,32 @@ class AdvantageEntryDirectory
                 'paid_total' => $this->money($entries->where('status', AdvantageEntryStatus::Paid)->sum('amount')),
             ],
             'reasons' => $this->reasons(),
+            'articles' => $this->articles(),
         ];
+    }
+
+    /**
+     * Les avantages proposés en un clic, avec leur montant : les articles d'avantage à leur
+     * prix unitaire, puis les motifs déjà saisis au dernier montant utilisé. Une proposition,
+     * jamais une règle : le montant reste modifiable avant l'envoi.
+     *
+     * @return list<array{label: string, amount: ?string, kind: string}>
+     */
+    public function articles(): array
+    {
+        $articles = AdvantageArticle::query()->where('active', true)->orderBy('name')->get(['name', 'unit_price'])->toBase()
+            ->map(fn (AdvantageArticle $article) => ['label' => Str::squish((string) $article->name), 'amount' => $this->money($article->unit_price), 'kind' => 'article']);
+
+        $history = AdvantageEntry::query()->orderByDesc('id')->limit(500)->get(['reason', 'amount'])->toBase()
+            ->map(fn (AdvantageEntry $entry) => ['label' => Str::squish((string) $entry->reason), 'amount' => $this->money($entry->amount), 'kind' => 'history']);
+
+        return $articles->merge($history)
+            ->filter(fn (array $item) => $item['label'] !== '')
+            ->unique(fn (array $item) => Str::lower(Str::ascii($item['label'])))
+            ->sortBy(fn (array $item) => [$item['kind'] === 'article' ? 0 : 1, Str::lower(Str::ascii($item['label']))])
+            ->take(60)
+            ->values()
+            ->all();
     }
 
     /** Motifs proposés : les articles d'avantage (ECHO, ECG…) puis les motifs déjà saisis. */

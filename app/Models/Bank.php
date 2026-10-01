@@ -50,9 +50,15 @@ class Bank extends Model
         return $this->active && ! $this->trashed();
     }
 
+    /** ADR-239 — les modes de paiement « Banque » qui la désignent. */
+    public function paymentMethods(): HasMany
+    {
+        return $this->hasMany(PaymentMethod::class);
+    }
+
     public function isForceDeleteProtected(): bool
     {
-        return $this->employees()->withTrashed()->exists();
+        return $this->employees()->withTrashed()->exists() || $this->paymentMethods()->exists();
     }
 
     protected function auditModule(): ?string

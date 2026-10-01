@@ -3,6 +3,7 @@
 namespace App\Services\Cash;
 
 use App\Enums\PaymentMethodCategory;
+use App\Models\Bank;
 use App\Models\PaymentMethod;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -13,13 +14,17 @@ class PaymentMethodManager
         string $code,
         string $name,
         PaymentMethodCategory $category,
+        ?Bank $bank,
         bool $affectsCashBalance,
         bool $requiresReference = false,
+        ?string $categoryDetail = null,
     ): PaymentMethod {
         $code = $this->validatedCode($code);
-        $name = $this->validatedName($name);
+        $bank = $this->validatedBank($category, $bank);
+        $name = $this->resolvedName($name, $bank);
+        $categoryDetail = $this->validatedCategoryDetail($category, $categoryDetail);
 
-        return DB::transaction(function () use ($code, $name, $category, $affectsCashBalance, $requiresReference): PaymentMethod {
+        return DB::transaction(function () use ($code, $name, $category, $bank, $categoryDetail, $affectsCashBalance, $requiresReference): PaymentMethod {
             $existing = PaymentMethod::query()->where('code', $code)->lockForUpdate()->first();
 
             if ($existing) {
@@ -34,6 +39,8 @@ class PaymentMethodManager
                 'code' => $code,
                 'name' => $name,
                 'category' => $category->value,
+                'bank_id' => $bank?->getKey(),
+                'category_detail' => $categoryDetail,
                 'active' => true,
                 'affects_cash_balance' => $affectsCashBalance,
                 'requires_reference' => $requiresReference,
@@ -50,14 +57,20 @@ class PaymentMethodManager
         PaymentMethod $method,
         string $name,
         PaymentMethodCategory $category,
+        ?Bank $bank,
         bool $affectsCashBalance,
         bool $requiresReference = false,
+        ?string $categoryDetail = null,
     ): PaymentMethod {
-        $name = $this->validatedName($name);
+        $bank = $this->validatedBank($category, $bank, $method);
+        $name = $this->resolvedName($name, $bank);
+        $categoryDetail = $this->validatedCategoryDetail($category, $categoryDetail, $method);
 
         $method->update([
             'name' => $name,
             'category' => $category->value,
+            'bank_id' => $bank?->getKey(),
+            'category_detail' => $categoryDetail,
             'affects_cash_balance' => $affectsCashBalance,
             'requires_reference' => $requiresReference,
         ]);
@@ -123,5 +136,69 @@ class PaymentMethodManager
         }
 
         return $name;
+    }
+
+    /**
+     * ADR-239 — un mode « Banque » désigne une banque active du référentiel du
+     * site. Seule exception : un mode générique déjà en service sans banque
+     * (« Chèque », « Virement bancaire ») se corrige sans en choisir une —
+     * lui en imposer une inventerait une donnée.
+     */
+    private function validatedBank(PaymentMethodCategory $category, ?Bank $bank, ?PaymentMethod $existing = null): ?Bank
+    {
+        if ($category !== PaymentMethodCategory::Bank) {
+            return null;
+        }
+
+        if ($bank === null && $existing !== null && $existing->category === PaymentMethodCategory::Bank && $existing->bank_id === null) {
+            return null;
+        }
+
+        // Une banque archivée depuis reste acceptée pour le mode qui la porte déjà.
+        $keepsItsBank = $bank !== null && $existing !== null && $existing->bank_id === $bank->getKey();
+
+        if (! $bank || (! $bank->isAvailable() && ! $keepsItsBank)) {
+            throw ValidationException::withMessages([
+                'bank_uuid' => 'Choisissez une banque active dans le référentiel du site.',
+            ]);
+        }
+
+        return $bank;
+    }
+
+    /** Un libellé laissé vide pour un mode « Banque » prend le nom de la banque. */
+    private function resolvedName(?string $name, ?Bank $bank): string
+    {
+        if ($bank !== null && blank(str((string) $name)->squish()->toString())) {
+            return $this->validatedName("{$bank->code} — {$bank->name}");
+        }
+
+        return $this->validatedName((string) $name);
+    }
+
+    /**
+     * ADR-239 — « Autre » se nomme (« Carte bancaire », « Bon d'achat »…) ; les
+     * autres catégories n'en ont pas besoin. Le mode générique « Autre » déjà en
+     * service sans précision se corrige sans qu'on lui en invente une.
+     */
+    private function validatedCategoryDetail(PaymentMethodCategory $category, ?string $detail, ?PaymentMethod $existing = null): ?string
+    {
+        if ($category !== PaymentMethodCategory::Other) {
+            return null;
+        }
+
+        $detail = str((string) $detail)->squish()->toString();
+
+        if ($detail === '' && $existing !== null && $existing->category === PaymentMethodCategory::Other && blank($existing->category_detail)) {
+            return null;
+        }
+
+        if (mb_strlen($detail) < 2 || mb_strlen($detail) > 60) {
+            throw ValidationException::withMessages([
+                'category_detail' => 'Précisez la catégorie de ce mode (2 à 60 caractères), par exemple « Carte bancaire ».',
+            ]);
+        }
+
+        return $detail;
     }
 }

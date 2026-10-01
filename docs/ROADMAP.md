@@ -122,6 +122,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Facture lignes
 - [x] Postes de caisse nommés et concurrents, supervisés par site via API (ADR-058 à ADR-060)
 - [x] Attribution facultative à un compte Réception/Caisse, couleur, fond initial fixe et graphiques de détail (ADR-224)
+- [x] Modes de paiement : « Banque » choisi dans le référentiel des banques du site, « Autre » avec sa catégorie saisie ; modes génériques existants gardés tels quels ; page du portail refaite en shadcn (ADR-239)
 - [ ] Paiements
 - [ ] Paiements partiels
 - [x] Sorties & règlements : file des passages en attente de règlement, contrôle du compte (§33.2) et sortie administrative payé comptant / dette validée / évadé (ADR-090)

@@ -23175,3 +23175,54 @@ ADR-186). Fusionner exige `update` et `archive`.
 modes Choix             Négatif / Positif et Absence / Présence acceptés aussi en « Choix », parce que des analyses
                         importées les portent ainsi ; les réserver à « Oui / Non » est à décider
 Excel du catalogue      l'import et l'export ne portent pas la discipline : elle se règle dans la fiche
+
+---
+
+# ADR-239 — Un mode de paiement « Banque » désigne une banque du référentiel ; « Autre » nomme sa catégorie
+
+**Status:** ACCEPTED (2026-10-01 — exigence explicite du propriétaire : « lorsque Catégorie = Banque on peut choisir
+la liste des banques qui existent déjà ; lorsqu'on clique Autre catégorie on peut saisir un champ », et la page
+`/super-admin/payment-methods` refaite en shadcn)
+
+**Complète l'ADR-221** (référentiel des banques par site) et **l'ADR-058** (modes de paiement par site). Aucune règle
+d'encaissement ne change : seule la Réception / Caisse encaisse (ADR-012).
+
+## La règle
+
+```text
+Banque      payment_methods.bank_id : une banque active du référentiel du site (RH › Banques), exigée à la
+            création. Libellé facultatif : vide, il devient « BOA — Bank of Africa » ; un libellé écrit
+            (« Chèque BOA ») est gardé. Plusieurs modes peuvent désigner la même banque
+Autre       payment_methods.category_detail (60 caractères) : la catégorie nommée en clair (« Carte bancaire »),
+            exigée ; elle se lit « Autre · Carte bancaire »
+les autres  ni banque ni précision : le serveur les efface, le portail ne les envoie pas
+```
+
+**Rien d'inventé sur l'existant.** Les modes génériques déjà en service — « Chèque » et « Virement bancaire » en
+catégorie Banque, « Autre » sans précision — ne sont reliés à rien par la migration et restent modifiables tels
+quels : leur imposer une banque ou une précision fabriquerait une donnée. Ils se lisent « Banque · toutes banques ».
+Une banque archivée depuis reste lisible et acceptée sur le mode qui la désignait (« banque archivée ») ; elle n'est
+plus proposée à un nouveau mode. Une banque désignée par un mode ne se supprime pas définitivement
+(`Bank::isForceDeleteProtected`), et la base le refuse aussi (`restrictOnDelete`).
+
+`PaymentMethodManager` porte ces règles ; l'API du site (`/api/v1/super-admin/payment-methods`) sert les banques
+actives dans `meta.banks` et revérifie tout ; le portail ne relaie que les champs de la catégorie choisie.
+
+## L'écran
+
+`/super-admin/payment-methods` en shadcn (ADR-099) : sites en onglets avec leur état, compteurs-filtres (Tous,
+Actifs, Désactivés, Fond de caisse), recherche (libellé, code, banque, précision, sans accents) et filtre par
+catégorie, tableau avec icône et pastilles. La fiche s'ouvre dans une fenêtre : la catégorie se choisit en cartes ;
+« Banque » fait apparaître la liste cherchable des banques du site (et le lien vers RH › Banques quand il n'y en a
+aucune), « Autre » le champ « Précisez la catégorie ». Le code se propose (BANK_BOA, OTHER_CARTE_BANCAIRE…) tant
+qu'on ne l'a pas écrit, et ne change plus après la création ; les réglages de caisse usuels de la catégorie sont
+proposés à la création, jamais imposés. Désactiver ou réactiver passe par une confirmation. Règles d'écran dans
+`utilities/paymentMethods.js`.
+
+Migration `2026_12_10_090000_link_payment_methods_to_banks`, à jouer sur chaque site. Aucune permission nouvelle.
+
+## Signalé, non tranché
+
+```text
+mobile money   les opérateurs (MVola, Orange Money, Airtel Money) restent des libellés écrits : un référentiel
+               d'opérateurs n'a pas été demandé

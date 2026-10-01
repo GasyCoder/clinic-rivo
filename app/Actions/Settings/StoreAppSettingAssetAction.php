@@ -27,6 +27,10 @@ use Throwable;
  */
 class StoreAppSettingAssetAction
 {
+    private const BACKGROUND_WIDTH = 1600;
+
+    private const BACKGROUND_QUALITY = 70;
+
     private const COLUMNS = ['logo' => 'logo_path', 'icon' => 'icon_path', 'signature' => 'signature_path', 'background' => 'auth_background_path', 'badge' => 'badge_logo_path', 'lab_logo' => 'lab_report_logo_path'];
 
     public function __construct(
@@ -39,11 +43,18 @@ class StoreAppSettingAssetAction
         $column = $this->column($kind);
         $this->authorize($actor);
 
-        $path = $file->storeAs(
-            'branding',
-            $kind.'-'.Str::uuid().'.'.strtolower($file->getClientOriginalExtension() ?: $file->extension()),
-            AppSettings::DISK,
-        );
+        $reduced = $kind === 'background' ? $this->reducedBackground($file) : null;
+
+        if ($reduced !== null) {
+            $path = 'branding/'.$kind.'-'.Str::uuid().'.jpg';
+            Storage::disk(AppSettings::DISK)->put($path, $reduced);
+        } else {
+            $path = $file->storeAs(
+                'branding',
+                $kind.'-'.Str::uuid().'.'.strtolower($file->getClientOriginalExtension() ?: $file->extension()),
+                AppSettings::DISK,
+            );
+        }
 
         try {
             return $this->replace($kind, $column, $path, $actor, 'app_settings.asset.update');
@@ -92,6 +103,46 @@ class StoreAppSettingAssetAction
         $this->settings->forget();
 
         return $setting;
+    }
+
+    /**
+     * L'image de fond des pages de connexion couvre l'écran sous un voile sombre :
+     * une photo de 2 Mo s'y voit comme une photo de 200 Ko, mais se télécharge dix
+     * fois plus lentement — depuis Madagascar, plusieurs secondes avant que la page
+     * paraisse finie. Elle est ramenée à BACKGROUND_WIDTH px de large en JPEG
+     * progressif. Sans GD, ou sur une image illisible, le fichier déposé est gardé
+     * tel quel : rien n'est refusé pour une optimisation.
+     */
+    private function reducedBackground(UploadedFile $file): ?string
+    {
+        if (! function_exists('imagecreatefromstring')) {
+            return null;
+        }
+
+        try {
+            $image = @imagecreatefromstring((string) file_get_contents($file->getRealPath()));
+
+            if ($image === false) {
+                return null;
+            }
+
+            $scaled = imagesx($image) > self::BACKGROUND_WIDTH
+                ? imagescale($image, self::BACKGROUND_WIDTH, -1, IMG_BICUBIC)
+                : $image;
+
+            // Un PNG transparent posé sur du blanc, jamais sur du noir par défaut.
+            $canvas = imagecreatetruecolor(imagesx($scaled ?: $image), imagesy($scaled ?: $image));
+            imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
+            imagecopy($canvas, $scaled ?: $image, 0, 0, 0, 0, imagesx($canvas), imagesy($canvas));
+            imageinterlace($canvas, true);
+
+            ob_start();
+            imagejpeg($canvas, null, self::BACKGROUND_QUALITY);
+
+            return (string) ob_get_clean() ?: null;
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     private function column(string $kind): string

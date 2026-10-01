@@ -1,0 +1,8 @@
+# Les images de la marque (fond de connexion, logo, emblème du badge) n'ont pas
+# d'empreinte dans leur nom : le navigateur les garde 7 jours, puis redemande au
+# serveur si elles ont changé. Sans cet en-tête, l'hébergeur n'envoyait aucun
+# Cache-Control, et la page de connexion pouvait retélécharger ses images à chaque
+# ouverture.
+<IfModule mod_headers.c>
+    Header set Cache-Control "public, max-age=604800"
+</IfModule>

@@ -21,6 +21,7 @@ const monogram = computed(() => monogramOf(site.value.brand));
             v-if="logoUrl"
             :src="logoUrl"
             :alt="`Logo ${site.brand}`"
+            fetchpriority="high"
             class="mx-auto h-auto w-full max-w-[270px] object-contain object-center"
         />
         <div v-else class="flex items-center justify-center gap-3">

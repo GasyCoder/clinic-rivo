@@ -107,6 +107,28 @@ class ScreenTemplatesTest extends TestCase
         $this->get('/login')->assertInertia(fn ($page) => $page->where('site.authCoverUrl', $url));
     }
 
+    public function test_a_large_background_is_reduced_to_a_light_jpeg_before_it_is_kept(): void
+    {
+        // Une photo de 2 Mo sous le voile sombre de la connexion s'y voit comme une
+        // de 200 Ko, mais se télécharge dix fois plus lentement depuis Madagascar.
+        $this->withHeaders($this->headers(['settings.update']))
+            ->post(self::URL.'/assets/background', ['file' => UploadedFile::fake()->image('fond.png', 3000, 2000)])
+            ->assertOk();
+
+        $path = AppSetting::query()->value('auth_background_path');
+        $this->assertStringEndsWith('.jpg', $path);
+        [$width, $height, $type] = getimagesizefromstring(Storage::disk(AppSettings::DISK)->get($path));
+        $this->assertSame([1600, IMAGETYPE_JPEG], [$width, $type]);
+        $this->assertEqualsWithDelta(1067, $height, 1);
+
+        // Une image déjà petite garde sa taille : on ne l'agrandit jamais.
+        $this->withHeaders($this->headers(['settings.update']))
+            ->post(self::URL.'/assets/background', ['file' => UploadedFile::fake()->image('petit.jpg', 900, 600)])
+            ->assertOk();
+        $path = AppSetting::query()->value('auth_background_path');
+        $this->assertSame(900, getimagesizefromstring(Storage::disk(AppSettings::DISK)->get($path))[0]);
+    }
+
     public function test_a_removed_background_falls_back_to_the_clinic_image(): void
     {
         $headers = $this->headers(['settings.update']);

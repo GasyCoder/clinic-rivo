@@ -6,6 +6,7 @@ use App\Services\Administration\HrOverviewService;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Dashboard\ClinicOverviewService;
 use App\Services\Dashboard\SiteReportService;
+use App\Services\Gateway\GatewayBranding;
 use App\Services\Pharmacy\PharmacyWorkspaceService;
 use App\Services\SuperAdmin\PortalDirectory;
 use App\Services\SuperAdmin\PortalSiteApiClient;
@@ -48,6 +49,9 @@ class HomeController extends Controller
                     'url' => $clinic['url'],
                 ]),
                 'adminUrl' => config('rivo.admin_url'),
+                // ADR-184 — les logos réglés sur chaque site et sur le portail,
+                // lus par HTTP après l'affichage : la page n'attend aucun site.
+                'branding' => Inertia::defer(fn () => app(GatewayBranding::class)->snapshot()),
             ]);
         }
 

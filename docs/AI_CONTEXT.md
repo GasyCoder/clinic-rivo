@@ -257,7 +257,7 @@ image de fond (`background`, `/branding/background`), `profile_template`
 (`ProfileController`) : lecture du compte et des droits effectifs, et
 changement de son mot de passe (`ChangeOwnPasswordAction` : ancien exigé,
 `SecurePassword`, autres sessions fermées, audit `user.password.change`) ;
-nom, email, rôle et droits restent à l'administration (ADR-022).
+nom, email, rôle et droits restent à l'administration (ADR-022). Passerelle (amendement du 2026-10-02) : chaque déploiement sert son identité publique `GET /branding/identity` (enseigne, logo, icône absolus, maintenance) ; `GatewayBranding` la lit sur les sites et le portail (Http::pool, 3 s, cache 10 min / 1 min en échec, images du même hôte seulement) et `SiteSelect.vue` (shadcn) la reçoit en prop différée `branding` — logo central du portail, logo de chaque site sur sa carte, état Disponible / En maintenance / Indisponible.
 
 **Réinitialisation globale des paramètres** (ADR-210). Depuis chaque module de Paramètres, le bouton
 

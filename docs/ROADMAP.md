@@ -1120,6 +1120,7 @@ admin.rivo.mg
 - [ ] Tests restauration
 - [x] Performance : la liste des permissions n'est plus relue en base à chaque vérification de droit (47 lectures sur la vue d'ensemble), mémorisée une fois par requête
 - [x] Performance : fichiers JS/CSS de `public/build/assets` mis en cache un an par le navigateur (`immutable`) ; l'hébergeur n'envoyait aucun Cache-Control
+- [x] Page de connexion allégée : image de fond 742 → 216 Ko (1600 px, JPEG progressif), logo 330 → 32 Ko (800 px), images de la marque en cache 7 jours, photo chargée après le logo ; une image de fond téléversée est réduite à 1600 px à l'enregistrement
 - [x] Script de diagnostic de lenteur à lancer sur le serveur (`scripts/diagnose-performance.sh`) : temps serveur sans réseau, OPcache web, caches Laravel, latence base
 - [ ] Prod : OPcache web, `php artisan optimize`, `APP_ENV=production` / `APP_DEBUG=false`, cache et sessions hors base — à vérifier avec le script
 - [ ] Monitoring

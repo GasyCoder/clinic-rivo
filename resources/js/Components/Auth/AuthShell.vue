@@ -38,7 +38,7 @@ const brand = computed(() => site.value.brand ?? 'Clinique Saint Georges');
     <!-- Couverture : l'image plein écran, la carte à droite. -->
     <div v-if="template === 'COVER'" class="relative min-h-screen overflow-hidden bg-slate-950" data-auth-template="COVER">
         <div class="absolute inset-0" aria-hidden="true">
-            <img v-if="coverUrl" :src="coverUrl" alt="" class="h-full w-full object-cover object-center" />
+            <img v-if="coverUrl" :src="coverUrl" alt="" decoding="async" fetchpriority="low" class="h-full w-full object-cover object-center" />
             <div class="absolute inset-0 bg-slate-950/35" />
             <div class="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-slate-950/15" />
             <!-- Au-dessus du choix d'apparence, posé en bas à gauche par GuestLayout. -->
@@ -80,7 +80,7 @@ const brand = computed(() => site.value.brand ?? 'Clinique Saint Georges');
             <footer class="px-5 pb-20 text-center text-xs text-muted-foreground lg:pb-8"><Copyright :brand="brand" /></footer>
         </div>
         <aside :class="cn('relative hidden overflow-hidden lg:block', coverUrl ? 'bg-slate-950' : 'bg-primary')" aria-hidden="true">
-            <img v-if="coverUrl" :src="coverUrl" alt="" class="absolute inset-0 h-full w-full object-cover object-center" />
+            <img v-if="coverUrl" :src="coverUrl" alt="" decoding="async" fetchpriority="low" class="absolute inset-0 h-full w-full object-cover object-center" />
             <div v-if="coverUrl" class="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/10 to-transparent" />
             <div class="absolute inset-x-0 bottom-0 p-10 text-white xl:p-14">
                 <p class="text-xs font-bold uppercase tracking-[0.18em] text-white/75">{{ brand }} · {{ siteLabel }}</p>

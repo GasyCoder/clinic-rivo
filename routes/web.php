@@ -18,6 +18,7 @@ use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BrandingAssetController;
+use App\Http\Controllers\BrandingIdentityController;
 use App\Http\Controllers\CareController;
 use App\Http\Controllers\CashController;
 use App\Http\Controllers\CashStaffDebtController;
@@ -127,6 +128,10 @@ Route::get('/', HomeController::class)->name('dashboard')->middleware('account.d
 Route::get('/branding/{kind}', BrandingAssetController::class)
     ->whereIn('kind', BrandingAssetController::PUBLIC_KINDS)
     ->name('branding.show');
+
+// ADR-184 — l'identité publique du déploiement (enseigne, logo, icône), lue
+// par la passerelle pour afficher le logo de chaque site.
+Route::get('/branding/identity', BrandingIdentityController::class)->name('branding.identity');
 
 // ADR-184 — robots.txt suit le réglage « moteurs de recherche » du site.
 Route::get('/robots.txt', RobotsTxtController::class)->name('robots');

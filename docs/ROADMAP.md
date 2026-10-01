@@ -1037,6 +1037,7 @@ admin.rivo.mg
 - [ ] Tranches d'âge à la modification d'un dossier patient existant — non contraintes aujourd'hui (ADR-184)
 - [x] Devise ou slogan réglable par site, sur la page de connexion, à la place de la phrase écrite en dur (ADR-184, amendement du 2026-09-24)
 - [x] Case « Masquer l'application des moteurs de recherche », cochée par défaut : robots.txt « Disallow: / », balise et en-tête « noindex » sur chaque réponse (ADR-184, amendement du 2026-09-24)
+- [x] Page de choix du site (rivo.mg) refaite en shadcn : logo réglé sur chaque site et logo central du portail, lus par l'identité publique de chaque déploiement (`/branding/identity`), sans attendre aucun site ; état Disponible / En maintenance / Indisponible (ADR-184, amendement du 2026-10-02)
 - [ ] Devise imprimée sur les documents (factures, reçus, ordonnances) — non fait : changerait d'office tous les en-têtes, à décider (ADR-184)
 - [x] Modèles des pages d'authentification choisis par site (Couverture, Partagé, Centré — inspirés de DashWind, en shadcn), un pour toutes les pages ; image de fond de connexion déposée par site (ADR-184, amendement bis)
 - [x] Page « Mon profil » : identité, rôle, droits effectifs, et changement de son mot de passe (ancien exigé, autres sessions fermées, audité) ; deux modèles choisis par site (ADR-184, amendement bis)

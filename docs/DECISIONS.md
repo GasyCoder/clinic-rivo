@@ -16830,6 +16830,33 @@ moi » est renouvelé, et l'action est auditée (`user.password.change`) sans ja
 passe. Aucune permission : c'est son propre compte. La garde « base non migrée » vérifie désormais
 aussi la dernière colonne ajoutée.
 
+## Amendement du 2026-10-02 — la passerelle affiche le logo de chaque site et un logo central
+
+Demande du propriétaire : refaire la page de choix du site (rivo.mg) en shadcn, avec le logo réglé dans
+les Paramètres de chaque site et un logo central. Ces logos vivent dans la base de chaque déploiement ;
+la passerelle n'y touche jamais (ADR-004).
+
+```text
+identité publique  GET /branding/identity sur chaque déploiement (BrandingIdentityController), sans
+                   connexion : enseigne, devise, logo, icône (adresses absolues), logo propre ou non,
+                   maintenance en cours. Rien d'autre — ni signature, ni coordonnées, ni donnée métier ;
+                   ouverte pendant une maintenance (branding/*), gardée 5 minutes en cache public
+lecture            GatewayBranding lit les sites et le portail (rivo.admin_url) en même temps,
+                   3 secondes au plus, garde le résultat 10 minutes (1 minute après un échec) ; seule
+                   une image servie par le déploiement lui-même est retenue
+page               prop différée `branding` : la page s'affiche sans attendre aucun site, une place
+                   réservée tient le logo jusqu'à la réponse
+logo central       celui du portail ; s'il ne répond pas, celui de la passerelle ; sinon les initiales
+logo d'un site     son logo réglé (sinon le logo du déploiement), puis son icône, puis un bâtiment ;
+                   une image qui ne se charge pas cède la place à la suivante
+état               Disponible · En maintenance · Indisponible (pas encore déployé, ou injoignable) ;
+                   le lien reste cliquable
+```
+
+`Pages/SiteSelect.vue` est réécrite en shadcn (cartes, Badge, Checkbox, Button), règles d'écran dans
+`utilities/gatewaySites.js`. Le site habituel reste retenu sur le poste seulement, lu après le rendu
+serveur. Aucune permission, aucune migration.
+
 ---
 
 # ADR-185 — Apparence Clair / Système / Sombre et squelette de chargement des pages

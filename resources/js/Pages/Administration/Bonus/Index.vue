@@ -13,7 +13,6 @@ import {
     Hourglass,
     Layers,
     Medal,
-    Gift,
     HandCoins,
     Pencil,
     Plus,
@@ -34,7 +33,6 @@ import TabsList from '@/Components/Shadcn/TabsList.vue';
 import TabsTrigger from '@/Components/Shadcn/TabsTrigger.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
-import AdvantagesPanel from '@/Components/Bonus/AdvantagesPanel.vue';
 import AdvantageEntriesDialog from '@/Components/Bonus/AdvantageEntriesDialog.vue';
 import AdvantageEntriesPanel from '@/Components/Bonus/AdvantageEntriesPanel.vue';
 import BonusCategoryDialog from '@/Components/Bonus/BonusCategoryDialog.vue';
@@ -63,20 +61,15 @@ const props = defineProps({
     /** `null` sans `bonus_categories.view` : l'onglet n'existe pas. */
     categories: { type: Array, default: null },
     staff: { type: Array, default: null },
-    /** Onglet ouvert à l'arrivée : « bonus » ou « advantages » (`?onglet=avantages`). */
+    /** Onglet ouvert à l'arrivée : « bonus » ou « entries » (`?onglet=saisis`). */
     tab: { type: String, default: 'bonus' },
-    /** Avantages à l'acte (ADR-226). */
-    advantages: { type: Object, required: true },
-    advantageSources: { type: Array, default: () => [] },
-    advantageArticles: { type: Array, default: null },
-    catalogChoices: { type: Array, default: null },
     /** Avantages saisis (ADR-227) ; `null` sans `advantage_entries.view`. */
     entries: { type: Object, default: null },
 });
 
 const { can } = usePermissions();
 
-const tab = ref(props.tab === 'entries' && props.entries ? 'entries' : props.tab === 'advantages' ? 'advantages' : (props.board.categories.length || ! props.categories ? 'month' : 'categories'));
+const tab = ref(props.tab === 'entries' && props.entries ? 'entries' : (props.board.categories.length || ! props.categories ? 'month' : 'categories'));
 const filter = ref('all');
 const entriesOpen = ref(false);
 
@@ -171,7 +164,7 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
         <PageHeader
             eyebrow="Ressources humaines · Pilotage"
             title="Bonus et avantages du personnel"
-            description="Bonus : un seuil de patients par mois. Avantages : un prix par acte réalisé ou par patient référé. RIVO compte, les RH valident ; le versement se fait hors RIVO."
+            description="Avantages : saisis pour chaque médecin (article et montant), ils rejoignent la paie du mois. Bonus : un seuil de patients par mois, compté par RIVO et validé par les RH. Le versement se fait hors RIVO."
             :icon="Medal"
         >
             <template #actions>
@@ -188,7 +181,6 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
             <TabsList aria-label="Bonus et avantages">
                 <TabsTrigger v-if="entries" value="entries"><HandCoins class="h-4 w-4" />Avantages des médecins · {{ entries.summary.count }}</TabsTrigger>
                 <TabsTrigger value="month"><Trophy class="h-4 w-4" />Bonus du mois</TabsTrigger>
-                <TabsTrigger value="advantages"><Gift class="h-4 w-4" />Avantages comptés à l’acte</TabsTrigger>
                 <TabsTrigger v-if="categories" value="categories"><Layers class="h-4 w-4" />Catégories · {{ activeCategories.length }}</TabsTrigger>
             </TabsList>
 
@@ -309,17 +301,6 @@ const archivedCategories = computed(() => (props.categories ?? []).filter((categ
                         </li>
                     </ul>
                 </Card>
-            </TabsContent>
-
-            <TabsContent value="advantages">
-                <AdvantagesPanel
-                    :month="month"
-                    :current-month="currentMonth"
-                    :board="advantages"
-                    :sources="advantageSources"
-                    :articles="advantageArticles"
-                    :catalog="catalogChoices"
-                />
             </TabsContent>
 
             <TabsContent v-if="entries" value="entries">

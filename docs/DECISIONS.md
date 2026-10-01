@@ -22090,7 +22090,7 @@ Lus sur la fiche (carte Rémunération et banque) et la fiche imprimée. Migrati
 
 # ADR-226 — Salaire et avantages ensemble ; avantages à l'acte dans le module Bonus
 
-**Status:** ACCEPTED (2026-09-30 — demande du propriétaire, avec la feuille « Avantage_Reference » de la clinique : ECHO, ECG, CHIR, Chir Laparo, AUTO CHIR… en quantité × prix unitaire ; quatre arbitrages explicites)
+**Status:** ACCEPTED (2026-09-30 — demande du propriétaire, avec la feuille « Avantage_Reference » de la clinique : ECHO, ECG, CHIR, Chir Laparo, AUTO CHIR… en quantité × prix unitaire ; quatre arbitrages explicites) ; **les avantages comptés à l'acte sont retirés le 2026-10-01** à la demande du propriétaire (amendement de l'ADR-227) — la case « Avantages » (salaire et avantages ensemble) reste en vigueur
 
 **Amende l'ADR-206** (la rémunération n'était qu'un seul choix Salaire / Indemnité / Non rémunéré) et **l'ADR-221** (les avantages n'étaient ouverts que par la fonction). **Complète l'ADR-212** (bonus du personnel). Le CDC ne décrit ni avantage, ni prime à l'acte : les règles ci-dessous sont celles du propriétaire. Aucune paie n'est calculée (ADR-066) : un avantage est compté, validé et tracé, jamais retenu ni ajouté à un net.
 
@@ -22180,8 +22180,7 @@ dont la rémunération a un montant, ou qui a des avantages ce mois-ci,
 salaire de base déclaré (ADR-206)
 + avantages déclarés sur la fiche, en vigueur ce mois (ADR-221)
 + avantages saisis en attente (ADR-227)
-+ avantage à l'acte validé du mois (ADR-226)
-= montant à verser, brut
+= montant à verser, brut       (l'avantage à l'acte de l'ADR-226 est retiré le 2026-10-01)
 ```
 
 « Marquer payé » (`PaySalaryAction`) recompte côté serveur, fige lignes et total sur `salary_payments`
@@ -22219,14 +22218,23 @@ fenêtre      « Saisir des avantages » en pleine largeur : médecins à gauche
              de chacun), avantages du médecin choisi à droite — N°, article ou motif, montant, retirer —,
              « Ajouter une ligne », total ; on passe d'un médecin à l'autre sans rien perdre, tout part
              d'un seul « Enregistrer (N) » ; Entrée dans un montant ajoute une ligne
-en un clic   `entries.articles` (AdvantageEntryDirectory::articles) : les articles d'avantage actifs à
-             leur prix unitaire, puis les motifs déjà saisis au dernier montant utilisé ; un clic ajoute
-             la ligne préremplie, un motif tapé qui nomme un article reçoit son montant s'il est vide —
-             toujours modifiable, jamais une règle
+en un clic   `entries.articles` (AdvantageEntryDirectory::articles) : les motifs déjà saisis, au dernier
+             montant utilisé ; un clic ajoute la ligne préremplie, un motif tapé qui nomme un article
+             connu reçoit son montant s'il est vide — toujours modifiable, jamais une règle
 onglet       « Avantages des médecins » en premier ; la lecture est une carte par médecin : la liste de
              ses avantages (article, montant, statut), son total, en attente et payé
-             (« Avantages à l'acte » devient « Avantages comptés à l'acte »)
 ```
+
+**Les avantages comptés à l'acte (ADR-226) sont retirés**, sur décision du propriétaire, le même jour :
+la saisie par médecin les remplace. Retirés : articles d'avantage (`advantage_articles`, leurs actes),
+`advantage_awards`, `salary_payments.advantage_award_id`, le comptage (`AdvantageMeter`, `AdvantageBoard`),
+leurs routes `/administration/bonus/avantages/articles*` et `/awards*`, l'onglet et sa fenêtre. La paie
+ne compte plus que salaire de base, avantages de la fiche et avantages saisis. La migration
+`2026_12_06_090000_drop_act_advantages` **s'arrête** si un avantage à l'acte validé ou versé existe : rien
+ne se perd en silence ; une paie déjà payée garde sa ligne figée « Avantages à l'acte », toujours lisible.
+`?onglet=avantages` mène à « Avantages des médecins ». Reste : la case « Avantages » du dossier
+(`employees.benefits_enabled`), qui ouvre la saisie pour une personne. Aucune permission retirée : les
+droits des bonus (`bonus_categories.*`, `bonus_awards.*`) restent ceux de l'ADR-212.
 
 ---
 

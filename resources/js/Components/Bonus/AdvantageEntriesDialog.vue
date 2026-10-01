@@ -26,15 +26,15 @@ import {
  * ADR-227 — « Saisir des avantages », médecin par médecin : la liste des médecins à gauche
  * (personnes dont les avantages sont ouverts, jamais un nom libre), ses avantages à droite —
  * article ou motif, montant —, autant de lignes qu'il en faut, pour autant de médecins qu'on
- * veut. Les articles connus (ECHO 50 000, AUTO CHIR 70 000…) s'ajoutent d'un clic, au montant
- * proposé, toujours modifiable. Tout part d'un geste ; le serveur revalide chaque ligne.
+ * veut. Les articles déjà saisis (ECHO 50 000, AUTO CHIR 70 000…) s'ajoutent d'un clic, au
+ * dernier montant utilisé, toujours modifiable. Tout part d'un geste ; le serveur revalide chaque ligne.
  */
 const props = defineProps({
     open: { type: Boolean, default: false },
     month: { type: String, required: true },
     currentMonth: { type: String, required: true },
     doctors: { type: Array, default: () => [] },
-    /** Articles proposés en un clic : `{ label, amount, kind: 'article' | 'history' }`. */
+    /** Articles déjà saisis, proposés en un clic au dernier montant utilisé : `{ label, amount }`. */
     articles: { type: Array, default: () => [] },
 });
 const emit = defineEmits(['update:open']);
@@ -225,7 +225,7 @@ const firstError = computed(() => form.errors.lines ?? Object.values(form.errors
                                 :key="article.label"
                                 type="button"
                                 class="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-primary/5"
-                                :title="article.kind === 'article' ? 'Article d’avantage, à son prix unitaire' : 'Déjà saisi, au dernier montant utilisé'"
+                                :title="`Déjà saisi : ${article.label}, au dernier montant utilisé`"
                                 @click="addArticle(current.uuid, article)"
                             >
                                 <Plus class="h-3 w-3 text-muted-foreground" />{{ article.label }}

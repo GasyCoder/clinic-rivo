@@ -45,6 +45,7 @@ const LINE_KINDS = {
     BASE: { label: 'Salaire de base', icon: Wallet },
     DECLARED: { label: 'Avantage de la fiche', icon: Gift },
     ENTRY: { label: 'Avantage saisi', icon: HandCoins },
+    // Retiré (ADR-226) : reste lisible sur une paie déjà payée, dont les lignes sont figées.
     ACTS: { label: 'Avantages à l’acte', icon: Gift },
     DEBT: { label: 'Retenue de dette', icon: Landmark },
 };

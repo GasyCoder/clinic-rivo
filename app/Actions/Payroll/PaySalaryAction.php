@@ -3,10 +3,8 @@
 namespace App\Actions\Payroll;
 
 use App\Enums\AdvantageEntryStatus;
-use App\Enums\BonusAwardStatus;
 use App\Enums\SalaryPaymentStatus;
 use App\Enums\StaffDebtRepaymentSource;
-use App\Models\AdvantageAward;
 use App\Models\AdvantageEntry;
 use App\Models\Employee;
 use App\Models\SalaryPayment;
@@ -26,9 +24,9 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * ADR-227 — marquer payée la paie d'un employé pour un mois. Le serveur recompte : salaire
- * de base déclaré + avantages du mois (saisis en attente, déclarés sur la fiche, à l'acte
- * validés). Les lignes et le total sont figés ; les avantages saisis passent « payé » et
- * l'avantage à l'acte « versé » — aucun ne pourra être payé une seconde fois. Le virement
+ * de base déclaré + avantages du mois (saisis en attente, déclarés sur la fiche). Les lignes
+ * et le total sont figés ; les avantages saisis passent « payé » — aucun ne pourra être payé
+ * une seconde fois. Le virement
  * se fait hors RIVO. Annuler remet les avantages en attente.
  *
  * ADR-228 — les dettes à retenue sur salaire se retranchent du brut (au plus le brut) :
@@ -66,10 +64,7 @@ class PaySalaryAction
             $entries = AdvantageEntry::query()->where('employee_id', $employee->getKey())
                 ->whereDate('period', $month->toDateString())->where('status', AdvantageEntryStatus::Pending)
                 ->lockForUpdate()->orderBy('id')->get();
-            $award = AdvantageAward::query()->where('employee_id', $employee->getKey())
-                ->whereDate('period', $month->toDateString())->where('status', BonusAwardStatus::Validated)
-                ->lockForUpdate()->first();
-            $lines = $this->board->lines($employee, $entries, $this->board->declaredBenefits($month, $employee->getKey()), $award);
+            $lines = $this->board->lines($employee, $entries, $this->board->declaredBenefits($month, $employee->getKey()));
             $debts = $this->board->salaryDebts($employee->getKey(), lock: true);
             $deductions = $this->ledger->salaryDeductions($debts, $month, Money::toMinor(number_format(PayrollBoard::grossOf($lines), 2, '.', '')));
             foreach ($deductions as $deduction) {
@@ -95,7 +90,6 @@ class PaySalaryAction
                 'deductions_amount' => number_format($deductionsTotal, 2, '.', ''),
                 'total_amount' => number_format($total, 2, '.', ''),
                 'lines' => $lines,
-                'advantage_award_id' => $award?->getKey(),
                 'status' => SalaryPaymentStatus::Paid,
                 'active_key' => $activeKey,
                 'paid_at' => now(),
@@ -107,12 +101,6 @@ class PaySalaryAction
             foreach ($entries as $entry) {
                 $entry->forceFill(['status' => AdvantageEntryStatus::Paid, 'salary_payment_id' => $payment->getKey()])->save();
             }
-
-            $award?->forceFill([
-                'status' => BonusAwardStatus::Paid, 'paid_at' => now(), 'paid_by' => $actor->getKey(),
-                ...RemoteActorAttribution::fields('paid', $actor),
-                'payment_note' => 'Payé avec la paie de '.$month->translatedFormat('F Y').'.',
-            ])->save();
 
             $settled = [];
             foreach ($deductions as $deduction) {
@@ -167,14 +155,6 @@ class PaySalaryAction
 
             AdvantageEntry::withTrashed()->where('salary_payment_id', $payment->getKey())->lockForUpdate()->get()
                 ->each(fn (AdvantageEntry $entry) => $entry->forceFill(['status' => AdvantageEntryStatus::Pending, 'salary_payment_id' => null])->save());
-
-            if ($payment->advantage_award_id !== null) {
-                $award = AdvantageAward::query()->lockForUpdate()->find($payment->advantage_award_id);
-                $award?->forceFill([
-                    'status' => BonusAwardStatus::Validated, 'paid_at' => null, 'paid_by' => null,
-                    'external_paid_by_uuid' => null, 'external_paid_by_name' => null, 'payment_note' => null,
-                ])->save();
-            }
 
             // ADR-228 — les retenues de cette paie n'ont pas eu lieu : la dette redevient due d'autant.
             StaffDebtRepayment::query()->where('salary_payment_id', $payment->getKey())->whereNull('reversed_at')->lockForUpdate()->get()

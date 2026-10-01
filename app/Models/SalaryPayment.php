@@ -20,7 +20,7 @@ use LogicException;
  */
 #[Fillable([
     'employee_id', 'employee_name', 'period', 'remuneration_type', 'base_amount', 'advantages_amount',
-    'deductions_amount', 'total_amount', 'lines', 'advantage_award_id', 'status', 'active_key',
+    'deductions_amount', 'total_amount', 'lines', 'status', 'active_key',
     'paid_at', 'paid_by', 'external_paid_by_uuid', 'external_paid_by_name', 'payment_note',
 ])]
 class SalaryPayment extends Model
@@ -71,11 +71,6 @@ class SalaryPayment extends Model
     public function netAmount(): string
     {
         return number_format((float) $this->total_amount - (float) $this->deductions_amount, 2, '.', '');
-    }
-
-    public function advantageAward(): BelongsTo
-    {
-        return $this->belongsTo(AdvantageAward::class);
     }
 
     public function payer(): BelongsTo

@@ -12,7 +12,7 @@ import EmployeeSectionCard from './EmployeeSectionCard.vue';
  * ADR-206 / ADR-221 / ADR-225 — la rémunération déclarée. Un employé : « Salaire » et
  * « Avantages » se cochent ensemble ou séparément ; « Non rémunéré » (bénévole) exclut
  * les deux. Un stagiaire : « Indemnité » par défaut. « Avantages » ouvre les avantages et
- * primes de la personne et ses avantages à l'acte (module Bonus) ; tant qu'elle n'a jamais
+ * primes de la personne et les avantages saisis pour elle (module Bonus) ; tant qu'elle n'a jamais
  * été touchée, c'est la fonction qui décide (module Fonctions). Aucune paie calculée.
  */
 const props = defineProps({
@@ -75,7 +75,7 @@ const cards = computed(() => {
             key: 'BENEFITS', label: 'Avantages', icon: Gift, on: benefitsOn.value, toggle: toggleBenefits, multi: true,
             hint: form.benefits_enabled === null && benefitsByJobTitle.value
                 ? `Ouverts par sa fonction${props.payroll?.job_title ? ` (${props.payroll.job_title})` : ''}`
-                : 'Avantages et primes, avantages à l’acte',
+                : 'Avantages et primes, avantages saisis',
         });
     }
     list.push({ key: 'UNPAID', label: 'Non rémunéré', hint: props.intern ? 'Stagiaire non indemnisé' : 'Bénévole', icon: CircleOff, on: type === 'UNPAID', toggle: () => toggleType('UNPAID') });
@@ -153,7 +153,7 @@ onMounted(() => {
 
             <p class="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-2.5 text-[11px] leading-4 text-muted-foreground">
                 <ShieldCheck class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                <span>Confidentiel : seuls les comptes qui ont le droit de voir la rémunération la lisent, sur la fiche comme à l’impression. Le détail des avantages se déclare à l’étape Avantages ; les avantages à l’acte se comptent dans le module Bonus.</span>
+                <span>Confidentiel : seuls les comptes qui ont le droit de voir la rémunération la lisent, sur la fiche comme à l’impression. Le détail des avantages se déclare à l’étape Avantages ; les avantages des médecins se saisissent dans le module Bonus.</span>
             </p>
         </div>
     </EmployeeSectionCard>

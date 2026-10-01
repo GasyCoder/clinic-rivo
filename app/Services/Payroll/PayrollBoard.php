@@ -3,12 +3,10 @@
 namespace App\Services\Payroll;
 
 use App\Enums\AdvantageEntryStatus;
-use App\Enums\BonusAwardStatus;
 use App\Enums\EmployeeBenefitFrequency;
 use App\Enums\SalaryPaymentStatus;
 use App\Enums\StaffDebtRepaymentMode;
 use App\Enums\StaffDebtStatus;
-use App\Models\AdvantageAward;
 use App\Models\AdvantageEntry;
 use App\Models\Employee;
 use App\Models\EmployeeBenefit;
@@ -23,8 +21,8 @@ use Illuminate\Support\Str;
 
 /**
  * ADR-227 — la paie d'un mois : pour chaque employé, le salaire de base déclaré (ADR-206)
- * et ses avantages du mois — saisis (ADR-227), déclarés sur la fiche (ADR-221), à l'acte
- * validés (ADR-226) — font le brut. Les dettes du personnel à retenue sur salaire (ADR-228)
+ * et ses avantages du mois — saisis (ADR-227) et déclarés sur la fiche (ADR-221) — font
+ * le brut. Les dettes du personnel à retenue sur salaire (ADR-228)
  * s'en retranchent, en lignes négatives `DEBT`, sans jamais dépasser le brut : à verser =
  * brut − retenues. Aucune cotisation ni impôt n'est calculé (ADR-066). Une paie marquée
  * payée montre ses lignes figées. Le tableau lit ; payer recompte.
@@ -41,28 +39,25 @@ class PayrollBoard
             ->with(['payer:id,name', 'canceller:id,name'])->latest('id')->get();
         $entries = AdvantageEntry::query()->whereDate('period', $month->toDateString())
             ->where('status', AdvantageEntryStatus::Pending)->orderBy('id')->get()->groupBy('employee_id');
-        $awards = AdvantageAward::query()->whereDate('period', $month->toDateString())
-            ->where('status', BonusAwardStatus::Validated)->whereNotNull('employee_id')->get()->keyBy('employee_id');
         $benefits = $this->declaredBenefits($month)->groupBy('employee_id');
         $debts = $this->salaryDebts()->groupBy('employee_id');
 
         $ids = Employee::query()->where('active', true)
             ->where(fn ($query) => $query->where('remuneration_amount', '>', 0))
             ->pluck('id')
-            ->merge($entries->keys())->merge($awards->keys())->merge($benefits->keys())
+            ->merge($entries->keys())->merge($benefits->keys())
             ->merge($payments->pluck('employee_id'))
             ->unique();
 
         $employees = Employee::withTrashed()->with('jobTitle:id,label')->whereKey($ids->all())->get();
 
-        $rows = $employees->map(function (Employee $employee) use ($month, $payments, $entries, $awards, $benefits, $debts) {
+        $rows = $employees->map(function (Employee $employee) use ($month, $payments, $entries, $benefits, $debts) {
             $mine = $payments->where('employee_id', $employee->getKey());
             $payment = $mine->first(fn (SalaryPayment $payment) => $payment->status === SalaryPaymentStatus::Paid);
             $lines = $payment ? $payment->lines : $this->lines(
                 $employee,
                 $entries->get($employee->getKey(), collect()),
                 $benefits->get($employee->getKey(), collect()),
-                $awards->get($employee->getKey()),
             );
             if ($payment === null) {
                 $lines = [...$lines, ...$this->debtLines($debts->get($employee->getKey(), collect()), $month, $lines)];
@@ -164,7 +159,7 @@ class PayrollBoard
      *
      * @return list<array{kind: string, label: string, amount: string, uuid?: string|null}>
      */
-    public function lines(Employee $employee, Collection $entries, Collection $benefits, ?AdvantageAward $award): array
+    public function lines(Employee $employee, Collection $entries, Collection $benefits): array
     {
         $lines = [];
 
@@ -183,10 +178,6 @@ class PayrollBoard
 
         foreach ($entries as $entry) {
             $lines[] = ['kind' => 'ENTRY', 'label' => $entry->reason, 'amount' => $this->money($entry->amount), 'uuid' => $entry->uuid];
-        }
-
-        if ($award !== null && (float) $award->total_amount > 0) {
-            $lines[] = ['kind' => 'ACTS', 'label' => 'Avantages à l’acte (validés)', 'amount' => $this->money($award->total_amount), 'uuid' => $award->uuid];
         }
 
         return $lines;

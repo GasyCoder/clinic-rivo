@@ -3,8 +3,6 @@
 namespace Tests\Feature\Administration;
 
 use App\Enums\AdvantageEntryStatus;
-use App\Enums\AdvantageSource;
-use App\Models\AdvantageArticle;
 use App\Enums\SalaryPaymentStatus;
 use App\Models\AdvantageEntry;
 use App\Models\Employee;
@@ -71,20 +69,35 @@ class PayrollTest extends TestCase
                 ->etc());
     }
 
-    public function test_known_articles_are_proposed_with_their_amount(): void
+    public function test_articles_already_entered_are_proposed_at_their_last_amount(): void
     {
         $doctor = $this->employee('EMP-D1', benefits: true);
-        AdvantageArticle::query()->create(['name' => 'AUTO CHIR', 'source' => AdvantageSource::Performed, 'unit_price' => '70000', 'active' => true]);
-        AdvantageArticle::query()->create(['name' => 'Retiré', 'source' => AdvantageSource::Performed, 'unit_price' => '1000', 'active' => false]);
+        AdvantageEntry::query()->create(['employee_id' => $doctor->id, 'period' => '2026-08-01', 'amount' => '70000', 'reason' => 'AUTO CHIR', 'status' => AdvantageEntryStatus::Pending, 'created_by' => $this->hr->id]);
         AdvantageEntry::query()->create(['employee_id' => $doctor->id, 'period' => '2026-08-01', 'amount' => '40000', 'reason' => 'Écho', 'status' => AdvantageEntryStatus::Pending, 'created_by' => $this->hr->id]);
         AdvantageEntry::query()->create(['employee_id' => $doctor->id, 'period' => '2026-08-01', 'amount' => '50000', 'reason' => 'ECHO', 'status' => AdvantageEntryStatus::Pending, 'created_by' => $this->hr->id]);
 
         $this->actingAs($this->hr)->get('/administration/bonus?onglet=saisis&mois=2026-09')
             ->assertInertia(fn (Assert $page) => $page
                 ->has('entries.articles', 2)
-                ->where('entries.articles.0', ['label' => 'AUTO CHIR', 'amount' => '70000.00', 'kind' => 'article'])
-                ->where('entries.articles.1', ['label' => 'ECHO', 'amount' => '50000.00', 'kind' => 'history'])
+                ->where('entries.articles.0', ['label' => 'AUTO CHIR', 'amount' => '70000.00'])
+                ->where('entries.articles.1', ['label' => 'ECHO', 'amount' => '50000.00'])
                 ->etc());
+    }
+
+    public function test_the_benefits_box_decides_and_the_job_title_is_only_the_default(): void
+    {
+        $nurse = $this->employee('EMP-A3', benefits: null);
+        $this->assertFalse($nurse->grantsBenefits(), 'sans case cochée ni fonction qui ouvre droit : fermé');
+
+        $nurse->forceFill(['benefits_enabled' => true])->save();
+        $this->assertTrue($nurse->refresh()->grantsBenefits());
+    }
+
+    public function test_the_removed_act_advantage_routes_are_gone(): void
+    {
+        $this->actingAs($this->hr)->post('/administration/bonus/avantages/articles', ['name' => 'ECHO'])->assertNotFound();
+        $this->actingAs($this->hr)->get('/administration/bonus?onglet=avantages')
+            ->assertInertia(fn (Assert $page) => $page->where('tab', 'entries')->missing('advantages')->missing('advantageArticles')->etc());
     }
 
     public function test_entries_are_refused_without_amount_or_reason_or_for_closed_benefits_all_or_nothing(): void

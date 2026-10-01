@@ -32,35 +32,42 @@ class ForceDeleteEmployeeAction
     {
         Gate::forUser($actor)->authorize('forceDelete', $employee);
 
-        $photo = DB::transaction(function () use ($employee): ?string {
-            $employee = Employee::withTrashed()->lockForUpdate()->findOrFail($employee->getKey());
-
-            if (! $employee->trashed()) {
-                throw ValidationException::withMessages(['employee' => 'Archivez d’abord ce dossier, avec un motif : seul un dossier archivé se supprime définitivement.']);
-            }
-
-            $blockers = EmployeeUsage::blockers($employee);
-            if ($blockers !== []) {
-                throw ValidationException::withMessages(['employee' => sprintf(
-                    'Le dossier %s a servi (%s) : il reste archivé, on ne détruit pas un historique.',
-                    $employee->employee_number,
-                    implode(', ', $blockers),
-                )]);
-            }
-
-            $this->auditor->record('employee.force_delete', $employee, oldValues: [
-                'employee_number' => $employee->employee_number,
-                'name' => trim("{$employee->last_name} {$employee->first_name}"),
-                'birth_date' => $employee->birth_date?->toDateString(),
-                'delete_reason' => $employee->delete_reason,
-            ], module: 'administration');
-
-            EmployeeUsage::detach($employee);
-            $employee->forceDelete();
-
-            return $employee->photo_path;
+        DB::transaction(function () use ($employee): void {
+            $this->destroy(Employee::withTrashed()->lockForUpdate()->findOrFail($employee->getKey()));
         });
+    }
 
-        $this->photos->delete($photo);
+    /**
+     * La règle elle-même, sur un dossier déjà verrouillé et dans une transaction — appelée
+     * aussi par la corbeille (ADR-236), qui a vérifié ses propres droits.
+     */
+    public function destroy(Employee $employee): void
+    {
+        if (! $employee->trashed()) {
+            throw ValidationException::withMessages(['employee' => 'Archivez d’abord ce dossier, avec un motif : seul un dossier archivé se supprime définitivement.']);
+        }
+
+        $blockers = EmployeeUsage::blockers($employee);
+        if ($blockers !== []) {
+            throw ValidationException::withMessages(['employee' => sprintf(
+                'Le dossier %s a servi (%s) : il reste archivé, on ne détruit pas un historique.',
+                $employee->employee_number,
+                implode(', ', $blockers),
+            )]);
+        }
+
+        $this->auditor->record('employee.force_delete', $employee, oldValues: [
+            'employee_number' => $employee->employee_number,
+            'name' => trim("{$employee->last_name} {$employee->first_name}"),
+            'birth_date' => $employee->birth_date?->toDateString(),
+            'delete_reason' => $employee->delete_reason,
+        ], module: 'administration');
+
+        EmployeeUsage::detach($employee);
+        $photo = $employee->photo_path;
+        $employee->forceDelete();
+
+        // La photo ne part qu'une fois la suppression enregistrée.
+        DB::afterCommit(fn () => $this->photos->delete($photo));
     }
 }

@@ -23049,3 +23049,32 @@ fusion de deux dossiers   non construite : déplacer contrats, présences, paies
                           réécrirait un historique — à décider si des doublons ont tous deux servi
 doublon d'un stagiaire    repéré parmi tous les dossiers, mais la liste « Employés » n'affiche pas les stagiaires
 ```
+
+## Amendement du 2026-10-01 — « Vider la corbeille », et les employés et contrats dans la corbeille
+
+Demande du propriétaire, sur `/super-admin/trash` : « normalement on a un réglage pour vider la corbeille ». Deux
+arbitrages explicites : **un bouton manuel** (aucune purge automatique) ; **employés et contrats** rejoignent la
+corbeille.
+
+```text
+Vider la corbeille   bouton du portail (`trash.force_delete`) : pour le site et la catégorie choisis, et la
+                     recherche et les dates en cours, chaque site supprime définitivement ce qui n'a servi nulle
+                     part, par la même règle que la suppression d'un seul élément ; ce qui a servi reste,
+                     restaurable. Saisir « VIDER » est exigé (comme l'ADR-210). Rapport par site : supprimés,
+                     conservés avec leur raison (30 nommés au plus), catégories sautées faute de droit,
+                     « il en reste » au-delà de 500 éléments par catégorie et par geste
+ordre                contrats, catalogues et commandes d'abord, adresses en dernier : un élément qui n'est plus
+                     désigné que par un autre élément de la corbeille part dans le même geste
+chemin               POST /super-admin/trash/empty → DELETE /api/v1/super-admin/trash (une seule tentative,
+                     60 s), `TrashDirectory::empty()` ; jamais la base d'un site (ADR-004)
+Employés             catégorie EMPLOYEE : restaurer (`employees.restore`), supprimer définitivement
+                     (`employees.force_delete` en plus de `trash.force_delete`) par `ForceDeleteEmployeeAction`
+Contrats             catégorie EMPLOYMENT_CONTRACT : restaurer (`contracts.restore`, sans chevaucher un autre
+                     contrat, ADR-235) ; supprimer définitivement s'il n'a produit ni pièce RH ni document généré
+```
+
+**Amende l'ADR-066**, qui écrivait que les contrats « refusent toujours la suppression physique » : un contrat saisi à
+tort ou en double, qui n'a produit aucun document, peut désormais être détruit depuis la corbeille.
+
+Les factures fournisseurs et les demandes d'analyses restent, comme avant, toujours conservées : « Vider » ne les
+supprime jamais. Une purge automatique après N jours n'est pas construite — à décider si le besoin apparaît.

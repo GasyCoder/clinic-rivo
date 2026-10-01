@@ -223,6 +223,8 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
     ->name('super-admin.')
     ->group(function () {
         Route::get('/trash', [SuperAdminTrashController::class, 'index'])->name('trash.index')->middleware('can:trash.view');
+        // ADR-236 — vider la corbeille des sites choisis (ce qui n'a servi nulle part).
+        Route::post('/trash/empty', [SuperAdminTrashController::class, 'empty'])->name('trash.empty')->middleware('can:trash.force_delete');
         Route::delete('/trash/{site}/{category}/{uuid}', [SuperAdminTrashController::class, 'destroy'])->name('trash.force-delete')->middleware('can:trash.force_delete');
         Route::post('/trash/{site}/{category}/{uuid}/restore', [SuperAdminTrashController::class, 'restore'])->name('trash.restore')->middleware('can:trash.restore');
 

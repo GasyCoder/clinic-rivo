@@ -1220,6 +1220,12 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'GET', $path, [], $actor);
     }
 
+    /** @return array<string, mixed> ADR-236 — vider la corbeille d'un site ; une seule tentative, délai allongé. */
+    public function emptyTrash(string $siteCode, array $filters, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/trash', $filters, $actor, timeout: 60, attempts: 1);
+    }
+
     /**
      * @param  array<int, string>  $supplierUuids
      */

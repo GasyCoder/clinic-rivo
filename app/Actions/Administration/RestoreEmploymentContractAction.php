@@ -15,19 +15,23 @@ class RestoreEmploymentContractAction
     {
         Gate::forUser($actor)->authorize('restore', $contract);
 
-        return DB::transaction(function () use ($contract): EmploymentContract {
-            $employee = Employee::withTrashed()->lockForUpdate()->findOrFail($contract->employee_id);
-            // Restaurer ne doit pas faire revenir un contrat par-dessus celui qui l'a remplacé.
-            ContractPeriodGuard::ensure(
-                $employee,
-                $contract->starts_on?->toDateString(),
-                $contract->ends_on?->toDateString(),
-                $contract->trial_ends_on?->toDateString(),
-                $contract,
-            );
-            $contract->restore();
+        return DB::transaction(fn (): EmploymentContract => $this->perform($contract));
+    }
 
-            return $contract->refresh();
-        });
+    /** Sans contrôle de droit : la corbeille (ADR-236) a vérifié les siens. */
+    public function perform(EmploymentContract $contract): EmploymentContract
+    {
+        $employee = Employee::withTrashed()->lockForUpdate()->findOrFail($contract->employee_id);
+        // Restaurer ne doit pas faire revenir un contrat par-dessus celui qui l'a remplacé.
+        ContractPeriodGuard::ensure(
+            $employee,
+            $contract->starts_on?->toDateString(),
+            $contract->ends_on?->toDateString(),
+            $contract->trial_ends_on?->toDateString(),
+            $contract,
+        );
+        $contract->restore();
+
+        return $contract->refresh();
     }
 }

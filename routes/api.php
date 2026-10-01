@@ -95,6 +95,8 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
 
         Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
         Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore');
+        // ADR-236 — vider la corbeille : chaque élément jugé seul, ce qui a servi reste.
+        Route::delete('/trash', [TrashController::class, 'empty'])->name('trash.empty');
         Route::delete('/trash/{category}/{uuid}', [TrashController::class, 'destroy'])->name('trash.force-delete');
 
         Route::get('/pharmacy/stock', MedicineStockController::class)->name('pharmacy.stock');

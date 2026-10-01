@@ -8,6 +8,9 @@ use App\Enums\PatientSex;
 use App\Enums\PatientType;
 use App\Models\AddressEntry;
 use App\Models\CatalogItem;
+use App\Models\Employee;
+use App\Models\EmploymentContract;
+use App\Models\HrReferenceValue;
 use App\Models\Patient;
 use App\Models\Role;
 use App\Models\User;
@@ -131,6 +134,65 @@ class SuperAdminTrashApiTest extends TestCase
     }
 
     /** @param array<int, string> $permissions */
+    public function test_emptying_the_trash_destroys_only_what_never_served_and_reports_the_rest(): void
+    {
+        $unused = AddressEntry::query()->create(['label' => 'Adresse en double', 'active' => true]);
+        $unused->delete_reason = 'Doublon';
+        $unused->delete();
+
+        $used = AddressEntry::query()->create(['label' => 'Adresse habitée', 'active' => true]);
+        $this->patient('PA-000009', 'Rasoa', 'Vola')->forceFill(['address_entry_id' => $used->id])->save();
+        $used->delete_reason = 'Renommée';
+        $used->delete();
+
+        $this->withHeaders($this->headers(['trash.force_delete']))
+            ->deleteJson('/api/v1/super-admin/trash', ['category' => 'ADDRESS_ENTRY'])
+            ->assertOk()
+            ->assertJsonPath('data.deleted', 0)
+            ->assertJsonPath('data.skipped', ['Adresses']);
+
+        $this->withHeaders($this->headers(['trash.force_delete', 'address_entries.restore']))
+            ->deleteJson('/api/v1/super-admin/trash', ['category' => 'ALL'])
+            ->assertOk()
+            ->assertJsonPath('data.deleted', 1)
+            ->assertJsonPath('data.kept', 1)
+            ->assertJsonPath('data.kept_items.0.title', 'Adresse habitée');
+
+        $this->assertNull(AddressEntry::withTrashed()->find($unused->id));
+        $this->assertNotNull(AddressEntry::withTrashed()->find($used->id));
+
+        $this->withHeaders($this->headers())
+            ->deleteJson('/api/v1/super-admin/trash')
+            ->assertForbidden();
+    }
+
+    public function test_archived_employees_and_contracts_appear_in_the_trash_and_empty_in_order(): void
+    {
+        $employee = Employee::query()->create(['employee_number' => 'EMP-9', 'last_name' => 'Doublon', 'sex' => 'F', 'active' => true]);
+        $type = HrReferenceValue::query()->create(['type' => 'CONTRACT_TYPE', 'code' => 'CDD', 'label' => 'CDD', 'active' => true]);
+        $contract = EmploymentContract::query()->create(['employee_id' => $employee->id, 'contract_type_id' => $type->id, 'starts_on' => '2026-01-01']);
+        $contract->delete_reason = 'Saisi deux fois';
+        $contract->delete();
+        $employee->delete_reason = 'Doublon';
+        $employee->delete();
+
+        $this->withHeaders($this->headers(['trash.view']))
+            ->getJson('/api/v1/super-admin/trash?category=EMPLOYEE')
+            ->assertOk()
+            ->assertJsonPath('data.0.reference', 'EMP-9')
+            ->assertJsonPath('data.0.can_force_delete', false)
+            ->assertJsonPath('data.0.force_delete_blockers', ['1 contrat']);
+
+        // Le contrat part d'abord, puis le dossier qui n'est plus désigné par rien.
+        $this->withHeaders($this->headers(['trash.force_delete', 'contracts.restore', 'employees.force_delete']))
+            ->deleteJson('/api/v1/super-admin/trash', ['category' => 'ALL'])
+            ->assertOk()
+            ->assertJsonPath('data.deleted', 2);
+
+        $this->assertNull(Employee::withTrashed()->find($employee->id));
+        $this->assertDatabaseHas('audit_logs', ['action' => 'employee.force_delete']);
+    }
+
     private function headers(array $permissions = [], ?string $actorUuid = null): array
     {
         return [

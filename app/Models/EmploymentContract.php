@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 #[Fillable([
     'employee_id', 'contract_type_id', 'reference_number', 'signed_on',
@@ -60,9 +61,30 @@ class EmploymentContract extends Model
         return $this->hasMany(HrDocument::class);
     }
 
+    /**
+     * ADR-236 — un contrat ne se détruit que s'il n'a produit aucun document (pièce RH,
+     * document généré) : saisi à tort, en double. Sinon il reste archivé, restaurable.
+     */
     public function isForceDeleteProtected(): bool
     {
-        return true;
+        return $this->usageLabels() !== [];
+    }
+
+    /** @return list<string> ce qui retient le contrat, en mots : « 2 pièces RH » */
+    public function usageLabels(): array
+    {
+        $labels = [];
+        foreach ([
+            'hr_documents' => ['pièce RH', 'pièces RH'],
+            'generated_documents' => ['document généré', 'documents générés'],
+        ] as $table => [$singular, $plural]) {
+            $count = DB::table($table)->where('employment_contract_id', $this->getKey())->count();
+            if ($count > 0) {
+                $labels[] = $count === 1 ? "1 {$singular}" : "{$count} {$plural}";
+            }
+        }
+
+        return $labels;
     }
 
     protected function auditModule(): ?string

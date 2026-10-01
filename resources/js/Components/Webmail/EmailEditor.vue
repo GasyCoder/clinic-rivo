@@ -1,10 +1,10 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { Editor, EditorContent } from '@tiptap/vue-3';
-import StarterKit from '@tiptap/starter-kit';
-import Underline from '@tiptap/extension-underline';
-import TextAlign from '@tiptap/extension-text-align';
-import Highlight from '@tiptap/extension-highlight';
+import { StarterKit } from '@tiptap/starter-kit';
+import { Underline } from '@tiptap/extension-underline';
+import { TextAlign } from '@tiptap/extension-text-align';
+import { Highlight } from '@tiptap/extension-highlight';
 import {
     AlignCenter,
     AlignLeft,

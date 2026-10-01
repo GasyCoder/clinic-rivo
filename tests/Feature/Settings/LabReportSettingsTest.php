@@ -6,6 +6,7 @@ use App\Models\AppSetting;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Settings\AppSettings;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -193,7 +194,7 @@ class LabReportSettingsTest extends TestCase
             && $request['lab_report_template'] === 'BANNER'
             && (string) $request['lab_report_show_qr'] === '1'
             && ! $request->hasHeader('Idempotency-Key')
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'settings.view'));
+            && str_contains(RemoteActorPermissions::sent($request), 'settings.view'));
 
         $this->assertSame(0, AppSetting::query()->count(), 'rien n’est écrit dans la base du portail');
     }

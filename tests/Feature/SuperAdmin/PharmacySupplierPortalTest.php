@@ -4,6 +4,7 @@ namespace Tests\Feature\SuperAdmin;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -85,7 +86,7 @@ class PharmacySupplierPortalTest extends TestCase
             && $request->isMultipart()
             && $request->hasFile('file')
             && $request->hasHeader('Idempotency-Key')
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'supplier_catalogs.create'));
+            && str_contains(RemoteActorPermissions::sent($request), 'supplier_catalogs.create'));
     }
 
     public function test_a_refusal_from_the_site_is_shown_back_instead_of_being_hidden(): void

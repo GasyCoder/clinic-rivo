@@ -5,6 +5,7 @@ namespace Tests\Feature\SuperAdmin;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -89,7 +90,7 @@ class SiteLaboratoryPortalTest extends TestCase
         Http::assertSent(fn (Request $request) => str_starts_with($request->url(), 'https://a.test/api/v1/super-admin/site-laboratory')
             && $request->hasHeader('Authorization', 'Bearer a-token')
             && $request->hasHeader('X-Rivo-Actor-UUID', $this->superAdmin->uuid)
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0], 'laboratory_results.view'));
+            && str_contains(RemoteActorPermissions::sent($request), 'laboratory_results.view'));
     }
 
     public function test_only_laboratory_screens_can_be_rendered(): void

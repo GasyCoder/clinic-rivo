@@ -5,6 +5,7 @@ namespace Tests\Feature\SuperAdmin;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -83,7 +84,7 @@ class HospitalBedPortalTest extends TestCase
             && $request['bed_count'] === 3
             && $request->hasHeader('Idempotency-Key')
             && $request->header('X-Rivo-Actor-UUID')[0] === $this->superAdmin->uuid
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0], 'hospital_beds.create'));
+            && str_contains(RemoteActorPermissions::sent($request), 'hospital_beds.create'));
     }
 
     public function test_a_refusal_from_the_site_comes_back_on_its_field(): void

@@ -1014,7 +1014,7 @@ admin.rivo.mg
 - [x] Les droits qui agissent dans plusieurs modules le disent dans leur libellé et leur catégorie : chercher « hospitalisation » trouve enfin `medical_discharge.create`, qui gouverne « Prononcer la sortie » d'un séjour (ADR-151)
 - [x] Le Super Admin du portail détient réellement toutes les permissions : rétabli à chaque `php artisan migrate` du portail — 44 droits lui manquaient, dont les canevas de documents RH (ADR-186)
 - [x] Défaut corrigé : après des migrations, la synchronisation du Super Admin ne s'exécutait qu'au `migrate` suivant (un écouteur renvoyait `false` et arrêtait l'événement) (ADR-197)
-- [ ] Taille de l'en-tête `X-Rivo-Actor-Permissions` (7,7 Ko, limite nginx par défaut 8 Ko) — tampon à élargir ou transmission à revoir avant la production (ADR-186)
+- [x] Droits du Super Admin transmis compressés et découpés : en clair (≈ 10 Ko), ils dépassaient la limite d'Apache et le site répondait « refusé » (ADR-186, amendement du 2026-10-02)
 - [x] Un 403 nomme le droit manquant et où l'accorder ; s'il s'agit d'un refus nominatif, il le dit et renvoie vers « Exceptions par compte » — vaut pour toutes les routes gardées par `can:` (ADR-154)
 - [x] Chaque case du socle porte « Refusé à N comptes » quand des comptes du rôle la refusent individuellement : cocher un droit sans effet visible ne se lit plus comme un défaut (ADR-153, ADR-033)
 - [x] L'éditeur de socle signale les comptes du rôle qui portent des exceptions individuelles : un socle à zéro ne se lit plus « personne n'y a accès » alors qu'un ALLOW nominatif l'emporte (ADR-150, ADR-033)

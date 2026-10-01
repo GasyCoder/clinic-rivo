@@ -4,6 +4,7 @@ namespace Tests\Feature\SuperAdmin;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -501,7 +502,7 @@ class StockAndAddressPortalTest extends TestCase
         Http::assertSent(fn ($request) => $request->method() === 'POST'
             && $request->url() === 'https://m.test/api/v1/super-admin/catalog'
             && $request->hasHeader('Idempotency-Key')
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'catalog.items.create')
+            && str_contains(RemoteActorPermissions::sent($request), 'catalog.items.create')
             && $request['code'] === 'ECHO-API'
             && $request['mutual_tariff_amount'] === 25000);
     }
@@ -526,7 +527,7 @@ class StockAndAddressPortalTest extends TestCase
         Http::assertSent(fn ($request) => $request->method() === 'POST'
             && $request->url() === 'https://a.test/api/v1/super-admin/mutual-organizations'
             && $request->hasHeader('Idempotency-Key')
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'mutual_organizations.create')
+            && str_contains(RemoteActorPermissions::sent($request), 'mutual_organizations.create')
             && $request['name'] === 'ADEFI');
     }
 
@@ -560,7 +561,7 @@ class StockAndAddressPortalTest extends TestCase
         Http::assertSent(fn ($request) => $request->url() === 'https://m.test/api/v1/super-admin/address-entries/bulk/archive'
             && $request->hasHeader('Idempotency-Key')
             && $request['uuids'] === $uuids
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'address_entries.archive'));
+            && str_contains(RemoteActorPermissions::sent($request), 'address_entries.archive'));
         Http::assertSent(fn ($request) => $request->url() === 'https://m.test/api/v1/super-admin/catalog/bulk/restore'
             && $request['uuids'] === $uuids);
         Http::assertSent(fn ($request) => $request->url() === 'https://m.test/api/v1/super-admin/mutual-organizations/bulk/archive'

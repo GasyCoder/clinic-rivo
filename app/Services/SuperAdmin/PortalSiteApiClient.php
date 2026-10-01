@@ -3,6 +3,7 @@
 namespace App\Services\SuperAdmin;
 
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -442,7 +443,7 @@ class PortalSiteApiClient
                     'X-Request-UUID' => (string) Str::uuid(),
                     'X-Rivo-Actor-UUID' => $actor->uuid,
                     'X-Rivo-Actor-Name' => $actor->name,
-                    'X-Rivo-Actor-Permissions' => $actor->effectivePermissionNames()->implode(','),
+                    ...RemoteActorPermissions::headers($actor->effectivePermissionNames()),
                 ])
                 ->timeout(max(10, (int) config('rivo.site_api.timeout', 5)))
                 ->get(rtrim($apiUrl, '/').'/super-admin/app-settings/lab-report-preview', $query);
@@ -1280,7 +1281,7 @@ class PortalSiteApiClient
                     'X-Request-UUID' => (string) Str::uuid(),
                     'X-Rivo-Actor-UUID' => $actor->uuid,
                     'X-Rivo-Actor-Name' => $actor->name,
-                    'X-Rivo-Actor-Permissions' => $actor->effectivePermissionNames()->implode(','),
+                    ...RemoteActorPermissions::headers($actor->effectivePermissionNames()),
                 ])
                 ->timeout(max(5, (int) config('rivo.site_api.timeout', 5)))
                 ->get(rtrim($apiUrl, '/').'/super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).'/'.ltrim($path, '/'));
@@ -1463,7 +1464,7 @@ class PortalSiteApiClient
                     'X-Request-UUID' => $requestUuid,
                     'X-Rivo-Actor-UUID' => $actor->uuid,
                     'X-Rivo-Actor-Name' => $actor->name,
-                    'X-Rivo-Actor-Permissions' => $actor->effectivePermissionNames()->implode(','),
+                    ...RemoteActorPermissions::headers($actor->effectivePermissionNames()),
                 ])
                 ->timeout(max(1, $timeout ?? (int) config('rivo.site_api.timeout', 5)))
                 ->retry(max(1, $attempts ?? (int) config('rivo.site_api.retry_times', 2)), 150, throw: false);

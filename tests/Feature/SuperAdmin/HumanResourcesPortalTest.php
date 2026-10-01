@@ -4,6 +4,7 @@ namespace Tests\Feature\SuperAdmin;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -53,7 +54,7 @@ class HumanResourcesPortalTest extends TestCase
 
         Http::assertSent(fn ($request) => $request->method() === 'GET'
             && $request->url() === 'https://m.test/api/v1/super-admin/human-resources'
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'employees.view'));
+            && str_contains(RemoteActorPermissions::sent($request), 'employees.view'));
     }
 
     /** @return array<string, mixed> */

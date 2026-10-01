@@ -4,6 +4,7 @@ namespace Tests\Feature\SuperAdmin;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -70,7 +71,7 @@ class UserRolesPortalTest extends TestCase
 
         Http::assertSent(fn ($request) => $request->method() === 'GET'
             && str_starts_with($request->url(), 'https://m.test/api/v1/super-admin/users')
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'users.view'));
+            && str_contains(RemoteActorPermissions::sent($request), 'users.view'));
     }
 
     public function test_create_and_deactivate_are_sent_only_to_the_selected_site_with_super_admin_identity(): void

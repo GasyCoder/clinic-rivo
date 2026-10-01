@@ -5,6 +5,7 @@ namespace Tests\Feature\SuperAdmin;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -101,7 +102,7 @@ class SiteStaffDebtsPortalTest extends TestCase
         Http::assertSent(fn (Request $request) => str_starts_with($request->url(), 'https://a.test/api/v1/super-admin/site-staff-debts?')
             && $request['vue'] === 'a-verser'
             && $request->hasHeader('X-Rivo-Actor-UUID', $this->superAdmin->uuid)
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0], 'staff_debts.settings'));
+            && str_contains(RemoteActorPermissions::sent($request), 'staff_debts.settings'));
     }
 
     public function test_only_finance_debt_screens_are_rendered(): void

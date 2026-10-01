@@ -3,6 +3,7 @@
 namespace App\Services\SuperAdmin;
 
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\UploadedFile;
@@ -92,7 +93,7 @@ abstract class SiteScreenGateway
                 'X-Request-UUID' => (string) Str::uuid(),
                 'X-Rivo-Actor-UUID' => $actor->uuid,
                 'X-Rivo-Actor-Name' => $actor->name,
-                'X-Rivo-Actor-Permissions' => $actor->effectivePermissionNames()->implode(','),
+                ...RemoteActorPermissions::headers($actor->effectivePermissionNames()),
                 // `back()` du site revient à la page d'où vient le Super Admin.
                 'Referer' => $this->origin($apiUrl).$this->siteRoot().($refererPath ?? ''),
             ])

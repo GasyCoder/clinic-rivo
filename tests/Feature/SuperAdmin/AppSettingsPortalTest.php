@@ -8,6 +8,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Settings\AppSettings;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -70,7 +71,7 @@ class AppSettingsPortalTest extends TestCase
                 ->where('targets.2.data.configured', false)
                 ->where('limits.child_max_age', 20));
 
-        Http::assertSent(fn ($request) => str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'settings.view'));
+        Http::assertSent(fn ($request) => str_contains(RemoteActorPermissions::sent($request), 'settings.view'));
     }
 
     public function test_settings_are_opened_from_their_single_owning_module(): void
@@ -168,7 +169,7 @@ class AppSettingsPortalTest extends TestCase
             && $request['search_engines_hidden'] === true
             && $request['app_tagline'] === 'Ny fahasalamana no loharanon-karena'
             && ! isset($request['site_code'])
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'settings.update'));
+            && str_contains(RemoteActorPermissions::sent($request), 'settings.update'));
 
         // Rien n'est écrit dans la base du portail pour un site.
         $this->assertSame(0, AppSetting::query()->count());
@@ -217,7 +218,7 @@ class AppSettingsPortalTest extends TestCase
             && $request->url() === 'https://a.test/api/v1/super-admin/app-settings/reset'
             && $request->hasHeader('Idempotency-Key')
             && $request['confirmation'] === 'RÉINITIALISER'
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'settings.update'));
+            && str_contains(RemoteActorPermissions::sent($request), 'settings.update'));
 
         $this->assertSame(0, AppSetting::query()->count(), 'Le portail ne doit jamais écrire les réglages du site dans sa base.');
     }
@@ -338,7 +339,7 @@ class AppSettingsPortalTest extends TestCase
 
         Http::assertSent(fn ($request) => $request->method() === 'DELETE'
             && $request->url() === 'https://m.test/api/v1/super-admin/app-settings/coupons/0b1d7c3e-1111-4a2b-9c3d-123456789abc'
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'discount_coupons.force_delete'));
+            && str_contains(RemoteActorPermissions::sent($request), 'discount_coupons.force_delete'));
     }
 
     /** ADR-193 — la maintenance d'un site part à son API, avec l'identité du Super Admin et une clé d'idempotence. */
@@ -363,7 +364,7 @@ class AppSettingsPortalTest extends TestCase
             && $request['mode'] === 'now'
             && $request['title'] === 'Mise à jour'
             && $request->hasHeader('Idempotency-Key')
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'app_maintenance.update'));
+            && str_contains(RemoteActorPermissions::sent($request), 'app_maintenance.update'));
         Http::assertSent(fn ($request) => $request->method() === 'POST'
             && $request->url() === 'https://m.test/api/v1/super-admin/app-settings/maintenance/lift'
             && $request['reason'] === 'Terminé');

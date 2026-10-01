@@ -6,6 +6,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\SuperAdmin\SiteHrGateway;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -77,7 +78,7 @@ class SiteHumanResourcesPortalTest extends TestCase
         Http::assertSent(fn (Request $request) => str_starts_with($request->url(), 'https://a.test/api/v1/super-admin/hr/employees?status=active')
             && $request->hasHeader('Authorization', 'Bearer a-token')
             && $request->hasHeader('X-Rivo-Actor-UUID', $this->superAdmin->uuid)
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0], 'employees.view'));
+            && str_contains(RemoteActorPermissions::sent($request), 'employees.view'));
     }
 
     public function test_only_hr_screens_can_be_rendered(): void

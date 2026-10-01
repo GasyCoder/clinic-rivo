@@ -4,6 +4,7 @@ namespace Tests\Feature\SuperAdmin;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -103,7 +104,7 @@ class DocumentTemplatesPortalTest extends TestCase
 
         Http::assertSent(fn ($request) => $request->url() === 'https://a.test/api/v1/super-admin/document-templates'
             && $request->method() === 'POST'
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'document_templates.create')
+            && str_contains(RemoteActorPermissions::sent($request), 'document_templates.create')
             && $request->header('X-Rivo-Actor-Name')[0] === $superAdmin->name);
     }
 

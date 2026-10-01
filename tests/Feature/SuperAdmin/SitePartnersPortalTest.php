@@ -4,6 +4,7 @@ namespace Tests\Feature\SuperAdmin;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -78,7 +79,7 @@ class SitePartnersPortalTest extends TestCase
 
         Http::assertSent(fn (Request $request) => str_starts_with($request->url(), 'https://a.test/api/v1/super-admin/site-partners')
             && $request->hasHeader('Authorization', 'Bearer a-token')
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0], 'partner_organizations.view'));
+            && str_contains(RemoteActorPermissions::sent($request), 'partner_organizations.view'));
     }
 
     public function test_the_partner_form_page_opens_from_the_portal(): void

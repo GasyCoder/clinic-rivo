@@ -16978,6 +16978,25 @@ Un nginx réglé par défaut refuse une ligne d'en-tête de plus de 8 Ko (`large
 la marge est faible, et chaque nouvelle permission la réduit. Élargir ce tampon sur les sites, ou transmettre
 les droits autrement, est à décider avant la mise en production.
 
+## Amendement du 2026-10-02 — les droits partent compressés et découpés
+
+Constat en production : le portail affichait « L'API du site a refusé la requête » pour Ambondromamy, dont le
+jeton était pourtant juste. Le catalogue avait atteint ≈ 10 Ko ; Apache (o2switch) refuse un en-tête de plus de
+8 190 octets (`LimitRequestFieldSize`) et répondait « 400 Bad Request » en HTML, avant même Laravel.
+
+```text
+envoi      App\Support\SiteApi\RemoteActorPermissions::headers() : la liste compressée (deflate, base64url)
+           et découpée en morceaux de 4 000 caractères — X-Rivo-Actor-Permissions-Gz-1, -2… (≈ 3 Ko
+           aujourd'hui, un seul morceau) ; PortalSiteApiClient et SiteScreenGateway l'emploient
+lecture    RemoteActorPermissions::raw() dans AuthenticateRivoSiteApi : morceaux illisibles ou plus de
+           16 → 422 qui le dit ; liste décompressée bornée à 32 768 caractères
+ancien     sans morceau, l'en-tête en clair X-Rivo-Actor-Permissions reste lu : un portail pas encore à
+format     jour fonctionne tant que sa liste tient dans un en-tête
+```
+
+Un test vérifie que le catalogue complet passe sous la limite d'Apache. Aucune permission, route ni règle ne
+change.
+
 ---
 
 # ADR-187 — Le Super Admin gère les Ressources humaines d'un site depuis le portail

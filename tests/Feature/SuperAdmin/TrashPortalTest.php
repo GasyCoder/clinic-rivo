@@ -4,6 +4,7 @@ namespace Tests\Feature\SuperAdmin;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Support\SiteApi\RemoteActorPermissions;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -58,7 +59,7 @@ class TrashPortalTest extends TestCase
         Http::assertSent(fn ($request) => $request->method() === 'GET'
             && str_starts_with($request->url(), 'https://m.test/api/v1/super-admin/trash')
             && str_contains($request->url(), 'category=PATIENT')
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'trash.view'));
+            && str_contains(RemoteActorPermissions::sent($request), 'trash.view'));
     }
 
     public function test_restore_is_sent_only_to_the_selected_site_with_super_admin_permissions(): void
@@ -78,8 +79,8 @@ class TrashPortalTest extends TestCase
         Http::assertSent(fn ($request) => $request->method() === 'POST'
             && $request->url() === 'https://m.test/api/v1/super-admin/trash/PATIENT/11111111-1111-4111-8111-111111111111/restore'
             && $request->hasHeader('Idempotency-Key')
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'trash.restore')
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'patients.restore'));
+            && str_contains(RemoteActorPermissions::sent($request), 'trash.restore')
+            && str_contains(RemoteActorPermissions::sent($request), 'patients.restore'));
     }
 
     public function test_emptying_the_trash_requires_typing_vider_and_reports_each_site(): void
@@ -106,7 +107,7 @@ class TrashPortalTest extends TestCase
         Http::assertSent(fn ($request) => $request->method() === 'DELETE'
             && $request->url() === 'https://m.test/api/v1/super-admin/trash'
             && $request['category'] === 'PATIENT'
-            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'trash.force_delete'));
+            && str_contains(RemoteActorPermissions::sent($request), 'trash.force_delete'));
     }
 
     private function payload(string $siteCode, string $siteName): array

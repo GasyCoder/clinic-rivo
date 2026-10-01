@@ -2,17 +2,16 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\SiteApi\RemoteActorPermissions;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
 
 class AuthenticateRivoSiteApi
 {
-    /** Roughly 1 500 permission names — far above the whole catalogue. */
-    private const MAX_PERMISSIONS_HEADER_LENGTH = 32_768;
-
     public function handle(Request $request, Closure $next): Response
     {
         if (config('rivo.site.type') !== 'clinic') {
@@ -37,13 +36,19 @@ class AuthenticateRivoSiteApi
             return $this->error('Un en-tête X-Request-UUID valide est obligatoire.', 422);
         }
 
-        $rawPermissions = (string) $request->header('X-Rivo-Actor-Permissions');
+        // Compressed and split across headers (RemoteActorPermissions): a single
+        // plain header carrying the whole catalogue went over Apache's 8 KB limit.
+        try {
+            $rawPermissions = RemoteActorPermissions::raw($request);
+        } catch (InvalidArgumentException $exception) {
+            return $this->error($exception->getMessage(), 422);
+        }
 
         // Truncating an authorization list silently is worse than refusing it:
         // a Super Admin holding every permission of a growing catalogue would
         // keep losing the last ones and get baffling 403s on the site. The
-        // header stays bounded, but going over it fails loudly.
-        if (mb_strlen($rawPermissions) > self::MAX_PERMISSIONS_HEADER_LENGTH) {
+        // list stays bounded, but going over it fails loudly.
+        if (mb_strlen($rawPermissions) > RemoteActorPermissions::MAX_LENGTH) {
             return $this->error('L’en-tête des permissions de l’acteur distant dépasse la taille autorisée.', 422);
         }
 

@@ -748,7 +748,7 @@ const formatDateTime = (value) => (value ? new Date(value).toLocaleString('fr-FR
                             <button v-if="! isRenaming(page, 'tab') && page.id === activePageId && ! isArchivedTemplate" type="button" class="ms-0.5 inline-grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" :aria-label="`Renommer ${pageLabel(page, index)}`" title="Renommer la page" @click="startRename(page, 'tab')"><Pencil class="h-3 w-3" /></button>
                         </li>
                         <li v-if="! isArchivedTemplate">
-                            <button type="button" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground" title="Ajouter une page" @click="addPage"><Plus class="h-3.5 w-3.5" />Page</button>
+                            <button type="button" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground" title="Ajouter une page" aria-label="Ajouter une page" @click="addPage"><Plus class="h-3.5 w-3.5" />Page</button>
                         </li>
                     </ol>
                     <label class="inline-flex items-center gap-1.5 text-xs text-muted-foreground">

@@ -23331,3 +23331,25 @@ Un nouveau modèle commence par un choix : **Importer un fichier Word ou PDF** (
 (la feuille s'ouvre aussitôt). Un modèle existant ou déjà écrit ouvre la feuille directement ; « Importer Word
 ou PDF » reste dans la barre de la feuille. Présentation seulement : ni route, ni règle, ni donnée ne change.
 
+## Amendement du 2026-10-01 (bis) — pages nommées, feuille A4 réelle, « Annuler » dans la fiche
+
+Demande du propriétaire, sur l'éditeur d'un modèle :
+
+```text
+nom de page     chaque page peut porter un nom (« Préambule », 60 caractères), renommé sur place
+                (crayon, Entrée / Échap) dans les onglets et dans la fiche ; vide = « Page N ».
+                Repère d'écriture seulement : il n'est jamais imprimé, et n'est enregistré que s'il
+                n'est pas vide ; dupliquer donne « (copie) »
+feuille A4      la page s'écrit sur une vraie feuille 210 × 297 mm, marges d'impression comprises
+                (25 / 20 mm), zoom Ajuster / 75 / 100 / 125 % ; un trait marque la fin de la zone
+                imprimable
+débordement     un texte qui dépasse la zone imprimable le dit en rouge, avec « Nouvelle page » ;
+                rien n'est coupé ni déplacé d'office
+aperçu          une feuille A4 par page, comme à l'impression
+fiche           les changements sont gardés au fil de la saisie et partent au site avec
+                Enregistrer / Créer le modèle ; « Annuler » rend la fiche telle qu'elle était à son
+                ouverture (dossier, données reprises, nom, pages et leurs noms)
+```
+
+Présentation seulement : ni route, ni permission, ni règle serveur ne change.
+

@@ -1006,6 +1006,7 @@ admin.rivo.mg
 - [x] Éditeur de canevas de documents (TipTap) : création, modification versionnée, duplication, activation, archivage/restauration par site
 - [x] « Modèles de documents » (ex-« Canevas de documents ») en gestion documentaire shadcn : arborescence des dossiers, liste ou grille, états (proposés au RH, inactifs, à vérifier, archivés), fiche latérale avec aperçu ; création en quatre étapes (dossier, données reprises, nom, pages) sans fenêtre du navigateur (ADR-240)
 - [x] Fiche d'un modèle de document rangée dans un panneau latéral à droite, feuille sur toute la largeur ; un nouveau modèle commence par « Importer un fichier Word ou PDF » (dépôt) ou « Créer et écrire directement » (ADR-240, amendement du 2026-10-01)
+- [x] Pages d'un modèle nommées (renommées sur place, jamais imprimées), feuille A4 réelle avec marges et zoom, débordement signalé, aperçu page par page, « Annuler » dans la fiche (ADR-240, amendement bis du 2026-10-01)
 - [x] Catalogue des permissions administrable depuis le portail (ADR-101) : créer un droit, reformuler son libellé, retirer un nom que rien ne vérifie — le nom lui-même ne change jamais
 - [x] Usage réel de chaque permission calculé depuis le code (`PermissionUsageScanner`) : « vérifiée par l'application » ou « pas encore vérifiée », jamais une liste tenue à la main
 - [x] Panneaux redimensionnables à la barre (clavier, double-clic, largeur conservée par poste) sur le socle des rôles et les exceptions par compte

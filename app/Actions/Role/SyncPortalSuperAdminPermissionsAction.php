@@ -6,7 +6,6 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Services\Audit\Auditor;
 use Database\Seeders\PermissionSeeder;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -95,7 +94,7 @@ class SyncPortalSuperAdminPermissionsAction
         });
 
         // Le Gate lit les noms connus depuis ce cache (AppServiceProvider).
-        Cache::forget(Permission::CACHE_KEY);
+        Permission::forgetNames();
 
         return $result;
     }

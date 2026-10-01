@@ -387,7 +387,7 @@ const stepDone = computed(() => ({
                             </label>
                             <template v-else>
                                 <p class="text-sm font-semibold text-foreground">Signature du directeur général</p>
-                                <p class="mt-0.5 text-xs text-muted-foreground">Aucun directeur n’est renseigné pour ce site. Le Super Administrateur le règle dans Paramètres › Direction.</p>
+                                <p class="mt-0.5 text-xs text-muted-foreground">Aucun directeur n’est renseigné pour ce site. Le Super Administrateur le règle dans Ressources humaines › Direction.</p>
                             </template>
                         </div>
                     </div>

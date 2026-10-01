@@ -126,6 +126,13 @@ const adminMenu = computed(() => [
     { icon: Wallet, text: 'Caisses des sites', link: '/super-admin/cash-registers', permission: 'cash_registers.view' },
     { icon: ClipboardList, text: 'Modes de paiement', link: '/super-admin/payment-methods', permission: 'payment_methods.view' },
     { icon: Wallet, text: 'Rapports financiers', link: '/super-admin/workspaces/finance', permission: 'reports.financial.view' },
+    {
+        icon: Settings,
+        text: 'Configuration financière',
+        link: '/super-admin/finance/settings/monnaie',
+        activeLinks: ['/super-admin/finance/settings'],
+        permission: 'settings.view',
+    },
     // ADR-229 — les dettes du personnel de chaque site : décidées, versées et réglées ici.
     {
         icon: HandCoins,
@@ -155,7 +162,7 @@ const adminMenu = computed(() => [
         icon: FlaskConical,
         text: 'Laboratoires des sites',
         link: '/super-admin/laboratory',
-        activeLinks: ['/super-admin/laboratory', ...moduleSitePaths('laboratoire')],
+        activeLinks: ['/super-admin/laboratory', '/super-admin/laboratory/settings', ...moduleSitePaths('laboratoire')],
         permission: 'laboratory_results.view',
     },
     { heading: 'Pharmacie & stocks' },
@@ -173,7 +180,7 @@ const adminMenu = computed(() => [
         icon: Briefcase,
         text: 'Ressources humaines',
         link: '/super-admin/workspaces/hr',
-        activeLinks: ['/super-admin/workspaces/hr', ...moduleSitePaths('rh')],
+        activeLinks: ['/super-admin/workspaces/hr', '/super-admin/human-resources/settings', ...moduleSitePaths('rh')],
         permission: 'employees.view',
     },
     { icon: AtSign, text: 'Emails professionnels', link: '/super-admin/professional-emails', permission: 'professional_emails.view' },
@@ -187,7 +194,7 @@ const adminMenu = computed(() => [
     { icon: Users, text: 'Utilisateurs', link: '/super-admin/workspaces/users', permission: 'users.view', activeLinks: ['/super-admin/workspaces/users', '/super-admin/staff-access'] },
     { icon: ShieldCheck, text: 'Rôles & permissions', link: '/super-admin/workspaces/roles', permission: 'roles.view' },
     { icon: Trash2, text: 'Corbeille', link: '/super-admin/trash', permission: 'trash.view' },
-    { icon: Settings, text: 'Paramètres', link: '/super-admin/settings', permission: 'settings.view' },
+    { icon: Settings, text: 'Apparence & système', link: '/super-admin/settings', permission: 'settings.view' },
     { icon: History, text: 'Audit & APIs', link: '/super-admin/workspaces/audit', permission: 'audit.view' },
 ]);
 

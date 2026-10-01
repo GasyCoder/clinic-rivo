@@ -337,10 +337,32 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         // ADR-133 — seuils des patients VIP, réglés site par site par l'API du site.
         // ADR-184 — paramètres de l'application, site par site et pour le portail.
         Route::get('/settings', [SuperAdminAppSettingsController::class, 'index'])->name('settings.index')->middleware('can:settings.view');
-        // ADR-191 — une page par module ; « /settings » ouvre le premier.
+        // Les réglages techniques restent ici. Les réglages métier ont une
+        // seule adresse canonique dans leur module ; les anciennes adresses
+        // /settings/{section} sont conservées comme redirections.
         Route::get('/settings/{section}', [SuperAdminAppSettingsController::class, 'index'])
             ->whereIn('section', SuperAdminAppSettingsController::SECTIONS)
             ->name('settings.section')
+            ->middleware('can:settings.view');
+        Route::get('/finance/settings/{section}', [SuperAdminAppSettingsController::class, 'finance'])
+            ->whereIn('section', SuperAdminAppSettingsController::CONTEXT_SECTIONS['finance'])
+            ->name('settings.finance')
+            ->middleware('can:settings.view');
+        Route::get('/human-resources/settings/{section}', [SuperAdminAppSettingsController::class, 'humanResources'])
+            ->whereIn('section', SuperAdminAppSettingsController::CONTEXT_SECTIONS['hr'])
+            ->name('settings.hr')
+            ->middleware('can:settings.view');
+        Route::get('/laboratory/settings/{section}', [SuperAdminAppSettingsController::class, 'laboratory'])
+            ->whereIn('section', SuperAdminAppSettingsController::CONTEXT_SECTIONS['laboratory'])
+            ->name('settings.laboratory')
+            ->middleware('can:settings.view');
+        Route::get('/sites/{site}/organization/settings/{section}', [SuperAdminAppSettingsController::class, 'organization'])
+            ->whereIn('section', SuperAdminAppSettingsController::CONTEXT_SECTIONS['organization'])
+            ->name('settings.organization')
+            ->middleware('can:settings.view');
+        Route::get('/sites/{site}/patients/settings/{section}', [SuperAdminAppSettingsController::class, 'patients'])
+            ->whereIn('section', SuperAdminAppSettingsController::CONTEXT_SECTIONS['patients'])
+            ->name('settings.patients')
             ->middleware('can:settings.view');
         Route::put('/settings', [SuperAdminAppSettingsController::class, 'update'])->name('settings.update')->middleware('can:settings.update');
         Route::delete('/settings/reset', [SuperAdminAppSettingsController::class, 'reset'])->name('settings.reset')->middleware('can:settings.update');

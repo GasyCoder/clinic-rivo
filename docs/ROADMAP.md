@@ -1054,6 +1054,7 @@ admin.rivo.mg
 - [x] Repère visuel devant chaque option de l'affichage avancé (taille, densité, arrondis, animations, contraste) (ADR-191)
 - [x] Repères dans les listes de la Numérotation et de la Monnaie ; icône en tête des champs texte (Identité, Identité légale, Direction, Âges, préfixes) et des aperçus (ADR-191)
 - [x] Réinitialisation globale des paramètres d'un site ou du portail vers les valeurs du déploiement, avec saisie exacte de « RÉINITIALISER », API du site et audit ; coupons, maintenance et compteurs conservés (ADR-210)
+- [x] Paramètres métier rangés dans leur module (Finances, RH, Laboratoire, Patients et Établissement par site) ; « Paramètres » devient « Apparence & système » ; anciennes adresses redirigées (ADR-237)
 - [x] Assistant IA d'aide au logiciel (Laravel AI SDK) : ~~bouton flottant et panneau latéral~~ remplacés par la page `/assistant`, réponse en flux, historique par compte, questions proposées selon la page et les droits, aucune action ni conseil médical (ADR-222)
 - [x] ~~Assistant IA dans le menu latéral (site et portail), page en pleine largeur~~ — remplacé par la bulle ; historique, nouvelle conversation, questions groupées par module et adaptées au métier, questions de suivi, « Réessayer », copie, tableaux (ADR-222, amendement du 2026-09-29)
 - [x] Assistant en bulle déplaçable sur chaque page (petit robot), fenêtre petite / grande / plein écran, place gardée sur le poste ; menu et page `/assistant` retirés (ADR-222, amendement bis)

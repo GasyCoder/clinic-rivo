@@ -8,20 +8,26 @@ import {
     CalendarDays,
     CircleDollarSign,
     Clock3,
+    Construction,
     FileText,
+    Hash,
     HeartPulse,
     Info,
+    Landmark,
     RefreshCw,
     Server,
+    Settings2,
     ShieldCheck,
     UserPlus,
     Users,
     Wallet,
+    Baby,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
+import { usePermissions } from '@/composables/usePermissions';
 import { lucideIcon } from '@/lib/icons';
 import { formatMoney } from '@/utilities/money';
 
@@ -33,6 +39,8 @@ const props = defineProps({
     siteReport: { type: Object, required: true },
     days: { type: Number, default: 30 },
 });
+
+const { can } = usePermissions();
 
 const sections = computed(() => props.siteReport.data?.sections ?? {});
 const section = (key) => sections.value[key];
@@ -240,6 +248,38 @@ const refresh = () => router.reload({ only: ['siteReport'], preserveScroll: true
                 <component class="h-4 w-4" :is="lucideIcon(module.icon)" />{{ module.label }}
             </Link>
         </nav>
+
+        <Card v-if="selectedModule.code === 'PATIENTS' && can('settings.view')" class="p-5">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div class="flex items-start gap-3">
+                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Settings2 class="h-5 w-5" /></span>
+                    <div>
+                        <h2 class="text-sm font-bold text-foreground">Configuration des patients</h2>
+                        <p class="mt-1 text-xs leading-5 text-muted-foreground">Ces règles appartiennent à Patients et s’appliquent uniquement aux nouveaux dossiers de {{ clinic.name }}.</p>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <Button :as="Link" :href="`/super-admin/sites/${clinic.code}/patients/settings/numerotation`" variant="outline" size="sm"><Hash class="h-4 w-4" />Numérotation</Button>
+                    <Button :as="Link" :href="`/super-admin/sites/${clinic.code}/patients/settings/ages`" variant="outline" size="sm"><Baby class="h-4 w-4" />Âges des patients</Button>
+                </div>
+            </div>
+        </Card>
+
+        <Card v-if="selectedModule.code === 'OVERVIEW' && can('settings.view')" class="p-5">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div class="flex items-start gap-3">
+                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Settings2 class="h-5 w-5" /></span>
+                    <div>
+                        <h2 class="text-sm font-bold text-foreground">Configuration de l’établissement</h2>
+                        <p class="mt-1 text-xs leading-5 text-muted-foreground">Informations légales et disponibilité opérationnelle de {{ clinic.name }}.</p>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <Button :as="Link" :href="`/super-admin/sites/${clinic.code}/organization/settings/legal`" variant="outline" size="sm"><Landmark class="h-4 w-4" />Identité légale</Button>
+                    <Button :as="Link" :href="`/super-admin/sites/${clinic.code}/organization/settings/maintenance`" variant="outline" size="sm"><Construction class="h-4 w-4" />Maintenance</Button>
+                </div>
+            </div>
+        </Card>
 
         <Card v-if="! siteReport.ok" class="border-amber-200 bg-amber-50/60 p-5 dark:border-amber-900 dark:bg-amber-950/20" role="alert">
             <div class="flex items-start gap-3">

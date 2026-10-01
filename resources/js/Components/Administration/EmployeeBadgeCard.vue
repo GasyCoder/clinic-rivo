@@ -50,8 +50,8 @@ const settingsHref = computed(() => settingsUrl('badges', hrContext()?.site?.cod
         </p>
         <p class="mt-3 text-[0.8rem] leading-5 text-muted-foreground">
             Couleurs, textes, polices, disposition et papier se règlent pour le site dans
-            <Link v-if="onPortal" :href="settingsHref" class="font-medium text-primary hover:underline">Paramètres › Badge du personnel</Link>
-            <span v-else class="font-medium text-foreground">Paramètres › Badge du personnel</span>
+            <Link v-if="onPortal" :href="settingsHref" class="font-medium text-primary hover:underline">Ressources humaines › Badge du personnel</Link>
+            <span v-else class="font-medium text-foreground">Ressources humaines › Badge du personnel</span>
             (Super Admin). Le même modèle vaut pour tout le personnel.
         </p>
     </section>

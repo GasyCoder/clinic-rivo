@@ -41,22 +41,73 @@ class AppSettingsController extends Controller
 
     private const MAINTENANCE_PORTAL_REFUSAL = 'La maintenance se règle pour un site : tous les comptes du portail la traverseraient.';
 
-    /**
-     * ADR-191 — les modules des paramètres, chacun sa page. La même liste, dans le
-     * même ordre, que `resources/js/utilities/settingsSections.js` (vérifié par test) ;
-     * le premier s'ouvre quand on arrive sur « Paramètres ».
-     */
-    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'badges', 'monnaie', 'remises', 'legal', 'direction', 'compte-rendu', 'visibilite', 'maintenance', 'assistant'];
+    /** ADR-237 — registre des réglages et de leur unique module propriétaire. */
+    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'matricules', 'badges', 'monnaie', 'remises', 'legal', 'direction', 'compte-rendu', 'visibilite', 'maintenance', 'assistant'];
 
-    /**
-     * La page d'un module. Sans module, le premier : comme dans les paramètres de
-     * ChatGPT ou de Claude, « Paramètres » ouvre directement ses réglages.
-     */
+    public const CONTEXT_SECTIONS = [
+        'system' => ['identite', 'theme', 'avance', 'ecrans', 'visibilite', 'assistant'],
+        'patients' => ['numerotation', 'ages'],
+        'finance' => ['monnaie', 'remises'],
+        'hr' => ['matricules', 'badges', 'direction'],
+        'laboratory' => ['compte-rendu'],
+        'organization' => ['legal', 'maintenance'],
+    ];
+
+    /** « Apparence & système » ouvre son premier réglage ; les anciens liens métier redirigent. */
     public function index(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, ?string $section = null): Response|RedirectResponse
     {
         if ($section === null) {
-            return redirect()->route('super-admin.settings.section', ['section' => self::SECTIONS[0], ...$request->query()]);
+            return redirect()->route('super-admin.settings.section', ['section' => self::CONTEXT_SECTIONS['system'][0], ...$request->query()]);
         }
+
+        $context = $this->contextOf($section);
+        if ($context !== 'system') {
+            return redirect()->to($this->canonicalUrl($context, $section, (string) $request->query('site')));
+        }
+
+        return $this->renderSettings($request, $client, $presenter, $assistantPresenter, $section, 'system');
+    }
+
+    public function finance(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, string $section): Response
+    {
+        return $this->renderContext($request, $client, $presenter, $assistantPresenter, $section, 'finance');
+    }
+
+    public function humanResources(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, string $section): Response
+    {
+        return $this->renderContext($request, $client, $presenter, $assistantPresenter, $section, 'hr');
+    }
+
+    public function laboratory(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, string $section): Response
+    {
+        return $this->renderContext($request, $client, $presenter, $assistantPresenter, $section, 'laboratory');
+    }
+
+    public function organization(Request $request, string $site, string $section, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter): Response
+    {
+        $site = mb_strtoupper($site);
+        abort_unless(in_array($site, $this->siteCodes(), true), 404);
+
+        return $this->renderContext($request, $client, $presenter, $assistantPresenter, $section, 'organization', $site);
+    }
+
+    public function patients(Request $request, string $site, string $section, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter): Response
+    {
+        $site = mb_strtoupper($site);
+        abort_unless(in_array($site, $this->siteCodes(), true), 404);
+
+        return $this->renderContext($request, $client, $presenter, $assistantPresenter, $section, 'patients', $site);
+    }
+
+    private function renderContext(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, string $section, string $context, ?string $fixedSiteCode = null): Response
+    {
+        abort_unless(in_array($section, self::CONTEXT_SECTIONS[$context] ?? [], true), 404);
+
+        return $this->renderSettings($request, $client, $presenter, $assistantPresenter, $section, $context, $fixedSiteCode);
+    }
+
+    private function renderSettings(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, AssistantSettingsPresenter $assistantPresenter, string $section, string $context, ?string $fixedSiteCode = null): Response
+    {
 
         $portal = [
             'site' => ['code' => self::PORTAL, 'name' => 'Portail Super Admin'],
@@ -71,9 +122,13 @@ class AppSettingsController extends Controller
             ->map(fn (array $site) => [...$site, 'kind' => 'site'])
             ->all();
 
+        $targets = $context === 'system' ? [...$sites, $portal] : $sites;
+
         return Inertia::render('SuperAdmin/Settings/Index', [
             'section' => $section,
-            'targets' => [...$sites, $portal],
+            'context' => $context,
+            'fixedSiteCode' => $fixedSiteCode,
+            'targets' => $targets,
             // ADR-222 — les réglages de l'assistant, lus seulement sur leur module et avec leur droit.
             // Jamais sous le nom `assistant` : ce serait écraser la prop partagée qui fait
             // apparaître la bulle de l'assistant, et elle disparaîtrait de tous les paramètres.
@@ -111,6 +166,44 @@ class AppSettingsController extends Controller
                 'defaults' => ['patient' => PatientNumberFormat::DEFAULTS, 'employee' => EmployeeNumberFormat::DEFAULTS],
             ],
         ]);
+    }
+
+    private function contextOf(string $section): string
+    {
+        foreach (self::CONTEXT_SECTIONS as $context => $sections) {
+            if (in_array($section, $sections, true)) {
+                return $context;
+            }
+        }
+
+        abort(404);
+    }
+
+    private function canonicalUrl(string $context, string $section, string $site): string
+    {
+        $site = mb_strtoupper($site);
+        if (! in_array($site, $this->siteCodes(), true)) {
+            $site = $this->siteCodes()[0] ?? '';
+        }
+
+        if (in_array($context, ['patients', 'organization'], true)) {
+            return route("super-admin.settings.{$context}", ['site' => $site, 'section' => $section]);
+        }
+
+        $route = match ($context) {
+            'finance' => 'super-admin.settings.finance',
+            'hr' => 'super-admin.settings.hr',
+            'laboratory' => 'super-admin.settings.laboratory',
+            default => 'super-admin.settings.section',
+        };
+
+        return route($route, ['section' => $section, 'site' => $site]);
+    }
+
+    /** @return list<string> */
+    private function siteCodes(): array
+    {
+        return collect(config('rivo.clinics', []))->pluck('code')->map(fn ($code) => mb_strtoupper((string) $code))->values()->all();
     }
 
     public function update(Request $request, PortalSiteApiClient $client, UpdateAppSettingsAction $action): RedirectResponse

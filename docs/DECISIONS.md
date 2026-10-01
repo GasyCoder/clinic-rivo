@@ -23090,6 +23090,33 @@ importées partent avec leur fichier. Les raisons s'écrivent au bon pluriel («
 
 ---
 
+# ADR-237 — Les paramètres métier vivent dans leur module propriétaire
+
+**Status:** ACCEPTED (2026-10-01 — exigence explicite du propriétaire)
+
+**Amende l'ADR-191.** L'écran unique et les composants de formulaire restent partagés, mais le menu « Paramètres »
+ne doit plus être un catalogue de règles métier sans rapport entre elles. Chaque réglage n'a qu'une adresse canonique :
+
+```text
+Patients par site       numérotation patients/passages, tranches d'âge
+Finances                monnaie, remise du personnel, coupons
+Ressources humaines     matricules, badges, direction et signature RH
+Laboratoire             présentation du compte rendu d'analyses
+Établissement           identité légale, maintenance du site
+Apparence & système     identité visuelle, thème, affichage, écrans, moteurs de recherche, assistant IA
+```
+
+La « Numérotation » de l'ADR-191 est scindée : le format patient/passage appartient à Patients ; le matricule employé
+appartient aux Ressources humaines. Les anciennes routes `/super-admin/settings/{section}` redirigent vers le module
+propriétaire, afin de ne casser aucun favori et de ne jamais présenter deux écrans concurrents.
+
+Le déplacement est une organisation de navigation, pas une nouvelle règle métier : mêmes validations, mêmes droits
+`settings.view` / `settings.update`, mêmes audits et mêmes actions. Un site continue d'être lu et écrit exclusivement
+par son API ; le portail n'accède jamais à sa base. Les réglages propres à un métier ne proposent pas « Réinitialiser
+tous les paramètres », geste transversal qui reste uniquement dans « Apparence & système ».
+
+---
+
 # ADR-238 — Disciplines du laboratoire en référentiel ; la saisie suit le type de résultat
 
 **Status:** ACCEPTED (2026-10-01 — exigence explicite du propriétaire : « lorsque je coche Quel résultat, la Saisie

@@ -1,10 +1,12 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
-import { ArrowRight, Building2, CircleAlert, FlaskConical, Hand } from 'lucide-vue-next';
+import { ArrowRight, Building2, CircleAlert, FlaskConical, Hand, Settings } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
+import { usePermissions } from '@/composables/usePermissions';
 
 defineOptions({ layout: AppLayout });
 
@@ -17,6 +19,7 @@ defineOptions({ layout: AppLayout });
 defineProps({
     sites: { type: Array, default: () => [] },
 });
+const { can } = usePermissions();
 </script>
 
 <template>
@@ -28,7 +31,11 @@ defineProps({
             title="Laboratoire des sites"
             description="Chaque site a son laboratoire, sa file et ses référentiels. Choisissez un site pour lire ses demandes, ses résultats et ses rapports, et gérer ses prélèvements, tubes, germes et antibiotiques."
             :icon="FlaskConical"
-        />
+        >
+            <template v-if="can('settings.view')" #actions>
+                <Button :as="Link" href="/super-admin/laboratory/settings/compte-rendu" variant="outline"><Settings class="h-4 w-4" />Configurer les comptes rendus</Button>
+            </template>
+        </PageHeader>
 
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <Card v-for="site in sites" :key="site.code" class="p-0">

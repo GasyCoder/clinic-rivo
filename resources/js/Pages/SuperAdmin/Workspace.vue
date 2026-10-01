@@ -1,8 +1,9 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import { Info } from 'lucide-vue-next';
+import { BadgeCheck, Hash, Info, PenLine, Settings } from 'lucide-vue-next';
 import { lucideIcon } from '@/lib/icons';
+import { usePermissions } from '@/composables/usePermissions';
 
 defineOptions({ layout: AppLayout });
 
@@ -11,6 +12,7 @@ defineProps({
     sites: Array,
     brand: String,
 });
+const { can } = usePermissions();
 </script>
 
 <template>
@@ -21,6 +23,26 @@ defineProps({
             <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground dark:text-muted-foreground"><component class="h-5 w-5" :is="lucideIcon(workspace.icon)" /></span>
             <div><p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Super Administration</p><h1 class="mt-0.5 font-heading text-2xl font-bold text-foreground">{{ workspace.title }}</h1><p class="mt-1 max-w-3xl text-sm text-muted-foreground">{{ workspace.description }}</p></div>
         </header>
+
+        <section v-if="workspace.code === 'HR' && can('settings.view')" class="rounded-lg border border-border bg-card p-5">
+            <div class="flex items-start gap-3">
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Settings class="h-5 w-5" /></span>
+                <div>
+                    <h2 class="text-sm font-bold text-foreground">Configuration du personnel</h2>
+                    <p class="mt-1 text-xs leading-5 text-muted-foreground">Choisissez le site puis le réglage RH. Chaque modification passe par l’API et l’audit du site.</p>
+                </div>
+            </div>
+            <div class="mt-4 grid gap-3 md:grid-cols-2">
+                <article v-for="site in sites" :key="site.code" class="rounded-lg border border-border p-4">
+                    <h3 class="text-sm font-bold text-foreground">{{ site.name }}</h3>
+                    <div class="mt-3 flex flex-wrap gap-2 text-xs">
+                        <Link :href="`/super-admin/human-resources/settings/matricules?site=${site.code}`" class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 font-medium text-muted-foreground hover:bg-muted hover:text-foreground"><Hash class="h-3.5 w-3.5" />Matricules</Link>
+                        <Link :href="`/super-admin/human-resources/settings/badges?site=${site.code}`" class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 font-medium text-muted-foreground hover:bg-muted hover:text-foreground"><BadgeCheck class="h-3.5 w-3.5" />Badges</Link>
+                        <Link :href="`/super-admin/human-resources/settings/direction?site=${site.code}`" class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 font-medium text-muted-foreground hover:bg-muted hover:text-foreground"><PenLine class="h-3.5 w-3.5" />Direction</Link>
+                    </div>
+                </article>
+            </div>
+        </section>
 
         <section v-if="workspace.code === 'FINANCE'" class="overflow-hidden rounded-lg border border-border bg-card">
             <div class="grid grid-cols-[minmax(180px,1fr)_repeat(3,minmax(130px,0.5fr))] border-b border-border bg-muted/70 px-5 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground /40"><span>Site</span><span>Recettes</span><span>Paiements</span><span>Solde</span></div>

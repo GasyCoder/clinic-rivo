@@ -260,6 +260,8 @@ changement de son mot de passe (`ChangeOwnPasswordAction` : ancien exigé,
 nom, email, rôle et droits restent à l'administration (ADR-022).
 
 **Réinitialisation globale des paramètres** (ADR-210). Depuis chaque module de Paramètres, le bouton
+
+**Les paramètres métier vivent dans leur module** (ADR-237, amende ADR-191). `AppSettingsController::CONTEXT_SECTIONS` range chaque réglage dans un seul module : Apparence & système (`/super-admin/settings/{section}` : identité, thème, affichage, écrans, moteurs de recherche, assistant ; seul à proposer « Réinitialiser tous les paramètres »), Finances (`/super-admin/finance/settings/{monnaie|remises}`), RH (`/super-admin/human-resources/settings/{matricules|badges|direction}` — la numérotation de l'ADR-191 est scindée : patients d'un côté, matricule employé de l'autre), Laboratoire (`/super-admin/laboratory/settings/compte-rendu`), et par site Patients (`/super-admin/sites/{site}/patients/settings/{numerotation|ages}`) et Établissement (`/super-admin/sites/{site}/organization/settings/{legal|maintenance}`). Une ancienne adresse `/super-admin/settings/{section}` d'un réglage métier redirige vers son module. Mêmes droits (`settings.view` / `settings.update`), mêmes actions et même API du site.
 « Réinitialiser tous les paramètres » exige la saisie exacte de `RÉINITIALISER`, puis retire la ligne
 `app_settings` auditée (`app_settings.reset`) et ses cinq fichiers personnalisés. Tous les champs retombent
 ainsi sur `config/rivo.php`, y compris les futurs réglages. Coupons, maintenance, compteurs de numérotation,

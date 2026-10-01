@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { Head, router, useForm, usePage } from '@inertiajs/vue3';
-import { Loader2, RotateCcw, Save, Server, TriangleAlert } from 'lucide-vue-next';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
+import { ArrowLeft, Loader2, RotateCcw, Save, Server, TriangleAlert } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
@@ -29,7 +29,7 @@ import { cn } from '@/lib/cn';
 import { DEFAULT_PRIMARY, isHexColor } from '@/utilities/brandColor';
 import { BADGE_FIELDS, badgeFormValue } from '@/utilities/employeeBadge';
 import { LAB_REPORT_FIELDS, labReportFormValue } from '@/utilities/labReportDesign';
-import { SETTINGS_SECTIONS, settingsSection, settingsUrl } from '@/utilities/settingsSections';
+import { SETTINGS_CONTEXTS, SETTINGS_SECTIONS, settingsSection, settingsUrl } from '@/utilities/settingsSections';
 
 /**
  * Les paramètres de l'application, cible par cible (ADR-184), module par module
@@ -47,6 +47,8 @@ defineOptions({ layout: AppLayout });
 
 const props = defineProps({
     section: { type: String, default: null },
+    context: { type: String, default: 'system' },
+    fixedSiteCode: { type: String, default: null },
     targets: { type: Array, default: () => [] },
     limits: { type: Object, default: () => ({}) },
     currencyLabels: { type: Array, default: () => ['Ar', 'Ariary', 'MGA'] },
@@ -68,6 +70,7 @@ const canUpdate = computed(() => can('settings.update'));
 
 /** Le module ouvert ; sans module, le premier (le serveur y redirige déjà). */
 const current = computed(() => settingsSection(props.section) ?? SETTINGS_SECTIONS[0]);
+const context = computed(() => SETTINGS_CONTEXTS[props.context] ?? SETTINGS_CONTEXTS.system);
 /**
  * ADR-193 — un module sans champ du formulaire commun (la maintenance) agit tout
  * de suite, avec ses propres droits : ni « Enregistrer » en pied, ni l'avis
@@ -79,7 +82,7 @@ const usesCommonForm = computed(() => current.value.fields.length > 0);
 /* Cible                                                               */
 /* ------------------------------------------------------------------ */
 
-const initialCode = new URLSearchParams(String(page.url ?? '').split('?')[1] ?? '').get('site');
+const initialCode = props.fixedSiteCode || new URLSearchParams(String(page.url ?? '').split('?')[1] ?? '').get('site');
 const firstReachable = props.targets.find((target) => target.ok)?.site.code ?? props.targets[0]?.site.code ?? '';
 const selectedCode = ref(props.targets.some((target) => target.site.code === initialCode) ? initialCode : firstReachable);
 
@@ -173,7 +176,7 @@ const confirmSwitch = () => {
 const dirty = computed(() => form.isDirty);
 const leaveGuard = useUnsavedChangesGuard(dirty);
 
-const changedCount = computed(() => FIELDS.filter((field) => String(form[field] ?? '') !== String(saved.value[field] ?? '')).length);
+const changedCount = computed(() => current.value.fields.filter((field) => String(form[field] ?? '') !== String(saved.value[field] ?? '')).length);
 
 const RESET_CONFIRMATION = 'RÉINITIALISER';
 const resetSettingsOpen = ref(false);
@@ -207,13 +210,14 @@ const siteStatus = computed(() => {
 });
 const colorPreview = computed(() => (isHexColor(form.primary_color) ? form.primary_color.toUpperCase() : DEFAULT_PRIMARY));
 const agesValid = computed(() => Number(form.child_max_age) > Number(form.baby_max_age));
+const sectionValid = computed(() => current.value.id !== 'ages' || agesValid.value);
 
 /* ------------------------------------------------------------------ */
 /* Enregistrer                                                         */
 /* ------------------------------------------------------------------ */
 
 const submit = () => {
-    if (! form.isDirty || ! agesValid.value) return;
+    if (! form.isDirty || ! sectionValid.value) return;
 
     form
         .transform((values) => ({
@@ -283,18 +287,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 </script>
 
 <template>
-    <Head :title="`${current.label} · Paramètres`" />
+    <Head :title="`${current.label} · ${context.label}`" />
 
     <div class="w-full space-y-6 pb-16">
         <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <div class="min-w-0 flex-1 space-y-1">
-                <h2 class="text-2xl font-bold tracking-tight text-foreground">Paramètres</h2>
-                <p class="text-muted-foreground">Les réglages de chaque site et du portail. Un site se règle par son API ; le portail se règle lui-même.</p>
+                <Link
+                    v-if="['patients', 'organization'].includes(props.context)"
+                    :href="`/super-admin/sites/${selectedCode}?module=${props.context === 'patients' ? 'PATIENTS' : 'OVERVIEW'}`"
+                    class="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+                >
+                    <ArrowLeft class="h-4 w-4" />{{ props.context === 'patients' ? 'Patients' : 'Vue du site' }} · {{ target?.site.name }}
+                </Link>
+                <h2 class="text-2xl font-bold tracking-tight text-foreground">{{ context.label }}</h2>
+                <p class="text-muted-foreground">{{ context.description }} Chaque site est lu et enregistré uniquement par son API.</p>
             </div>
             <div class="flex min-w-0 flex-col gap-1.5 xl:shrink-0 xl:items-end">
                 <div class="flex w-full flex-wrap items-center justify-end gap-2">
                     <SettingsSiteSwitcher :targets="targets" :model-value="selectedCode" @update:model-value="selectTarget" />
-                    <Button v-if="!readonly" type="button" size="sm" variant="outline" class="whitespace-nowrap" :disabled="!target?.ok" :title="target?.ok ? 'Rétablir toutes les valeurs du déploiement' : 'Cette cible est indisponible'" @click="setResetSettingsOpen(true)">
+                    <Button v-if="!readonly && props.context === 'system'" type="button" size="sm" variant="outline" class="whitespace-nowrap" :disabled="!target?.ok" :title="target?.ok ? 'Rétablir toutes les valeurs du déploiement' : 'Cette cible est indisponible'" @click="setResetSettingsOpen(true)">
                         <RotateCcw class="h-4 w-4" aria-hidden="true" />
                         Réinitialiser tous les paramètres
                     </Button>
@@ -309,7 +320,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
         <!-- Le module ouvert dans sa carte, le menu des modules à sa droite (au-dessus sur un écran étroit). -->
         <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
             <aside class="min-w-0 lg:sticky lg:top-24 lg:order-2">
-                <SettingsNav :current="current.id" :site-code="selectedCode" />
+                <SettingsNav :current="current.id" :site-code="selectedCode" :context="props.context" />
             </aside>
 
             <div class="cq min-w-0 rounded-xl border border-border bg-card text-card-foreground shadow-sm lg:order-1">
@@ -355,12 +366,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                             @saved="afterSave"
                         />
                         <NumberingSettings
-                            v-else-if="current.id === 'numerotation'"
+                            v-else-if="current.id === 'numerotation' || current.id === 'matricules'"
                             :form="form"
                             :saved="saved"
                             :numbering="data.numbering ?? {}"
                             :fallbacks="fallbacks"
                             :options="numberingOptions"
+                            :scope="current.id === 'matricules' ? 'employee' : 'patient'"
                             :readonly="readonly"
                         />
                         <AgeBandSettings v-else-if="current.id === 'ages'" :form="form" :limits="limits" :readonly="readonly" />
@@ -435,7 +447,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                                 <kbd class="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[0.7rem] text-foreground">S</kbd>
                             </span>
                             <Button v-if="form.isDirty" type="button" variant="outline" :disabled="form.processing" @click="loadTarget">Annuler</Button>
-                            <Button type="submit" :disabled="! form.isDirty || form.processing || ! agesValid" :aria-keyshortcuts="isMac ? 'Meta+S' : 'Control+S'">
+                            <Button type="submit" :disabled="! form.isDirty || form.processing || ! sectionValid" :aria-keyshortcuts="isMac ? 'Meta+S' : 'Control+S'">
                                 <Loader2 v-if="form.processing" class="h-4 w-4 animate-spin" />
                                 <Save v-else class="h-4 w-4" aria-hidden="true" />
                                 {{ form.processing ? 'Enregistrement…' : 'Enregistrer' }}

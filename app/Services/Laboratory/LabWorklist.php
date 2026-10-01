@@ -28,6 +28,7 @@ class LabWorklist
     /** @return array{sheets: array<int, array<string, mixed>>, disciplines: array<int, array{name: string, count: int}>} */
     public function build(?string $discipline = null): array
     {
+        $sorter = $this->disciplines->sorter();
         $items = LabRequestItem::query()
             ->whereIn('status', array_map(fn (LabItemStatus $status) => $status->value, self::OPEN))
             ->whereNull('sent_out_at')
@@ -93,7 +94,7 @@ class LabWorklist
                     ->sortBy(fn (array $row) => [$row['emergency'] ? 0 : 1, (string) $row['received_at']])
                     ->values()->all(),
             ])
-            ->sortBy(fn ($sheet) => [$sheet['discipline'] === LabDisciplines::NONE ? 1 : 0, $sheet['discipline']])
+            ->sortBy(fn ($sheet) => $sorter($sheet['discipline']))
             ->values()->all();
 
         return ['sheets' => $sheets, 'disciplines' => $counts];

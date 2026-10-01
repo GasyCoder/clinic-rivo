@@ -1,5 +1,6 @@
 import {
     Banknote,
+    LayoutList,
     ChartPie,
     ListChecks,
     TestTube,
@@ -106,6 +107,8 @@ export const CLINIC_WORKSPACES = [
     { key: 'lab-worklist', group: 'clinical', text: 'Feuille de paillasse', description: 'Analyses à faire, par discipline', icon: ListChecks, link: '/laboratory/paillasse', permission: 'laboratory_results.view', tone: 'cyan' },
     { key: 'lab-reports', group: 'clinical', text: 'Rapports du laboratoire', description: 'Activité, délais et disciplines', icon: ChartPie, link: '/laboratory/rapports', permission: 'laboratory_reports.view', tone: 'cyan' },
     { key: 'lab-sample-types', group: 'clinical', text: 'Prélèvements & tubes', description: 'Types de prélèvement et tubes', icon: TestTube, link: '/laboratory/prelevements', permission: 'lab_sample_types.view', tone: 'cyan' },
+    // ADR-238 — les disciplines rangent la paillasse et le compte rendu.
+    { key: 'lab-disciplines', group: 'clinical', text: 'Disciplines', description: 'Hématologie, biochimie… et leur ordre', icon: LayoutList, link: '/laboratory/disciplines', permission: 'lab_disciplines.view', tone: 'cyan' },
     { key: 'lab-microbiology', group: 'clinical', text: 'Germes & antibiotiques', description: 'Familles, germes et antibiotiques testés', icon: Bug, link: '/laboratory/microbiologie', permission: 'lab_microbiology.view', tone: 'cyan' },
     // care.view alone also powers the read-only projection embedded in
     // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on
@@ -249,7 +252,7 @@ export const SIDEBAR_GROUPS = [
         key: 'laboratory-space',
         text: 'Laboratoire',
         icon: FlaskConical,
-        members: ['laboratory', 'lab-worklist', 'lab-reports', 'lab-sample-types', 'lab-microbiology'],
+        members: ['laboratory', 'lab-worklist', 'lab-reports', 'lab-sample-types', 'lab-disciplines', 'lab-microbiology'],
         labels: { laboratory: 'Paillasse' },
     },
     {

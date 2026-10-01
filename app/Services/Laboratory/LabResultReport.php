@@ -96,6 +96,10 @@ class LabResultReport
             $sections[$label]['items'][] = $this->item($item, $viewer, $approvedOnly);
         }
 
+        // ADR-238 — les sections dans l'ordre des disciplines du référentiel.
+        $sorter = $this->disciplines->sorter();
+        uksort($sections, fn (string $a, string $b) => $sorter($a) <=> $sorter($b));
+
         $validators = $items->filter(fn (LabRequestItem $item) => $item->validated_at !== null);
         $approvers = $items->filter(fn (LabRequestItem $item) => $item->isApproved());
         $approverNames = $approvers->map(fn (LabRequestItem $item) => $item->approvedBy?->name)->filter()->unique()->values()->all();

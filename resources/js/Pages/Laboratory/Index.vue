@@ -12,7 +12,7 @@ import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import DropdownMenu from '@/Components/Shadcn/DropdownMenu.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import {
-    AlertTriangle, Archive, ArchiveRestore, BadgeCheck, BarChart3, Building2, CalendarCheck, ClipboardList, Ellipsis, FlaskConical, List, Microscope, Play, RotateCcw, ScanBarcode, Search, Siren, TestTube, TestTubes, Trash2, UserRound, X,
+    AlertTriangle, Archive, ArchiveRestore, BadgeCheck, BarChart3, Building2, CalendarCheck, ClipboardList, Ellipsis, FlaskConical, LayoutList, List, Microscope, Play, RotateCcw, ScanBarcode, Search, Siren, TestTube, TestTubes, Trash2, UserRound, X,
 } from 'lucide-vue-next';
 import { formatDateTime, formatRelativeTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
@@ -163,6 +163,9 @@ const emptyText = computed(() => ({
                 </Button>
                 <Button v-if="can('lab_sample_types.view')" :as="Link" :href="labUrl('/laboratory/prelevements')" variant="outline" size="sm">
                     <TestTube class="h-4 w-4" /> Prélèvements & tubes
+                </Button>
+                <Button v-if="can('lab_disciplines.view')" :as="Link" :href="labUrl('/laboratory/disciplines')" variant="outline" size="sm">
+                    <LayoutList class="h-4 w-4" /> Disciplines
                 </Button>
                 <Button v-if="can('lab_microbiology.view')" :as="Link" :href="labUrl('/laboratory/microbiologie')" variant="outline" size="sm">
                     <Microscope class="h-4 w-4" /> Germes & antibiotiques

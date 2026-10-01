@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import {
     Baby, Binary, Calculator, FileText, FlaskConical, FolderTree, Hash, Info, Layers,
     ListChecks, Mars, Pencil, Ruler, Siren, Tag, ToggleLeft, Type, Users, Venus,
@@ -18,7 +18,8 @@ import SubAnalysesEditor from './SubAnalysesEditor.vue';
 import CriticalRangesField from './CriticalRangesField.vue';
 import { criticalRangesCount } from '@/utilities/criticalRanges';
 import {
-    LEVELS, RESULT_TYPES, isNumericResult, matchesCatalogItem, mayHaveParent, splitPredefinedValues, usesPredefinedValues,
+    LEVELS, NEW_DISCIPLINE, RESULT_TYPES, automaticEntryMode, automaticEntryModeLabel, disciplineOptions, entryModesFor,
+    isNumericResult, keepEntryModeCoherent, matchesCatalogItem, mayHaveParent, splitPredefinedValues, usesPredefinedValues,
 } from '@/utilities/analysisForm';
 import { cn } from '@/lib/cn';
 
@@ -39,7 +40,12 @@ const props = defineProps({
     levels: { type: Array, required: true },
     resultTypes: { type: Array, required: true },
     entryModes: { type: Array, default: () => [] },
-    examCategories: { type: Array, default: () => [] },
+    // ADR-238 — les disciplines du référentiel, la discipline portée et ce que
+    // « Automatique » donne pour l'analyse enregistrée.
+    disciplines: { type: Array, default: () => [] },
+    currentDiscipline: { type: Object, default: null },
+    canCreateDiscipline: { type: Boolean, default: false },
+    servedEntryMode: { type: Object, default: null },
 });
 const emit = defineEmits(['go']);
 
@@ -63,10 +69,23 @@ const parentOptions = computed(() => [
 ]);
 const selectedParent = computed(() => availableParents.value.find((parent) => parent.uuid === props.form.parent_uuid) ?? null);
 
+// ADR-238 — la saisie suit le type coché : seuls les modes qui lui conviennent
+// sont proposés, et un mode qui ne lui va plus redevient « Automatique ».
+const automatic = computed(() => automaticEntryMode(props.form, props.entryModes, props.servedEntryMode));
 const entryModeOptions = computed(() => [
-    { value: '', label: 'Automatique — selon le type de résultat' },
-    ...props.entryModes.map((mode) => ({ value: mode.value, label: mode.label })),
+    { value: '', label: automaticEntryModeLabel(automatic.value) },
+    ...entryModesFor(props.entryModes, props.form.result_type).map((mode) => ({ value: mode.value, label: mode.label })),
 ]);
+const modesForType = computed(() => entryModesFor(props.entryModes, props.form.result_type));
+watch(() => props.form.result_type, () => keepEntryModeCoherent(props.form, props.entryModes));
+
+// La discipline d'une sous-analyse est celle de son groupe : rien à choisir.
+const inheritsDiscipline = computed(() => props.form.level === 'CHILD' || (props.form.level === 'PARENT' && Boolean(props.form.parent_uuid)));
+const disciplineChoices = computed(() => disciplineOptions(props.disciplines, props.currentDiscipline, { canCreate: props.canCreateDiscipline }));
+const disciplineName = computed(() => {
+    if (props.form.lab_discipline_uuid === NEW_DISCIPLINE) return props.form.new_discipline_name?.trim() || '';
+    return disciplineChoices.value.find((option) => option.value && option.value === props.form.lab_discipline_uuid)?.label ?? '';
+});
 const entryMode = computed({
     get: () => props.form.entry_mode ?? '',
     set: (value) => { props.form.entry_mode = value || null; },
@@ -112,9 +131,9 @@ const summary = computed(() => [
         step: 'resultat', label: 'Résultat', icon: Binary,
         title: `${RESULT_TYPES[props.form.result_type]?.label ?? props.form.result_type}${props.form.unit ? ` · ${props.form.unit}` : ''}`,
         lines: [
-            props.entryModes.find((mode) => mode.value === props.form.entry_mode)?.label ?? 'Saisie automatique selon le type',
+            props.entryModes.find((mode) => mode.value === props.form.entry_mode)?.label ?? automaticEntryModeLabel(automatic.value),
             ...(choices.value ? [predefinedValues.value.length ? predefinedValues.value.join(' · ') : 'Aucune valeur proposée'] : []),
-            ...(props.form.exam_category ? [props.form.exam_category] : []),
+            ...(inheritsDiscipline.value ? ['Discipline du groupe'] : [disciplineName.value || 'Sans discipline']),
         ],
     },
     {
@@ -246,7 +265,12 @@ const summary = computed(() => [
                         <Select id="entry_mode" v-model="entryMode" :options="entryModeOptions" class="w-full min-w-0" />
                     </FormField>
                 </div>
-                <p v-if="entryModes.length" class="-mt-2 text-xs text-muted-foreground">À changer seulement pour une saisie particulière : culture et antibiogramme, score de Nugent, négatif / positif…</p>
+                <p v-if="entryModes.length" class="-mt-2 text-xs text-muted-foreground">
+                    {{ modesForType.length > 1
+                        ? `Pour un résultat « ${RESULT_TYPES[form.result_type]?.label ?? form.result_type} » : ${modesForType.map((mode) => mode.label).join(' · ')}.`
+                        : 'Un seul mode de saisie pour ce type de résultat.' }}
+                    Un autre mode se demande au développement : chaque saisie a son écran, son contrôle et son impression.
+                </p>
             </Card>
 
             <Card v-if="choices" class="space-y-3 p-5 sm:p-6">
@@ -265,14 +289,26 @@ const summary = computed(() => [
                     <p class="text-sm text-muted-foreground">Comment l'analyse se range et s'imprime sur le compte rendu.</p>
                 </header>
                 <div class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
-                    <FormField label="Discipline" hint="(facultatif)" :error="err('exam_category')" :icon="FlaskConical">
-                        <Input id="exam_category" v-model="form.exam_category" list="exam-category-options" placeholder="HÉMATOLOGIE, BIOCHIMIE…" autocomplete="off" />
-                        <datalist id="exam-category-options"><option v-for="category in examCategories" :key="category" :value="category" /></datalist>
+                    <FormField v-if="inheritsDiscipline" as="div" label="Discipline" :icon="FlaskConical">
+                        <p class="flex h-[var(--control-h)] items-center rounded-md border border-dashed border-border px-3 text-sm text-muted-foreground">Celle de son groupe</p>
+                    </FormField>
+                    <FormField v-else as="div" label="Discipline" hint="(facultatif)" :error="err('lab_discipline_uuid')" :icon="FlaskConical">
+                        <Select id="lab_discipline_uuid" v-model="form.lab_discipline_uuid" :options="disciplineChoices" class="w-full min-w-0" />
                     </FormField>
                     <FormField label="Ordre" :error="err('display_order')" :icon="Hash">
                         <Input id="display_order" v-model.number="form.display_order" type="number" min="0" />
                     </FormField>
                 </div>
+                <FormField
+                    v-if="!inheritsDiscipline && form.lab_discipline_uuid === NEW_DISCIPLINE"
+                    label="Nom de la nouvelle discipline"
+                    :error="err('new_discipline_name')"
+                    :icon="FlaskConical"
+                    required
+                >
+                    <Input id="new_discipline_name" v-model="form.new_discipline_name" maxlength="120" placeholder="IMMUNOLOGIE" autocomplete="off" />
+                </FormField>
+                <p v-if="!inheritsDiscipline" class="-mt-2 text-xs text-muted-foreground">La discipline range la feuille de paillasse et la section du compte rendu. Les sous-analyses prennent celle du groupe.</p>
                 <FormField label="Description" hint="(facultatif)" :error="err('description')" :icon="FileText">
                     <Textarea id="description" v-model="form.description" rows="2" placeholder="Méthode, précision utile au laboratoire" />
                 </FormField>

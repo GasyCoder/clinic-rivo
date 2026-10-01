@@ -7,6 +7,7 @@ use App\Enums\CatalogModule;
 use App\Enums\LabEntryMode;
 use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
+use App\Models\LabDiscipline;
 
 /**
  * Lecture du catalogue des analyses d'un site, écrite une seule fois.
@@ -34,7 +35,7 @@ class AnalysisCatalogDirectory
         $metadata = $this->hierarchy->metadata();
 
         $analyses = AnalysisCatalog::query()
-            ->with(['catalogItem:id,uuid,code,name', 'parent:id,uuid,code,designation'])
+            ->with(['catalogItem:id,uuid,code,name', 'parent:id,uuid,code,designation', 'discipline'])
             ->when($status !== 'ALL', fn ($query) => $query->where('is_active', $status === 'ACTIVE'))
             ->when(filled($catalogItemUuid), fn ($query) => $query
                 ->whereHas('catalogItem', fn ($catalog) => $catalog->where('uuid', $catalogItemUuid)))
@@ -89,13 +90,26 @@ class AnalysisCatalogDirectory
             'levels' => AnalysisCatalog::LEVELS,
             'result_types' => AnalysisCatalog::RESULT_TYPES,
             'entry_modes' => LabEntryMode::options(),
-            'exam_categories' => AnalysisCatalog::query()
-                ->whereNotNull('exam_category')
-                ->distinct()
-                ->orderBy('exam_category')
-                ->pluck('exam_category')
-                ->all(),
+            'disciplines' => self::disciplineOptions(),
         ];
+    }
+
+    /**
+     * ADR-238 — les disciplines proposées par la fiche : celles en service,
+     * dans leur ordre d'impression. Une archivée n'est montrée qu'à l'analyse
+     * qui la porte encore (`lab_discipline` de l'analyse).
+     *
+     * @return array<int, array{uuid: string, name: string}>
+     */
+    public static function disciplineOptions(): array
+    {
+        return LabDiscipline::query()
+            ->where('is_active', true)
+            ->orderBy('display_order')
+            ->orderBy('name')
+            ->get(['uuid', 'name'])
+            ->map(fn (LabDiscipline $discipline) => ['uuid' => $discipline->uuid, 'name' => $discipline->name])
+            ->all();
     }
 
     /** Les étapes de la fiche d'une analyse, dans l'ordre de l'écran (`utilities/analysisForm.js`). */
@@ -115,7 +129,7 @@ class AnalysisCatalogDirectory
      */
     public function detail(AnalysisCatalog $analysis): array
     {
-        $analysis->loadMissing(['catalogItem', 'parent']);
+        $analysis->loadMissing(['catalogItem', 'parent', 'discipline']);
 
         return [
             ...$this->serialize($analysis, $this->hierarchy->metadata()[$analysis->id] ?? null),
@@ -138,8 +152,16 @@ class AnalysisCatalogDirectory
             'designation' => $item->designation,
             'description' => $item->description,
             'exam_category' => $item->exam_category,
+            'lab_discipline' => $item->discipline ? [
+                'uuid' => $item->discipline->uuid,
+                'name' => $item->discipline->name,
+                'archived' => $item->discipline->trashed(),
+            ] : null,
             'result_type' => $item->result_type,
             'entry_mode' => $item->entry_mode,
+            // ADR-238 — ce que « Automatique » donne réellement à la paillasse, et d'où.
+            'effective_entry_mode' => LabEntryMode::for($item)->value,
+            'entry_mode_source' => LabEntryMode::sourceFor($item),
             'reference_general' => $item->reference_general,
             'reference_male' => $item->reference_male,
             'reference_female' => $item->reference_female,

@@ -540,6 +540,12 @@ class PermissionSeeder extends Seeder
         'lab_sample_types.update' => 'Modifier un type de prélèvement ou de tube',
         'lab_sample_types.archive' => 'Archiver un type de prélèvement ou de tube',
         'lab_sample_types.restore' => 'Restaurer un type de prélèvement ou de tube',
+        // ADR-238 — les disciplines du laboratoire, un référentiel.
+        'lab_disciplines.view' => 'Voir les disciplines du laboratoire (Hématologie, Biochimie…)',
+        'lab_disciplines.create' => 'Ajouter une discipline du laboratoire',
+        'lab_disciplines.update' => 'Modifier, réordonner ou fusionner une discipline du laboratoire',
+        'lab_disciplines.archive' => 'Archiver une discipline du laboratoire',
+        'lab_disciplines.restore' => 'Restaurer une discipline du laboratoire',
 
         // ECG / échographie : aucun workspace dédié n'existe encore, donc
         // demande et compte rendu restent tous deux portés par Médecine.

@@ -208,8 +208,10 @@ class AnalysisCatalogManagementTest extends TestCase
         $manager = app(AnalysisCatalogManager::class);
 
         $rootData = $this->definition($service, 'PANEL', 'PARENT', 'Bilan complet');
+        // ADR-238 — la discipline se choisit sur le groupe ; une sous-analyse prend la sienne.
+        $rootData['new_discipline_name'] = 'BIOCHIMIE';
         $rootData['children'] = [
-            ['code' => 'PANEL-A', 'level' => 'CHILD', 'designation' => 'Élément A', 'result_type' => 'NUMERIC', 'display_order' => 1, 'exam_category' => 'BIOCHIMIE', 'is_bold' => true],
+            ['code' => 'PANEL-A', 'level' => 'CHILD', 'designation' => 'Élément A', 'result_type' => 'NUMERIC', 'display_order' => 1, 'exam_category' => 'HEMATOLOGIE', 'is_bold' => true],
             ['code' => 'PANEL-B', 'level' => 'CHILD', 'designation' => 'Élément B', 'result_type' => 'NUMERIC', 'display_order' => 2],
         ];
         $root = $manager->saveWithChildren(null, $rootData, $actor);
@@ -302,7 +304,7 @@ class AnalysisCatalogManagementTest extends TestCase
         $service = $this->laboratoryService($actor);
 
         $payload = $this->definition($service, 'NFS', 'PARENT', 'Numération formule sanguine');
-        $payload['exam_category'] = 'HEMATOLOGIE';
+        $payload['new_discipline_name'] = 'HEMATOLOGIE';
         $payload['is_bold'] = true;
         $payload['children'] = [
             ['code' => 'NFS-HB', 'level' => 'CHILD', 'designation' => 'Hémoglobine', 'result_type' => 'NUMERIC', 'reference_male' => '13-17', 'unit' => 'g/dL', 'display_order' => 1],
@@ -316,12 +318,14 @@ class AnalysisCatalogManagementTest extends TestCase
         $this->assertTrue($root->is_bold);
         $this->assertCount(2, $root->children);
         $this->assertTrue(AnalysisCatalog::query()->where('code', 'NFS-HB')->firstOrFail()->parent->is($root));
+        $this->assertSame($root->lab_discipline_id, AnalysisCatalog::query()->where('code', 'NFS-HB')->value('lab_discipline_id'));
 
         $this->actingAs($actor)
             ->get('/administration/analyses/create')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('examCategories', ['HEMATOLOGIE']));
+                ->where('disciplines.0.name', 'HEMATOLOGIE')
+                ->count('disciplines', 1));
     }
 
     public function test_a_nested_sub_group_can_be_created_through_the_web_form_and_reopened_with_its_grandchildren(): void

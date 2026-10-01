@@ -57,7 +57,48 @@ enum LabEntryMode: string
         return ! in_array($this, [self::Label, self::Culture], true);
     }
 
-    /** Le mode d'une analyse : celui qu'on a fixé, sinon celui de son type historique, sinon de son type de résultat. */
+    /**
+     * ADR-238 — les types de résultat auxquels ce mode convient. Le premier
+     * mode de chaque type (dans l'ordre des cas) est son mode par défaut.
+     *
+     * @return array<int, string>
+     */
+    public function resultTypes(): array
+    {
+        return match ($this) {
+            self::Numeric => ['NUMERIC'],
+            self::Text, self::Culture, self::Nugent, self::Label => ['TEXT'],
+            self::Choice, self::MultiChoice, self::NegativePositiveChoice => ['CHOICE'],
+            self::NegativePositive, self::NegativePositiveValue, self::AbsencePresence => ['CHOICE', 'BOOLEAN'],
+        };
+    }
+
+    public function fitsResultType(?string $resultType): bool
+    {
+        return in_array((string) $resultType, $this->resultTypes(), true);
+    }
+
+    /**
+     * Le type de résultat qui dit le mieux ce mode, quand un mode ne va pas à
+     * son type : le premier qu'il accepte.
+     */
+    public function homeResultType(): string
+    {
+        return $this->resultTypes()[0];
+    }
+
+    /** @return array<int, self> Les modes qu'un type de résultat accepte, le mode par défaut en tête. */
+    public static function forResultType(?string $resultType): array
+    {
+        return array_values(array_filter(self::cases(), fn (self $mode) => $mode->fitsResultType($resultType)));
+    }
+
+    /**
+     * Le mode d'une analyse : celui qu'on a fixé, sinon celui de son type
+     * historique s'il va à son type de résultat, sinon celui de son type de
+     * résultat. Un type historique qui ne va plus au type choisi n'est plus lu :
+     * changer le type change la saisie (ADR-238).
+     */
     public static function for(AnalysisCatalog $analysis): self
     {
         if (filled($analysis->entry_mode) && ($mode = self::tryFrom((string) $analysis->entry_mode))) {
@@ -67,16 +108,34 @@ enum LabEntryMode: string
         $hasChoices = count($analysis->predefined_values ?? []) > 0;
         $legacy = self::fromLegacyType(self::legacyTypeName($analysis), $hasChoices);
 
-        if ($legacy !== null) {
+        if ($legacy !== null && $legacy->fitsResultType($analysis->result_type)) {
             return $legacy;
         }
 
-        return match ($analysis->result_type) {
+        return self::fromResultType($analysis->result_type, $hasChoices);
+    }
+
+    /** Le mode d'un type de résultat, sans type historique. Un choix sans valeur se saisit en texte. */
+    public static function fromResultType(?string $resultType, bool $hasChoices): self
+    {
+        return match ($resultType) {
             'NUMERIC' => self::Numeric,
             'CHOICE' => $hasChoices ? self::Choice : self::Text,
             'BOOLEAN' => self::NegativePositive,
-            default => $hasChoices ? self::Choice : self::Text,
+            default => $hasChoices && $resultType !== 'TEXT' ? self::Choice : self::Text,
         };
+    }
+
+    /** D'où vient le mode d'une analyse : `explicit`, `legacy` (type historique) ou `result_type`. */
+    public static function sourceFor(AnalysisCatalog $analysis): string
+    {
+        if (filled($analysis->entry_mode) && self::tryFrom((string) $analysis->entry_mode)) {
+            return 'explicit';
+        }
+
+        $legacy = self::fromLegacyType(self::legacyTypeName($analysis), count($analysis->predefined_values ?? []) > 0);
+
+        return $legacy !== null && $legacy->fitsResultType($analysis->result_type) ? 'legacy' : 'result_type';
     }
 
     /** Les types d'analyse du laboratoire historique, un par un. `null` : on n'en sait rien. */
@@ -114,9 +173,13 @@ enum LabEntryMode: string
         return array_map(fn (self $mode) => $mode->value, self::cases());
     }
 
-    /** @return array<int, array{value: string, label: string}> */
+    /** @return array<int, array{value: string, label: string, result_types: array<int, string>}> */
     public static function options(): array
     {
-        return array_map(fn (self $mode) => ['value' => $mode->value, 'label' => $mode->label()], self::cases());
+        return array_map(fn (self $mode) => [
+            'value' => $mode->value,
+            'label' => $mode->label(),
+            'result_types' => $mode->resultTypes(),
+        ], self::cases());
     }
 }

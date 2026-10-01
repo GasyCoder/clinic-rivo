@@ -96,7 +96,7 @@ test('the portal shows the laboratory navigation of the site, from the one list 
     const base = '/super-admin/sites/A/laboratoire';
     const everything = labSections(base, () => true);
 
-    assert.deepEqual(everything.map((section) => section.label), ['Paillasse', 'Feuille de paillasse', 'Rapports du laboratoire', 'Prélèvements & tubes', 'Germes & antibiotiques']);
+    assert.deepEqual(everything.map((section) => section.label), ['Paillasse', 'Feuille de paillasse', 'Rapports du laboratoire', 'Prélèvements & tubes', 'Disciplines', 'Germes & antibiotiques']);
     assert.equal(everything[0].href, base);
     assert.equal(everything[2].href, `${base}/rapports`);
 

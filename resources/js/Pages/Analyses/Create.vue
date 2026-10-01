@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import { ArrowLeft, ArrowRight, Binary, CircleAlert, FlaskConical, Layers, ListChecks, Ruler, Tag } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -26,10 +26,12 @@ const props = defineProps({
     levels: Array,
     resultTypes: Array,
     entryModes: { type: Array, default: () => [] },
-    examCategories: { type: Array, default: () => [] },
+    disciplines: { type: Array, default: () => [] },
 });
 
 const portal = isPortalContext(props.context);
+// ADR-238 — nommer une nouvelle discipline demande ce droit (revérifié par le serveur).
+const canCreateDiscipline = computed(() => (usePage().props.permissions ?? []).includes('lab_disciplines.create'));
 const urls = computed(() => analysisCatalogUrls(props.context, props.clinicSite.code));
 
 // Aucune prestation d'office : proposer la première venue y rangerait l'analyse
@@ -74,7 +76,8 @@ const create = () => {
             :levels="levels"
             :result-types="resultTypes"
             :entry-modes="entryModes"
-            :exam-categories="examCategories"
+            :disciplines="disciplines"
+            :can-create-discipline="canCreateDiscipline"
         />
 
         <Card class="sticky bottom-3 z-10 flex flex-col gap-3 p-3 shadow-lg sm:flex-row sm:items-center sm:justify-between">

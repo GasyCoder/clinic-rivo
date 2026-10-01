@@ -3,6 +3,7 @@
 namespace App\Services\Laboratory;
 
 use App\Models\AnalysisCatalog;
+use App\Models\LabDiscipline;
 use Illuminate\Support\Str;
 
 /**
@@ -11,6 +12,10 @@ use Illuminate\Support\Str;
  * qui range la feuille de paillasse, comme les « examens » du laboratoire de la
  * clinique. Une prestation sans discipline au catalogue tombe dans « Sans
  * discipline » : rien n'est deviné depuis son nom.
+ *
+ * ADR-238 — `exam_category` est désormais la copie du nom d'une discipline du
+ * référentiel (`lab_disciplines`), qui porte aussi l'ordre des feuilles et des
+ * sections du compte rendu.
  */
 class LabDisciplines
 {
@@ -36,6 +41,22 @@ class LabDisciplines
             ->groupBy('catalog_item_id')
             ->map(fn ($rows) => self::label((string) $rows->first()->exam_category))
             ->all();
+    }
+
+    /**
+     * Une clé de tri : l'ordre du référentiel, puis le nom ; « Sans discipline »
+     * toujours en dernier.
+     *
+     * @return callable(string): array<int, mixed>
+     */
+    public function sorter(): callable
+    {
+        $order = LabDiscipline::withTrashed()
+            ->get(['name', 'display_order'])
+            ->mapWithKeys(fn (LabDiscipline $discipline) => [self::label($discipline->name) => $discipline->display_order])
+            ->all();
+
+        return fn (string $label): array => [$label === self::NONE ? 1 : 0, $order[$label] ?? PHP_INT_MAX, $label];
     }
 
     /** « HEMATOLOGIE » et « Hématologie » se lisent pareil : une seule feuille. */

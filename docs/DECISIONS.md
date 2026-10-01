@@ -23087,3 +23087,91 @@ servir. Un catalogue ne retient sa suppression que si l'une de ses lignes est **
 clinique ou a **donné un prix d'achat**, même clos depuis (ADR-183) — `SupplierCatalog::usage()`. Des lignes seulement
 importées partent avec leur fichier. Les raisons s'écrivent au bon pluriel (« 5 lignes rattachées à un médicament,
 13 prix d'achat », « 2 lots reçus ») et la colonne d'action de la corbeille ne coupe plus « A servi ».
+
+---
+
+# ADR-238 — Disciplines du laboratoire en référentiel ; la saisie suit le type de résultat
+
+**Status:** ACCEPTED (2026-10-01 — exigence explicite du propriétaire : « lorsque je coche Quel résultat, la Saisie
+au laboratoire doit être cohérente avec ce qui est coché », « comment ajouter une nouvelle discipline ? c'est mieux
+de créer une nouvelle table »)
+
+**Complète l'ADR-063** (catalogue des analyses), **l'ADR-213** (modes de saisie de la paillasse) et **l'ADR-214**
+(feuille de paillasse, compte rendu). Le CDC §14 cite les analyses sans dire comment elles se rangent ni se saisissent.
+
+## Le constat
+
+```text
+discipline    un texte libre sur chaque analyse : à Ambondromamy, 161 « BIOCHIMIE » et 9 « BIOCHIME » (faute de
+              frappe) — deux feuilles de paillasse et deux sections du compte rendu pour une seule discipline ;
+              les sous-analyses avaient chacune leur champ, que la paillasse ignorait
+saisie        « Quel résultat » et « Saisie au laboratoire » étaient indépendants : « Oui / Non » saisi en
+              « Culture et antibiogramme » s'enregistrait ; « Automatique — selon le type de résultat » mentait
+              pour les analyses importées, dont le mode vient de leur ancien type de labo-vuejs
+```
+
+## Les disciplines, un référentiel par site
+
+`lab_disciplines` (uuid, nom, `normalized_name` unique — casse, accents et espaces ignorés —, ordre d'impression,
+en service ou non, Soft Delete avec motif) ; `analysis_catalogs.lab_discipline_id`. `exam_category` reste, **copie du
+nom**, pour tout ce qui le lit déjà (paillasse, compte rendu, désignations) : renommer une discipline réécrit la copie.
+
+```text
+écran         Laboratoire › Disciplines (/laboratory/disciplines, LabDisciplineController) : ajouter, renommer,
+              réordonner, mettre hors service, archiver (motif ; refusé tant qu'une analyse la porte),
+              restaurer, fusionner — le geste qui répare « BIOCHIME » dans « BIOCHIMIE », audité
+              lab_discipline.merge. Un nom déjà porté, archives comprises, ne se recrée pas
+fiche         une liste des disciplines en service, ou « Nouvelle discipline » nommée sur place (retrouve une
+              discipline du même nom, jamais un doublon ; exige lab_disciplines.create). Une sous-analyse prend
+              la discipline de son groupe et la suit quand le groupe en change
+ordre         la feuille de paillasse et les sections du compte rendu suivent l'ordre du référentiel
+              (LabDisciplines::sorter), « Sans discipline » en dernier
+texte seul    une analyse enregistrée avec le seul texte (données de développement, ancien laboratoire)
+              retrouve la discipline du même nom, ou la crée (AnalysisCatalog::booted)
+portail       monté dans routes/laboratory.php, donc géré aussi depuis le portail par l'API du site (ADR-215)
+```
+
+**Reprise** (migration `2026_12_09_090000`) : une discipline par texte déjà écrit, sous l'orthographe la plus
+fréquente ; une sous-analyse prend celle de son groupe principal. **Une faute de frappe n'est jamais fusionnée
+d'office** : ce serait deviner ; elle se fusionne à la main, une fois.
+
+## Un mode de saisie qui va au type de résultat
+
+`LabEntryMode::resultTypes()` porte la règle une seule fois ; la fiche ne propose que les modes du type coché
+(`entryModesFor`), le serveur refuse les autres (`AnalysisCatalogManager::assertEntryMode`, clé `entry_mode`,
+aussi pour les sous-analyses) :
+
+```text
+Numérique   Valeur numérique
+Texte       Texte libre · Culture et antibiogramme · Score de Nugent · Titre sans saisie
+Choix       Choix dans une liste · Plusieurs choix · Négatif / Positif + précision · Négatif / Positif ·
+            Négatif / Positif + valeur · Absence / Présence
+Oui / Non   Négatif / Positif · Négatif / Positif + valeur · Absence / Présence
+```
+
+Changer de type remet un mode qui ne va plus sur « Automatique ». « Automatique » dit ce qu'il donne réellement et
+d'où (`effective_entry_mode`, `entry_mode_source` : fixé, type historique, type de résultat). Un type historique de
+labo-vuejs n'est lu que s'il va au type de résultat : changer le type change la saisie. La migration aligne le type
+de résultat des analyses dont la saisie réelle ne lui allait pas ; la paillasse ne change pas, seul le type affiché
+dit enfin ce qu'elle fait.
+
+**Ajouter un mode de saisie ne se fait pas depuis un écran** : chaque mode est du code (champ, contrôle,
+interprétation, impression). Un mode créé par formulaire serait un nom sans comportement (même raison que
+l'ADR-101) ; il se demande au développement.
+
+## Droits
+
+```text
+lab_disciplines.view / create / update / archive / restore   LABORATORY, ADMINISTRATION
+```
+
+Enregistrés par la migration (ADR-064), à jouer sur chaque site et sur le portail (le Super Admin les reçoit,
+ADR-186). Fusionner exige `update` et `archive`.
+
+## Signalé, non tranché
+
+```text
+« BIOCHIME »            reste une discipline à part sur chaque site tant que le laboratoire ne l'a pas fusionnée
+modes Choix             Négatif / Positif et Absence / Présence acceptés aussi en « Choix », parce que des analyses
+                        importées les portent ainsi ; les réserver à « Oui / Non » est à décider
+Excel du catalogue      l'import et l'export ne portent pas la discipline : elle se règle dans la fiche

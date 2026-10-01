@@ -100,6 +100,9 @@ class RolePermissionSeeder extends Seeder
             'analysis_catalog.view', 'analysis_catalog.create', 'analysis_catalog.update',
             'analysis_catalog.activate', 'analysis_catalog.deactivate',
             'analysis_catalog.import', 'analysis_catalog.export',
+            // ADR-238 — les disciplines, avec le catalogue des analyses qu'elles rangent.
+            'lab_disciplines.view', 'lab_disciplines.create', 'lab_disciplines.update',
+            'lab_disciplines.archive', 'lab_disciplines.restore',
         ],
         'LOGISTICS' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
@@ -379,6 +382,9 @@ class RolePermissionSeeder extends Seeder
             'laboratory_reports.view', 'laboratory_reports.export',
             'lab_sample_types.view', 'lab_sample_types.create', 'lab_sample_types.update',
             'lab_sample_types.archive', 'lab_sample_types.restore',
+            // ADR-238 — les disciplines du laboratoire.
+            'lab_disciplines.view', 'lab_disciplines.create', 'lab_disciplines.update',
+            'lab_disciplines.archive', 'lab_disciplines.restore',
         ],
     ];
 

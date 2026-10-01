@@ -205,7 +205,7 @@ class AnalysisCatalogController extends Controller
             'levels' => data_get($result, 'data.levels', ['PARENT', 'CHILD', 'NORMAL']),
             'resultTypes' => data_get($result, 'data.result_types', ['NUMERIC', 'TEXT', 'CHOICE', 'BOOLEAN']),
             'entryModes' => data_get($result, 'data.entry_modes', []),
-            'examCategories' => data_get($result, 'data.exam_categories', []),
+            'disciplines' => data_get($result, 'data.disciplines', []),
         ];
     }
 
@@ -219,7 +219,8 @@ class AnalysisCatalogController extends Controller
             'level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
             'designation' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'exam_category' => ['nullable', 'string', 'max:100'],
+            'lab_discipline_uuid' => ['nullable', 'uuid'],
+            'new_discipline_name' => ['nullable', 'string', 'max:120'],
             'result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
             'entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'reference_general' => ['nullable', 'string', 'max:255'],
@@ -240,7 +241,6 @@ class AnalysisCatalogController extends Controller
             'children.*.level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
             'children.*.designation' => ['required', 'string', 'max:255'],
             'children.*.description' => ['nullable', 'string', 'max:2000'],
-            'children.*.exam_category' => ['nullable', 'string', 'max:100'],
             'children.*.result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
             'children.*.entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'children.*.reference_general' => ['nullable', 'string', 'max:255'],
@@ -265,7 +265,6 @@ class AnalysisCatalogController extends Controller
             'children.*.children.*.level' => ['required', Rule::in(AnalysisCatalog::LEVELS)],
             'children.*.children.*.designation' => ['required', 'string', 'max:255'],
             'children.*.children.*.description' => ['nullable', 'string', 'max:2000'],
-            'children.*.children.*.exam_category' => ['nullable', 'string', 'max:100'],
             'children.*.children.*.result_type' => ['required', Rule::in(AnalysisCatalog::RESULT_TYPES)],
             'children.*.children.*.entry_mode' => ['nullable', Rule::in(LabEntryMode::values())],
             'children.*.children.*.reference_general' => ['nullable', 'string', 'max:255'],

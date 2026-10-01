@@ -161,7 +161,7 @@ class AnalysisCatalogController extends Controller
             'levels' => $options['levels'],
             'resultTypes' => $options['result_types'],
             'entryModes' => $options['entry_modes'],
-            'examCategories' => $options['exam_categories'],
+            'disciplines' => $options['disciplines'],
         ];
     }
 }

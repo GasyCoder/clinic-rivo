@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { ChevronDown, ChevronUp, FolderTree, GripVertical, Plus, SlidersHorizontal, Trash2 } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -14,7 +14,9 @@ import CriticalRangesField from './CriticalRangesField.vue';
 // résultats se règlent avec cette même liste, un niveau plus bas (`maxDepth`).
 // eslint-disable-next-line vue/no-unused-components -- utilisé récursivement plus bas
 import SubAnalysesEditor from './SubAnalysesEditor.vue';
-import { RESULT_TYPES, emptyChild, isNumericResult, usesPredefinedValues } from '@/utilities/analysisForm';
+import {
+    RESULT_TYPES, automaticEntryMode, emptyChild, entryModesFor, isNumericResult, keepEntryModeCoherent, usesPredefinedValues,
+} from '@/utilities/analysisForm';
 import { cn } from '@/lib/cn';
 
 /**
@@ -37,10 +39,14 @@ const props = defineProps({
 const canNest = computed(() => props.depth < props.maxDepth);
 const title = computed(() => (props.depth === 0 ? 'Sous-analyses du groupe' : 'Résultats du sous-groupe'));
 const typeOptions = computed(() => props.resultTypes.map((type) => ({ value: type, label: RESULT_TYPES[type]?.label ?? type })));
-const entryModeOptions = computed(() => [
-    { value: '', label: 'Automatique' },
-    ...props.entryModes.map((mode) => ({ value: mode.value, label: mode.label })),
-]);
+// ADR-238 — la saisie de chaque résultat suit son type, comme dans la fiche.
+const entryModeOptions = (child) => [
+    { value: '', label: `Automatique — ${automaticEntryMode(child, props.entryModes).label}` },
+    ...entryModesFor(props.entryModes, child.result_type).map((mode) => ({ value: mode.value, label: mode.label })),
+];
+watch(() => props.children.map((child) => child.result_type), () => {
+    props.children.forEach((child) => keepEntryModeCoherent(child, props.entryModes));
+});
 
 // Ouvert : les lignes dont on règle le détail. Une ligne neuve s'ouvre d'elle-même
 // à la saisie de son nom ; une ligne en erreur aussi (voir `isOpen`).
@@ -159,10 +165,7 @@ const filledReferences = (child) => ['reference_general', 'reference_male', 'ref
                     </div>
                     <div class="grid gap-3 sm:grid-cols-2">
                         <FormField v-if="entryModes.length" as="div" label="Saisie au laboratoire">
-                            <Select :model-value="entryModeOf(child)" :options="entryModeOptions" class="h-[var(--control-h-sm)] w-full min-w-0" @update:model-value="setEntryMode(child, $event)" />
-                        </FormField>
-                        <FormField label="Discipline" hint="(facultatif)">
-                            <Input v-model="child.exam_category" size="sm" list="exam-category-options" autocomplete="off" />
+                            <Select :model-value="entryModeOf(child)" :options="entryModeOptions(child)" class="h-[var(--control-h-sm)] w-full min-w-0" @update:model-value="setEntryMode(child, $event)" />
                         </FormField>
                         <FormField v-if="usesPredefinedValues(child)" label="Valeurs proposées" class="sm:col-span-2">
                             <Input v-model="child.predefined_values_text" size="sm" placeholder="Positif | Négatif" autocomplete="off" />

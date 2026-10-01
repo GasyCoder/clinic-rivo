@@ -30,6 +30,68 @@ export const RESULT_TYPES = {
 /** Les modes de saisie qui lisent la liste des valeurs proposées (LabEntryMode). */
 const CHOICE_ENTRY_MODES = ['CHOICE', 'MULTI_CHOICE', 'NEG_POS_CHOICE'];
 
+/**
+ * ADR-238 — les modes de saisie qu'un type de résultat accepte, dans l'ordre
+ * du serveur (`LabEntryMode::resultTypes`). La liste ne propose que ceux-là ;
+ * le serveur refuse les autres.
+ */
+export const entryModesFor = (modes, resultType) => (modes ?? []).filter((mode) => (mode.result_types ?? []).includes(resultType));
+
+/** Le mode qu'un type de résultat donne sans réglage (`LabEntryMode::fromResultType`). */
+export const defaultEntryMode = (resultType, hasChoices) => {
+    if (resultType === 'NUMERIC') return 'NUMERIC';
+    if (resultType === 'CHOICE') return hasChoices ? 'CHOICE' : 'TEXT';
+    if (resultType === 'BOOLEAN') return 'NEG_POS';
+    return 'TEXT';
+};
+
+/**
+ * Ce que « Automatique » donne réellement. `served` est ce que le serveur a lu
+ * sur l'analyse enregistrée (type historique compris) : il ne vaut que tant
+ * que le type de résultat n'a pas changé.
+ */
+export function automaticEntryMode(data, modes, served = null) {
+    const label = (value) => (modes ?? []).find((mode) => mode.value === value)?.label ?? value;
+    if (served?.mode && served.result_type === data?.result_type) {
+        return { value: served.mode, label: label(served.mode), source: served.source === 'legacy' ? 'legacy' : 'result_type' };
+    }
+    const value = defaultEntryMode(data?.result_type, splitPredefinedValues(data?.predefined_values_text).length > 0);
+
+    return { value, label: label(value), source: 'result_type' };
+}
+
+export const automaticEntryModeLabel = (auto) => `Automatique — ${auto.label}${auto.source === 'legacy' ? ' (type historique)' : ' (selon le type de résultat)'}`;
+
+/** Un mode fixé qui ne va plus au type choisi redevient « Automatique ». */
+export function keepEntryModeCoherent(data, modes) {
+    if (data?.entry_mode && ! entryModesFor(modes, data.result_type).some((mode) => mode.value === data.entry_mode)) {
+        data.entry_mode = null;
+        return true;
+    }
+
+    return false;
+}
+
+/** ADR-238 — la valeur de la liste « Discipline » qui ouvre la saisie d'une nouvelle. */
+export const NEW_DISCIPLINE = '__new__';
+
+/**
+ * Les disciplines proposées : celles en service, plus celle que l'analyse porte
+ * déjà si elle n'y est pas (archivée, ou créée depuis le dernier chargement).
+ */
+export function disciplineOptions(disciplines, current = null, { canCreate = false } = {}) {
+    const list = [...(disciplines ?? [])];
+    if (current?.uuid && ! list.some((entry) => entry.uuid === current.uuid)) {
+        list.push({ uuid: current.uuid, name: current.archived ? `${current.name} (archivée)` : current.name });
+    }
+
+    return [
+        { value: '', label: 'Aucune — « Sans discipline »' },
+        ...list.map((entry) => ({ value: entry.uuid, label: entry.name })),
+        ...(canCreate ? [{ value: NEW_DISCIPLINE, label: 'Nouvelle discipline…' }] : []),
+    ];
+}
+
 export const isNumericResult = (data) => data?.result_type === 'NUMERIC' || data?.entry_mode === 'NUMERIC';
 export const usesPredefinedValues = (data) => data?.result_type === 'CHOICE' || CHOICE_ENTRY_MODES.includes(data?.entry_mode);
 export const mayHaveParent = (level) => level === 'PARENT' || level === 'CHILD';
@@ -51,7 +113,7 @@ export const stepsFor = (level) => STEPS
 const STEP_OF_FIELD = {
     catalog_item_uuid: 'identite', designation: 'identite', code: 'identite', level: 'identite', parent_uuid: 'identite',
     result_type: 'resultat', entry_mode: 'resultat', unit: 'resultat', predefined_values: 'resultat',
-    predefined_values_text: 'resultat', exam_category: 'resultat', description: 'resultat', display_order: 'resultat', is_bold: 'resultat',
+    predefined_values_text: 'resultat', lab_discipline_uuid: 'resultat', new_discipline_name: 'resultat', description: 'resultat', display_order: 'resultat', is_bold: 'resultat',
     reference_general: 'normes', reference_male: 'normes', reference_female: 'normes',
     reference_child_male: 'normes', reference_child_female: 'normes', critical_ranges: 'normes',
     children: 'sous-analyses',
@@ -69,6 +131,9 @@ export function missingFields(data) {
     if (blank(data.code)) missing.push({ field: 'code', label: 'le code', step: 'identite' });
     if (data.level === 'CHILD' && blank(data.parent_uuid)) missing.push({ field: 'parent_uuid', label: 'le groupe parent', step: 'identite' });
     if (blank(data.result_type)) missing.push({ field: 'result_type', label: 'le type de résultat', step: 'resultat' });
+    if (data.lab_discipline_uuid === NEW_DISCIPLINE && blank(data.new_discipline_name)) {
+        missing.push({ field: 'new_discipline_name', label: 'le nom de la nouvelle discipline', step: 'resultat' });
+    }
 
     if (data.level === 'PARENT') {
         const incomplete = countIncompleteChildren(data.children ?? []);
@@ -105,7 +170,6 @@ export const emptyChild = () => ({
     code: '',
     designation: '',
     description: '',
-    exam_category: '',
     level: 'CHILD',
     result_type: 'NUMERIC',
     entry_mode: null,
@@ -131,7 +195,6 @@ const childFrom = (row) => ({
     code: row.code ?? '',
     designation: row.designation ?? '',
     description: row.description ?? '',
-    exam_category: row.exam_category ?? '',
     level: row.level,
     result_type: row.result_type,
     entry_mode: row.entry_mode ?? null,
@@ -157,7 +220,8 @@ export const newAnalysisForm = ({ siteCode = null, catalogItemUuid = '' } = {}) 
     level: 'NORMAL',
     designation: '',
     description: '',
-    exam_category: '',
+    lab_discipline_uuid: '',
+    new_discipline_name: '',
     result_type: 'NUMERIC',
     entry_mode: null,
     reference_general: '',
@@ -182,7 +246,8 @@ export const analysisFormFrom = (analysis, { siteCode = null } = {}) => ({
     level: analysis.level,
     designation: analysis.designation ?? '',
     description: analysis.description ?? '',
-    exam_category: analysis.exam_category ?? '',
+    lab_discipline_uuid: analysis.lab_discipline?.uuid ?? '',
+    new_discipline_name: '',
     result_type: analysis.result_type,
     entry_mode: analysis.entry_mode ?? null,
     reference_general: analysis.reference_general ?? '',
@@ -217,6 +282,10 @@ const childPayload = (child, index) => ({
 export const analysisPayload = (data) => ({
     ...data,
     parent_uuid: mayHaveParent(data.level) ? (data.parent_uuid || null) : null,
+    // ADR-238 — une discipline de la liste, ou une nouvelle par son nom ; une
+    // sous-analyse prend celle de son groupe (le serveur l'impose).
+    lab_discipline_uuid: data.lab_discipline_uuid && data.lab_discipline_uuid !== NEW_DISCIPLINE ? data.lab_discipline_uuid : null,
+    new_discipline_name: data.lab_discipline_uuid === NEW_DISCIPLINE ? String(data.new_discipline_name ?? '').trim() || null : null,
     predefined_values: splitPredefinedValues(data.predefined_values_text),
     critical_ranges: criticalRangesPayload(data.critical_ranges),
     children: data.level === 'PARENT' ? (data.children ?? []).map(childPayload) : [],

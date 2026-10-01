@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { ArrowLeft, ArrowRight, Binary, Check, CircleAlert, FlaskConical, Layers, ListChecks, Ruler, Tag } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
@@ -15,7 +15,7 @@ import { useAutosave } from '@/composables/useAutosave';
 import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard';
 import { analysisCatalogUrls, isPortalContext } from '@/utilities/analysisCatalogUrls';
 import {
-    LEVELS, adoptChildUuids, analysisFormFrom, analysisPayload, missingFields, missingSentence, stepOfField, stepsFor,
+    LEVELS, NEW_DISCIPLINE, adoptChildUuids, analysisFormFrom, analysisPayload, missingFields, missingSentence, stepOfField, stepsFor,
 } from '@/utilities/analysisForm';
 
 defineOptions({ layout: AppLayout });
@@ -35,11 +35,20 @@ const props = defineProps({
     levels: Array,
     resultTypes: Array,
     entryModes: { type: Array, default: () => [] },
-    examCategories: { type: Array, default: () => [] },
+    disciplines: { type: Array, default: () => [] },
     initialStep: { type: String, default: 'identite' },
 });
 
 const portal = isPortalContext(props.context);
+// ADR-238 — nommer une nouvelle discipline dans la fiche demande ce droit
+// (le serveur le revérifie ; au portail, le Super Admin l'a).
+const canCreateDiscipline = computed(() => (usePage().props.permissions ?? []).includes('lab_disciplines.create'));
+// Ce que « Automatique » donne pour l'analyse enregistrée (type historique compris).
+const servedEntryMode = computed(() => ({
+    result_type: props.analysis.result_type,
+    mode: props.analysis.effective_entry_mode,
+    source: props.analysis.entry_mode_source,
+}));
 const urls = computed(() => analysisCatalogUrls(props.context, props.clinicSite.code));
 const form = useForm(analysisFormFrom(props.analysis, { siteCode: portal ? props.clinicSite.code : null }));
 
@@ -69,7 +78,14 @@ const { saving, savedAt, failed, flush, retry } = useAutosave(form, send, { enab
 
 // Une sous-analyse nouvelle reçoit son UUID au retour : sans lui, l'enregistrement
 // suivant la recréerait (et serait refusé, son code étant pris).
-watch(() => props.analysis, (saved) => { adoptChildUuids(form.children, saved?.children ?? []); });
+watch(() => props.analysis, (saved) => {
+    adoptChildUuids(form.children, saved?.children ?? []);
+    // ADR-238 — une discipline créée par son nom devient une entrée de la liste.
+    if (form.lab_discipline_uuid === NEW_DISCIPLINE && saved?.lab_discipline?.uuid) {
+        form.lab_discipline_uuid = saved.lab_discipline.uuid;
+        form.new_discipline_name = '';
+    }
+});
 
 const errorSteps = computed(() => new Set(Object.keys(form.errors ?? {}).map(stepOfField).filter(Boolean)));
 const stateOf = (key) => {
@@ -183,7 +199,10 @@ const status = computed(() => (ready.value ? null : `À compléter : ${missingSe
             :levels="levels"
             :result-types="resultTypes"
             :entry-modes="entryModes"
-            :exam-categories="examCategories"
+            :disciplines="disciplines"
+            :can-create-discipline="canCreateDiscipline"
+            :current-discipline="analysis.lab_discipline"
+            :served-entry-mode="servedEntryMode"
             @go="go"
         />
 

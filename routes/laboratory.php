@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\LabBenchController;
+use App\Http\Controllers\LabDisciplineController;
 use App\Http\Controllers\LabMicrobiologyController;
 use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LabReceptionController;
@@ -21,7 +22,8 @@ use Illuminate\Support\Facades\Route;
  * renvoyer, signaler un critique, confier à l'extérieur, conclure — portent
  * `rivo.site-only:laboratory` : ils se font au laboratoire du site, par la
  * personne qui a le tube sous les yeux, jamais depuis le portail. Le portail
- * consulte tout et gère les référentiels (prélèvements et tubes, microbiologie).
+ * consulte tout et gère les référentiels (prélèvements et tubes, disciplines,
+ * microbiologie).
  */
 
 Route::get('/', [LaboratoryController::class, 'index'])->name('index')->middleware('can:laboratory_results.view');
@@ -71,6 +73,13 @@ Route::post('/prelevements/{kind}', [LabSampleTypeController::class, 'store'])->
 Route::put('/prelevements/{kind}/{uuid}', [LabSampleTypeController::class, 'update'])->name('sample-types.update')->middleware('can:lab_sample_types.update')->whereIn('kind', ['sample', 'tube']);
 Route::delete('/prelevements/{kind}/{uuid}', [LabSampleTypeController::class, 'archive'])->name('sample-types.archive')->middleware('can:lab_sample_types.archive')->whereIn('kind', ['sample', 'tube']);
 Route::post('/prelevements/{kind}/{uuid}/restore', [LabSampleTypeController::class, 'restore'])->name('sample-types.restore')->middleware('can:lab_sample_types.restore')->whereIn('kind', ['sample', 'tube']);
+// ADR-238 — les disciplines (Hématologie, Biochimie…) : un référentiel, jamais un texte libre.
+Route::get('/disciplines', [LabDisciplineController::class, 'index'])->name('disciplines.index')->middleware('can:lab_disciplines.view');
+Route::post('/disciplines', [LabDisciplineController::class, 'store'])->name('disciplines.store')->middleware('can:lab_disciplines.create');
+Route::put('/disciplines/{uuid}', [LabDisciplineController::class, 'update'])->name('disciplines.update')->middleware('can:lab_disciplines.update')->whereUuid('uuid');
+Route::delete('/disciplines/{uuid}', [LabDisciplineController::class, 'archive'])->name('disciplines.archive')->middleware('can:lab_disciplines.archive')->whereUuid('uuid');
+Route::post('/disciplines/{uuid}/restore', [LabDisciplineController::class, 'restore'])->name('disciplines.restore')->middleware('can:lab_disciplines.restore')->whereUuid('uuid');
+Route::post('/disciplines/{uuid}/merge', [LabDisciplineController::class, 'merge'])->name('disciplines.merge')->middleware(['can:lab_disciplines.update', 'can:lab_disciplines.archive'])->whereUuid('uuid');
 Route::get('/microbiologie', [LabMicrobiologyController::class, 'index'])->name('microbiology.index')->middleware('can:lab_microbiology.view');
 Route::post('/microbiologie/referentiel-de-depart', [LabMicrobiologyController::class, 'importStarter'])->name('microbiology.starter')->middleware('can:lab_microbiology.create');
 Route::post('/microbiologie/{kind}', [LabMicrobiologyController::class, 'store'])->name('microbiology.store')->middleware('can:lab_microbiology.create')->whereIn('kind', ['family', 'bacterium', 'antibiotic']);

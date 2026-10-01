@@ -306,7 +306,7 @@ const confirmToggle = () => {
             :open="dialogOpen"
             :title="editing ? `Modifier « ${editing.name} »` : 'Nouveau mode de paiement'"
             :description="`Site : ${selectedSite?.site.name ?? ''}. Le code identifie le mode sur les paiements : il ne change plus après la création.`"
-            size="lg"
+            size="xl"
             :dismissible="false"
             close-label="Annuler"
             @update:open="(value) => value || closeDialog()"
@@ -314,7 +314,7 @@ const confirmToggle = () => {
             <form id="payment-method-form" class="space-y-5" @submit.prevent="submit">
                 <fieldset>
                     <legend class="mb-2 text-sm font-medium text-foreground">Catégorie <span class="text-destructive">*</span></legend>
-                    <div class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Catégorie">
+                    <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" role="radiogroup" aria-label="Catégorie">
                         <button
                             v-for="category in categories"
                             :key="category.value"
@@ -378,7 +378,7 @@ const confirmToggle = () => {
                 </div>
                 <p v-if="fields.bank && !form.name && chosenBank" class="-mt-3 text-xs text-muted-foreground">Le libellé sera « {{ bankLabel(chosenBank) }} ».</p>
 
-                <div class="space-y-2">
+                <div class="grid gap-2 md:grid-cols-2">
                     <label class="flex items-start justify-between gap-4 rounded-lg border border-border p-3">
                         <span>
                             <span class="flex items-center gap-2 text-sm font-semibold text-foreground"><Wallet class="h-4 w-4 text-muted-foreground" />Impacte le fond de caisse</span>

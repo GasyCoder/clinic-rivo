@@ -15,14 +15,21 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class EmployeeDirectory
 {
-    public const STATUSES = ['active', 'on_leave', 'inactive', 'archived', 'all'];
+    public const STATUSES = ['active', 'on_leave', 'inactive', 'archived', 'all', 'duplicates'];
 
     public const DEFAULT_STATUS = 'active';
 
     public function __construct(
         private readonly InternshipDirectory $internships,
         private readonly LeaveToday $leaveToday,
+        private readonly EmployeeDuplicates $duplicates,
     ) {}
+
+    /** ADR-236 — les doublons possibles, calculés une fois pour la page. */
+    public function duplicates(): EmployeeDuplicates
+    {
+        return $this->duplicates;
+    }
 
     /** Un état inconnu retombe sur « Actifs » : un lien périmé ne montre jamais une liste vide par erreur. */
     public function status(mixed $value): string
@@ -44,6 +51,8 @@ class EmployeeDirectory
             ->when($status === 'active', fn ($query) => $query->where('active', true))
             ->when($status === 'on_leave', fn ($query) => $this->leaveToday->employees($query->where('active', true)))
             ->when($status === 'inactive', fn ($query) => $query->where('active', false))
+            // ADR-236 — les dossiers en service qui désignent peut-être la même personne.
+            ->when($status === 'duplicates', fn ($query) => $query->whereKey($this->duplicates->ids()))
             ->when($search !== '', function ($query) use ($search): void {
                 $query->where(function ($nested) use ($search): void {
                     $nested->where('employee_number', 'like', "%{$search}%")

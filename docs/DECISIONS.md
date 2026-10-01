@@ -22941,3 +22941,69 @@ contrats en double du même salarié (archiver le doublon, donner une fin au CDD
 
 **Signalé, non tranché.** Une demande de congé en attente ou un créneau de planning à venir n'empêchent pas
 d'archiver un dossier ; un employé désactivé (`active = false`) peut encore recevoir présence, congé ou créneau.
+
+---
+
+# ADR-236 — Supprimer depuis la liste des employés : archiver, restaurer, détruire un dossier jamais utilisé, repérer les doublons
+
+**Status:** ACCEPTED (2026-10-01 — demande du propriétaire, capture de `/administration/employees` montrant des
+dossiers en double : « comment supprimer ça par l'interface, ces fonctionnalités manquent »)
+
+**Complète l'ADR-066** (dossier Employé, archivage réversible) et **ouvre une exception étroite à l'ADR-009/010**, sur le
+modèle de l'ADR-062 (compte jamais utilisé). Le CDC (§11, §17) ne prévoit que `employees.delete` (archiver) et
+`employees.restore` ; la suppression physique est la décision du propriétaire.
+
+## Ce qui manquait
+
+L'archivage existait, mais seulement depuis la fiche d'un employé, un par un ; la liste n'avait ni archiver, ni
+suppression, ni sélection hors badges. Un dossier saisi deux fois (import relancé, double saisie) restait pour toujours,
+même archivé, alors qu'il n'avait servi nulle part.
+
+## Depuis la liste
+
+```text
+une ligne         Archiver (motif obligatoire, la liste reste ouverte), Restaurer, Supprimer définitivement
+une sélection     Badges · Archiver · Restaurer · Supprimer définitivement, chacun avec le nombre de dossiers
+                  qu'il prendra ; POST /administration/employees/bulk (50 au plus), chaque dossier jugé
+                  séparément par l'action qui le juge seul, rapport des refus (comme l'ADR-090)
+fiche employé     « Supprimer définitivement » sur un dossier archivé, et le repère « Doublon possible »
+```
+
+## Supprimer définitivement : seulement ce qui n'a servi nulle part
+
+`ForceDeleteEmployeeAction` (`DELETE /administration/employees/{uuid}/force`, droit `employees.force_delete`) :
+
+```text
+déjà archivé          on archive d'abord, avec un motif ; on ne détruit qu'ensuite
+n'a servi nulle part  ni compte de connexion relié, ni aucune ligne d'une des tables qui désignent un employé
+                      (contrats, présences, congés, planning, documents, avantages, paie, bonus, dettes,
+                      crédit Bloc, lien patient, prise en charge Personnel, recommandation, adresse pro)
+part avec lui         sa présence dans le personnel d'une catégorie de bonus, sa photo
+trace                 audit `employee.force_delete` avec matricule, nom, naissance et motif d'archivage
+```
+
+`App\Support\Hr\EmployeeUsage` porte ce registre une seule fois ; `Employee::isForceDeleteProtected()` le lit, et la
+liste le lit pour une page entière en une requête par table (`blockersFor`). **Un test compare le registre aux clés
+étrangères réelles de la base** : une table ajoutée plus tard qui désigne un employé sans y figurer fait échouer la
+suite. Un dossier qui a servi le dit (« Il a servi (2 présences) : il reste archivé »), à l'écran comme dans le refus
+du serveur.
+
+`employees.force_delete` (migration `2026_12_08_090000`) n'est accordé à **aucun rôle d'un site** ; le Super Admin le
+reçoit à la migration du portail (ADR-186) et l'accorde nominativement. Sans lui, le bouton reste visible et
+verrouillé, avec le droit à demander (ADR-158).
+
+## Doublons possibles
+
+`EmployeeDuplicates` repère les dossiers en service de même nom et prénom (sans accents, casse ni espaces doubles) et,
+quand les deux sont connues, de même date de naissance. Un repère, jamais une décision : deux homonymes existent.
+Compteur et bandeau « Voir les doublons » (`?status=duplicates`), « Doublon possible · EMP-0002 » sur la ligne,
+bandeau sur la fiche avec le lien vers l'autre dossier. Le RH garde le bon dossier, archive l'autre, puis le supprime
+s'il n'a servi nulle part.
+
+## Signalé, non tranché
+
+```text
+fusion de deux dossiers   non construite : déplacer contrats, présences, paies… d'un dossier vers l'autre
+                          réécrirait un historique — à décider si des doublons ont tous deux servi
+doublon d'un stagiaire    repéré parmi tous les dossiers, mais la liste « Employés » n'affiche pas les stagiaires
+```

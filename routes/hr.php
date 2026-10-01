@@ -1,11 +1,9 @@
 <?php
 
 use App\Http\Controllers\Administration\AdvantageEntryController;
-use App\Http\Controllers\Administration\BonusController;
-use App\Http\Controllers\Administration\PayrollController;
-use App\Http\Controllers\Administration\PayrollSettingsController;
 use App\Http\Controllers\Administration\AttendanceController;
 use App\Http\Controllers\Administration\BankController;
+use App\Http\Controllers\Administration\BonusController;
 use App\Http\Controllers\Administration\EmployeeBadgeController;
 use App\Http\Controllers\Administration\EmployeeBenefitController;
 use App\Http\Controllers\Administration\EmployeeController;
@@ -17,6 +15,8 @@ use App\Http\Controllers\Administration\HrReportController;
 use App\Http\Controllers\Administration\HrStructureController;
 use App\Http\Controllers\Administration\InternshipController;
 use App\Http\Controllers\Administration\LeaveController;
+use App\Http\Controllers\Administration\PayrollController;
+use App\Http\Controllers\Administration\PayrollSettingsController;
 use App\Http\Controllers\Administration\PlanningController;
 use App\Http\Controllers\Administration\ProfessionalMailboxController;
 use App\Http\Controllers\Administration\StaffAccessController;
@@ -78,6 +78,10 @@ Route::get('/employees/{employee}/photo', [EmployeeController::class, 'photo'])-
 Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update')->middleware('can:employees.update');
 Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy')->middleware('can:employees.delete');
 Route::post('/employees/{employee}/restore', [EmployeeController::class, 'restore'])->name('employees.restore')->middleware('can:employees.restore')->withTrashed();
+// ADR-236 — un dossier archivé qui n'a servi nulle part se supprime définitivement ; une sélection s'archive,
+// se restaure ou se supprime d'un geste, chaque dossier jugé séparément.
+Route::delete('/employees/{employee}/force', [EmployeeController::class, 'forceDestroy'])->name('employees.force-destroy')->middleware('can:employees.force_delete')->withTrashed();
+Route::post('/employees/bulk', [EmployeeController::class, 'bulk'])->name('employees.bulk')->middleware('can:employees.view');
 // ADR-221 — les avantages et primes d'un employé : mêmes droits que sa rémunération.
 Route::post('/employees/{employee}/benefits', [EmployeeBenefitController::class, 'store'])->name('employees.benefits.store')->middleware(['can:employees.update', 'can:employees.payroll.update']);
 Route::put('/employees/{employee}/benefits/{benefit}', [EmployeeBenefitController::class, 'update'])->name('employees.benefits.update')->middleware(['can:employees.update', 'can:employees.payroll.update']);

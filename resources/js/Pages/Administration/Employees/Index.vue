@@ -1,8 +1,10 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import {
     Archive,
+    ArchiveRestore,
+    CircleAlert,
     CircleCheck,
     CirclePause,
     Download,
@@ -16,7 +18,9 @@ import {
     Phone,
     RotateCcw,
     Search,
+    Trash2,
     Upload,
+    UserRoundSearch,
     UserPlus,
     Users,
     X,
@@ -26,13 +30,17 @@ import EmployeePhoto from '@/Components/Administration/EmployeePhoto.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Checkbox from '@/Components/Shadcn/Checkbox.vue';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
 import ExplorerView from '@/Components/UI/ExplorerView.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import HrPagination from '../Partials/HrPagination.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
 import { badgeSheetPath } from '@/utilities/employeeBadge';
+import { bulkTargets, duplicateLabel, forceDeleteState } from '@/utilities/employeeActions';
 import { hrUrl } from '@/utilities/hrUrl';
 
 defineOptions({ layout: AppLayout });
@@ -66,7 +74,6 @@ const clearSearch = () => {
     submitSearch();
 };
 
-const restore = (employee) => router.post(hrUrl(`/administration/employees/${employee.uuid}/restore`), {}, { preserveScroll: true });
 
 
 /** « 2024-03-01 » → « 01/03/2024 », sans passer par un fuseau horaire. */
@@ -122,11 +129,17 @@ const interns = computed(() => Number(props.summary?.interns ?? 0));
 /* ------------------------------------------------------------------ */
 
 const canBadge = computed(() => can('employees.print'));
+const canArchive = computed(() => can('employees.delete'));
+const canRestore = computed(() => can('employees.restore'));
+const canForceDelete = computed(() => can('employees.force_delete'));
+/** On coche pour imprimer des badges, archiver, restaurer ou supprimer (ADR-209, ADR-236). */
+const canSelect = computed(() => canBadge.value || canArchive.value || canRestore.value || canForceDelete.value);
+
 /** Les dossiers cochés sur la page ouverte ; un autre filtre ou une autre page repart de zéro. */
 const selected = ref([]);
 watch(() => props.employees?.data, () => { selected.value = []; });
 
-const selectable = computed(() => (props.employees?.data ?? []).filter((employee) => ! employee.archived));
+const selectable = computed(() => props.employees?.data ?? []);
 const allSelected = computed(() => {
     if (selectable.value.length === 0 || selected.value.length === 0) return false;
 
@@ -136,12 +149,82 @@ const toggleAll = (checked) => { selected.value = checked ? selectable.value.map
 const toggleOne = (uuid, checked) => {
     selected.value = checked ? [...new Set([...selected.value, uuid])] : selected.value.filter((item) => item !== uuid);
 };
+const selectedRows = computed(() => selectable.value.filter((employee) => selected.value.includes(employee.uuid)));
+const targets = computed(() => bulkTargets(selectedRows.value, {
+    badge: canBadge.value, archive: canArchive.value, restore: canRestore.value, forceDelete: canForceDelete.value,
+}));
 
 /** Un dossier archivé n'a plus de badge : la vue « Archivés » n'en propose aucun. */
 const badgesAvailable = computed(() => canBadge.value && statusFilter.value !== 'archived' && count.value > 0);
 const allBadgesUrl = computed(() => hrUrl(badgeSheetPath({ status: statusFilter.value, q: props.filters?.q || undefined })));
-const selectedBadgesUrl = computed(() => hrUrl(badgeSheetPath({ uuids: selected.value })));
+const selectedBadgesUrl = computed(() => hrUrl(badgeSheetPath({ uuids: targets.value.badge.map((employee) => employee.uuid) })));
 const badgeUrl = (employee) => hrUrl(`/administration/employees/${employee.uuid}/badge`);
+
+/* ------------------------------------------------------------------ */
+/* Archiver, restaurer, supprimer définitivement (ADR-236)             */
+/* ------------------------------------------------------------------ */
+
+const deletion = (employee) => forceDeleteState(employee, canForceDelete.value);
+
+/** Le geste en attente de confirmation : { mode: archive|restore|force_delete, rows } */
+const pending = ref(null);
+const actionForm = useForm({ reason: '' });
+const ask = (mode, rows) => {
+    actionForm.reset();
+    actionForm.clearErrors();
+    pending.value = { mode, rows };
+};
+const closePending = (open) => { if (! open) pending.value = null; };
+
+const MODALS = {
+    archive: { verb: 'Archiver', tone: 'warning', icon: Archive },
+    restore: { verb: 'Restaurer', tone: 'success', icon: ArchiveRestore },
+    force_delete: { verb: 'Supprimer définitivement', tone: 'danger', icon: Trash2 },
+};
+const modal = computed(() => {
+    if (! pending.value) return null;
+    const { mode, rows } = pending.value;
+    const base = MODALS[mode];
+    const subject = rows.length === 1 ? rows[0].name : `${rows.length} dossiers`;
+
+    return {
+        ...base,
+        title: `${base.verb} ${rows.length === 1 ? 'le dossier de ' : ''}${subject}`,
+        confirm: rows.length === 1 ? base.verb : `${base.verb} (${rows.length})`,
+    };
+});
+const reasonMissing = computed(() => pending.value?.mode === 'archive' && actionForm.reason.trim() === '');
+const actionError = computed(() => Object.values(actionForm.errors)[0] ?? '');
+
+const confirmPending = () => {
+    const { mode, rows } = pending.value;
+    const options = { preserveScroll: true, onSuccess: () => { pending.value = null; selected.value = []; } };
+
+    if (rows.length > 1) {
+        actionForm.transform((data) => ({ action: mode, uuids: rows.map((row) => row.uuid), reason: mode === 'archive' ? data.reason : null }))
+            .post(hrUrl('/administration/employees/bulk'), options);
+    } else if (mode === 'archive') {
+        actionForm.transform((data) => ({ reason: data.reason, back: true })).delete(hrUrl(`/administration/employees/${rows[0].uuid}`), options);
+    } else if (mode === 'force_delete') {
+        actionForm.transform(() => ({ back: true })).delete(hrUrl(`/administration/employees/${rows[0].uuid}/force`), options);
+    } else {
+        actionForm.transform(() => ({})).post(hrUrl(`/administration/employees/${rows[0].uuid}/restore`), options);
+    }
+};
+
+// Rapport d'un geste groupé : ce qui est passé, ce qui ne l'est pas, et pourquoi.
+const page = usePage();
+const report = computed(() => (page.props.flash?.bulk_report?.action === 'employees_bulk' ? page.props.flash.bulk_report : null));
+const reportHidden = ref(false);
+watch(report, () => { reportHidden.value = false; });
+const REPORT_VERBS = { archive: 'archivé', restore: 'restauré', force_delete: 'supprimé' };
+
+/* ------------------------------------------------------------------ */
+/* Doublons possibles (ADR-236)                                        */
+/* ------------------------------------------------------------------ */
+
+const duplicateCount = computed(() => Number(props.summary?.duplicates ?? 0));
+const duplicatesView = computed(() => statusFilter.value === 'duplicates');
 </script>
 
 <template>
@@ -185,13 +268,35 @@ const badgeUrl = (employee) => hrUrl(`/administration/employees/${employee.uuid}
             </template>
         </PageHeader>
 
-        <!-- ADR-209 — les dossiers cochés : leurs badges, sur une planche. -->
+        <!-- ADR-209 / ADR-236 — les dossiers cochés : leurs badges, ou un geste groupé. -->
         <div v-if="selected.length" class="flex flex-wrap items-center gap-3 rounded-xl border border-primary/40 bg-primary/5 px-4 py-2.5" role="status">
-            <span class="text-sm font-medium text-foreground">{{ selected.length }} employé{{ selected.length > 1 ? 's' : '' }} coché{{ selected.length > 1 ? 's' : '' }}</span>
+            <span class="text-sm font-medium text-foreground">{{ selected.length }} dossier{{ selected.length > 1 ? 's' : '' }} coché{{ selected.length > 1 ? 's' : '' }}</span>
             <div class="ms-auto flex flex-wrap items-center gap-2">
-                <Button :as="Link" :href="selectedBadgesUrl" size="sm"><IdCard class="h-4 w-4" />Imprimer leurs badges</Button>
+                <Button v-if="targets.badge.length" :as="Link" :href="selectedBadgesUrl" size="sm" variant="outline"><IdCard class="h-4 w-4" />Badges ({{ targets.badge.length }})</Button>
+                <Button v-if="targets.archive.length" type="button" size="sm" variant="outline" @click="ask('archive', targets.archive)"><Archive class="h-4 w-4" />Archiver ({{ targets.archive.length }})</Button>
+                <Button v-if="targets.restore.length" type="button" size="sm" variant="outline" @click="ask('restore', targets.restore)"><ArchiveRestore class="h-4 w-4" />Restaurer ({{ targets.restore.length }})</Button>
+                <Button
+                    v-if="canForceDelete && selectedRows.some((row) => row.archived)"
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    :disabled="targets.forceDelete.length === 0"
+                    :title="targets.forceDelete.length ? 'Seuls les dossiers qui n’ont servi nulle part sont supprimés' : 'Aucun des dossiers cochés n’est supprimable : ils ont servi'"
+                    @click="ask('force_delete', targets.forceDelete)"
+                ><Trash2 class="h-4 w-4" />Supprimer définitivement ({{ targets.forceDelete.length }})</Button>
                 <Button type="button" variant="ghost" size="sm" @click="selected = []"><X class="h-4 w-4" />Décocher</Button>
             </div>
+        </div>
+
+        <div v-if="report && ! reportHidden" class="flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 shadow-sm" role="status">
+            <component :is="report.failed.length ? CircleAlert : CircleCheck" :class="['mt-0.5 h-5 w-5 shrink-0', report.failed.length ? 'text-amber-600' : 'text-emerald-600']" />
+            <div class="min-w-0 flex-1">
+                <p class="text-sm font-semibold text-foreground">{{ report.done }} sur {{ report.total }} dossier{{ report.total > 1 ? 's' : '' }} {{ REPORT_VERBS[report.kind] }}{{ report.done > 1 ? 's' : '' }}</p>
+                <ul v-if="report.failed.length" class="mt-2 space-y-1 text-sm">
+                    <li v-for="(failure, index) in report.failed" :key="index" class="text-muted-foreground"><span class="font-medium text-foreground">{{ failure.label }}</span> — {{ failure.message }}</li>
+                </ul>
+            </div>
+            <Button type="button" size="icon-xs" variant="ghost" aria-label="Fermer le rapport" @click="reportHidden = true"><X class="h-4 w-4" /></Button>
         </div>
 
         <!-- Les compteurs sont les filtres : un clic affiche ce qu'ils comptent. -->
@@ -226,6 +331,18 @@ const badgeUrl = (employee) => hrUrl(`/administration/employees/${employee.uuid}
             {{ interns }} stagiaire{{ interns > 1 ? 's' : '' }} ne figure{{ interns > 1 ? 'nt' : '' }} pas ici : un stagiaire n’est pas un employé.
             <Link v-if="can('contracts.view')" :href="hrUrl('/administration/internships')" class="font-semibold text-primary hover:underline">Voir les stages</Link>
         </p>
+
+        <!-- ADR-236 — deux dossiers pour une même personne : on les montre ensemble, le RH décide. -->
+        <div
+            v-if="duplicateCount || duplicatesView"
+            class="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-200"
+        >
+            <UserRoundSearch class="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span v-if="duplicatesView" class="flex-1">Même nom, même prénom et, quand elle est connue, même date de naissance. Gardez le bon dossier, archivez l’autre : s’il n’a servi nulle part, il pourra ensuite être supprimé définitivement.</span>
+            <span v-else class="flex-1">{{ duplicateCount }} dossier{{ duplicateCount > 1 ? 's' : '' }} en service désigne{{ duplicateCount > 1 ? 'nt' : '' }} peut-être la même personne qu’un autre.</span>
+            <Button v-if="duplicatesView" type="button" size="sm" variant="outline" @click="setStatus('active')"><X class="h-4 w-4" />Quitter</Button>
+            <Button v-else type="button" size="sm" variant="outline" @click="setStatus('duplicates')"><UserRoundSearch class="h-4 w-4" />Voir les doublons</Button>
+        </div>
 
         <ExplorerView
             storage-key="hr-employees"
@@ -281,6 +398,7 @@ const badgeUrl = (employee) => hrUrl(`/administration/employees/${employee.uuid}
                                 <span class="min-w-0">
                                     <span class="block truncate font-semibold text-foreground transition-colors group-hover:text-primary" :title="employee.name">{{ employee.name }}</span>
                                     <span class="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">{{ employee.employee_number }}</span>
+                                    <span v-if="employee.duplicates?.length" class="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-300" :title="`Même personne que ${duplicateLabel(employee.duplicates)} ?`"><UserRoundSearch class="h-3 w-3" aria-hidden="true" />Doublon possible</span>
                                 </span>
                             </Link>
                             <Badge v-if="employee.archived" variant="outline"><Archive class="h-3 w-3" />Archivé</Badge>
@@ -317,7 +435,9 @@ const badgeUrl = (employee) => hrUrl(`/administration/employees/${employee.uuid}
                             <Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" variant="ghost" size="icon" :aria-label="`Voir le dossier de ${employee.name}`" title="Voir le dossier"><Eye class="h-4 w-4" /></Button>
                             <Button v-if="!employee.archived && canBadge" :as="Link" :href="badgeUrl(employee)" variant="ghost" size="icon" :aria-label="`Badge de ${employee.name}`" title="Badge"><IdCard class="h-4 w-4" /></Button>
                             <Button v-if="!employee.archived && can('employees.update')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/edit`)" variant="ghost" size="icon" :aria-label="`Modifier ${employee.name}`" title="Modifier"><Pencil class="h-4 w-4" /></Button>
-                            <Button v-if="employee.archived && can('employees.restore')" type="button" variant="ghost" size="icon" :aria-label="`Restaurer ${employee.name}`" title="Restaurer" @click="restore(employee)"><RotateCcw class="h-4 w-4" /></Button>
+                            <Button v-if="employee.archived && can('employees.restore')" type="button" variant="ghost" size="icon" :aria-label="`Restaurer ${employee.name}`" title="Restaurer" @click="ask('restore', [employee])"><RotateCcw class="h-4 w-4" /></Button>
+                                    <Button v-if="!employee.archived && canArchive" type="button" variant="ghost" size="icon" class="text-muted-foreground hover:text-amber-700" :aria-label="`Archiver ${employee.name}`" title="Archiver (motif demandé, restaurable)" @click="ask('archive', [employee])"><Archive class="h-4 w-4" /></Button>
+                                    <Button v-if="employee.archived && (canForceDelete || canRestore)" type="button" variant="ghost" size="icon" class="text-destructive hover:text-destructive" :disabled="! deletion(employee).allowed" :aria-label="`Supprimer définitivement ${employee.name}`" :title="deletion(employee).allowed ? 'Supprimer définitivement' : deletion(employee).reason" @click="ask('force_delete', [employee])"><Trash2 class="h-4 w-4" /></Button>
                         </div>
                     </div>
                 </article>
@@ -327,7 +447,7 @@ const badgeUrl = (employee) => hrUrl(`/administration/employees/${employee.uuid}
                 <table class="w-full min-w-[860px] text-sm">
                     <thead>
                         <tr class="border-b border-border bg-muted/40 text-left text-xs font-semibold text-muted-foreground">
-                            <th v-if="canBadge" scope="col" class="w-10 ps-4 pe-0 py-2.5">
+                            <th v-if="canSelect" scope="col" class="w-10 ps-4 pe-0 py-2.5">
                                 <Checkbox :model-value="allSelected" :disabled="selectable.length === 0" aria-label="Cocher tous les employés de la page" @update:model-value="toggleAll" />
                             </th>
                             <th scope="col" class="px-4 py-2.5">Employé</th>
@@ -344,9 +464,8 @@ const badgeUrl = (employee) => hrUrl(`/administration/employees/${employee.uuid}
                             :key="employee.uuid"
                             :class="cn('transition-colors hover:bg-muted/40', employee.archived && 'text-muted-foreground', selected.includes(employee.uuid) && 'bg-primary/5')"
                         >
-                            <td v-if="canBadge" class="w-10 ps-4 pe-0 py-2.5">
+                            <td v-if="canSelect" class="w-10 ps-4 pe-0 py-2.5">
                                 <Checkbox
-                                    v-if="! employee.archived"
                                     :model-value="selected.includes(employee.uuid)"
                                     :aria-label="`Cocher ${employee.name}`"
                                     @update:model-value="(checked) => toggleOne(employee.uuid, checked)"
@@ -362,6 +481,10 @@ const badgeUrl = (employee) => hrUrl(`/administration/employees/${employee.uuid}
                                             <Badge v-if="employee.is_intern" variant="secondary" class="px-1.5 py-0 text-[10px] uppercase tracking-wide">Stagiaire</Badge>
                                         </span>
                                         <span class="block font-mono text-xs text-muted-foreground">{{ employee.employee_number }}</span>
+                                        <span v-if="employee.duplicates?.length" class="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-300" :title="`Même personne que ${duplicateLabel(employee.duplicates)} ?`">
+                                            <UserRoundSearch class="h-3 w-3" aria-hidden="true" />Doublon possible · {{ employee.duplicates.map((other) => other.number).join(', ') }}
+                                        </span>
+                                        <span v-if="employee.archived && employee.deletion_blockers?.length === 0" class="mt-0.5 block text-[11px] text-muted-foreground">N’a servi nulle part</span>
                                     </span>
                                 </Link>
                             </td>
@@ -394,7 +517,9 @@ const badgeUrl = (employee) => hrUrl(`/administration/employees/${employee.uuid}
                                     <Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" variant="ghost" size="icon" :aria-label="`Voir le dossier de ${employee.name}`" title="Voir le dossier"><Eye class="h-4 w-4" /></Button>
                                     <Button v-if="!employee.archived && canBadge" :as="Link" :href="badgeUrl(employee)" variant="ghost" size="icon" :aria-label="`Badge de ${employee.name}`" title="Badge"><IdCard class="h-4 w-4" /></Button>
                                     <Button v-if="!employee.archived && can('employees.update')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/edit`)" variant="ghost" size="icon" :aria-label="`Modifier ${employee.name}`" title="Modifier"><Pencil class="h-4 w-4" /></Button>
-                                    <Button v-if="employee.archived && can('employees.restore')" type="button" variant="ghost" size="icon" :aria-label="`Restaurer ${employee.name}`" title="Restaurer" @click="restore(employee)"><RotateCcw class="h-4 w-4" /></Button>
+                                    <Button v-if="employee.archived && can('employees.restore')" type="button" variant="ghost" size="icon" :aria-label="`Restaurer ${employee.name}`" title="Restaurer" @click="ask('restore', [employee])"><RotateCcw class="h-4 w-4" /></Button>
+                                    <Button v-if="!employee.archived && canArchive" type="button" variant="ghost" size="icon" class="text-muted-foreground hover:text-amber-700" :aria-label="`Archiver ${employee.name}`" title="Archiver (motif demandé, restaurable)" @click="ask('archive', [employee])"><Archive class="h-4 w-4" /></Button>
+                                    <Button v-if="employee.archived && (canForceDelete || canRestore)" type="button" variant="ghost" size="icon" class="text-destructive hover:text-destructive" :disabled="! deletion(employee).allowed" :aria-label="`Supprimer définitivement ${employee.name}`" :title="deletion(employee).allowed ? 'Supprimer définitivement' : deletion(employee).reason" @click="ask('force_delete', [employee])"><Trash2 class="h-4 w-4" /></Button>
                                 </div>
                             </td>
                         </tr>
@@ -406,5 +531,37 @@ const badgeUrl = (employee) => hrUrl(`/administration/employees/${employee.uuid}
                 <HrPagination :paginator="employees" />
             </template>
         </ExplorerView>
+
+        <ConfirmModal
+            v-if="modal"
+            :open="Boolean(pending)"
+            :title="modal.title"
+            :confirm-label="modal.confirm"
+            :tone="modal.tone"
+            :icon="modal.icon"
+            :processing="actionForm.processing"
+            :disabled="reasonMissing"
+            :dismissible="pending.mode !== 'force_delete'"
+            @update:open="closePending"
+            @confirm="confirmPending"
+        >
+            <div class="space-y-3 text-sm">
+                <p v-if="pending.mode === 'archive'" class="text-muted-foreground">Le dossier quitte la liste, garde tout son historique et se restaure depuis « Archivés ».</p>
+                <p v-else-if="pending.mode === 'restore'" class="text-muted-foreground">Le dossier revient dans la liste, tel qu’il était.</p>
+                <p v-else class="text-muted-foreground">Le dossier est détruit : c’est irréversible. Seul un dossier archivé qui n’a servi nulle part (aucun contrat, présence, congé, paie, document, compte…) peut l’être ; ce qu’il était reste dans l’audit.</p>
+
+                <ul v-if="pending.rows.length > 1" class="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-border bg-muted/30 px-3 py-2">
+                    <li v-for="row in pending.rows" :key="row.uuid" class="flex items-center justify-between gap-2">
+                        <span class="truncate font-medium text-foreground">{{ row.name }}</span>
+                        <span class="font-mono text-xs text-muted-foreground">{{ row.employee_number }}</span>
+                    </li>
+                </ul>
+
+                <FormField v-if="pending.mode === 'archive'" label="Motif d’archivage" required :error="actionForm.errors.reason">
+                    <Textarea v-model="actionForm.reason" rows="3" placeholder="Ex. doublon de EMP-0002, départ, saisie à tort…" />
+                </FormField>
+                <p v-if="actionError && ! actionForm.errors.reason" class="rounded-lg bg-destructive/10 px-3 py-2 text-destructive">{{ actionError }}</p>
+            </div>
+        </ConfirmModal>
     </div>
 </template>

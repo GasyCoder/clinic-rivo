@@ -89,6 +89,7 @@ class PermissionSeeder extends Seeder
         'employees.update' => 'Modifier un employé',
         'employees.delete' => 'Archiver un employé',
         'employees.restore' => 'Restaurer un employé',
+        'employees.force_delete' => 'Supprimer définitivement un dossier employé archivé qui n’a servi nulle part (doublon, saisie à tort)',
         'employees.import' => 'Importer les employés',
         'employees.export' => 'Exporter les employés',
         'employees.print' => 'Imprimer une fiche employé',

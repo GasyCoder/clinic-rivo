@@ -7,9 +7,11 @@ use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
 use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
+use App\Enums\SalaryPaymentMode;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\SoftDeletable;
+use App\Support\Hr\EmployeeUsage;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -61,7 +63,7 @@ class Employee extends Model
             'children_count' => 'integer',
             'children' => 'array',
             'benefits_enabled' => 'boolean',
-            'salary_payment_mode' => \App\Enums\SalaryPaymentMode::class,
+            'salary_payment_mode' => SalaryPaymentMode::class,
             'mobile_money_accounts' => 'array',
             'active' => 'boolean',
             'photo_updated_at' => 'datetime',
@@ -175,18 +177,10 @@ class Employee extends Model
         return $this->active && ! $this->trashed();
     }
 
+    /** ADR-236 — un dossier n'est détruit que s'il n'a servi nulle part : le registre le dit. */
     public function isForceDeleteProtected(): bool
     {
-        return $this->patientLinks()->exists()
-            || $this->episodeStaffCoverages()->exists()
-            || $this->staffBlockCreditMovements()->exists()
-            || $this->contracts()->withTrashed()->exists()
-            || $this->attendanceRecords()->exists()
-            || $this->leaveRequests()->exists()
-            || $this->interimLeaveRequests()->exists()
-            || $this->planningShifts()->exists()
-            || $this->hrDocuments()->withTrashed()->exists()
-            || $this->benefits()->withTrashed()->exists();
+        return EmployeeUsage::blockers($this) !== [];
     }
 
     protected function auditModule(): ?string

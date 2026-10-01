@@ -4,7 +4,7 @@ import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import {
     Archive, ArchiveRestore, ArrowLeft, ArrowRight, AtSign, Briefcase, Building2, CalendarClock, CalendarDays, CalendarPlus, Clock,
     Copy, Download, Eye, FileText, FileUp, Fingerprint, GraduationCap, IdCard, KeyRound, Mail, MapPin, NotebookPen, Pencil,
-    Phone, Plus, Printer, Shirt, Sparkles, Upload, User, UserRound, Users,
+    Phone, Plus, Printer, Shirt, Sparkles, Trash2, Upload, User, UserRound, UserRoundSearch, Users,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
@@ -26,6 +26,7 @@ import { useToastStore } from '@/stores/toast';
 import { employeeAccountLink } from '@/utilities/employeeAccount';
 import { hrContext, hrUrl } from '@/utilities/hrUrl';
 import { composeHref } from '@/utilities/webmail';
+import { forceDeleteState } from '@/utilities/employeeActions';
 
 /*
  * ADR-066 / ADR-194 — le dossier d'une personne : identité, coordonnées,
@@ -51,6 +52,9 @@ const props = defineProps({
     benefits: { type: Array, default: null },
     // ADR-209 — le badge du personnel, tel qu'il s'imprime ; absent pour un dossier archivé.
     badge: { type: Object, default: null },
+    // ADR-236 — ce qui empêche de détruire un dossier archivé ; les doublons possibles d'un dossier en service.
+    deletionBlockers: { type: Array, default: null },
+    duplicates: { type: Array, default: () => [] },
 });
 
 const page = usePage();
@@ -168,6 +172,15 @@ const archiveEmployee = () => archiveForm.delete(hrUrl(`/administration/employee
 });
 const restoreEmployee = () => router.post(hrUrl(`/administration/employees/${props.employee.uuid}/restore`));
 
+// ADR-236 — un dossier archivé qui n'a servi nulle part (doublon, saisie à tort).
+const deletion = computed(() => forceDeleteState({ ...props.employee, deletion_blockers: props.deletionBlockers ?? [] }, can('employees.force_delete')));
+const forceDeleteOpen = ref(false);
+const forceDeleteForm = useForm({});
+const forceDeleteError = computed(() => Object.values(forceDeleteForm.errors)[0] ?? '');
+const forceDeleteEmployee = () => forceDeleteForm.delete(hrUrl(`/administration/employees/${props.employee.uuid}/force`), {
+    onSuccess: () => { forceDeleteOpen.value = false; },
+});
+
 const quickActions = computed(() => [
     { key: 'contract', permission: 'contracts.create', icon: FileText, label: 'Nouveau contrat', hint: 'Type, dates et référence', href: hrUrl(`/administration/contracts/create?employee=${props.employee.uuid}`) },
     { key: 'attendance', permission: 'attendance.create', icon: Clock, label: 'Saisir une présence', hint: 'Entrée et sortie du jour', href: hrUrl(`/administration/attendance/create?employee=${props.employee.uuid}`) },
@@ -267,6 +280,9 @@ const documentIcon = (document) => DOCUMENT_ICONS[document.mime_type] ?? (docume
                         <Button v-if="can('employees.print')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/print`)" target="_blank" variant="outline"><Printer class="h-4 w-4" />Fiche</Button>
                         <Button v-if="!employee.archived && can('employees.update')" :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}/edit`)"><Pencil class="h-4 w-4" />Modifier</Button>
                         <Button v-if="employee.archived && can('employees.restore')" type="button" variant="success" @click="restoreEmployee"><ArchiveRestore class="h-4 w-4" />Restaurer</Button>
+                        <span v-if="employee.archived && (can('employees.force_delete') || can('employees.restore'))" class="inline-flex" :title="deletion.reason">
+                            <Button type="button" variant="destructive" :disabled="! deletion.allowed" @click="forceDeleteOpen = true"><Trash2 class="h-4 w-4" />Supprimer définitivement</Button>
+                        </span>
                     </div>
                 </div>
 
@@ -320,8 +336,41 @@ const documentIcon = (document) => DOCUMENT_ICONS[document.mime_type] ?? (docume
             <div class="min-w-0">
                 <p class="font-semibold text-foreground">Dossier archivé</p>
                 <p class="text-xs text-muted-foreground">{{ employee.delete_reason || 'Motif non renseigné' }} — l’historique reste consultable ; restaurer le rend de nouveau modifiable.</p>
+                <p v-if="deletionBlockers?.length" class="mt-1 text-xs text-muted-foreground">Il a servi ({{ deletionBlockers.join(', ') }}) : il reste archivé, on ne détruit pas un historique.</p>
+                <p v-else-if="deletionBlockers" class="mt-1 text-xs text-muted-foreground">Il n’a servi nulle part : il peut être supprimé définitivement.</p>
             </div>
         </div>
+
+        <!-- ADR-236 — un autre dossier en service désigne peut-être la même personne. -->
+        <div v-if="duplicates.length" class="flex flex-wrap items-start gap-3 rounded-xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-200">
+            <UserRoundSearch class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <div class="min-w-0 flex-1">
+                <p class="font-semibold">Doublon possible</p>
+                <p class="text-xs">Même nom, même prénom{{ employee.birth_date ? ' et même date de naissance' : '' }} que :
+                    <template v-for="(other, index) in duplicates" :key="other.uuid">
+                        <Link :href="hrUrl(`/administration/employees/${other.uuid}`)" class="font-semibold underline-offset-2 hover:underline">{{ other.number || other.name }}</Link><span v-if="index < duplicates.length - 1">, </span>
+                    </template>.
+                    Gardez le bon dossier et archivez l’autre.
+                </p>
+            </div>
+        </div>
+
+        <ConfirmModal
+            :open="forceDeleteOpen"
+            :title="`Supprimer définitivement le dossier de ${employee.name}`"
+            confirm-label="Supprimer définitivement"
+            tone="danger"
+            :icon="Trash2"
+            :processing="forceDeleteForm.processing"
+            :dismissible="false"
+            @update:open="forceDeleteOpen = $event"
+            @confirm="forceDeleteEmployee"
+        >
+            <div class="space-y-3 text-sm">
+                <p class="text-muted-foreground">Le dossier {{ employee.employee_number }} est détruit : c’est irréversible. Il n’a servi nulle part ; ce qu’il était reste dans l’audit, et sa photo est effacée.</p>
+                <p v-if="forceDeleteError" class="rounded-lg bg-destructive/10 px-3 py-2 text-destructive">{{ forceDeleteError }}</p>
+            </div>
+        </ConfirmModal>
 
         <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
             <div class="min-w-0 space-y-4">

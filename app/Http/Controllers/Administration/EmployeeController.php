@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Administration;
 
 use App\Actions\Administration\ArchiveEmployeeAction;
 use App\Actions\Administration\CreateEmployeeAction;
+use App\Actions\Administration\ForceDeleteEmployeeAction;
 use App\Actions\Administration\ImportEmployeesAction;
 use App\Actions\Administration\RestoreEmployeeAction;
 use App\Actions\Administration\UpdateEmployeeAction;
@@ -36,20 +37,36 @@ use App\Services\Administration\InternshipDirectory;
 use App\Services\Administration\LeaveBalanceCalculator;
 use App\Services\Administration\LeaveToday;
 use App\Services\Administration\ProfessionalMailboxPresenter;
+use App\Services\Audit\Auditor;
 use App\Services\Spreadsheet\ExcelWorkbook;
+use App\Support\Hr\EmployeeChildren;
+use App\Support\Hr\EmployeeUsage;
 use App\Support\ProfessionalEmailAddress;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class EmployeeController extends Controller
 {
+    /** ADR-236 — au plus 50 dossiers par geste groupé, comme les autres sélections. */
+    private const BULK_LIMIT = 50;
+
+    private const BULK_ACTIONS = [
+        'archive' => ['permission' => 'employees.delete', 'done' => 'archivé', 'refused' => 'Archivage non autorisé pour ce dossier.'],
+        'restore' => ['permission' => 'employees.restore', 'done' => 'restauré', 'refused' => 'Restauration non autorisée pour ce dossier.'],
+        'force_delete' => ['permission' => 'employees.force_delete', 'done' => 'supprimé', 'refused' => 'Seul un dossier archivé se supprime définitivement.'],
+    ];
+
     public function __construct(
         private readonly HrPresenter $presenter,
         private readonly InternshipDirectory $internships,
@@ -76,9 +93,16 @@ class EmployeeController extends Controller
             ->paginate(20)->withQueryString();
         // Le congé en cours de chaque ligne, en une requête : « Actif » et « En congé » se lisent ensemble.
         $onLeave = $this->leaveToday->byEmployee($employees->getCollection()->modelKeys());
+        // ADR-236 — ce qui empêche de détruire un dossier archivé, en une requête par table ;
+        // et les dossiers en service qui désignent peut-être la même personne.
+        $archived = $employees->getCollection()->filter(fn (Employee $employee) => $employee->trashed());
+        $blockers = EmployeeUsage::blockersFor($archived->mapWithKeys(fn (Employee $employee) => [$employee->getKey() => $employee->user_id])->all());
+        $duplicates = $this->directory->duplicates();
         $employees->through(fn (Employee $employee) => [
             ...$this->presenter->employee($employee),
             'on_leave' => $onLeave[$employee->getKey()] ?? null,
+            'duplicates' => $employee->trashed() ? [] : $duplicates->of($employee),
+            'deletion_blockers' => $employee->trashed() ? ($blockers[$employee->getKey()] ?? []) : null,
         ]);
 
         return Inertia::render('Administration/Employees/Index', [
@@ -89,6 +113,7 @@ class EmployeeController extends Controller
                 'on_leave' => $this->leaveToday->employees($this->staff()->where('active', true))->count(),
                 'inactive' => $this->staff()->where('active', false)->count(),
                 'archived' => $this->staff()->onlyTrashed()->count(),
+                'duplicates' => $this->staff()->whereKey($this->directory->duplicates()->ids())->count(),
                 // Ils ne sont pas ici : la page le dit, et mène à « Stages ».
                 'interns' => $this->internships->interns(Employee::query())->count(),
             ],
@@ -192,6 +217,10 @@ class EmployeeController extends Controller
             'documentOptions' => $this->documentOptions(),
             'attestationTypes' => $this->references(HrReferenceType::AttestationType),
             'professionalEmail' => $this->professionalEmail($request, $employee),
+            // ADR-236 — un dossier archivé dit ce qui l'empêche d'être détruit ; un dossier en
+            // service, les autres dossiers qui désignent peut-être la même personne.
+            'deletionBlockers' => $employee->trashed() ? EmployeeUsage::blockers($employee) : null,
+            'duplicates' => $employee->trashed() ? [] : $this->directory->duplicates()->of($employee),
             // ADR-209 — le badge, tel qu'il s'imprime. Un dossier archivé n'en a plus.
             'badge' => $employee->trashed() ? null : [
                 'person' => $badges->presentOne($employee),
@@ -354,8 +383,89 @@ class EmployeeController extends Controller
         $number = $employee->employee_number;
         $action->execute($employee, $request->validated('reason'), $request->user());
 
-        return to_route('administration.employees.index', ['status' => 'archived'])
-            ->with('status', "Dossier Employé {$number} archivé.");
+        // Depuis la liste, on y reste : la ligne disparaît de la vue ouverte (ADR-236).
+        $redirect = $request->boolean('back')
+            ? back()
+            : to_route('administration.employees.index', ['status' => 'archived']);
+
+        return $redirect->with('status', "Dossier Employé {$number} archivé.");
+    }
+
+    /** ADR-236 — un dossier archivé qui n'a servi nulle part (doublon, saisie à tort). */
+    public function forceDestroy(Request $request, Employee $employee, ForceDeleteEmployeeAction $action): RedirectResponse
+    {
+        $number = $employee->employee_number;
+        $action->execute($employee, $request->user());
+
+        $redirect = $request->boolean('back')
+            ? back()
+            : to_route('administration.employees.index', ['status' => 'archived']);
+
+        return $redirect->with('status', "Dossier Employé {$number} supprimé définitivement.");
+    }
+
+    /**
+     * ADR-236 — archiver, restaurer ou supprimer définitivement une sélection. Chaque dossier
+     * est jugé séparément par l'action qui le juge seul : un refus n'empêche pas les autres,
+     * le rapport dit pourquoi (même principe que l'ADR-090).
+     */
+    public function bulk(Request $request, Auditor $auditor): RedirectResponse
+    {
+        $data = $request->validate([
+            'action' => ['required', Rule::in(array_keys(self::BULK_ACTIONS))],
+            'uuids' => ['required', 'array', 'min:1', 'max:'.self::BULK_LIMIT],
+            'uuids.*' => ['required', 'uuid', 'distinct'],
+            'reason' => [Rule::requiredIf($request->input('action') === 'archive'), 'nullable', 'string', 'max:1000'],
+        ], [], ['reason' => 'motif d’archivage', 'uuids' => 'sélection']);
+
+        $bulk = self::BULK_ACTIONS[$data['action']];
+        abort_unless($request->user()->can($bulk['permission']), 403);
+
+        $employees = Employee::withTrashed()->whereIn('uuid', $data['uuids'])->orderBy('last_name')->orderBy('first_name')->get();
+        $reason = isset($data['reason']) ? str($data['reason'])->squish()->toString() : null;
+
+        $report = ['action' => 'employees_bulk', 'kind' => $data['action'], 'total' => count($data['uuids']), 'done' => 0, 'failed' => []];
+        foreach ($employees as $employee) {
+            $label = trim("{$employee->last_name} {$employee->first_name} · {$employee->employee_number}");
+            try {
+                match ($data['action']) {
+                    'archive' => $employee->trashed()
+                        ? throw ValidationException::withMessages(['employee' => 'Déjà archivé.'])
+                        : app(ArchiveEmployeeAction::class)->execute($employee, $reason, $request->user()),
+                    'restore' => $employee->trashed()
+                        ? app(RestoreEmployeeAction::class)->execute($employee, $request->user())
+                        : throw ValidationException::withMessages(['employee' => 'N’est pas archivé.']),
+                    'force_delete' => app(ForceDeleteEmployeeAction::class)->execute($employee, $request->user()),
+                };
+                $report['done']++;
+            } catch (ValidationException $exception) {
+                $report['failed'][] = ['label' => $label, 'message' => collect($exception->errors())->flatten()->first() ?? 'Refusé.'];
+            } catch (AuthorizationException) {
+                $report['failed'][] = ['label' => $label, 'message' => $bulk['refused']];
+            } catch (Throwable $exception) {
+                report($exception);
+                $report['failed'][] = ['label' => $label, 'message' => 'Erreur inattendue : ce dossier n’a pas été modifié.'];
+            }
+        }
+        foreach (array_diff($data['uuids'], $employees->pluck('uuid')->all()) as $missing) {
+            $report['failed'][] = ['label' => $missing, 'message' => 'Dossier introuvable.'];
+        }
+
+        $auditor->record('employee.bulk_'.$data['action'], null, ['done' => $report['done'], 'total' => $report['total'], 'reason' => $reason], module: 'administration');
+
+        $failed = count($report['failed']);
+        $done = $report['done'];
+
+        return back()
+            ->with('status', $failed === 0
+                ? "{$done} dossier".($done > 1 ? 's' : '').' '.$bulk['done'].($done > 1 ? 's' : '').'.'
+                : "{$done} sur {$report['total']} dossiers {$bulk['done']}s. {$failed} refusé".($failed > 1 ? 's' : '').' — détail ci-dessous.')
+            ->with('status_type', match (true) {
+                $done === 0 => 'danger',
+                $failed > 0 => 'warning',
+                default => 'success',
+            })
+            ->with('bulk_report', $report);
     }
 
     public function restore(Request $request, Employee $employee, RestoreEmployeeAction $action): RedirectResponse
@@ -404,7 +514,7 @@ class EmployeeController extends Controller
                 $employee->hire_date?->toDateString(), $employee->birth_date?->toDateString(),
                 $employee->birth_place, $employee->identity_document_number,
                 $employee->identity_document_issued_on?->toDateString(), $employee->identity_document_issued_at,
-                $employee->address, $employee->children_count, trim(\App\Support\Hr\EmployeeChildren::label($employee->children).' '.$employee->children_details),
+                $employee->address, $employee->children_count, trim(EmployeeChildren::label($employee->children).' '.$employee->children_details),
                 $employee->badge, $employee->blouse, $employee->email, $employee->phone,
                 $employee->phone_secondary, $employee->tshirt_size, $employee->blouse_size,
                 $employee->bloc_outfit, $employee->shoe_size, $employee->scrub_cap, $employee->clog,

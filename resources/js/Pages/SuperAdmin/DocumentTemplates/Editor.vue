@@ -1,9 +1,9 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
 import {
     ArrowLeft, Check, ChevronDown, ChevronUp, Copy, Database, Eye, FileText, FileUp, Folder, FolderPen, History, Image, Info, LoaderCircle,
-    PanelRightOpen, PenLine, Plus, Redo2, RotateCcw, Save, Server, Tag, Trash2, TriangleAlert, Upload, X,
+    Maximize2, PanelRightOpen, Pencil, PenLine, Plus, Redo2, RotateCcw, Save, Server, Tag, Trash2, TriangleAlert, Upload, X,
 } from 'lucide-vue-next';
 import { Editor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
@@ -104,20 +104,46 @@ const contextMismatch = computed(() => expectedContext({ document_type: form.doc
 const PAGE_BREAK_HTML = '<div data-page-break class="canevas-page-break"></div>';
 const newPageId = () => (crypto.randomUUID ? crypto.randomUUID() : `page-${Date.now()}-${Math.random()}`);
 
-/** @typedef {{ id: string, content: string }} TemplatePage */
+/** @typedef {{ id: string, name: string, content: string }} TemplatePage */
 
 /** @type {import('vue').Ref<TemplatePage[]>} */
 const pages = ref(
     Array.isArray(props.template?.content?.pages) && props.template.content.pages.length
         ? props.template.content.pages.map((page) => ({
             id: page.id ?? newPageId(),
+            name: typeof page.name === 'string' ? page.name : '',
             content: page.content ?? '<p></p>',
         }))
-        : [{ id: newPageId(), content: '<p></p>' }],
+        : [{ id: newPageId(), name: '', content: '<p></p>' }],
 );
 const activePageId = ref(pages.value[0].id);
 const activePageIndex = computed(() => pages.value.findIndex((page) => page.id === activePageId.value));
 const activePage = computed(() => pages.value[activePageIndex.value]);
+const PAGE_NAME_MAX = 60;
+/** Le nom donné à une page, sinon « Page N ». Le nom n'est pas imprimé : il sert à s'y retrouver. */
+const pageLabel = (page, index) => page.name?.trim() || `Page ${index + 1}`;
+
+// Renommer une page sur place : Entrée ou un clic ailleurs enregistre, Échap annule.
+const renaming = ref(null);
+const renameDraft = ref('');
+const startRename = (page, where) => {
+    if (isArchivedTemplate.value) return;
+    renaming.value = { id: page.id, where };
+    renameDraft.value = page.name ?? '';
+    nextTick(() => document.querySelector(`[data-page-rename="${page.id}-${where}"]`)?.select());
+};
+const commitRename = () => {
+    if (!renaming.value) return;
+    const page = pages.value.find((item) => item.id === renaming.value.id);
+    const value = renameDraft.value.trim().slice(0, PAGE_NAME_MAX);
+    if (page && page.name !== value) {
+        page.name = value;
+        isDirty.value = true;
+    }
+    renaming.value = null;
+};
+const cancelRename = () => { renaming.value = null; };
+const isRenaming = (page, where) => renaming.value?.id === page.id && renaming.value?.where === where;
 
 // La fiche (dossier, données reprises, nom, pages) vit dans un panneau latéral :
 // la feuille garde toute la largeur. Un nouveau modèle commence par un choix —
@@ -195,7 +221,7 @@ onBeforeUnmount(() => {
 
 const addPage = () => {
     commitActivePage();
-    const page = { id: newPageId(), content: '<p></p>' };
+    const page = { id: newPageId(), name: '', content: '<p></p>' };
     pages.value.push(page);
     selectPage(page.id);
     startMode.value = 'write';
@@ -205,7 +231,7 @@ const duplicatePage = (id) => {
     commitActivePage();
     const index = pages.value.findIndex((page) => page.id === id);
     const source = pages.value[index];
-    pages.value.splice(index + 1, 0, { id: newPageId(), content: source.content });
+    pages.value.splice(index + 1, 0, { id: newPageId(), name: source.name ? `${source.name} (copie)`.slice(0, PAGE_NAME_MAX) : '', content: source.content });
     isDirty.value = true;
 };
 const pageToDelete = ref(null);
@@ -249,7 +275,7 @@ const applyImport = ({ imported, isPdf }) => {
     commitActivePage();
     const index = activePageIndex.value;
     pages.value[index].content = imported.pages[0];
-    pages.value.splice(index + 1, 0, ...imported.pages.slice(1).map((content) => ({ id: newPageId(), content })));
+    pages.value.splice(index + 1, 0, ...imported.pages.slice(1).map((content) => ({ id: newPageId(), name: '', content })));
     editor.value.commands.setContent(imported.pages[0]);
     isDirty.value = true;
     startMode.value = 'write';
@@ -388,7 +414,13 @@ const buildContentHtml = () => {
 
     return pages.value.map((page) => page.content).join(PAGE_BREAK_HTML);
 };
-const previewHtml = computed(() => (showPreview.value ? buildContentHtml() : ''));
+// L'aperçu montre chaque page sur sa feuille A4, comme elle s'imprimera.
+const previewPages = computed(() => {
+    if (!showPreview.value) return [];
+    commitActivePage();
+
+    return pages.value.map((page, index) => ({ id: page.id, label: pageLabel(page, index), html: page.content }));
+});
 
 const showHistory = ref(false);
 const historyVersions = ref([]);
@@ -459,6 +491,86 @@ const steps = computed(() => [
     { key: 'texte', label: 'Texte', done: ! missing.value.includes('le texte du modèle') },
 ]);
 
+// La feuille A4 : 21 × 29,7 cm, marges 2,5 cm en haut et en bas, 2 cm sur les côtés —
+// celles de l'impression du document par le RH (Print.vue). Le texte qui dépasse la
+// zone imprimable est signalé : il passerait sur une page de plus à l'impression.
+const MM_TO_PX = 96 / 25.4;
+const A4_WIDTH_PX = 210 * MM_TO_PX;
+const paperViewport = ref(null);
+const pageBody = ref(null);
+const editorHost = ref(null);
+const zoomChoice = ref('fit');
+const fitZoom = ref(1);
+const zoomOptions = [
+    { value: 'fit', label: 'Ajuster' },
+    { value: '0.75', label: '75 %' },
+    { value: '1', label: '100 %' },
+    { value: '1.25', label: '125 %' },
+];
+const zoom = computed(() => (zoomChoice.value === 'fit' ? fitZoom.value : Number(zoomChoice.value)));
+const pageOverflows = ref(false);
+const measurePaper = () => {
+    if (paperViewport.value) {
+        const available = paperViewport.value.clientWidth - 48;
+        fitZoom.value = Math.max(0.4, Math.min(1, available / A4_WIDTH_PX));
+    }
+    if (pageBody.value && editorHost.value) {
+        pageOverflows.value = editorHost.value.offsetHeight > pageBody.value.clientHeight + 2;
+    }
+};
+let paperObserver = null;
+onMounted(() => {
+    if (typeof ResizeObserver === 'undefined') return;
+    paperObserver = new ResizeObserver(() => measurePaper());
+    [paperViewport.value, editorHost.value].forEach((element) => element && paperObserver.observe(element));
+    measurePaper();
+});
+onBeforeUnmount(() => paperObserver?.disconnect());
+watch([contentVersion, activePageId, startMode], () => nextTick(measurePaper));
+
+// « Fiche du modèle » : chaque saisie est gardée aussitôt, sans bouton « Terminé ».
+// « Annuler » remet la fiche — et les pages — comme à l'ouverture du panneau.
+const ficheSnapshot = ref(null);
+/** Ce que la fiche règle : le dossier, les données, le nom, et l'ordre et le nom des pages. */
+const ficheState = () => JSON.stringify({
+    form: { document_type: form.document_type, data_context: form.data_context, name: form.name, description: form.description, active: form.active },
+    folder: folder.value,
+    customType: customType.value,
+    pages: pages.value.map(({ id, name }) => ({ id, name })),
+});
+watch(showFiche, (open) => {
+    if (open) {
+        commitActivePage();
+        ficheSnapshot.value = {
+            state: ficheState(),
+            form: { ...JSON.parse(ficheState()).form },
+            folder: folder.value,
+            customType: customType.value,
+            pages: pages.value.map((page) => ({ ...page })),
+            activePageId: activePageId.value,
+            dirty: isDirty.value,
+        };
+    } else {
+        // Un clic ailleurs a déjà enregistré le nom (blur) ; Échap ferme sans l'enregistrer.
+        renaming.value = null;
+    }
+});
+const ficheChanged = computed(() => Boolean(showFiche.value && ficheSnapshot.value && ficheState() !== ficheSnapshot.value.state));
+const cancelFiche = () => {
+    const saved = ficheSnapshot.value;
+    renaming.value = null;
+    if (saved && ficheChanged.value) {
+        Object.assign(form, saved.form);
+        folder.value = saved.folder;
+        customType.value = saved.customType;
+        pages.value = saved.pages.map((page) => ({ ...page }));
+        activePageId.value = pages.value.some((page) => page.id === saved.activePageId) ? saved.activePageId : pages.value[0].id;
+        mountPage(activePage.value);
+        nextTick(() => { isDirty.value = saved.dirty; });
+    }
+    showFiche.value = false;
+};
+
 const TEXT_MISSING = 'le texte du modèle';
 const ficheMissing = computed(() => missing.value.filter((item) => item !== TEXT_MISSING));
 const stepsDone = computed(() => steps.value.filter((step) => step.done).length);
@@ -476,7 +588,7 @@ const submit = () => {
     const contentHtml = buildContentHtml();
     form.transform((data) => ({
         ...data,
-        content: { pages: pages.value.map(({ id, content }) => ({ id, content })) },
+        content: { pages: pages.value.map(({ id, name, content }) => ({ id, ...(name?.trim() ? { name: name.trim() } : {}), content })) },
         content_html: contentHtml,
         ...(isEditing.value ? {} : { site_code: props.targetSite.code }),
     }));
@@ -603,8 +715,48 @@ const formatDateTime = (value) => (value ? new Date(value).toLocaleString('fr-FR
 
             <!-- Le texte -->
             <section v-show="startMode === 'write'" class="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
-                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
-                    <p class="text-xs font-semibold text-muted-foreground">Page {{ activePageIndex + 1 }} / {{ pages.length }} · imprimée telle quelle après la page 1 — écrivez un document final, sans code de variable</p>
+                <div class="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+                    <!-- Les pages : un clic ouvre, un double-clic (ou le crayon) renomme sur place -->
+                    <ol class="flex min-w-0 flex-1 flex-wrap items-center gap-1" aria-label="Pages du modèle">
+                        <li v-for="(page, index) in pages" :key="page.id" class="inline-flex items-center">
+                            <span v-if="isRenaming(page, 'tab')" class="inline-flex items-center gap-1 rounded-md border border-primary bg-card px-1.5 py-0.5">
+                                <span class="text-[10px] font-bold text-muted-foreground">{{ index + 1 }}</span>
+                                <input
+                                    v-model="renameDraft"
+                                    :data-page-rename="`${page.id}-tab`"
+                                    :maxlength="PAGE_NAME_MAX"
+                                    :placeholder="`Page ${index + 1}`"
+                                    class="w-36 bg-transparent text-xs font-semibold text-foreground outline-none"
+                                    :aria-label="`Nom de la page ${index + 1}`"
+                                    @keydown.enter.prevent="commitRename"
+                                    @keydown.esc.prevent="cancelRename"
+                                    @blur="commitRename"
+                                >
+                            </span>
+                            <button
+                                v-else
+                                type="button"
+                                :aria-current="page.id === activePageId ? 'page' : undefined"
+                                :title="isArchivedTemplate ? pageLabel(page, index) : 'Double-clic pour renommer'"
+                                :class="cn('group inline-flex max-w-[14rem] items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-semibold transition', page.id === activePageId ? 'border-primary bg-primary/5 text-foreground' : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground')"
+                                @click="selectPage(page.id)"
+                                @dblclick="startRename(page, 'tab')"
+                            >
+                                <span :class="cn('grid h-4 min-w-4 place-items-center rounded px-0.5 text-[10px]', page.id === activePageId ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground')">{{ index + 1 }}</span>
+                                <span class="truncate">{{ pageLabel(page, index) }}</span>
+                            </button>
+                            <button v-if="! isRenaming(page, 'tab') && page.id === activePageId && ! isArchivedTemplate" type="button" class="ms-0.5 inline-grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" :aria-label="`Renommer ${pageLabel(page, index)}`" title="Renommer la page" @click="startRename(page, 'tab')"><Pencil class="h-3 w-3" /></button>
+                        </li>
+                        <li v-if="! isArchivedTemplate">
+                            <button type="button" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground" title="Ajouter une page" @click="addPage"><Plus class="h-3.5 w-3.5" />Page</button>
+                        </li>
+                    </ol>
+                    <label class="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Maximize2 class="h-3.5 w-3.5" /><span class="sr-only">Zoom</span>
+                        <select v-model="zoomChoice" class="toolbar-select" aria-label="Zoom de la feuille">
+                            <option v-for="option in zoomOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                    </label>
                     <Button v-if="! isArchivedTemplate" variant="outline" size="sm" type="button" title="Importer un fichier Word (.docx) ou PDF dans la page active" @click="triggerImport"><Upload class="h-4 w-4" />Importer Word ou PDF</Button>
                     <input ref="importInput" type="file" accept=".docx,.pdf" class="hidden" @change="handleImportFile">
                 </div>
@@ -670,8 +822,22 @@ const formatDateTime = (value) => (value ? new Date(value).toLocaleString('fr-FR
                     <span>{{ importNotice.text }}</span>
                     <button type="button" class="shrink-0 opacity-70 hover:opacity-100" aria-label="Fermer" @click="importNotice = null"><X class="h-4 w-4" /></button>
                 </div>
-                <div class="bg-muted/30 p-3 sm:p-6">
-                    <EditorContent :editor="editor" class="canevas-editor-content mx-auto max-w-[52rem] shadow-sm ring-1 ring-border" />
+                <div v-if="pageOverflows" class="flex flex-wrap items-center justify-between gap-2 border-b border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300" role="status">
+                    <span class="inline-flex items-center gap-1.5"><TriangleAlert class="h-3.5 w-3.5 shrink-0" />Le texte dépasse la feuille A4 : à l’impression, la fin passera sur une page de plus. Déplacez-la sur une nouvelle page, ou resserrez le texte.</span>
+                    <Button v-if="! isArchivedTemplate" size="xs" variant="outline" type="button" @click="addPage"><Plus class="h-3.5 w-3.5" />Nouvelle page</Button>
+                </div>
+                <!-- La feuille A4 réelle : 21 × 29,7 cm, marges de l'impression -->
+                <div ref="paperViewport" class="paper-viewport bg-muted/40 px-3 py-6 sm:px-6">
+                    <div class="a4-sheet" :class="{ 'a4-sheet--overflow': pageOverflows }" :style="{ zoom }">
+                        <span class="a4-sheet__label">{{ activePage ? pageLabel(activePage, activePageIndex) : '' }} · {{ activePageIndex + 1 }} / {{ pages.length }}</span>
+                        <div ref="pageBody" class="a4-sheet__body">
+                            <div ref="editorHost">
+                                <EditorContent :editor="editor" class="canevas-editor-content" />
+                            </div>
+                        </div>
+                        <span class="a4-sheet__limit" aria-hidden="true">Fin de la zone imprimable</span>
+                    </div>
+                    <p class="mt-3 text-center text-[11px] text-muted-foreground">Format A4 · marges 2,5 cm en haut et en bas, 2 cm sur les côtés · imprimé tel quel après la page 1 du RH — écrivez un document final, sans code de variable.</p>
                 </div>
             </section>
 
@@ -760,10 +926,27 @@ const formatDateTime = (value) => (value ? new Date(value).toLocaleString('fr-FR
                 </div>
                 <ol class="space-y-1.5">
                     <li v-for="(page, index) in pages" :key="page.id" :class="cn('rounded-lg border p-2 transition', page.id === activePageId ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40')">
-                        <button type="button" class="block w-full text-start" @click="selectPage(page.id); startMode = 'write'; showFiche = false">
-                            <span class="block text-xs font-semibold text-foreground">Page {{ index + 1 }}</span>
-                            <span class="block truncate text-[11px] text-muted-foreground">{{ pageExcerpt(page) }}</span>
-                        </button>
+                        <div v-if="isRenaming(page, 'fiche')" class="flex items-center gap-1.5">
+                            <span class="text-[10px] font-bold text-muted-foreground">{{ index + 1 }}</span>
+                            <Input
+                                v-model="renameDraft"
+                                :data-page-rename="`${page.id}-fiche`"
+                                :maxlength="PAGE_NAME_MAX"
+                                :placeholder="`Page ${index + 1}`"
+                                class="h-7 text-xs"
+                                :aria-label="`Nom de la page ${index + 1}`"
+                                @keydown.enter.prevent="commitRename"
+                                @keydown.esc.prevent.stop="cancelRename"
+                                @blur="commitRename"
+                            />
+                        </div>
+                        <div v-else class="flex items-start gap-1">
+                            <button type="button" class="block min-w-0 flex-1 text-start" @click="selectPage(page.id); startMode = 'write'; showFiche = false" @dblclick.stop="startRename(page, 'fiche')">
+                                <span class="block truncate text-xs font-semibold text-foreground"><span class="me-1 text-muted-foreground">{{ index + 1 }}.</span>{{ pageLabel(page, index) }}</span>
+                                <span class="block truncate text-[11px] text-muted-foreground">{{ pageExcerpt(page) }}</span>
+                            </button>
+                            <Button v-if="! isArchivedTemplate" variant="ghost" size="icon" type="button" class="h-6 w-6 shrink-0" :aria-label="`Renommer ${pageLabel(page, index)}`" title="Renommer" @click="startRename(page, 'fiche')"><Pencil class="h-3.5 w-3.5" /></Button>
+                        </div>
                         <div v-if="! isArchivedTemplate" class="mt-1 flex items-center justify-end gap-0.5">
                             <Button variant="ghost" size="icon" type="button" class="h-6 w-6" :disabled="index === 0" :aria-label="`Monter la page ${index + 1}`" title="Monter" @click="movePage(page.id, -1)"><ChevronUp class="h-3.5 w-3.5" /></Button>
                             <Button variant="ghost" size="icon" type="button" class="h-6 w-6" :disabled="index === pages.length - 1" :aria-label="`Descendre la page ${index + 1}`" title="Descendre" @click="movePage(page.id, 1)"><ChevronDown class="h-3.5 w-3.5" /></Button>
@@ -775,14 +958,22 @@ const formatDateTime = (value) => (value ? new Date(value).toLocaleString('fr-FR
             </Card>
 
             <template #footer>
-                <p v-if="missing.length && ! isArchivedTemplate" class="me-auto flex items-start gap-1.5 text-xs text-muted-foreground"><Info class="mt-0.5 h-3.5 w-3.5 shrink-0" />À compléter : {{ missing.join(', ') }}.</p>
-                <Button type="button" @click="showFiche = false"><Check class="h-4 w-4" />Terminé</Button>
+                <div class="me-auto min-w-0 space-y-0.5 text-xs text-muted-foreground">
+                    <p v-if="! isArchivedTemplate" class="flex items-center gap-1.5"><Check class="h-3.5 w-3.5 shrink-0 text-emerald-600" />Gardé automatiquement — envoyé au site par « {{ isEditing ? 'Enregistrer' : 'Créer le modèle' }} ».</p>
+                    <p v-if="missing.length && ! isArchivedTemplate" class="flex items-start gap-1.5"><Info class="mt-0.5 h-3.5 w-3.5 shrink-0" />À compléter : {{ missing.join(', ') }}.</p>
+                </div>
+                <Button v-if="! isArchivedTemplate" variant="outline" type="button" :disabled="! ficheChanged" :title="ficheChanged ? 'Remettre la fiche comme à l’ouverture' : 'Aucune modification depuis l’ouverture'" @click="cancelFiche"><RotateCcw class="h-4 w-4" />Annuler</Button>
             </template>
         </Sheet>
 
         <!-- Aperçu -->
         <Dialog :open="showPreview" :title="`Aperçu · ${pages.length} page${pages.length > 1 ? 's' : ''}`" description="Le texte seul : la page 1 (informations de la personne) est ajoutée par le RH à la génération. Pour un aperçu avec une vraie personne, utilisez « Générer un document » du RH du site." size="xl" @update:open="(value) => { showPreview = value; }">
-            <div class="canevas-document rounded-lg ring-1 ring-border" v-html="previewHtml" />
+            <div class="space-y-6 bg-muted/40 p-4">
+                <div v-for="(page, index) in previewPages" :key="page.id">
+                    <p class="mb-1.5 text-center text-[11px] font-semibold text-muted-foreground">{{ page.label }} · {{ index + 1 }} / {{ previewPages.length }}</p>
+                    <div class="a4-sheet a4-sheet--preview" :style="{ zoom: 0.8 }"><div class="canevas-document" v-html="page.html" /></div>
+                </div>
+            </div>
         </Dialog>
 
         <!-- Versions -->
@@ -874,18 +1065,62 @@ const formatDateTime = (value) => (value ? new Date(value).toLocaleString('fr-FR
     background-color: hsl(var(--border));
 }
 
-/* La page éditée et l'aperçu représentent du papier imprimé : toujours blanc,
-   texte foncé, dans les deux thèmes (comme Print.vue). */
-:deep(.canevas-editor-content),
+/* La feuille représente du papier imprimé : toujours blanche, texte foncé, dans les
+   deux thèmes (comme Print.vue). A4 réel : 210 × 297 mm, marges de l'impression. */
+.paper-viewport {
+    overflow-x: auto;
+}
+.a4-sheet {
+    position: relative;
+    box-sizing: border-box;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 25mm 20mm;
+    background-color: white;
+    color: rgb(15 23 42);
+    box-shadow: 0 1px 3px rgb(15 23 42 / 0.12), 0 8px 24px rgb(15 23 42 / 0.08);
+}
+.a4-sheet__label {
+    position: absolute;
+    top: 9mm;
+    left: 20mm;
+    right: 20mm;
+    font-size: 10px;
+    font-weight: 600;
+    color: rgb(148 163 184);
+    user-select: none;
+}
+.a4-sheet__body {
+    height: 247mm;
+}
+.a4-sheet__limit {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(297mm - 25mm);
+    border-top: 1px dashed rgb(203 213 225);
+    padding: 2px 20mm 0;
+    text-align: right;
+    font-size: 9px;
+    color: rgb(148 163 184);
+    pointer-events: none;
+    user-select: none;
+}
+.a4-sheet--overflow .a4-sheet__limit {
+    border-top-color: rgb(239 68 68);
+    color: rgb(220 38 38);
+}
+.a4-sheet--preview {
+    min-height: 297mm;
+}
 .canevas-document {
     background-color: white;
     color: rgb(15 23 42);
-    min-height: 28rem;
-    padding: 1.5rem;
 }
 :deep(.ProseMirror) {
     outline: none;
-    min-height: 26rem;
+    min-height: 247mm;
 }
 :deep(.ProseMirror table),
 .canevas-document :deep(table) {

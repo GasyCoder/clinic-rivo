@@ -55,6 +55,21 @@ class TrashDirectory
     /** ADR-236 — au plus tant d'éléments par catégorie et par geste « Vider » ; le reste au suivant. */
     public const EMPTY_LIMIT = 500;
 
+    /** Le pluriel de chaque raison : « 2 lots reçus », jamais « 2 lot reçus ». */
+    private const PLURALS = [
+        'lot reçu' => 'lots reçus',
+        'mouvement de stock' => 'mouvements de stock',
+        'prix d’achat' => 'prix d’achat',
+        'prestation facturée' => 'prestations facturées',
+        'demande de la Réception' => 'demandes de la Réception',
+        'acte demandé aux Soins' => 'actes demandés aux Soins',
+        'couverture patient' => 'couvertures patient',
+        'couverture de passage' => 'couvertures de passage',
+        'session de caisse' => 'sessions de caisse',
+        'traitement habituel' => 'traitements habituels',
+        'ligne rattachée à un médicament' => 'lignes rattachées à un médicament',
+    ];
+
     /** Le détail des éléments conservés tient en ce nombre de lignes ; le total est toujours donné. */
     private const EMPTY_REPORTED = 30;
 
@@ -586,7 +601,8 @@ class TrashDirectory
                 'traitement habituel' => $model->treatments()->count(),
             ],
             TrashCategory::SupplierCatalog => [
-                'ligne importée' => $model->items()->count(),
+                'ligne rattachée à un médicament' => $model->usage()['linked'] ?? 0,
+                'prix d’achat' => $model->usage()['prices'] ?? 0,
             ],
             default => [],
         };
@@ -605,7 +621,7 @@ class TrashDirectory
 
         $named = collect($counts)
             ->filter()
-            ->map(fn (int $total, string $label): string => $total.' '.$label.($total > 1 && ! str_contains($label, 'prix') ? 's' : ''))
+            ->map(fn (int $total, string $label): string => $total.' '.($total > 1 ? (self::PLURALS[$label] ?? $label.'s') : $label))
             ->values()
             ->all();
 

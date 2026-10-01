@@ -23078,3 +23078,12 @@ tort ou en double, qui n'a produit aucun document, peut désormais être détrui
 
 Les factures fournisseurs et les demandes d'analyses restent, comme avant, toujours conservées : « Vider » ne les
 supprime jamais. Une purge automatique après N jours n'est pas construite — à décider si le besoin apparaît.
+
+## Amendement du 2026-10-01 (bis) — un catalogue fournisseur importé mais jamais repris se supprime
+
+Constat du propriétaire : un catalogue mis à la corbeille restait « A servi » alors qu'il n'avait jamais été utilisé.
+La règle de l'ADR-098 bloquait **tout catalogue importé** (« Conservé : 4889 ligne importées ») : importer n'est pas
+servir. Un catalogue ne retient sa suppression que si l'une de ses lignes est **rattachée à un médicament** de la
+clinique ou a **donné un prix d'achat**, même clos depuis (ADR-183) — `SupplierCatalog::usage()`. Des lignes seulement
+importées partent avec leur fichier. Les raisons s'écrivent au bon pluriel (« 5 lignes rattachées à un médicament,
+13 prix d'achat », « 2 lots reçus ») et la colonne d'action de la corbeille ne coupe plus « A servi ».

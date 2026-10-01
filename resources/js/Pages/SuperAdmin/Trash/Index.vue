@@ -269,12 +269,12 @@ const formatDateTime = (value) => value
                 <p><strong>{{ site.site.name }} :</strong> {{ site.message }}</p>
             </div>
 
-            <div class="hidden grid-cols-[minmax(240px,1.25fr)_190px_160px_210px_minmax(220px,1fr)_110px] border-b border-border bg-muted px-5 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground lg:grid">
+            <div class="hidden grid-cols-[minmax(240px,1.25fr)_190px_160px_210px_minmax(220px,1fr)_210px] border-b border-border bg-muted px-5 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground lg:grid">
                 <span>Élément</span><span>Catégorie</span><span>Site</span><span>Suppression</span><span>Motif</span><span class="text-end">Action</span>
             </div>
 
             <div v-if="records.length" class="divide-y divide-border">
-                <article v-for="record in records" :key="`${record.site.code}-${record.category}-${record.uuid}`" class="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(240px,1.25fr)_190px_160px_210px_minmax(220px,1fr)_110px] lg:items-center lg:gap-0">
+                <article v-for="record in records" :key="`${record.site.code}-${record.category}-${record.uuid}`" class="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(240px,1.25fr)_190px_160px_210px_minmax(220px,1fr)_210px] lg:items-center lg:gap-0">
                     <div class="min-w-0 pe-4">
                         <p class="truncate text-sm font-bold text-foreground">{{ record.title }}</p>
                         <p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
@@ -319,7 +319,7 @@ const formatDateTime = (value) => value
                         </Button>
                         <span
                             v-else-if="can('trash.force_delete')"
-                            class="ms-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                            class="ms-2 inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[11px] text-muted-foreground"
                             :title="`A déjà servi : ${(record.force_delete_blockers ?? []).join(', ')}. Cet élément reste restaurable.`"
                         >
                             <Lock class="h-3.5 w-3.5" />A servi

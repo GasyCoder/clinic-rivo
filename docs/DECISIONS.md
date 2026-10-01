@@ -23317,3 +23317,17 @@ l'application ; un import échoué s'affiche au-dessus du texte. « Historique �
 texte vide          « du texte » est exigé à l'écran seulement ; le serveur accepte toujours un modèle vide
 aperçu de la liste  lu dans la réponse du site (`content_html`), déjà servie avec chaque modèle
 ```
+
+## Amendement du 2026-10-01 — la fiche dans un panneau, la feuille sur toute la largeur
+
+Demande du propriétaire : la colonne de gauche (dossier, données reprises, nom, pages) prenait la place de la
+feuille. Elle est rangée dans un panneau latéral à droite (`Sheet`), ouvert par « Fiche du modèle » (avec
+« N/4 » fait), par une pastille d'avancement ou par « ouvrir la fiche » ; la feuille occupe toute la largeur.
+Ce qui manque à la fiche est dit sous les pastilles, et « Créer le modèle » ouvre le panneau au lieu de rester
+grisé ; choisir ou ajouter une page referme le panneau.
+
+Un nouveau modèle commence par un choix : **Importer un fichier Word ou PDF** (zone de dépôt ou sélection,
+`.docx`/`.pdf` seulement ; la feuille s'ouvre une fois le fichier importé) ou **Créer et écrire directement**
+(la feuille s'ouvre aussitôt). Un modèle existant ou déjà écrit ouvre la feuille directement ; « Importer Word
+ou PDF » reste dans la barre de la feuille. Présentation seulement : ni route, ni règle, ni donnée ne change.
+

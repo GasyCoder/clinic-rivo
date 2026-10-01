@@ -2,8 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
 import {
-    ArrowLeft, Check, ChevronDown, ChevronUp, Copy, Database, Eye, FileText, Folder, FolderPen, History, Image, Info, LoaderCircle,
-    Plus, Redo2, RotateCcw, Save, Server, Tag, Trash2, TriangleAlert, Upload, X,
+    ArrowLeft, Check, ChevronDown, ChevronUp, Copy, Database, Eye, FileText, FileUp, Folder, FolderPen, History, Image, Info, LoaderCircle,
+    PanelRightOpen, PenLine, Plus, Redo2, RotateCcw, Save, Server, Tag, Trash2, TriangleAlert, Upload, X,
 } from 'lucide-vue-next';
 import { Editor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
@@ -27,6 +27,7 @@ import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Select from '@/Components/Shadcn/Select.vue';
+import Sheet from '@/Components/Shadcn/Sheet.vue';
 import Switch from '@/Components/Shadcn/Switch.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { cn } from '@/lib/cn';
@@ -118,6 +119,19 @@ const activePageId = ref(pages.value[0].id);
 const activePageIndex = computed(() => pages.value.findIndex((page) => page.id === activePageId.value));
 const activePage = computed(() => pages.value[activePageIndex.value]);
 
+// La fiche (dossier, données reprises, nom, pages) vit dans un panneau latéral :
+// la feuille garde toute la largeur. Un nouveau modèle commence par un choix —
+// importer un fichier Word/PDF, ou écrire directement.
+const showFiche = ref(false);
+const hasWrittenContent = pages.value.some((page) => page.content && page.content !== '<p></p>');
+/** @type {import('vue').Ref<'choose'|'import'|'write'>} */
+const startMode = ref(isEditing.value || hasWrittenContent ? 'write' : 'choose');
+const startWriting = () => {
+    startMode.value = 'write';
+    setTimeout(() => editor.value?.commands.focus('end'), 0);
+};
+const dropActive = ref(false);
+
 const editor = shallowRef(null);
 // Toute modification non enregistrée (texte, pages ou fiche) : quitter sans
 // enregistrer le demande d'abord — perdre une page d'un document à valeur
@@ -184,6 +198,7 @@ const addPage = () => {
     const page = { id: newPageId(), content: '<p></p>' };
     pages.value.push(page);
     selectPage(page.id);
+    startMode.value = 'write';
     isDirty.value = true;
 };
 const duplicatePage = (id) => {
@@ -237,6 +252,7 @@ const applyImport = ({ imported, isPdf }) => {
     pages.value.splice(index + 1, 0, ...imported.pages.slice(1).map((content) => ({ id: newPageId(), content })));
     editor.value.commands.setContent(imported.pages[0]);
     isDirty.value = true;
+    startMode.value = 'write';
 
     const notes = [];
     if (count > 1) notes.push(`${count} pages importées, une page du modèle par page du fichier.`);
@@ -244,10 +260,22 @@ const applyImport = ({ imported, isPdf }) => {
     if (isPdf) notes.push('Import PDF : seul le texte a été récupéré, sans mise en forme — reformatez à la main (gras, titres, tableaux…).');
     importNotice.value = notes.length ? { tone: 'info', text: notes.join(' ') } : null;
 };
-const handleImportFile = async (event) => {
+const handleImportFile = (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
+    importFile(file);
+};
+const handleDrop = (event) => {
+    dropActive.value = false;
+    importFile(event.dataTransfer?.files?.[0]);
+};
+const importFile = async (file) => {
     if (!file || !editor.value) return;
+    if (!/\.(docx|pdf)$/i.test(file.name)) {
+        importNotice.value = { tone: 'error', text: `« ${file.name} » n’est ni un fichier Word (.docx) ni un PDF.` };
+
+        return;
+    }
 
     importNotice.value = null;
     const isPdf = file.name.toLowerCase().endsWith('.pdf');
@@ -431,8 +459,19 @@ const steps = computed(() => [
     { key: 'texte', label: 'Texte', done: ! missing.value.includes('le texte du modèle') },
 ]);
 
+const TEXT_MISSING = 'le texte du modèle';
+const ficheMissing = computed(() => missing.value.filter((item) => item !== TEXT_MISSING));
+const stepsDone = computed(() => steps.value.filter((step) => step.done).length);
+
 const submit = () => {
-    if (!editor.value || missing.value.length) return;
+    if (!editor.value) return;
+    // Ce qui manque à la fiche se complète dans le panneau : on l'ouvre plutôt que de bloquer en silence.
+    if (ficheMissing.value.length) {
+        showFiche.value = true;
+
+        return;
+    }
+    if (missing.value.length) return;
 
     const contentHtml = buildContentHtml();
     form.transform((data) => ({
@@ -478,7 +517,11 @@ const formatDateTime = (value) => (value ? new Date(value).toLocaleString('fr-FR
                 <Button v-if="isEditing" variant="outline" type="button" @click="openHistory"><History class="h-4 w-4" />Versions</Button>
                 <Button variant="outline" type="button" @click="showPreview = true"><Eye class="h-4 w-4" />Aperçu</Button>
                 <Button variant="outline" type="button" @click="leaveEditor">{{ isArchivedTemplate ? 'Retour' : 'Annuler' }}</Button>
-                <Button v-if="! isArchivedTemplate" type="button" :disabled="form.processing || missing.length > 0" :title="missing.length ? `À compléter : ${missing.join(', ')}` : ''" @click="submit">
+                <Button variant="outline" type="button" :aria-expanded="showFiche" @click="showFiche = true">
+                    <PanelRightOpen class="h-4 w-4" />Fiche du modèle
+                    <span :class="cn('rounded-full px-1.5 text-[10px] font-bold', stepsDone === steps.length ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white')">{{ stepsDone }}/{{ steps.length }}</span>
+                </Button>
+                <Button v-if="! isArchivedTemplate" type="button" :disabled="form.processing || (ficheMissing.length === 0 && missing.length > 0)" :title="missing.length ? `À compléter : ${missing.join(', ')}` : ''" @click="submit">
                     <Save class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : isEditing ? 'Enregistrer' : 'Créer le modèle' }}
                 </Button>
             </div>
@@ -488,111 +531,78 @@ const formatDateTime = (value) => (value ? new Date(value).toLocaleString('fr-FR
         <p v-if="form.errors.site_code" class="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">{{ form.errors.site_code }}</p>
 
         <!-- Avancement -->
-        <ol class="flex flex-wrap gap-2" aria-label="Avancement de la fiche">
-            <li v-for="(step, index) in steps" :key="step.key" :class="cn('inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold', step.done ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-border bg-card text-muted-foreground')">
-                <span :class="cn('grid h-4 w-4 place-items-center rounded-full text-[10px]', step.done ? 'bg-emerald-600 text-white' : 'bg-muted text-foreground')"><Check v-if="step.done" class="h-3 w-3" /><template v-else>{{ index + 1 }}</template></span>
-                {{ step.label }}
+        <ol class="flex flex-wrap items-center gap-2" aria-label="Avancement de la fiche">
+            <li v-for="(step, index) in steps" :key="step.key">
+                <button
+                    type="button"
+                    :class="cn('inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition hover:border-primary/50', step.done ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-border bg-card text-muted-foreground')"
+                    :title="step.key === 'texte' ? 'Le texte s’écrit sur la feuille' : 'Ouvrir la fiche du modèle'"
+                    @click="step.key === 'texte' ? (startMode === 'choose' ? null : editor?.commands.focus()) : (showFiche = true)"
+                >
+                    <span :class="cn('grid h-4 w-4 place-items-center rounded-full text-[10px]', step.done ? 'bg-emerald-600 text-white' : 'bg-muted text-foreground')"><Check v-if="step.done" class="h-3 w-3" /><template v-else>{{ index + 1 }}</template></span>
+                    {{ step.label }}
+                </button>
+            </li>
+            <li v-if="ficheMissing.length && ! isArchivedTemplate" class="text-xs text-muted-foreground">
+                À compléter : {{ ficheMissing.join(', ') }} —
+                <button type="button" class="font-semibold text-primary hover:underline" @click="showFiche = true">ouvrir la fiche</button>
             </li>
         </ol>
 
-        <div class="grid gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
-            <!-- La fiche -->
-            <aside class="space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100dvh-6rem)] xl:overflow-y-auto xl:pe-1">
-                <Card class="space-y-3 p-4">
-                    <h2 class="flex items-center gap-2 text-sm font-bold text-foreground"><span class="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-xs text-primary">1</span>Dossier</h2>
-                    <p class="text-xs text-muted-foreground">Où le RH le retrouvera. Un dossier connu règle d’office les données reprises.</p>
-                    <div class="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Dossier du modèle">
-                        <button
-                            v-for="family in families"
-                            :key="family.key"
-                            type="button"
-                            role="radio"
-                            :aria-checked="folder === family.key"
-                            :disabled="isArchivedTemplate"
-                            :class="cn('flex items-center gap-2 rounded-lg border px-2 py-1.5 text-start text-xs font-semibold transition disabled:cursor-not-allowed', folder === family.key ? 'border-primary bg-primary/5 text-foreground ring-1 ring-primary' : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground')"
-                            @click="chooseFolder(family.key)"
-                        >
-                            <span :class="cn('grid h-6 w-6 shrink-0 place-items-center rounded-md', TONE_CLASSES[familyTone(family.key)] ?? TONE_CLASSES.slate)"><Folder class="h-3.5 w-3.5" /></span>
-                            <span class="truncate">{{ family.label }}</span>
-                        </button>
-                        <button
-                            type="button"
-                            role="radio"
-                            :aria-checked="folder === CUSTOM_FOLDER"
-                            :disabled="isArchivedTemplate"
-                            :class="cn('flex items-center gap-2 rounded-lg border border-dashed px-2 py-1.5 text-start text-xs font-semibold transition disabled:cursor-not-allowed', folder === CUSTOM_FOLDER ? 'border-primary bg-primary/5 text-foreground ring-1 ring-primary' : 'border-input text-muted-foreground hover:border-primary/40 hover:text-foreground')"
-                            @click="chooseFolder(CUSTOM_FOLDER)"
-                        >
-                            <span class="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground"><FolderPen class="h-3.5 w-3.5" /></span>
-                            <span class="truncate">Autre type…</span>
-                        </button>
-                    </div>
-                    <FormField v-if="folder === CUSTOM_FOLDER" label="Nom du type" required hint="crée son propre dossier" :error="form.errors.document_type" :icon="Tag">
-                        <Input v-model="customType" maxlength="80" placeholder="Ex. NOTE DE SERVICE" class="uppercase" :disabled="isArchivedTemplate" />
-                    </FormField>
-                    <p v-else-if="form.errors.document_type" class="text-xs text-red-600">{{ form.errors.document_type }}</p>
-                </Card>
 
-                <Card class="space-y-3 p-4">
-                    <h2 class="flex items-center gap-2 text-sm font-bold text-foreground"><span class="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-xs text-primary">2</span>Données reprises</h2>
-                    <FormField label="Page 1 remplie depuis" required :error="form.errors.data_context" :icon="Database">
-                        <Select v-model="form.data_context" :options="contextOptions" placeholder="Choisissez d’abord un dossier…" :disabled="isArchivedTemplate" class="w-full" />
-                    </FormField>
-                    <div v-if="selectedContext" class="space-y-2 rounded-lg bg-muted/40 p-3">
-                        <p class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Le RH verra en page 1, modifiable</p>
-                        <div class="flex flex-wrap gap-1">
-                            <span v-for="field in selectedContext.fields" :key="field" class="rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] text-foreground">{{ field }}</span>
-                        </div>
-                        <p class="text-[11px] text-muted-foreground">Proposé au RH depuis : {{ selectedContext.offered_from.join(' · ') }}</p>
-                    </div>
-                    <p v-if="contextMismatch" class="flex items-start gap-1.5 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200" role="status">
-                        <TriangleAlert class="mt-0.5 h-3.5 w-3.5 shrink-0" />Ce dossier attend « {{ contextLabel(contextMismatch) }} » : sinon les dates ne sont pas reprises, et le modèle n’est pas proposé à l’impression.
-                    </p>
-                </Card>
-
-                <Card class="space-y-3 p-4">
-                    <h2 class="flex items-center gap-2 text-sm font-bold text-foreground"><span class="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-xs text-primary">3</span>Identification</h2>
-                    <FormField label="Nom du modèle" required :error="form.errors.name" :icon="FileText">
-                        <Input v-model="form.name" maxlength="255" placeholder="Ex. Contrat à durée déterminée" :disabled="isArchivedTemplate" />
-                    </FormField>
-                    <FormField label="Description" hint="(facultatif)" :error="form.errors.description">
-                        <Textarea v-model="form.description" rows="2" maxlength="2000" placeholder="À quoi sert ce modèle, pour qui…" :disabled="isArchivedTemplate" />
-                    </FormField>
-                    <label class="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
+            <!-- Comment commencer : importer un fichier, ou écrire directement -->
+            <section v-if="startMode !== 'write'" class="rounded-xl border border-border bg-card p-4 sm:p-6">
+                <h2 class="text-base font-bold text-foreground">Comment voulez-vous commencer ?</h2>
+                <p class="mt-1 text-sm text-muted-foreground">Le texte du modèle est imprimé tel quel après la page 1 du RH. Vous pourrez toujours importer ou retoucher ensuite.</p>
+                <div class="mt-4 grid gap-3 md:grid-cols-2" role="radiogroup" aria-label="Façon de commencer">
+                    <button
+                        type="button"
+                        role="radio"
+                        :aria-checked="startMode === 'import'"
+                        :class="cn('flex items-start gap-3 rounded-xl border p-4 text-start transition', startMode === 'import' ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border hover:border-primary/40')"
+                        @click="startMode = 'import'"
+                    >
+                        <span :class="cn('mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border-2', startMode === 'import' ? 'border-primary' : 'border-input')"><span v-if="startMode === 'import'" class="h-2.5 w-2.5 rounded-full bg-primary" /></span>
+                        <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-300"><FileUp class="h-5 w-5" /></span>
                         <span>
-                            <span class="block text-sm font-semibold text-foreground">Proposé au RH</span>
-                            <span class="block text-xs text-muted-foreground">Inactif, il reste ici mais le RH ne le voit pas.</span>
+                            <span class="block text-sm font-bold text-foreground">Importer un fichier Word ou PDF</span>
+                            <span class="mt-0.5 block text-xs text-muted-foreground">Un document existant (.docx ou .pdf) : une page du modèle par page du fichier.</span>
                         </span>
-                        <Switch v-model="form.active" :disabled="isArchivedTemplate" />
-                    </label>
-                </Card>
+                    </button>
+                    <button
+                        type="button"
+                        role="radio"
+                        :aria-checked="false"
+                        class="flex items-start gap-3 rounded-xl border border-border p-4 text-start transition hover:border-primary/40"
+                        @click="startWriting"
+                    >
+                        <span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 border-input" />
+                        <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300"><PenLine class="h-5 w-5" /></span>
+                        <span>
+                            <span class="block text-sm font-bold text-foreground">Créer et écrire directement</span>
+                            <span class="mt-0.5 block text-xs text-muted-foreground">Une feuille blanche, avec la barre de mise en forme d’un traitement de texte.</span>
+                        </span>
+                    </button>
+                </div>
 
-                <Card class="space-y-2 p-4">
-                    <div class="flex items-center justify-between gap-2">
-                        <h2 class="flex items-center gap-2 text-sm font-bold text-foreground"><span class="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-xs text-primary">4</span>Pages · {{ pages.length }}</h2>
-                        <Button v-if="! isArchivedTemplate" variant="outline" size="xs" type="button" @click="addPage"><Plus class="h-3.5 w-3.5" />Page</Button>
-                    </div>
-                    <ol class="space-y-1.5">
-                        <li v-for="(page, index) in pages" :key="page.id" :class="cn('rounded-lg border p-2 transition', page.id === activePageId ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40')">
-                            <button type="button" class="block w-full text-start" @click="selectPage(page.id)">
-                                <span class="block text-xs font-semibold text-foreground">Page {{ index + 1 }}</span>
-                                <span class="block truncate text-[11px] text-muted-foreground">{{ pageExcerpt(page) }}</span>
-                            </button>
-                            <div v-if="! isArchivedTemplate" class="mt-1 flex items-center justify-end gap-0.5">
-                                <Button variant="ghost" size="icon" type="button" class="h-6 w-6" :disabled="index === 0" :aria-label="`Monter la page ${index + 1}`" title="Monter" @click="movePage(page.id, -1)"><ChevronUp class="h-3.5 w-3.5" /></Button>
-                                <Button variant="ghost" size="icon" type="button" class="h-6 w-6" :disabled="index === pages.length - 1" :aria-label="`Descendre la page ${index + 1}`" title="Descendre" @click="movePage(page.id, 1)"><ChevronDown class="h-3.5 w-3.5" /></Button>
-                                <Button variant="ghost" size="icon" type="button" class="h-6 w-6" :aria-label="`Dupliquer la page ${index + 1}`" title="Dupliquer" @click="duplicatePage(page.id)"><Copy class="h-3.5 w-3.5" /></Button>
-                                <Button variant="ghost" size="icon" type="button" class="h-6 w-6 hover:text-destructive" :disabled="pages.length <= 1" :aria-label="`Supprimer la page ${index + 1}`" title="Supprimer" @click="pageToDelete = page.id"><Trash2 class="h-3.5 w-3.5" /></Button>
-                            </div>
-                        </li>
-                    </ol>
-                </Card>
-
-                <p v-if="missing.length && ! isArchivedTemplate" class="flex items-start gap-1.5 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"><Info class="mt-0.5 h-3.5 w-3.5 shrink-0" />À compléter avant de {{ isEditing ? 'l’enregistrer' : 'le créer' }} : {{ missing.join(', ') }}.</p>
-            </aside>
+                <div
+                    v-if="startMode === 'import'"
+                    :class="cn('mt-4 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-10 text-center transition', dropActive ? 'border-primary bg-primary/5' : 'border-input bg-muted/30')"
+                    @dragover.prevent="dropActive = true"
+                    @dragleave.prevent="dropActive = false"
+                    @drop.prevent="handleDrop"
+                >
+                    <Upload class="h-8 w-8 text-muted-foreground" />
+                    <p class="text-sm font-semibold text-foreground">Déposez le fichier ici</p>
+                    <p class="text-xs text-muted-foreground">ou</p>
+                    <Button type="button" @click="triggerImport"><FileUp class="h-4 w-4" />Choisir un fichier .docx ou .pdf</Button>
+                    <p class="text-[11px] text-muted-foreground">Un PDF ne rend que le texte, sans mise en forme.</p>
+                </div>
+                <p v-if="importNotice && startMode === 'import'" :class="cn('mt-3 rounded-lg px-3 py-2 text-xs', importNotice.tone === 'error' ? 'bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-300' : 'bg-amber-50 text-amber-800 dark:bg-amber-950/20 dark:text-amber-300')" role="status">{{ importNotice.text }}</p>
+            </section>
 
             <!-- Le texte -->
-            <section class="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+            <section v-show="startMode === 'write'" class="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
                 <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
                     <p class="text-xs font-semibold text-muted-foreground">Page {{ activePageIndex + 1 }} / {{ pages.length }} · imprimée telle quelle après la page 1 — écrivez un document final, sans code de variable</p>
                     <Button v-if="! isArchivedTemplate" variant="outline" size="sm" type="button" title="Importer un fichier Word (.docx) ou PDF dans la page active" @click="triggerImport"><Upload class="h-4 w-4" />Importer Word ou PDF</Button>
@@ -664,7 +674,111 @@ const formatDateTime = (value) => (value ? new Date(value).toLocaleString('fr-FR
                     <EditorContent :editor="editor" class="canevas-editor-content mx-auto max-w-[52rem] shadow-sm ring-1 ring-border" />
                 </div>
             </section>
-        </div>
+
+        <!-- La fiche du modèle : rangée sur le bord droit, la feuille garde toute la largeur -->
+        <Sheet
+            :open="showFiche"
+            title="Fiche du modèle"
+            description="Où le RH le retrouve, ce qu’il verra en page 1, son nom et l’ordre des pages."
+            content-class="max-w-md"
+            body-class="space-y-4 bg-muted/20"
+            @update:open="(value) => { showFiche = value; }"
+        >
+            <Card class="space-y-3 p-4">
+                <h2 class="flex items-center gap-2 text-sm font-bold text-foreground"><span class="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-xs text-primary">1</span>Dossier</h2>
+                <p class="text-xs text-muted-foreground">Où le RH le retrouvera. Un dossier connu règle d’office les données reprises.</p>
+                <div class="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Dossier du modèle">
+                    <button
+                        v-for="family in families"
+                        :key="family.key"
+                        type="button"
+                        role="radio"
+                        :aria-checked="folder === family.key"
+                        :disabled="isArchivedTemplate"
+                        :class="cn('flex items-center gap-2 rounded-lg border px-2 py-1.5 text-start text-xs font-semibold transition disabled:cursor-not-allowed', folder === family.key ? 'border-primary bg-primary/5 text-foreground ring-1 ring-primary' : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground')"
+                        @click="chooseFolder(family.key)"
+                    >
+                        <span :class="cn('grid h-6 w-6 shrink-0 place-items-center rounded-md', TONE_CLASSES[familyTone(family.key)] ?? TONE_CLASSES.slate)"><Folder class="h-3.5 w-3.5" /></span>
+                        <span class="truncate">{{ family.label }}</span>
+                    </button>
+                    <button
+                        type="button"
+                        role="radio"
+                        :aria-checked="folder === CUSTOM_FOLDER"
+                        :disabled="isArchivedTemplate"
+                        :class="cn('flex items-center gap-2 rounded-lg border border-dashed px-2 py-1.5 text-start text-xs font-semibold transition disabled:cursor-not-allowed', folder === CUSTOM_FOLDER ? 'border-primary bg-primary/5 text-foreground ring-1 ring-primary' : 'border-input text-muted-foreground hover:border-primary/40 hover:text-foreground')"
+                        @click="chooseFolder(CUSTOM_FOLDER)"
+                    >
+                        <span class="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground"><FolderPen class="h-3.5 w-3.5" /></span>
+                        <span class="truncate">Autre type…</span>
+                    </button>
+                </div>
+                <FormField v-if="folder === CUSTOM_FOLDER" label="Nom du type" required hint="crée son propre dossier" :error="form.errors.document_type" :icon="Tag">
+                    <Input v-model="customType" maxlength="80" placeholder="Ex. NOTE DE SERVICE" class="uppercase" :disabled="isArchivedTemplate" />
+                </FormField>
+                <p v-else-if="form.errors.document_type" class="text-xs text-red-600">{{ form.errors.document_type }}</p>
+            </Card>
+
+            <Card class="space-y-3 p-4">
+                <h2 class="flex items-center gap-2 text-sm font-bold text-foreground"><span class="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-xs text-primary">2</span>Données reprises</h2>
+                <FormField label="Page 1 remplie depuis" required :error="form.errors.data_context" :icon="Database">
+                    <Select v-model="form.data_context" :options="contextOptions" placeholder="Choisissez d’abord un dossier…" :disabled="isArchivedTemplate" class="w-full" />
+                </FormField>
+                <div v-if="selectedContext" class="space-y-2 rounded-lg bg-muted/40 p-3">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Le RH verra en page 1, modifiable</p>
+                    <div class="flex flex-wrap gap-1">
+                        <span v-for="field in selectedContext.fields" :key="field" class="rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] text-foreground">{{ field }}</span>
+                    </div>
+                    <p class="text-[11px] text-muted-foreground">Proposé au RH depuis : {{ selectedContext.offered_from.join(' · ') }}</p>
+                </div>
+                <p v-if="contextMismatch" class="flex items-start gap-1.5 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200" role="status">
+                    <TriangleAlert class="mt-0.5 h-3.5 w-3.5 shrink-0" />Ce dossier attend « {{ contextLabel(contextMismatch) }} » : sinon les dates ne sont pas reprises, et le modèle n’est pas proposé à l’impression.
+                </p>
+            </Card>
+
+            <Card class="space-y-3 p-4">
+                <h2 class="flex items-center gap-2 text-sm font-bold text-foreground"><span class="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-xs text-primary">3</span>Identification</h2>
+                <FormField label="Nom du modèle" required :error="form.errors.name" :icon="FileText">
+                    <Input v-model="form.name" maxlength="255" placeholder="Ex. Contrat à durée déterminée" :disabled="isArchivedTemplate" />
+                </FormField>
+                <FormField label="Description" hint="(facultatif)" :error="form.errors.description">
+                    <Textarea v-model="form.description" rows="2" maxlength="2000" placeholder="À quoi sert ce modèle, pour qui…" :disabled="isArchivedTemplate" />
+                </FormField>
+                <label class="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
+                    <span>
+                        <span class="block text-sm font-semibold text-foreground">Proposé au RH</span>
+                        <span class="block text-xs text-muted-foreground">Inactif, il reste ici mais le RH ne le voit pas.</span>
+                    </span>
+                    <Switch v-model="form.active" :disabled="isArchivedTemplate" />
+                </label>
+            </Card>
+
+            <Card class="space-y-2 p-4">
+                <div class="flex items-center justify-between gap-2">
+                    <h2 class="flex items-center gap-2 text-sm font-bold text-foreground"><span class="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-xs text-primary">4</span>Pages · {{ pages.length }}</h2>
+                    <Button v-if="! isArchivedTemplate" variant="outline" size="xs" type="button" @click="addPage"><Plus class="h-3.5 w-3.5" />Page</Button>
+                </div>
+                <ol class="space-y-1.5">
+                    <li v-for="(page, index) in pages" :key="page.id" :class="cn('rounded-lg border p-2 transition', page.id === activePageId ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40')">
+                        <button type="button" class="block w-full text-start" @click="selectPage(page.id); startMode = 'write'; showFiche = false">
+                            <span class="block text-xs font-semibold text-foreground">Page {{ index + 1 }}</span>
+                            <span class="block truncate text-[11px] text-muted-foreground">{{ pageExcerpt(page) }}</span>
+                        </button>
+                        <div v-if="! isArchivedTemplate" class="mt-1 flex items-center justify-end gap-0.5">
+                            <Button variant="ghost" size="icon" type="button" class="h-6 w-6" :disabled="index === 0" :aria-label="`Monter la page ${index + 1}`" title="Monter" @click="movePage(page.id, -1)"><ChevronUp class="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" type="button" class="h-6 w-6" :disabled="index === pages.length - 1" :aria-label="`Descendre la page ${index + 1}`" title="Descendre" @click="movePage(page.id, 1)"><ChevronDown class="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" type="button" class="h-6 w-6" :aria-label="`Dupliquer la page ${index + 1}`" title="Dupliquer" @click="duplicatePage(page.id)"><Copy class="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" type="button" class="h-6 w-6 hover:text-destructive" :disabled="pages.length <= 1" :aria-label="`Supprimer la page ${index + 1}`" title="Supprimer" @click="pageToDelete = page.id"><Trash2 class="h-3.5 w-3.5" /></Button>
+                        </div>
+                    </li>
+                </ol>
+            </Card>
+
+            <template #footer>
+                <p v-if="missing.length && ! isArchivedTemplate" class="me-auto flex items-start gap-1.5 text-xs text-muted-foreground"><Info class="mt-0.5 h-3.5 w-3.5 shrink-0" />À compléter : {{ missing.join(', ') }}.</p>
+                <Button type="button" @click="showFiche = false"><Check class="h-4 w-4" />Terminé</Button>
+            </template>
+        </Sheet>
 
         <!-- Aperçu -->
         <Dialog :open="showPreview" :title="`Aperçu · ${pages.length} page${pages.length > 1 ? 's' : ''}`" description="Le texte seul : la page 1 (informations de la personne) est ajoutée par le RH à la génération. Pour un aperçu avec une vraie personne, utilisez « Générer un document » du RH du site." size="xl" @update:open="(value) => { showPreview = value; }">

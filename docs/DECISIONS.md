@@ -22794,6 +22794,38 @@ doublon de dossier      une même personne avec deux dossiers employés (deux ma
                         c'est une donnée à corriger dans les dossiers, pas une règle de paie
 ```
 
+## Amendement du 2026-10-01 — cohérence relue, écran en tableau / grille / détail
+
+Question du propriétaire : la paie est-elle reliée et cohérente avec les dettes et le reste ? Relu :
+
+```text
+dettes (ADR-228)      retenue après les retenues légales, jamais plus que ce qui reste ; une fois par
+                      mois et par dette ; retenue partielle dite et reportée ; payer crée un
+                      remboursement lié à la paie, annuler l'annule et rouvre la dette — cohérent
+avantages (ADR-227)   saisis et déclarés repris au mois, figés « payé » ; annuler les remet en attente
+calcul unique         le tableau et « Marquer payé » appellent le même draft(), sous verrou au paiement
+défaut corrigé        le salaire de base ignorait la date d'entrée : en remontant les mois, une
+                      personne embauchée en octobre était payable pour septembre. Aucun salaire pour
+                      un mois qui se termine avant l'entrée ; le mois d'entrée se paie entier (aucun
+                      prorata n'est défini)
+```
+
+Écran : trois présentations — **Tableau** (une ligne par personne, montants alignés, détail
+dépliable), **Grille** (une carte par personne) et **Détail** (chaque carte avec ses lignes) —, choix
+gardé sur le poste. Onglets **Toutes / À payer / Payées** avec leur nombre, recherche (nom, matricule,
+fonction, service, sans accents), filtres service, mode de paiement et « avec retenue de dette » ; les
+cartes « À payer » et « Payées » ouvrent leur onglet ; l'adresse garde l'état (`?vue=a-payer&q=…`).
+Actions d'une paie toujours à droite : le geste attendu en bouton (« Marquer payé », sinon « Bulletin »),
+le reste dans « … » avec la raison d'une entrée indisponible ; « Exporter » (bulletins, journal,
+virements) porte sur ce qui est affiché. Le serveur sert toutes les lignes du mois et calcule chaque
+montant ; l'écran trie et filtre (`utilities/payrollBoard.js`). Aucune permission ni migration.
+
+**Signalé, non tranché.** Une personne qui quitte la clinique en cours de mois (fiche inactive)
+disparaît de la paie de ce mois : son dernier salaire et un éventuel prorata ne sont pas définis.
+Le mode « Espèces » n'écrit aucun mouvement dans une session de caisse : le salaire versé en espèces
+reste hors RIVO, comme le virement. Un remboursement anticipé en espèces (ADR-228) réduit le reste dû
+mais n'évite pas la retenue du mois sur la paie.
+
 ---
 
 # ADR-234 — La demande de dette ne porte que le montant ; une dette en cours ferme les demandes

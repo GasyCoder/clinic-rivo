@@ -282,6 +282,26 @@ class PayrollTest extends TestCase
         return [...(new PayrollSetting(PayrollSetting::PROPOSAL))->snapshot(), 'legal_deductions_enabled' => true, ...$overrides];
     }
 
+    public function test_no_salary_for_a_month_that_ends_before_hiring(): void
+    {
+        $doctor = $this->employee('EMP-D1', benefits: true, salary: 500000);
+        $doctor->forceFill(['hire_date' => '2026-09-15'])->save();
+
+        // Août précède l'entrée : rien à payer, la personne n'apparaît pas.
+        $this->actingAs($this->hr)->get('/administration/paie?mois=2026-08')
+            ->assertInertia(fn (Assert $page) => $page->has('board.rows', 0)->etc());
+        $this->actingAs($this->hr)->post('/administration/paie/payer', ['employee_uuid' => $doctor->uuid, 'mois' => '2026-08'])
+            ->assertSessionHasErrors('period');
+
+        // Le mois d'entrée se paie entier : aucun prorata n'est défini.
+        $this->actingAs($this->hr)->get('/administration/paie?mois=2026-09&vue=a-payer&q=EMP')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('filters.vue', 'a-payer')
+                ->where('filters.q', 'EMP')
+                ->has('board.rows', 1, fn (Assert $row) => $row->where('base_amount', '500000.00')->etc())
+                ->etc());
+    }
+
     public function test_a_future_month_is_not_payable(): void
     {
         $doctor = $this->employee('EMP-D1', benefits: true, salary: 500000);

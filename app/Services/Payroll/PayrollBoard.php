@@ -174,7 +174,7 @@ class PayrollBoard
     public function draft(Employee $employee, Carbon $month, Collection $entries, Collection $benefits, Collection $debts, PayrollSetting $settings): array
     {
         $rules = $settings->snapshot();
-        $lines = $this->lines($employee, $entries, $benefits);
+        $lines = $this->lines($employee, $entries, $benefits, $month);
         $grossMinor = Money::toMinor($this->money(self::grossOf($lines)));
 
         $legal = $this->calculator->compute($grossMinor, $employee->remuneration_type, (int) ($employee->children_count ?? 0), $rules);
@@ -293,11 +293,17 @@ class PayrollBoard
      *
      * @return list<array{kind: string, label: string, amount: string, uuid?: string|null}>
      */
-    public function lines(Employee $employee, Collection $entries, Collection $benefits): array
+    public function lines(Employee $employee, Collection $entries, Collection $benefits, ?Carbon $month = null): array
     {
         $lines = [];
 
-        if ($employee->remuneration_type?->hasAmount() && (float) $employee->remuneration_amount > 0) {
+        // Aucun salaire pour un mois qui se termine avant l'entrée dans la clinique : remonter
+        // les mois ne doit pas faire payer septembre à quelqu'un embauché en octobre. Le
+        // prorata d'un mois d'entrée n'est pas défini : le mois d'entrée se paie entier.
+        $hiredBy = $month === null || $employee->hire_date === null
+            || $employee->hire_date->copy()->startOfDay()->lte($month->copy()->endOfMonth());
+
+        if ($hiredBy && $employee->remuneration_type?->hasAmount() && (float) $employee->remuneration_amount > 0) {
             $lines[] = ['kind' => 'BASE', 'label' => $employee->remuneration_type->label(), 'amount' => $this->money($employee->remuneration_amount), 'uuid' => null];
         }
 

@@ -1,26 +1,32 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import {
-    Ban, Banknote, Building2, CalendarDays, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, FileSpreadsheet, FileText, Gift,
-    HandCoins, Hourglass, Landmark, Receipt, ShieldCheck, SlidersHorizontal, Smartphone, Wallet, X,
+    Ban, Banknote, Building2, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Download, FileSpreadsheet, FileText,
+    HandCoins, Hourglass, Landmark, LayoutGrid, List, Rows3, Search, ShieldCheck, SlidersHorizontal, Wallet, X,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
-import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
+import DropdownMenu from '@/Components/Shadcn/DropdownMenu.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
+import Select from '@/Components/Shadcn/Select.vue';
+import Switch from '@/Components/Shadcn/Switch.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
+import PayrollGrid from '@/Components/Payroll/PayrollGrid.vue';
+import PayrollTable from '@/Components/Payroll/PayrollTable.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
-import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
 import { hrContext, hrUrl } from '@/utilities/hrUrl';
 import { monthLabel, shiftMonth } from '@/utilities/bonus';
-import { DEDUCTION_KINDS } from '@/utilities/payroll';
+import {
+    PAYMENT_MODE_OPTIONS, PAYROLL_LAYOUT_KEY, PAYROLL_LAYOUTS, PAYROLL_VIEWS, filterPayrollRows, hasActiveFilters, netOf,
+    payrollQuery, payrollViewCounts, serviceOptions,
+} from '@/utilities/payrollBoard';
 
 /**
  * ADR-227 / ADR-233 — la paie du mois : salaire de base + avantages du mois = brut ; les
@@ -28,7 +34,7 @@ import { DEDUCTION_KINDS } from '@/utilities/payroll';
  * dettes du personnel (ADR-228) s'en retranchent = net à verser. Les charges patronales se
  * lisent pour information. « Marquer payé » (un salarié ou une sélection) fige la paie, ses
  * paramètres et son mode de paiement ; le virement se fait hors RIVO. Le serveur calcule
- * tout : l'écran ne recompte rien.
+ * tout : l'écran ne recompte rien, il trie et filtre ce qui est servi.
  */
 defineOptions({ layout: AppLayout });
 
@@ -37,6 +43,7 @@ const props = defineProps({
     currentMonth: { type: String, required: true },
     board: { type: Object, required: true },
     bulkLimit: { type: Number, default: 100 },
+    filters: { type: Object, default: () => ({}) },
 });
 
 const { can } = usePermissions();
@@ -49,61 +56,102 @@ const staffDebtsUrl = computed(() => {
     return context && can('staff_debts.view') ? `/super-admin/sites/${encodeURIComponent(context.site.code)}/finance/dettes?vue=en-cours` : null;
 });
 
-const LINE_KINDS = {
-    BASE: { label: 'Salaire de base', icon: Wallet },
-    DECLARED: { label: 'Avantage de la fiche', icon: Gift },
-    ENTRY: { label: 'Avantage saisi', icon: HandCoins },
-    // Retiré (ADR-226) : reste lisible sur une paie déjà payée, dont les lignes sont figées.
-    ACTS: { label: 'Avantages à l’acte', icon: Gift },
-    CNAPS: { label: 'Cotisation', icon: ShieldCheck },
-    HEALTH: { label: 'Cotisation', icon: ShieldCheck },
-    IRSA: { label: 'Impôt sur le salaire', icon: Receipt },
-    DEBT: { label: 'Retenue de dette', icon: Landmark },
+// — Vue, recherche et filtres : l'adresse les garde (on rouvre le même état). —
+const state = ref({
+    vue: props.filters.vue ?? 'toutes',
+    q: props.filters.q ?? '',
+    service: props.filters.service ?? '',
+    mode: props.filters.mode ?? '',
+    dettes: Boolean(props.filters.dettes),
+});
+const rows = computed(() => filterPayrollRows(props.board.rows, state.value));
+const counts = computed(() => payrollViewCounts(props.board.rows, state.value));
+const services = computed(() => serviceOptions(props.board.rows));
+const filtersActive = computed(() => hasActiveFilters(state.value));
+const resetFilters = () => { state.value = { ...state.value, q: '', service: '', mode: '', dettes: false }; };
+const setView = (vue) => { state.value = { ...state.value, vue }; };
+
+onMounted(() => {
+    // La présentation choisie reste sur le poste ; lue après l'hydratation (ADR-115).
+    try {
+        const stored = window.localStorage.getItem(PAYROLL_LAYOUT_KEY);
+        if (PAYROLL_LAYOUTS.includes(stored)) layout.value = stored;
+    } catch { /* stockage indisponible : tableau */ }
+});
+watch(state, (value) => {
+    if (typeof window === 'undefined') return;
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}?${payrollQuery(props.month, value)}`);
+}, { deep: true });
+
+const goTo = (month) => router.get(window.location.pathname, Object.fromEntries(new URLSearchParams(payrollQuery(month, state.value))), { preserveScroll: true });
+
+// — Présentation : tableau, grille, détail. —
+const layout = ref('table');
+const LAYOUTS = [
+    { key: 'table', label: 'Tableau', icon: List },
+    { key: 'grid', label: 'Grille', icon: LayoutGrid },
+    { key: 'detail', label: 'Détail', icon: Rows3 },
+];
+const setLayout = (value) => {
+    layout.value = value;
+    try { window.localStorage.setItem(PAYROLL_LAYOUT_KEY, value); } catch { /* sans effet */ }
 };
-const MODE_ICONS = { BANK: Building2, MOBILE_MONEY: Smartphone, CASH: Banknote };
+const expanded = ref([]);
+const toggleExpanded = (uuid) => {
+    expanded.value = expanded.value.includes(uuid) ? expanded.value.filter((item) => item !== uuid) : [...expanded.value, uuid];
+};
 
-const goTo = (month) => router.get(hrUrl('/administration/paie'), { mois: month }, { preserveScroll: true });
-
+// — Chiffres du mois ; les cartes « À payer » et « Payées » ouvrent leur vue. —
 const summary = computed(() => props.board.summary);
 const cards = computed(() => [
-    { key: 'to_pay', icon: Hourglass, tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300', value: summary.value.to_pay, label: 'À payer', hint: `${formatMoney(summary.value.amount_to_pay)} net à verser` },
+    { key: 'to_pay', view: 'a-payer', icon: Hourglass, tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300', value: summary.value.to_pay, label: 'À payer', hint: `${formatMoney(summary.value.amount_to_pay)} net à verser` },
     { key: 'gross', icon: Wallet, tone: 'bg-primary/10 text-primary', value: formatMoney(summary.value.gross_to_pay), label: 'Brut à payer', hint: `dont ${formatMoney(summary.value.advantages_to_pay)} d’avantages` },
     { key: 'legal', icon: ShieldCheck, tone: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300', value: formatMoney(summary.value.legal_to_pay), label: 'Retenues légales', hint: props.board.settings.legal_enabled ? 'CNAPS, organisme médical, IRSA' : 'Non activées' },
     { key: 'debts', icon: Landmark, tone: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300', value: formatMoney(summary.value.deductions_to_pay ?? 0), label: 'Retenues de dettes', hint: 'Sur les paies à payer' },
     { key: 'employer', icon: Building2, tone: 'bg-muted text-muted-foreground', value: formatMoney(summary.value.employer_to_pay), label: 'Charges patronales', hint: `Coût du mois ${formatMoney(summary.value.cost_month)}` },
-    { key: 'paid', icon: CircleCheck, tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300', value: summary.value.paid, label: 'Payées', hint: `${formatMoney(summary.value.amount_paid)} versés` },
+    { key: 'paid', view: 'payees', icon: CircleCheck, tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300', value: summary.value.paid, label: 'Payées', hint: `${formatMoney(summary.value.amount_paid)} versés` },
 ]);
 
-const isDeduction = (line) => DEDUCTION_KINDS.includes(line.kind);
-
-// — Sélection : payer, imprimer les bulletins, exporter. —
+// — Sélection : payer, imprimer les bulletins, exporter. Une sélection ne survit ni à un changement de mois ni de filtre. —
 const selected = ref([]);
 watch(() => [props.month, props.board.rows.length], () => { selected.value = []; });
-const payable = computed(() => props.board.rows.filter((row) => row.payable));
+watch(state, () => { selected.value = selected.value.filter((uuid) => rows.value.some((row) => row.uuid === uuid)); }, { deep: true });
+const shownPayable = computed(() => rows.value.filter((row) => row.payable));
 const selectedRows = computed(() => props.board.rows.filter((row) => selected.value.includes(row.uuid)));
 const selectedPayable = computed(() => selectedRows.value.filter((row) => row.payable));
-const selectedNet = computed(() => selectedPayable.value.reduce((sum, row) => sum + Number(row.total), 0));
-const allPayableSelected = computed(() => payable.value.length > 0 && payable.value.every((row) => selected.value.includes(row.uuid)));
-const toggleAllPayable = (value) => { selected.value = value ? payable.value.map((row) => row.uuid).slice(0, props.bulkLimit) : []; };
+const selectedNet = computed(() => netOf(selectedPayable.value));
 const toggle = (uuid, value) => { selected.value = value ? [...new Set([...selected.value, uuid])] : selected.value.filter((item) => item !== uuid); };
+const toggleAllShown = (value) => { selected.value = value ? rows.value.map((row) => row.uuid).slice(0, props.bulkLimit) : []; };
+const selectShownPayable = () => { selected.value = shownPayable.value.map((row) => row.uuid).slice(0, props.bulkLimit); };
 
-const query = (extra = {}) => {
-    const params = new URLSearchParams({ mois: props.month, ...extra });
-    for (const uuid of selected.value) params.append('uuids[]', uuid);
+const withUuids = (params, uuids) => {
+    for (const uuid of uuids) params.append('uuids[]', uuid);
 
-    return params.toString();
+    return params;
 };
-const payslipsUrl = (uuids = null) => {
-    if (uuids) {
-        const params = new URLSearchParams({ mois: props.month });
-        uuids.forEach((uuid) => params.append('uuids[]', uuid));
+const payslipsUrl = (uuids) => hrUrl(`/administration/paie/bulletins?${withUuids(new URLSearchParams({ mois: props.month }), uuids)}`);
+const exportUrl = (type, uuids = []) => hrUrl(`/administration/paie/export?${withUuids(new URLSearchParams({ mois: props.month, type }), uuids)}`);
+const openPayslips = (uuids) => window.location.assign(payslipsUrl(uuids));
 
-        return hrUrl(`/administration/paie/bulletins?${params}`);
+// Exporter : ce qui est affiché (vue et filtres), jamais plus.
+const exportItems = computed(() => {
+    const shown = rows.value.map((row) => row.uuid);
+    const items = [{ key: 'payslips', label: `Bulletins affichés (${shown.length})`, icon: FileText, disabled: ! shown.length, description: 'Un bulletin par page, à imprimer' }];
+    if (can('salary_payments.export')) {
+        items.push(
+            { key: 'journal', label: 'Journal de paie', icon: FileSpreadsheet, disabled: ! shown.length, description: 'Excel : brut, retenues, net par personne', separatorBefore: true },
+            { key: 'virements', label: 'Liste de virement', icon: Building2, disabled: ! shown.length, description: 'Excel : par mode de paiement et banque' },
+        );
     }
 
-    return hrUrl(`/administration/paie/bulletins?${query()}`);
+    return items;
+});
+const onExport = (key) => {
+    const shown = rows.value.map((row) => row.uuid).slice(0, props.bulkLimit);
+    if (key === 'payslips') openPayslips(shown);
+    else window.location.assign(exportUrl(key, shown));
 };
-const exportUrl = (type) => hrUrl(`/administration/paie/export?${query({ type })}`);
+const tooManyShown = computed(() => rows.value.length > props.bulkLimit);
 
 // — Payer, annuler. —
 const pending = ref(null);
@@ -137,6 +185,22 @@ const modal = computed(() => {
 const report = computed(() => (page.props.flash?.bulk_report?.action === 'payroll_pay' ? page.props.flash.bulk_report : null));
 const reportHidden = ref(false);
 watch(report, () => { reportHidden.value = false; });
+
+const viewProps = computed(() => ({
+    rows: rows.value,
+    selected: selected.value,
+    expanded: expanded.value,
+    legalEnabled: Boolean(props.board.settings.legal_enabled),
+    canPay: can('salary_payments.pay'),
+    canCancel: can('salary_payments.cancel'),
+}));
+const emptyText = computed(() => {
+    if (filtersActive.value) return 'Aucune paie ne correspond à la recherche ou aux filtres.';
+    if (state.value.vue === 'a-payer') return `Plus rien à payer pour ${monthLabel(props.month)}.`;
+    if (state.value.vue === 'payees') return `Aucune paie encore marquée payée pour ${monthLabel(props.month)}.`;
+
+    return '';
+});
 </script>
 
 <template>
@@ -152,25 +216,13 @@ watch(report, () => { reportHidden.value = false; });
                 <Button v-if="can('salary_settings.view')" :as="Link" :href="hrUrl('/administration/paie/parametres')" variant="outline"><SlidersHorizontal class="h-4 w-4" />Paramètres</Button>
                 <Button v-if="staffDebtsUrl" :as="Link" :href="staffDebtsUrl" variant="outline"><Landmark class="h-4 w-4" />Dettes</Button>
                 <Button v-if="can('advantage_entries.view')" :as="Link" :href="hrUrl(`/administration/bonus?onglet=saisis&mois=${month}`)" variant="outline"><HandCoins class="h-4 w-4" />Avantages</Button>
+                <DropdownMenu v-if="board.rows.length" :items="exportItems" label="Exporter ce qui est affiché" @select="onExport">
+                    <template #trigger>
+                        <Button type="button"><Download class="h-4 w-4" />Exporter<ChevronDown class="h-4 w-4" /></Button>
+                    </template>
+                </DropdownMenu>
             </template>
         </PageHeader>
-
-        <div class="flex flex-wrap items-center gap-3">
-            <div class="flex items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-sm">
-                <Button type="button" variant="ghost" size="icon" aria-label="Mois précédent" @click="goTo(shiftMonth(month, -1))"><ChevronLeft class="h-4 w-4" /></Button>
-                <span class="flex min-w-44 items-center justify-center gap-2 px-2 text-sm font-semibold capitalize text-foreground">
-                    <CalendarDays class="h-4 w-4 text-muted-foreground" />{{ monthLabel(month) }}
-                </span>
-                <Button type="button" variant="ghost" size="icon" aria-label="Mois suivant" :disabled="month >= currentMonth" @click="goTo(shiftMonth(month, 1))"><ChevronRight class="h-4 w-4" /></Button>
-            </div>
-            <div v-if="board.rows.length" class="ms-auto flex flex-wrap gap-2">
-                <Button :as="'a'" :href="payslipsUrl(board.rows.map((row) => row.uuid))" variant="outline" size="sm"><FileText class="h-4 w-4" />Tous les bulletins</Button>
-                <template v-if="can('salary_payments.export')">
-                    <Button :as="'a'" :href="hrUrl(`/administration/paie/export?mois=${month}&type=journal`)" variant="outline" size="sm"><FileSpreadsheet class="h-4 w-4" />Journal de paie</Button>
-                    <Button :as="'a'" :href="hrUrl(`/administration/paie/export?mois=${month}&type=virements`)" variant="outline" size="sm"><Building2 class="h-4 w-4" />Liste de virement</Button>
-                </template>
-            </div>
-        </div>
 
         <div v-if="! board.settings.legal_enabled" class="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
             <CircleAlert class="h-5 w-5 shrink-0" />
@@ -182,14 +234,26 @@ watch(report, () => { reportHidden.value = false; });
         </div>
 
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-            <div v-for="card in cards" :key="card.key" class="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+            <component
+                :is="card.view ? 'button' : 'div'"
+                v-for="card in cards"
+                :key="card.key"
+                :type="card.view ? 'button' : undefined"
+                :aria-pressed="card.view ? state.vue === card.view : undefined"
+                :class="cn(
+                    'flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left shadow-sm',
+                    card.view && 'transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+                    card.view && state.vue === card.view && 'border-primary/60 ring-1 ring-primary/30',
+                )"
+                @click="card.view && setView(state.vue === card.view ? 'toutes' : card.view)"
+            >
                 <span :class="['grid h-10 w-10 shrink-0 place-items-center rounded-lg', card.tone]"><component :is="card.icon" class="h-5 w-5" /></span>
                 <span class="min-w-0">
                     <span class="block text-xl font-bold leading-none tabular-nums text-foreground">{{ card.value }}</span>
                     <span class="mt-1 block text-xs font-semibold leading-tight text-foreground">{{ card.label }}</span>
                     <span class="block text-[11px] leading-tight text-muted-foreground">{{ card.hint }}</span>
                 </span>
-            </div>
+            </component>
         </div>
 
         <div v-if="report && ! reportHidden" class="flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 shadow-sm" role="status">
@@ -203,88 +267,117 @@ watch(report, () => { reportHidden.value = false; });
             <Button type="button" size="icon-xs" variant="ghost" aria-label="Fermer le rapport" @click="reportHidden = true"><X class="h-4 w-4" /></Button>
         </div>
 
-        <!-- Barre de sélection. -->
-        <div v-if="board.rows.length" class="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/95 px-4 py-2.5 shadow-sm backdrop-blur">
-            <label class="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Checkbox :model-value="allPayableSelected" :disabled="! payable.length" aria-label="Sélectionner toutes les paies à payer" @update:model-value="toggleAllPayable" />
-                Toutes les paies à payer ({{ payable.length }})
-            </label>
-            <span v-if="selected.length" class="text-sm text-muted-foreground">{{ selected.length }} sélectionnée{{ selected.length > 1 ? 's' : '' }}<template v-if="selectedPayable.length"> · {{ formatMoney(selectedNet) }} net</template></span>
-            <div v-if="selected.length" class="ms-auto flex flex-wrap gap-2">
-                <Button v-if="can('salary_payments.pay') && selectedPayable.length" type="button" size="sm" variant="success" @click="open('batch')"><Banknote class="h-4 w-4" />Marquer payées ({{ selectedPayable.length }})</Button>
-                <Button :as="'a'" :href="payslipsUrl()" size="sm" variant="outline"><FileText class="h-4 w-4" />Bulletins ({{ selected.length }})</Button>
-                <Button v-if="can('salary_payments.export')" :as="'a'" :href="exportUrl('journal')" size="sm" variant="outline"><FileSpreadsheet class="h-4 w-4" />Journal</Button>
-                <Button v-if="can('salary_payments.export')" :as="'a'" :href="exportUrl('virements')" size="sm" variant="outline"><Building2 class="h-4 w-4" />Virements</Button>
-                <Button type="button" size="sm" variant="ghost" @click="selected = []">Désélectionner</Button>
+        <!-- Mois, vues, présentation ; puis recherche et filtres. -->
+        <div class="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="flex items-center gap-1 rounded-lg border border-border bg-background p-1">
+                    <Button type="button" variant="ghost" size="icon" aria-label="Mois précédent" @click="goTo(shiftMonth(month, -1))"><ChevronLeft class="h-4 w-4" /></Button>
+                    <span class="flex min-w-40 items-center justify-center gap-2 px-2 text-sm font-semibold capitalize text-foreground">
+                        <CalendarDays class="h-4 w-4 text-muted-foreground" />{{ monthLabel(month) }}
+                    </span>
+                    <Button type="button" variant="ghost" size="icon" aria-label="Mois suivant" :disabled="month >= currentMonth" @click="goTo(shiftMonth(month, 1))"><ChevronRight class="h-4 w-4" /></Button>
+                </div>
+
+                <div class="inline-flex rounded-lg border border-border bg-muted/50 p-1" role="tablist" aria-label="Statut de la paie">
+                    <button
+                        v-for="view in PAYROLL_VIEWS"
+                        :key="view.key"
+                        type="button"
+                        role="tab"
+                        :aria-selected="state.vue === view.key"
+                        :class="cn(
+                            'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground',
+                            state.vue === view.key && 'bg-card text-foreground shadow-sm',
+                        )"
+                        @click="setView(view.key)"
+                    >
+                        {{ view.label }}
+                        <span :class="cn('rounded-full px-1.5 text-[11px] tabular-nums', view.key === 'a-payer' && counts[view.key] > 0 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-200' : 'bg-muted text-muted-foreground')">{{ counts[view.key] }}</span>
+                    </button>
+                </div>
+
+                <div class="ms-auto inline-flex rounded-lg border border-border bg-muted/50 p-1" role="group" aria-label="Présentation">
+                    <Button
+                        v-for="option in LAYOUTS"
+                        :key="option.key"
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        :class="cn('gap-1.5 px-2.5', layout === option.key && 'bg-card text-foreground shadow-sm hover:bg-card')"
+                        :aria-pressed="layout === option.key"
+                        :title="option.label"
+                        @click="setLayout(option.key)"
+                    ><component :is="option.icon" class="h-4 w-4" /><span class="hidden sm:inline">{{ option.label }}</span></Button>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <IconInput v-model="state.q" :icon="Search" type="search" class="w-full sm:w-72" placeholder="Nom, matricule, fonction…" aria-label="Rechercher un salarié" />
+                <Select v-model="state.service" :options="[{ value: '', label: 'Tous les services' }, ...services]" placeholder="Tous les services" class="w-full sm:w-52" aria-label="Filtrer par service" />
+                <Select v-model="state.mode" :options="[{ value: '', label: 'Tous les modes' }, ...PAYMENT_MODE_OPTIONS]" placeholder="Tous les modes" class="w-full sm:w-52" aria-label="Filtrer par mode de paiement" />
+                <label class="flex h-[var(--control-h)] items-center gap-2 rounded-lg border border-border px-3 text-sm text-foreground">
+                    <Switch v-model="state.dettes" aria-label="Seulement les paies avec une retenue de dette" />
+                    Avec retenue de dette
+                </label>
+                <Button v-if="filtersActive" type="button" variant="ghost" size="sm" @click="resetFilters"><X class="h-4 w-4" />Effacer les filtres</Button>
+                <span class="ms-auto text-xs text-muted-foreground">{{ rows.length }} sur {{ board.rows.length }} · {{ formatMoney(netOf(rows)) }} net</span>
             </div>
         </div>
+
+        <!-- Barre de sélection : visible dès qu'une paie est cochée. -->
+        <div v-if="selected.length || shownPayable.length" class="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/95 px-4 py-2.5 shadow-sm backdrop-blur">
+            <template v-if="selected.length">
+                <span class="text-sm font-medium text-foreground">{{ selected.length }} sélectionnée{{ selected.length > 1 ? 's' : '' }}<template v-if="selectedPayable.length"> · {{ formatMoney(selectedNet) }} net à verser</template></span>
+                <div class="ms-auto flex flex-wrap gap-2">
+                    <Button v-if="can('salary_payments.pay') && selectedPayable.length" type="button" size="sm" variant="success" @click="open('batch')"><Banknote class="h-4 w-4" />Marquer payées ({{ selectedPayable.length }})</Button>
+                    <Button type="button" size="sm" variant="outline" @click="openPayslips(selected)"><FileText class="h-4 w-4" />Bulletins ({{ selected.length }})</Button>
+                    <Button v-if="can('salary_payments.export')" :as="'a'" :href="exportUrl('journal', selected)" size="sm" variant="outline"><FileSpreadsheet class="h-4 w-4" />Journal</Button>
+                    <Button v-if="can('salary_payments.export')" :as="'a'" :href="exportUrl('virements', selected)" size="sm" variant="outline"><Building2 class="h-4 w-4" />Virements</Button>
+                    <Button type="button" size="sm" variant="ghost" @click="selected = []">Désélectionner</Button>
+                </div>
+            </template>
+            <template v-else>
+                <span class="text-sm text-muted-foreground">{{ shownPayable.length }} paie{{ shownPayable.length > 1 ? 's' : '' }} à payer affichée{{ shownPayable.length > 1 ? 's' : '' }} · {{ formatMoney(netOf(shownPayable)) }} net</span>
+                <Button class="ms-auto" type="button" size="sm" variant="outline" @click="selectShownPayable"><CircleCheck class="h-4 w-4" />Sélectionner les paies à payer</Button>
+            </template>
+        </div>
+        <p v-if="tooManyShown" class="text-xs text-muted-foreground">Plus de {{ bulkLimit }} paies affichées : la sélection, les bulletins et les exports s’arrêtent aux {{ bulkLimit }} premières. Filtrez pour réduire la liste.</p>
 
         <Card v-if="! board.rows.length" class="flex flex-col items-center gap-3 px-6 py-12 text-center">
             <span class="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary"><Banknote class="h-6 w-6" /></span>
             <p class="text-sm font-semibold text-foreground">Rien à payer pour {{ monthLabel(month) }}</p>
-            <p class="max-w-md text-sm text-muted-foreground">La paie liste les personnes en poste dont la rémunération a un montant (étape Rémunération du dossier), et celles qui ont des avantages ce mois-ci.</p>
+            <p class="max-w-md text-sm text-muted-foreground">La paie liste les personnes en poste dont la rémunération a un montant (étape Rémunération du dossier), et celles qui ont des avantages ce mois-ci. Un salarié n’est pas payé pour un mois qui précède son entrée.</p>
         </Card>
 
-        <Card v-for="row in board.rows" :key="row.uuid" :class="cn('overflow-hidden', selected.includes(row.uuid) && 'ring-1 ring-primary/50')">
-            <header class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-3">
-                <Checkbox :model-value="selected.includes(row.uuid)" :aria-label="`Sélectionner ${row.name}`" @update:model-value="(value) => toggle(row.uuid, value)" />
-                <div class="min-w-0 flex-1">
-                    <p class="text-sm font-bold text-foreground">{{ row.name }}</p>
-                    <p class="truncate text-xs text-muted-foreground">{{ [row.employee_number, row.job_title, row.remuneration_label].filter(Boolean).join(' · ') }}</p>
-                </div>
-                <Badge v-if="! row.in_post" variant="outline">Plus en poste</Badge>
-                <span class="flex items-center gap-1.5 text-xs text-muted-foreground" :title="row.payment_mode.summary">
-                    <component :is="MODE_ICONS[row.payment_mode.mode] ?? CircleAlert" :class="['h-4 w-4', ! row.payment_mode.mode && 'text-amber-600']" />
-                    <span class="max-w-[16rem] truncate">{{ row.payment_mode.label }} · {{ row.payment_mode.summary }}</span>
-                </span>
-                <span class="text-right text-xs leading-tight text-muted-foreground">
-                    Brut <span class="tabular-nums text-foreground">{{ formatMoney(row.gross) }}</span><br />
-                    Retenues <span class="tabular-nums text-rose-700 dark:text-rose-300">− {{ formatMoney(row.deductions_amount) }}</span>
-                </span>
-                <span class="rounded-lg bg-primary/5 px-3 py-1.5 text-end">
-                    <span class="block text-[11px] text-muted-foreground">Net à verser</span>
-                    <span class="block text-sm font-bold tabular-nums text-primary">{{ formatMoney(row.total) }}</span>
-                </span>
-            </header>
-
-            <ul class="divide-y divide-border text-sm">
-                <li v-for="(line, index) in row.lines" :key="`${line.kind}-${line.uuid ?? index}`" class="flex items-center gap-3 px-4 py-2">
-                    <component :is="LINE_KINDS[line.kind]?.icon ?? Gift" class="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span class="min-w-0 flex-1">
-                        <span class="text-foreground">{{ line.label }}</span>
-                        <span class="text-xs text-muted-foreground"> · {{ LINE_KINDS[line.kind]?.label ?? line.kind }}</span>
-                    </span>
-                    <span :class="['tabular-nums', isDeduction(line) ? 'text-rose-700 dark:text-rose-300' : 'text-foreground']">{{ formatMoney(line.amount) }}</span>
-                </li>
-                <li v-if="row.legal && ! row.legal.applies && row.legal.reason && board.settings.legal_enabled" class="px-4 py-2 text-xs text-muted-foreground">{{ row.legal.reason }}</li>
-                <li v-if="row.employer_lines.length" class="flex flex-wrap items-center gap-x-3 gap-y-1 bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
-                    <Building2 class="h-3.5 w-3.5" />
-                    <span>Charges patronales (information) :</span>
-                    <span v-for="line in row.employer_lines" :key="line.kind">{{ line.label }} {{ formatMoney(line.amount) }}</span>
-                    <span class="ms-auto">Coût employeur <strong class="tabular-nums text-foreground">{{ formatMoney(row.cost) }}</strong></span>
-                </li>
-            </ul>
-
-            <footer class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
-                <template v-if="row.payment">
-                    <Badge variant="success"><Banknote class="h-3.5 w-3.5" />Payée</Badge>
-                    <span class="text-xs text-muted-foreground">{{ formatDateTime(row.payment.paid_at) }} · {{ row.payment.paid_by }}<template v-if="row.payment.payment_note"> — {{ row.payment.payment_note }}</template></span>
-                </template>
-                <template v-else>
-                    <Badge variant="outline"><Hourglass class="h-3.5 w-3.5" />À payer</Badge>
-                    <span v-if="! row.payable && month > currentMonth" class="text-xs text-muted-foreground">Mois pas encore commencé.</span>
-                </template>
-                <div class="ms-auto flex flex-wrap gap-2">
-                    <Button :as="'a'" :href="payslipsUrl([row.uuid])" size="sm" variant="ghost"><FileText class="h-4 w-4" />Bulletin</Button>
-                    <Button v-if="row.payment && can('salary_payments.cancel')" type="button" size="sm" variant="ghost" class="text-destructive hover:text-destructive" @click="open('cancel', row)"><Ban class="h-4 w-4" />Annuler</Button>
-                    <Button v-if="! row.payment && can('salary_payments.pay') && row.payable" type="button" size="sm" variant="success" @click="open('pay', row)"><Banknote class="h-4 w-4" />Marquer payé</Button>
-                </div>
-                <details v-if="row.cancelled.length" class="w-full text-xs">
-                    <summary class="cursor-pointer text-muted-foreground hover:text-foreground">{{ row.cancelled.length }} paie{{ row.cancelled.length > 1 ? 's' : '' }} annulée{{ row.cancelled.length > 1 ? 's' : '' }}</summary>
-                    <p v-for="payment in row.cancelled" :key="payment.uuid" class="mt-1 text-muted-foreground">{{ formatMoney(payment.total) }} · {{ formatDateTime(payment.cancelled_at) }} · {{ payment.cancelled_by }} — {{ payment.cancel_reason }}</p>
-                </details>
-            </footer>
+        <Card v-else-if="! rows.length" class="flex flex-col items-center gap-3 px-6 py-10 text-center">
+            <Search class="h-8 w-8 text-muted-foreground/60" />
+            <p class="text-sm text-muted-foreground">{{ emptyText }}</p>
+            <div class="flex gap-2">
+                <Button v-if="filtersActive" type="button" size="sm" variant="outline" @click="resetFilters">Effacer les filtres</Button>
+                <Button v-if="state.vue !== 'toutes'" type="button" size="sm" variant="outline" @click="setView('toutes')">Voir toutes les paies</Button>
+            </div>
         </Card>
+
+        <PayrollTable
+            v-else-if="layout === 'table'"
+            v-bind="viewProps"
+            @toggle="toggle"
+            @toggle-all="toggleAllShown"
+            @expand="toggleExpanded"
+            @pay="(row) => open('pay', row)"
+            @cancel="(row) => open('cancel', row)"
+            @payslip="(row) => openPayslips([row.uuid])"
+        />
+        <PayrollGrid
+            v-else
+            v-bind="viewProps"
+            :detailed="layout === 'detail'"
+            @toggle="toggle"
+            @expand="toggleExpanded"
+            @pay="(row) => open('pay', row)"
+            @cancel="(row) => open('cancel', row)"
+            @payslip="(row) => openPayslips([row.uuid])"
+        />
 
         <ConfirmModal
             :open="pending !== null"

@@ -39,6 +39,15 @@ class PayrollController extends Controller
             'currentMonth' => now()->format('Y-m'),
             'board' => $board->month($month),
             'bulkLimit' => self::BULK_LIMIT,
+            // Filtres de l'adresse (vue, recherche, service, mode) : l'écran filtre lui-même,
+            // toutes les lignes du mois étant servies ; ils ne servent qu'à rouvrir le même état.
+            'filters' => [
+                'vue' => in_array($request->query('vue'), ['toutes', 'a-payer', 'payees'], true) ? $request->query('vue') : 'toutes',
+                'q' => is_string($request->query('q')) ? mb_substr(trim($request->query('q')), 0, 100) : '',
+                'service' => is_string($request->query('service')) ? mb_substr($request->query('service'), 0, 150) : '',
+                'mode' => in_array($request->query('mode'), ['BANK', 'MOBILE_MONEY', 'CASH', 'NONE'], true) ? $request->query('mode') : '',
+                'dettes' => $request->query('dettes') === '1',
+            ],
         ]);
     }
 

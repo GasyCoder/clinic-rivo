@@ -45,19 +45,19 @@ https://cliniquesaintgeorges.mg
 ### Application Mampikony
 
 ```text
-https://clinique-m.rivo.mg
+https://clinique-mpk.rivo.mg
 ```
 
 ### Application Ambondromamy
 
 ```text
-https://clinique-a.rivo.mg
+https://clinique-abm.rivo.mg
 ```
 
 ### Super Administration
 
 ```text
-https://admin.rivo.mg
+https://app.rivo.mg
 ```
 
 ---

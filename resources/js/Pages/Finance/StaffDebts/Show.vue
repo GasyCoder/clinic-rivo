@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import {
     ArrowLeft, Ban, BellRing, BriefcaseBusiness, CalendarDays, CircleAlert, CircleCheck, CircleX, DoorOpen, FileSignature, FileText, Gavel, Gift, HandCoins,
-    Hash, History, Landmark, Lock, NotebookPen, Pencil, Percent, Printer, Scale, ShieldAlert, Timer, UserRound, Wallet,
+    Hash, History, Landmark, Lock, NotebookPen, Pencil, Percent, Printer, Scale, ScrollText, ShieldAlert, ShieldCheck, Timer, UserRound, Wallet,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -19,7 +19,7 @@ import Textarea from '@/Components/Shadcn/Textarea.vue';
 import StaffDebtRepayments from '@/Components/StaffDebts/StaffDebtRepayments.vue';
 import StaffDebtStatusBadge from '@/Components/StaffDebts/StaffDebtStatusBadge.vue';
 import StaffDebtTermsFields from '@/Components/StaffDebts/StaffDebtTermsFields.vue';
-import { formatDate, formatDateTime, monthLabel } from '@/utilities/date';
+import { formatDate, formatDateTime, monthLabel, shiftMonth } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
 import { staffDebtUrl } from '@/utilities/staffDebtUrl';
 import { debtPlan, fromMinor, periodOptions, planSummary, repaidShare as debtRepaidShare, ruleIssues, tierLabel, toMinor, totalWithInterest } from '@/utilities/staffDebts';
@@ -32,6 +32,10 @@ import { debtPlan, fromMinor, periodOptions, planSummary, repaidShare as debtRep
  * se fige à l'accord (il peut le remettre) ; des conditions hors des limites du site sont
  * une dérogation, à confirmer. Chaque bouton suit le droit servi par le serveur, qui
  * revérifie tout.
+ *
+ * ADR-234 — une demande ne porte que le montant : le DG fixe le remboursement par mois et
+ * le premier mois (proposé : le mois suivant). Les règles acceptées par l'employé et les
+ * dettes déjà en cours à sa demande se lisent sur la demande.
  */
 defineOptions({ layout: AppLayout });
 
@@ -48,14 +52,17 @@ const salaryDeclared = computed(() => props.debt.employee?.salary_declared ?? fa
 const rules = computed(() => props.debt.rules ?? null);
 const hasTiers = computed(() => (rules.value?.interest_tiers ?? []).length > 0);
 const maxInstallment = computed(() => rules.value?.installment_cap?.available ?? null);
+const amountOnly = computed(() => ! props.debt.requested.installment_amount);
 const tooManyDebts = computed(() => Boolean(rules.value?.max_open_debts) && (rules.value?.engaged_debts ?? 0) >= rules.value.max_open_debts);
 const MODE_ICONS = { SALARY: Wallet, CASH: HandCoins };
 
-// Accorder : les conditions demandées, que le DG ajuste avant d'accorder.
+// Accorder : le montant demandé, que le DG ajuste ; le remboursement est le sien à fixer
+// (ADR-234) — une demande d'avant garde sa mensualité et son premier mois proposés.
+const requestedPeriod = props.debt.requested.first_period;
 const decision = useForm({
     amount: props.debt.requested.amount.replace(/\.00$/, ''),
-    installment_amount: props.debt.requested.installment_amount.replace(/\.00$/, ''),
-    first_period: props.debt.requested.first_period < props.currentMonth ? props.currentMonth : props.debt.requested.first_period,
+    installment_amount: (props.debt.requested.installment_amount ?? '').replace(/\.00$/, ''),
+    first_period: requestedPeriod ? (requestedPeriod < props.currentMonth ? props.currentMonth : requestedPeriod) : shiftMonth(props.currentMonth, 1),
     repayment_mode: salaryDeclared.value ? 'SALARY' : 'CASH',
     note: '',
     waive_interest: false,
@@ -221,10 +228,30 @@ const firstError = (form) => Object.values(form.errors)[0] ?? '';
                             <dd class="font-semibold tabular-nums text-foreground">{{ formatMoney(debt.requested.amount) }}</dd>
                             <dd v-if="Number(debt.requested.interest_amount) > 0" class="text-xs text-muted-foreground">+ {{ formatMoney(debt.requested.interest_amount) }} d’intérêt à la demande</dd>
                         </div>
-                        <div><dt class="text-xs text-muted-foreground">Par mois</dt><dd class="font-semibold tabular-nums text-foreground">{{ formatMoney(debt.requested.installment_amount) }}</dd></div>
-                        <div><dt class="text-xs text-muted-foreground">Plan</dt><dd class="text-foreground">{{ planSummary(debt.requested.plan) }}</dd></div>
+                        <template v-if="! amountOnly">
+                            <div><dt class="text-xs text-muted-foreground">Par mois</dt><dd class="font-semibold tabular-nums text-foreground">{{ formatMoney(debt.requested.installment_amount) }}</dd></div>
+                            <div><dt class="text-xs text-muted-foreground">Plan</dt><dd class="text-foreground">{{ planSummary(debt.requested.plan) }}</dd></div>
+                        </template>
+                        <div v-else class="sm:col-span-2">
+                            <dt class="text-xs text-muted-foreground">Remboursement</dt>
+                            <dd class="text-foreground">{{ debt.can.decide ? 'À fixer par vous : la demande ne porte que le montant.' : 'Fixé par le DG à sa décision.' }}</dd>
+                        </div>
                     </dl>
-                    <p class="rounded-lg bg-muted/60 px-3 py-2 text-sm text-foreground">{{ debt.reason }}</p>
+                    <p v-if="debt.reason" class="rounded-lg bg-muted/60 px-3 py-2 text-sm text-foreground">{{ debt.reason }}</p>
+                    <p v-else class="text-sm text-muted-foreground">Sans motif.</p>
+                    <p v-if="debt.engaged_at_request > 0" class="flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-foreground dark:border-amber-900 dark:bg-amber-950/30">
+                        <ShieldAlert class="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                        Demandée alors que {{ debt.engaged_at_request }} dette{{ debt.engaged_at_request > 1 ? 's étaient' : ' était' }} déjà en cours : permise par l’autorisation du Super Admin.
+                    </p>
+                    <details v-if="debt.terms" class="group rounded-lg border border-border px-3 py-2 text-sm">
+                        <summary class="flex cursor-pointer list-none items-center gap-2 text-foreground">
+                            <ShieldCheck class="h-4 w-4 shrink-0 text-emerald-600" />Règles et conditions acceptées le {{ formatDateTime(debt.terms.accepted_at) }}
+                            <span class="ms-auto text-xs text-muted-foreground group-open:hidden">Lire</span>
+                        </summary>
+                        <ul class="mt-2 space-y-1.5 border-t border-border pt-2 text-xs leading-5 text-muted-foreground">
+                            <li v-for="(line, index) in debt.terms.conditions" :key="index" class="flex items-start gap-2"><ScrollText class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />{{ line }}</li>
+                        </ul>
+                    </details>
                 </Card>
 
                 <!-- Le DG décide. -->
@@ -232,8 +259,11 @@ const firstError = (form) => Object.values(form.errors)[0] ?? '';
                     <div class="flex items-center gap-2">
                         <Gavel class="h-4 w-4 text-amber-600" />
                         <h2 class="text-sm font-semibold text-foreground">Votre décision</h2>
-                        <span class="text-xs text-muted-foreground">— accordez tel quel, ajustez, ou refusez</span>
+                        <span class="text-xs text-muted-foreground">{{ amountOnly ? '— fixez le remboursement, ajustez le montant, ou refusez' : '— accordez tel quel, ajustez, ou refusez' }}</span>
                     </div>
+                    <p v-if="amountOnly" class="flex items-start gap-2 text-sm text-muted-foreground">
+                        <CalendarDays class="mt-0.5 h-4 w-4 shrink-0" />L’employé n’a demandé que le montant : choisissez le remboursement par mois — ou une durée — selon ce que son salaire permet, et le premier mois.
+                    </p>
                     <StaffDebtTermsFields
                         :form="decision"
                         :current-month="currentMonth"
@@ -441,7 +471,7 @@ const firstError = (form) => Object.values(form.errors)[0] ?? '';
                         </div>
                         <div class="flex items-start gap-2"><Landmark class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                             <dd class="text-foreground">
-                                <template v-if="debt.employee.other_active">{{ debt.employee.other_active }} autre{{ debt.employee.other_active > 1 ? 's' : '' }} dette{{ debt.employee.other_active > 1 ? 's' : '' }} en cours : reste {{ formatMoney(debt.employee.other_balance) }}<template v-if="Number(debt.employee.other_installments) > 0">, {{ formatMoney(debt.employee.other_installments) }} déjà retenus par mois</template></template>
+                                <template v-if="debt.employee.other_active">{{ debt.employee.other_active }} autre{{ debt.employee.other_active > 1 ? 's' : '' }} dette{{ debt.employee.other_active > 1 ? 's' : '' }} en cours : reste {{ formatMoney(debt.employee.other_balance) }}<template v-if="Number(debt.employee.other_installments) > 0">, {{ formatMoney(debt.employee.other_installments) }} par mois retenus sur la paie</template></template>
                                 <template v-else>Aucune autre dette en cours</template>
                             </dd>
                         </div>

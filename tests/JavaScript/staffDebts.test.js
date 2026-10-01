@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { debtPlan, debtSteps, interestFor, isOpenDebt, repaidShare, ruleIssues, tierLabel, totalWithInterest } from '../../resources/js/utilities/staffDebts.js';
+import { debtPlan, debtSteps, interestFor, isOpenDebt, quickMonths, repaidShare, ruleIssues, tierLabel, totalWithInterest } from '../../resources/js/utilities/staffDebts.js';
 import { mapStaffDebtPath } from '../../resources/js/utilities/staffDebtPath.js';
 
 /*
@@ -182,4 +182,35 @@ test('les écrans Finance des dettes n’utilisent aucun composant sans l’impo
         // Aucune adresse de dette écrite en dur hors de staffDebtUrl (le portail la réécrit).
         assert.doesNotMatch(source, /['"`]\/administration\/dettes/, path);
     }
+});
+
+/*
+ * ADR-234 — la demande ne porte que le montant, un motif facultatif et l'acceptation des
+ * règles ; le remboursement est fixé par le DG.
+ */
+test('la demande de l’employé : le montant, les règles acceptées, sans mensualité ni premier mois', () => {
+    const mine = read(MINE);
+    const dialog = mine.slice(mine.indexOf('title="Demander une dette"'), mine.indexOf('<ConfirmModal'));
+    assert.match(mine, /useForm\(\{ amount: '', reason: '', accept_terms: false, terms_version:/);
+    assert.match(dialog, /v-model="form\.accept_terms"/);
+    assert.match(dialog, /v-for="\(line, index\) in conditions"/);
+    assert.match(dialog, /label="Motif" :icon="FileText" hint="\(facultatif\)"/);
+    assert.doesNotMatch(dialog, /installment_amount|first_period|StaffDebtTermsFields/);
+    // Seul le montant se vérifie à la saisie ; le serveur revérifie tout.
+    assert.match(mine, /ruleIssues\(form\.amount, null, rules\.value, formatMoney\)\.amount/);
+});
+
+test('seul le montant se vérifie sans mensualité', () => {
+    const rules = { min_amount: '50000.00', max_amount: '1000000.00', max_months: 12, interest_tiers: [] };
+    assert.deepEqual(ruleIssues('300000', null, rules, money), {});
+    assert.match(ruleIssues('20000', null, rules, money).amount, /minimum/);
+    assert.equal(ruleIssues('20000', null, rules, money).installment_amount, undefined);
+});
+
+test('les durées proposées au DG respectent la durée maximale du site', () => {
+    assert.deepEqual(quickMonths(null), [3, 6, 10, 12]);
+    assert.deepEqual(quickMonths(8), [3, 6, 8]);
+    assert.deepEqual(quickMonths(24), [3, 6, 10, 12, 24]);
+    assert.deepEqual(quickMonths(2), [2]);
+    assert.deepEqual(quickMonths(12), [3, 6, 10, 12]);
 });

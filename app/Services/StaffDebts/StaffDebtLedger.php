@@ -133,7 +133,11 @@ final class StaffDebtLedger
             return null;
         }
 
-        $first = ($debt->first_period ?? $debt->requested_first_period)->copy()->startOfMonth();
+        // ADR-234 — une demande ne propose plus de premier mois : le DG le fixe à sa décision.
+        $first = ($debt->first_period ?? $debt->requested_first_period)?->copy()->startOfMonth();
+        if ($first === null) {
+            return null;
+        }
         $current = $today->copy()->startOfMonth();
         $next = $first->gt($current) ? $first : $current;
 
@@ -165,7 +169,7 @@ final class StaffDebtLedger
         }
 
         [$amount, $installment] = match ($debt->status) {
-            StaffDebtStatus::Requested => [$debt->requestedTotalMinor(), Money::toMinor((string) $debt->requested_installment)],
+            StaffDebtStatus::Requested => [$debt->requestedTotalMinor(), $debt->requested_installment !== null ? Money::toMinor((string) $debt->requested_installment) : 0],
             StaffDebtStatus::Approved => [$debt->totalDueMinor(), Money::toMinor((string) $debt->installment_amount)],
             default => [$debt->balanceMinor(), Money::toMinor((string) $debt->installment_amount)],
         };

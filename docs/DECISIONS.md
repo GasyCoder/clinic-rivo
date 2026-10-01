@@ -22243,7 +22243,10 @@ droits des bonus (`bonus_categories.*`, `bonus_awards.*`) restent ceux de l'ADR-
 **Status:** ACCEPTED (2026-09-30 — demande explicite du propriétaire) ; **déplacée dans Finance au portail
 par l'ADR-229** (même jour) : le DG décide, ajuste, verse, remet et relance depuis Finance › Dettes du
 personnel ; la rubrique RH du site disparaît, et le RH ne verse plus. Limites, intérêts par tranche et
-dérogations s'ajoutent. Le reste (demande, retenue sur la paie, Caisse) est inchangé.
+dérogations s'ajoutent. Le reste (demande, retenue sur la paie, Caisse) est inchangé. **La demande est
+amendée par l'ADR-234** (2026-10-01) : l'employé ne demande plus que le montant (règles acceptées, motif
+facultatif), le DG fixe la mensualité et le premier mois, et une dette en cours ferme les demandes sauf
+autorisation du Super Admin.
 
 **Complète l'ADR-227** (paie du mois) et **applique l'ADR-012** (seule la Caisse encaisse). Le CDC ne
 décrit aucune avance ni dette consentie au personnel : les règles ci-dessous sont celles du propriétaire.
@@ -22739,4 +22742,72 @@ avantages en nature     tous les avantages sont soumis comme le salaire ; une ex
 déclarations            aucune déclaration CNAPS / IRSA ni état nominatif n'est produit
 doublon de dossier      une même personne avec deux dossiers employés (deux matricules) apparaît deux fois :
                         c'est une donnée à corriger dans les dossiers, pas une règle de paie
+```
+
+---
+
+# ADR-234 — La demande de dette ne porte que le montant ; une dette en cours ferme les demandes
+
+**Status:** ACCEPTED (2026-10-01 — demande explicite du propriétaire)
+
+**Amende l'ADR-228** (ce que l'employé saisit) et **l'ADR-229** (ce qui se vérifie à la demande). Le CDC ne
+décrit aucune dette du personnel : les règles ci-dessous sont celles du propriétaire.
+
+## Ce que l'employé saisit
+
+```text
+avant   montant, remboursement par mois, premier mois, motif (obligatoire)
+après   montant, « J'ai lu et j'accepte les règles et les conditions », motif (facultatif)
+```
+
+Le remboursement par mois et le premier mois sont fixés par le DG à sa décision, selon le montant et ce
+que le salaire permet. Envoyés quand même, ils sont refusés en les nommant (`prohibited`). À la demande,
+seul le montant se vérifie (minimum et maximum du site) ; la durée maximale et la part du salaire
+s'appliquent à la décision du DG, comme dérogation à confirmer (ADR-229).
+
+`staff_debts.requested_installment`, `requested_first_period` et `reason` deviennent facultatifs : les
+demandes d'avant gardent ce qu'elles proposaient, les nouvelles n'en ont pas. Une demande sans mensualité
+n'a ni plan ni échéancier tant que le DG n'a pas décidé (`StaffDebtLedger::nextPeriod` le sait).
+
+## Les règles acceptées sont gardées telles qu'elles ont été lues
+
+`StaffDebtRules::conditions()` écrit les règles en phrases, une fois : fourchette du montant, décision du
+DG (montant, mensualité, premier mois, mode), durée maximale, part du salaire, tranches d'intérêt, pénalité
+de retard, dettes en cours au plus, rien retenu avant le versement, une dette à la fois sauf autorisation,
+règlement au départ (ADR-230), reconnaissance de dette. L'écran les montre telles quelles ; la demande les
+garde (`accepted_terms`) avec l'heure (`terms_accepted_at`). L'écran envoie l'empreinte des règles lues
+(`terms_version`, `conditionsVersion()`) : si elles ont changé entre la lecture et l'envoi, la demande est
+refusée et la case se décoche. Le DG relit sur la fiche de la dette les règles acceptées.
+
+## Une dette en cours ferme les demandes
+
+Une dette accordée ou en remboursement (`StaffDebtRules::ENGAGED`) ferme les demandes de son titulaire :
+il pourra en demander une autre une fois soldée. Un compte qui a reçu du Super Admin
+`staff_debts.request_additional` peut demander malgré tout — accordé à **aucun rôle** par défaut, posé
+compte par compte depuis « Rôles & permissions » (exception `ALLOW`, ADR-022). Ce droit ne lève ni « une
+seule demande en attente », ni le maximum de dettes en cours du site. La demande garde le nombre de dettes
+en cours à son envoi (`engaged_at_request`), lu par le DG (« demandée alors que 1 dette était en cours »).
+
+## Côté DG
+
+La fiche dit « À fixer par vous : la demande ne porte que le montant ». La mensualité est vide, le premier
+mois proposé est le mois suivant ; les durées proposées respectent la durée maximale du site
+(`quickMonths`) et « Au plus permis » reprend la mensualité que le salaire permet encore. « Ajustée » ne
+compare plus que le montant pour une demande sans mensualité. « Ses autres dettes en cours » compte aussi
+une dette accordée pas encore versée.
+
+## Droits et données
+
+```text
+staff_debts.request_additional   demander pendant une dette en cours   aucun rôle ; SUPER_ADMIN du portail
+```
+
+Migration `2026_12_06_090000_staff_debt_request_by_amount`, à jouer sur chaque site et sur le portail.
+
+## Signalé, non tranché
+
+```text
+autorisation ponctuelle    le droit vaut pour le compte, pas pour une seule demande : le retirer après
+                           usage est un geste du Super Admin
+premier mois proposé       le mois suivant la décision ; le DG le change à volonté
 ```

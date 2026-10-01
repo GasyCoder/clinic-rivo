@@ -57,6 +57,18 @@ export function installmentFor(amount, months) {
     return fromMinor(Math.min(amountMinor, Math.ceil(perMonth / 10000) * 10000));
 }
 
+/**
+ * ADR-234 — les durées proposées au DG pour fixer le remboursement d'une demande : 3, 6,
+ * 10, 12 mois, jamais au-delà de la durée maximale du site, qui est elle-même proposée.
+ */
+export function quickMonths(maxMonths = null) {
+    const max = Number(maxMonths) > 0 ? Number(maxMonths) : null;
+    const months = [3, 6, 10, 12].filter((count) => max === null || count <= max);
+    if (max !== null && ! months.includes(max)) months.push(max);
+
+    return months.sort((a, b) => a - b);
+}
+
 /** Les mois proposés pour un premier remboursement : ce mois-ci et les suivants. */
 export function periodOptions(currentMonth, count = 12, keep = null) {
     const options = Array.from({ length: count }, (_, index) => shiftMonth(currentMonth, index));

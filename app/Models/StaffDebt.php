@@ -26,10 +26,15 @@ use LogicException;
  * ADR-230 — la règle de pénalité de retard aussi ; un remboursement paie d'abord le montant et
  * son intérêt, les pénalités ensuite (jamais de pénalité sur une pénalité).
  * Jamais supprimée (ADR-010) : refusée, annulée, soldée ou remise.
+ *
+ * ADR-234 — l'employé ne demande que le montant (motif facultatif) et accepte les règles
+ * du site, gardées en phrases sur la demande ; le DG fixe la mensualité et le premier mois.
+ * Les demandes d'avant gardent la mensualité et le premier mois qu'elles proposaient.
  */
 #[Fillable([
     'number', 'employee_id', 'employee_name', 'employee_number',
     'requested_amount', 'requested_installment', 'requested_first_period', 'requested_interest_amount', 'reason', 'requested_at', 'requested_by',
+    'terms_accepted_at', 'accepted_terms', 'engaged_at_request',
     'status', 'pending_key',
     'amount', 'installment_amount', 'interest_amount', 'interest_mode', 'interest_value', 'interest_waived',
     'penalty_rate', 'penalty_grace_days', 'penalty_cap_rate', 'schedule_offset',
@@ -70,6 +75,9 @@ class StaffDebt extends Model
             'requested_first_period' => 'date',
             'requested_interest_amount' => 'decimal:2',
             'requested_at' => 'datetime',
+            'terms_accepted_at' => 'datetime',
+            'accepted_terms' => 'array',
+            'engaged_at_request' => 'integer',
             'status' => StaffDebtStatus::class,
             'amount' => 'decimal:2',
             'installment_amount' => 'decimal:2',

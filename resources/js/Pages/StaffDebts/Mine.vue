@@ -1,34 +1,39 @@
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { Head, useForm } from '@inertiajs/vue3';
 import {
-    Ban, BellRing, CalendarClock, CalendarRange, Check, ChevronDown, CircleAlert, CircleX, FileText, Gavel, Gift, HandCoins,
-    Hash, Hourglass, Info, Landmark, ListChecks, Lock, Percent, Plus, Scale, Send, UserRound, Wallet,
+    Ban, BellRing, CalendarClock, CalendarRange, Check, ChevronDown, CircleAlert, CircleX, Coins, FileText, Gavel, Gift, HandCoins,
+    Hash, Hourglass, Info, Landmark, ListChecks, Lock, Percent, Plus, Scale, ScrollText, Send, ShieldCheck, UserRound, Wallet,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
+import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import StaffDebtRepayments from '@/Components/StaffDebts/StaffDebtRepayments.vue';
 import StaffDebtStatusBadge from '@/Components/StaffDebts/StaffDebtStatusBadge.vue';
-import StaffDebtTermsFields from '@/Components/StaffDebts/StaffDebtTermsFields.vue';
 import { formatDate, formatDateTime, monthLabel } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
-import { STATUS_ICONS, debtPlan, debtSteps, isOpenDebt, planSummary, repaidShare, ruleIssues, tierLabel, toMinor, totalWithInterest } from '@/utilities/staffDebts';
+import { cn } from '@/lib/cn';
+import { STATUS_ICONS, debtSteps, isOpenDebt, planSummary, repaidShare, ruleIssues, tierLabel, toMinor, totalWithInterest } from '@/utilities/staffDebts';
 
 /**
- * ADR-228 — « Mes dettes » : demander une dette au DG (montant, remboursement par mois,
- * premier mois, motif), suivre sa décision, son versement et ses remboursements. Une
- * demande se retire tant que le DG n'a pas décidé. Pleine largeur : les dettes à gauche,
- * chacune avec son avancement en quatre étapes ; à droite, la fiche et le déroulé.
+ * ADR-228 — « Mes dettes » : demander une dette au DG, suivre sa décision, son versement
+ * et ses remboursements. Une demande se retire tant que le DG n'a pas décidé. Pleine
+ * largeur : les dettes à gauche, chacune avec son avancement en quatre étapes ; à droite,
+ * la fiche et le déroulé.
  *
- * ADR-229 — les règles du site (montants, durée, part du salaire, intérêts) se lisent
- * avant de demander, et la saisie dit ce qui les dépasse ; le serveur refuse de toute
- * façon. L'intérêt de la tranche s'ajoute au montant et se rembourse avec lui.
+ * ADR-229 — les règles du site se lisent avant de demander ; le montant hors de la
+ * fourchette se dit pendant la saisie, et le serveur refuse de toute façon.
+ *
+ * ADR-234 — la demande ne porte que le montant, un motif facultatif et l'acceptation des
+ * règles et des conditions du site (servies par le serveur, gardées sur la demande). Le
+ * remboursement par mois et le premier mois sont fixés par le DG.
  */
 defineOptions({ layout: AppLayout });
 
@@ -38,15 +43,19 @@ const props = defineProps({
 });
 
 const requesting = ref(false);
-const form = useForm({ amount: '', installment_amount: '', first_period: props.space.current_month, reason: '' });
+const form = useForm({ amount: '', reason: '', accept_terms: false, terms_version: props.space.conditions_version ?? '' });
 const rules = computed(() => props.space.rules ?? null);
-const requestTotal = computed(() => totalWithInterest(form.amount, rules.value?.interest_tiers ?? [])?.total ?? form.amount);
-const plan = computed(() => debtPlan(requestTotal.value, form.installment_amount, form.first_period));
-const limitIssues = computed(() => ruleIssues(form.amount, form.installment_amount, rules.value, formatMoney, rules.value?.max_installment ?? null));
-const ready = computed(() => plan.value !== null
-    && toMinor(form.installment_amount) <= toMinor(requestTotal.value)
-    && Object.keys(limitIssues.value).length === 0
-    && form.reason.trim().length >= 5);
+const conditions = computed(() => props.space.conditions ?? []);
+const requestTotals = computed(() => totalWithInterest(form.amount, rules.value?.interest_tiers ?? []));
+// Seul le montant se vérifie à la demande : le reste est fixé par le DG.
+const amountIssue = computed(() => ruleIssues(form.amount, null, rules.value, formatMoney).amount ?? null);
+const ready = computed(() => (toMinor(form.amount) ?? 0) > 0 && ! amountIssue.value && form.accept_terms);
+
+// Des règles changées entre-temps se relisent : la case se décoche.
+watch(() => props.space.conditions_version, (version) => {
+    form.terms_version = version ?? '';
+    form.accept_terms = false;
+});
 
 // Les règles du site, en phrases : ce qu'il faut savoir avant de demander.
 const ruleLines = computed(() => {
@@ -60,6 +69,7 @@ const ruleLines = computed(() => {
     if (value.max_salary_share) {
         lines.push({ icon: Wallet, text: `Les mensualités ne dépassent pas ${value.max_salary_share} % du salaire déclaré${value.max_installment ? ` : au plus ${formatMoney(value.max_installment)} par mois pour vous aujourd’hui` : ''}.` });
     }
+    lines.push({ icon: Lock, text: 'Une dette en cours ferme les demandes : en demander une autre avant de l’avoir soldée demande l’autorisation du Super Admin.' });
     if (value.max_open_debts) lines.push({ icon: Landmark, text: `${value.max_open_debts} dette${value.max_open_debts > 1 ? 's' : ''} en cours au plus à la fois.` });
     if (value.min_seniority_months) lines.push({ icon: CalendarClock, text: `Il faut ${value.min_seniority_months} mois d’ancienneté.` });
     if (value.exclude_interns) lines.push({ icon: UserRound, text: 'Les stagiaires ne demandent pas de dette.' });
@@ -69,6 +79,7 @@ const ruleLines = computed(() => {
 
 const openRequest = () => {
     form.reset();
+    form.terms_version = props.space.conditions_version ?? '';
     form.clearErrors();
     requesting.value = true;
 };
@@ -143,8 +154,8 @@ const nextRepayment = (debt) => (['ACTIVE', 'APPROVED'].includes(debt.status) ? 
 const owesArrears = (debt) => (toMinor(debt.arrears) ?? 0) > 0;
 
 const HOW_IT_WORKS = [
-    { icon: FileText, title: 'Vous demandez', text: 'Montant, remboursement par mois, premier mois et motif. Retirable tant que le DG n’a pas décidé.' },
-    { icon: Gavel, title: 'Le DG décide', text: 'Il accorde, ajuste ou refuse, et choisit le remboursement : retenue sur la paie ou espèces à la Caisse.' },
+    { icon: FileText, title: 'Vous demandez', text: 'Le montant, un motif si vous le voulez, et vous acceptez les règles du site. Retirable tant que le DG n’a pas décidé.' },
+    { icon: Gavel, title: 'Le DG décide', text: 'Il accorde, ajuste le montant ou refuse. Il fixe le remboursement par mois, le premier mois, et la retenue sur la paie ou les espèces à la Caisse.' },
     { icon: Wallet, title: 'Elle vous est versée', text: 'L’argent vous est remis hors RIVO, puis marqué versé. Rien n’est retenu avant le versement.' },
     { icon: Landmark, title: 'Vous remboursez', text: 'Chaque mois, retenu sur votre paie ou remis à la Caisse contre un reçu.' },
 ];
@@ -280,10 +291,14 @@ onMounted(async () => {
                         <div class="grid gap-3 text-sm lg:grid-cols-3">
                             <div class="rounded-lg border border-border bg-card px-4 py-3">
                                 <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><FileText class="h-3.5 w-3.5" />Votre demande</p>
-                                <p class="mt-1.5 font-semibold tabular-nums text-foreground">{{ formatMoney(debt.requested.amount) }} · {{ formatMoney(debt.requested.installment_amount) }} par mois</p>
+                                <p class="mt-1.5 font-semibold tabular-nums text-foreground">
+                                    {{ formatMoney(debt.requested.amount) }}<template v-if="debt.requested.installment_amount"> · {{ formatMoney(debt.requested.installment_amount) }} par mois</template>
+                                </p>
                                 <p v-if="Number(debt.requested.interest_amount) > 0" class="flex items-center gap-1 text-xs text-muted-foreground"><Percent class="h-3 w-3" />Intérêt {{ formatMoney(debt.requested.interest_amount) }} · {{ formatMoney(debt.requested.total) }} à rembourser</p>
-                                <p class="text-xs text-muted-foreground first-letter:uppercase">{{ planSummary(debt.requested.plan) }}</p>
-                                <p class="mt-2 rounded-md bg-muted/60 px-2.5 py-1.5 text-xs text-foreground">{{ debt.reason }}</p>
+                                <p v-if="debt.requested.plan" class="text-xs text-muted-foreground first-letter:uppercase">{{ planSummary(debt.requested.plan) }}</p>
+                                <p v-else class="text-xs text-muted-foreground">Remboursement fixé par le DG.</p>
+                                <p v-if="debt.reason" class="mt-2 rounded-md bg-muted/60 px-2.5 py-1.5 text-xs text-foreground">{{ debt.reason }}</p>
+                                <p v-if="debt.terms" class="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><ShieldCheck class="h-3.5 w-3.5 shrink-0 text-emerald-600" />Règles acceptées le {{ formatDateTime(debt.terms.accepted_at) }}</p>
                             </div>
 
                             <div v-if="debt.granted" class="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
@@ -377,15 +392,58 @@ onMounted(async () => {
             </aside>
         </div>
 
-        <Dialog :open="requesting" title="Demander une dette" description="Votre demande part au DG, qui l’accorde, l’ajuste ou la refuse." size="lg" :dismissible="! form.processing" @update:open="(value) => form.processing || (requesting = value)">
+        <Dialog :open="requesting" title="Demander une dette" description="Indiquez le montant : le DG fixe le remboursement, puis l’accorde, l’ajuste ou la refuse." size="lg" :dismissible="! form.processing" @update:open="(value) => form.processing || (requesting = value)">
             <form class="space-y-4" @submit.prevent="submit">
-                <StaffDebtTermsFields :form="form" :current-month="space.current_month" :rules="rules" :max-installment="rules?.max_installment ?? null" limit-mode="refuse" :disabled="form.processing" />
-                <FormField label="Motif" :icon="FileText" required :error="form.errors.reason">
-                    <Textarea v-model="form.reason" :rows="3" maxlength="1000" placeholder="Pourquoi cette dette : lu par le DG seulement" :disabled="form.processing" />
+                <FormField label="Montant demandé" :icon="Coins" required :error="form.errors.amount">
+                    <div class="relative">
+                        <IconInput
+                            v-model="form.amount"
+                            :icon="Coins"
+                            inputmode="decimal"
+                            placeholder="Ex. 300000"
+                            :disabled="form.processing"
+                            :aria-invalid="amountIssue ? 'true' : undefined"
+                            :class="cn('pe-10 tabular-nums', amountIssue && 'border-destructive')"
+                        />
+                        <span class="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">Ar</span>
+                    </div>
+                    <p v-if="rules?.min_amount && rules?.max_amount" :class="cn('mt-1 text-xs', amountIssue ? 'font-medium text-destructive' : 'text-muted-foreground')">
+                        De {{ formatMoney(rules.min_amount) }} à {{ formatMoney(rules.max_amount) }}.
+                    </p>
+                    <p v-if="requestTotals?.interest" class="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+                        <Percent class="h-3.5 w-3.5 text-primary" />
+                        + intérêt <strong class="tabular-nums text-foreground">{{ formatMoney(requestTotals.interest.amount) }}</strong>
+                        = <strong class="tabular-nums text-foreground">{{ formatMoney(requestTotals.total) }}</strong> à rembourser
+                    </p>
                 </FormField>
+
+                <div class="flex items-start gap-3 rounded-xl border border-dashed border-border bg-muted/40 px-4 py-3 text-sm">
+                    <CalendarRange class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <p class="text-foreground">
+                        Le DG fixe le remboursement par mois et le premier mois selon le montant<template v-if="rules?.max_installment"> et votre salaire — au plus <strong class="tabular-nums">{{ formatMoney(rules.max_installment) }}</strong> par mois pour vous aujourd’hui</template>.
+                        Il choisit la retenue sur la paie ou les espèces à la Caisse.
+                    </p>
+                </div>
+
+                <FormField label="Motif" :icon="FileText" hint="(facultatif)" :error="form.errors.reason">
+                    <Textarea v-model="form.reason" :rows="2" maxlength="1000" placeholder="Pourquoi cette dette : lu par le DG seulement" :disabled="form.processing" />
+                </FormField>
+
+                <section class="space-y-3 rounded-xl border border-border px-4 py-3" aria-labelledby="regles-dette">
+                    <h3 id="regles-dette" class="flex items-center gap-2 text-sm font-semibold text-foreground"><ScrollText class="h-4 w-4 text-muted-foreground" />Règles et conditions</h3>
+                    <ul class="max-h-52 space-y-1.5 overflow-y-auto pe-1 text-xs leading-5 text-foreground">
+                        <li v-for="(line, index) in conditions" :key="index" class="flex items-start gap-2"><Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />{{ line }}</li>
+                    </ul>
+                    <label class="flex items-start gap-3 border-t border-border pt-3 text-sm">
+                        <Checkbox v-model="form.accept_terms" class="mt-0.5" :disabled="form.processing" :aria-invalid="form.errors.accept_terms ? 'true' : undefined" />
+                        <span class="font-semibold text-foreground">J’ai lu et j’accepte les règles et les conditions ci-dessus.</span>
+                    </label>
+                    <p v-if="form.errors.accept_terms" class="text-sm font-medium text-destructive">{{ form.errors.accept_terms }}</p>
+                </section>
+
                 <p v-if="form.errors.employee" class="text-sm font-medium text-destructive">{{ form.errors.employee }}</p>
                 <div class="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-                    <p class="me-auto flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarRange class="h-3.5 w-3.5" />Remboursée par retenue sur votre paie ou en espèces : le DG décide.</p>
+                    <p class="me-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Lock class="h-3.5 w-3.5" />Votre motif n’est lu que par le DG.</p>
                     <Button type="button" variant="outline" :disabled="form.processing" @click="requesting = false">Annuler</Button>
                     <Button type="submit" :disabled="! ready || form.processing"><Send class="h-4 w-4" />Envoyer au DG</Button>
                 </div>

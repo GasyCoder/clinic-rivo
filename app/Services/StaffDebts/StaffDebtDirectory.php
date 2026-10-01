@@ -64,7 +64,8 @@ final class StaffDebtDirectory
             ! $employee->active || $employee->trashed() => 'Votre fiche n’est plus en poste : aucune demande n’est possible.',
             $debts->contains(fn (StaffDebt $debt) => $debt->status === StaffDebtStatus::Requested) => 'Votre demande en cours attend la décision du DG. Vous pourrez en faire une autre ensuite, ou la retirer.',
             // ADR-229 — les règles du site : demandes ouvertes, stagiaires, ancienneté, dettes en cours.
-            default => $this->rules->requestBlocker($employee),
+            // ADR-234 — une dette en cours ferme la demande, sauf autorisation du Super Admin.
+            default => $this->rules->requestBlocker($employee, $user),
         };
         $cap = $employee !== null ? $this->rules->installmentCapMinor($employee) : null;
 
@@ -87,6 +88,10 @@ final class StaffDebtDirectory
             // Les règles du site, pour l'aperçu pendant la saisie ; le serveur revérifie tout.
             // Le plafond de mensualité est tiré de son propre salaire : jamais le salaire lui-même.
             'rules' => [...$this->rules->present(), 'max_installment' => $cap !== null ? Money::fromMinor($cap['available']) : null],
+            // ADR-234 — les règles et les conditions à accepter, et leur empreinte : la demande
+            // est refusée si elles changent entre la lecture et l'envoi.
+            'conditions' => $this->rules->conditions(),
+            'conditions_version' => $this->rules->conditionsVersion(),
             'summary' => [
                 'balance' => Money::fromMinor((int) $owing->sum(fn (StaffDebt $debt) => $debt->balanceMinor())),
                 'active' => $owing->count(),
@@ -165,7 +170,8 @@ final class StaffDebtDirectory
             'penalties' => Money::fromMinor($debt->penaltiesMinor()),
             'awaits_departure' => $debt->awaitsDepartureSettlement(),
             'departure_settled' => $debt->departure_settled_at !== null,
-            'installment_amount' => (string) ($debt->installment_amount ?? $debt->requested_installment),
+            // Null tant que le DG n'a pas fixé le remboursement d'une demande (ADR-234).
+            'installment_amount' => ($debt->installment_amount ?? $debt->requested_installment) !== null ? (string) ($debt->installment_amount ?? $debt->requested_installment) : null,
             'repayment_mode' => $debt->repayment_mode?->value,
             'repayment_mode_label' => $debt->repayment_mode?->label(),
             'balance' => Money::fromMinor($debt->balanceMinor()),
@@ -189,14 +195,23 @@ final class StaffDebtDirectory
         return [
             ...$this->row($debt, $today),
             'reason' => $debt->reason,
+            // ADR-234 — une demande ne porte plus que le montant : la mensualité, le premier mois
+            // et le plan sont null jusqu'à la décision du DG ; les demandes d'avant les gardent.
             'requested' => [
                 'amount' => (string) $debt->requested_amount,
-                'installment_amount' => (string) $debt->requested_installment,
+                'installment_amount' => $debt->requested_installment !== null ? (string) $debt->requested_installment : null,
                 'first_period' => $debt->requested_first_period?->format('Y-m'),
                 'interest_amount' => (string) $debt->requested_interest_amount,
                 'total' => Money::fromMinor($debt->requestedTotalMinor()),
-                'plan' => StaffDebtLedger::plan($debt->requestedTotalMinor(), Money::toMinor((string) $debt->requested_installment), $debt->requested_first_period),
+                'plan' => $debt->requested_installment !== null && $debt->requested_first_period !== null
+                    ? StaffDebtLedger::plan($debt->requestedTotalMinor(), Money::toMinor((string) $debt->requested_installment), $debt->requested_first_period)
+                    : null,
             ],
+            'terms' => $debt->terms_accepted_at === null ? null : [
+                'accepted_at' => $debt->terms_accepted_at->toIso8601String(),
+                'conditions' => array_values($debt->accepted_terms['conditions'] ?? []),
+            ],
+            'engaged_at_request' => (int) ($debt->engaged_at_request ?? 0),
             'granted' => $debt->amount === null ? null : [
                 'amount' => (string) $debt->amount,
                 'installment_amount' => (string) $debt->installment_amount,
@@ -211,10 +226,12 @@ final class StaffDebtDirectory
                 ],
                 'total' => Money::fromMinor($debt->totalDueMinor()),
                 'plan' => $plan,
+                // Ajustée : le DG a changé ce qui était demandé. Une demande sans mensualité ni
+                // premier mois (ADR-234) ne se compare que sur le montant.
                 'adjusted' => $debt->requested_amount !== null && (
                     (string) $debt->amount !== (string) $debt->requested_amount
-                    || (string) $debt->installment_amount !== (string) $debt->requested_installment
-                    || $debt->first_period?->format('Y-m') !== $debt->requested_first_period?->format('Y-m')
+                    || ($debt->requested_installment !== null && (string) $debt->installment_amount !== (string) $debt->requested_installment)
+                    || ($debt->requested_first_period !== null && $debt->first_period?->format('Y-m') !== $debt->requested_first_period->format('Y-m'))
                 ),
             ],
             'decision_note' => $debt->decision_note,
@@ -459,8 +476,10 @@ final class StaffDebtDirectory
             return null;
         }
 
+        // Ses autres dettes en cours : accordées ou en remboursement (ADR-234).
         $others = StaffDebt::query()->where('employee_id', $employee->getKey())->whereKeyNot($debt->getKey())
-            ->where('status', StaffDebtStatus::Active->value)->with(['repayments', 'penalties'])->get();
+            ->whereIn('status', array_map(fn (StaffDebtStatus $status) => $status->value, StaffDebtRules::ENGAGED))
+            ->with(['repayments', 'penalties'])->get();
         $salary = $viewer->can('employees.payroll.view') && $employee->remuneration_type?->hasAmount() && (float) $employee->remuneration_amount > 0
             ? (string) $employee->remuneration_amount
             : null;
@@ -509,7 +528,8 @@ final class StaffDebtDirectory
     {
         $events = [[
             'key' => 'requested', 'at' => $debt->requested_at?->toIso8601String(), 'by' => $debt->requester?->name,
-            'label' => 'Demandée', 'detail' => StaffDebtNotifier::money($debt->requested_amount).' — '.StaffDebtNotifier::money($debt->requested_installment).' par mois',
+            'label' => 'Demandée', 'detail' => StaffDebtNotifier::money($debt->requested_amount)
+                .($debt->requested_installment !== null ? ' — '.StaffDebtNotifier::money($debt->requested_installment).' par mois' : ''),
         ]];
 
         if ($debt->decided_at !== null) {

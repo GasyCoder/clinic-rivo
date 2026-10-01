@@ -6,7 +6,7 @@ import IconInput from '@/Components/Shadcn/IconInput.vue';
 import { cn } from '@/lib/cn';
 import Select from '@/Components/Shadcn/Select.vue';
 import { formatMoney } from '@/utilities/money';
-import { debtPlan, fromMinor, installmentFor, periodOptions, planSummary, ruleIssues, salaryShare, toMinor, totalWithInterest } from '@/utilities/staffDebts';
+import { debtPlan, fromMinor, installmentFor, periodOptions, planSummary, quickMonths, ruleIssues, salaryShare, toMinor, totalWithInterest } from '@/utilities/staffDebts';
 
 /**
  * ADR-228 — les conditions d'une dette, saisies de la même façon par l'employé qui la
@@ -17,6 +17,10 @@ import { debtPlan, fromMinor, installmentFor, periodOptions, planSummary, ruleIs
  * ADR-229 — avec les règles du site : l'intérêt de la tranche s'ajoute au montant, le
  * plan porte sur le total, et les limites dépassées se disent pendant la saisie —
  * un refus pour l'employé, une dérogation à confirmer pour le DG.
+ *
+ * ADR-234 — c'est le DG qui fixe le remboursement d'une demande : les durées proposées
+ * respectent la durée maximale du site, et « Au plus permis » reprend la mensualité que le
+ * salaire permet encore.
  */
 const props = defineProps({
     form: { type: Object, required: true },
@@ -68,10 +72,21 @@ const tooBig = computed(() => {
     return total !== null && installment !== null && installment > total;
 });
 
-const QUICK = [3, 6, 10, 12];
+const quick = computed(() => quickMonths(props.rules?.max_months ?? null));
 const pickMonths = (months) => {
     const installment = installmentFor(totals.value?.total ?? props.form.amount, months);
     if (installment) props.form.installment_amount = installment.replace(/\.00$/, '');
+};
+// La mensualité que le salaire permet encore, sans dépasser ce qui est à rembourser.
+const salaryMax = computed(() => {
+    const cap = toMinor(props.maxInstallment);
+    const total = toMinor(totals.value?.total ?? props.form.amount);
+    if (! cap || ! total) return null;
+
+    return fromMinor(Math.min(cap, total));
+});
+const pickSalaryMax = () => {
+    if (salaryMax.value) props.form.installment_amount = salaryMax.value.replace(/\.00$/, '');
 };
 </script>
 
@@ -110,12 +125,19 @@ const pickMonths = (months) => {
                 <div v-if="! disabled && toMinor(form.amount)" class="mt-2 flex flex-wrap items-center gap-1.5">
                     <span class="text-xs text-muted-foreground">Rembourser en</span>
                     <button
-                        v-for="months in QUICK"
+                        v-for="months in quick"
                         :key="months"
                         type="button"
                         class="rounded-full border border-border bg-card px-2.5 py-0.5 text-xs font-medium text-foreground transition hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         @click="pickMonths(months)"
                     >{{ months }} mois</button>
+                    <button
+                        v-if="salaryMax"
+                        type="button"
+                        class="rounded-full border border-dashed border-border bg-card px-2.5 py-0.5 text-xs font-medium text-foreground transition hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        title="La mensualité la plus haute que son salaire permet encore, dettes en cours comprises"
+                        @click="pickSalaryMax"
+                    >Au plus permis : {{ formatMoney(salaryMax) }}</button>
                 </div>
             </FormField>
         </div>

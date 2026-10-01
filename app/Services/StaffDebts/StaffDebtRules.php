@@ -6,6 +6,7 @@ use App\Enums\StaffDebtStatus;
 use App\Models\Employee;
 use App\Models\StaffDebt;
 use App\Models\StaffDebtSetting;
+use App\Models\User;
 use App\Services\Administration\InternshipDirectory;
 use App\Support\Money;
 use App\Support\StaffDebts\StaffDebtInterest;
@@ -23,6 +24,11 @@ use Illuminate\Support\Collection;
  *
  * ADR-229 (amendement du 2026-09-30) — sans montant minimum et maximum réglés, le
  * personnel ne peut pas demander : aucun montant n'est inventé à la place du site.
+ *
+ * ADR-234 — une dette en cours (accordée ou en remboursement) ferme les demandes, sauf
+ * pour un compte autorisé par le Super Admin (`staff_debts.request_additional`) ; le
+ * maximum de dettes en cours du site s'applique alors. L'employé ne demande que le
+ * montant : il accepte les règles et les conditions du site, écrites ici en phrases.
  */
 final class StaffDebtRules
 {
@@ -30,6 +36,9 @@ final class StaffDebtRules
     public const ENGAGED = [StaffDebtStatus::Approved, StaffDebtStatus::Active];
 
     public const LIMITS_MISSING = 'Les demandes de dette ne sont pas encore ouvertes sur ce site : le DG doit d’abord régler le montant minimum et le montant maximum.';
+
+    /** ADR-234 — le droit, accordé par le Super Admin, de demander pendant une dette en cours. */
+    public const ADDITIONAL = 'staff_debts.request_additional';
 
     private ?StaffDebtSetting $setting = null;
 
@@ -86,8 +95,12 @@ final class StaffDebtRules
         ];
     }
 
-    /** Pourquoi cette personne ne peut pas demander maintenant ; null si elle le peut. */
-    public function requestBlocker(Employee $employee, ?Carbon $today = null): ?string
+    /**
+     * Pourquoi cette personne ne peut pas demander maintenant ; null si elle le peut.
+     * `$requester` : le compte qui demande, pour l'autorisation de cumuler (ADR-234) ;
+     * sans lui, une dette en cours ferme toujours la demande.
+     */
+    public function requestBlocker(Employee $employee, ?User $requester = null, ?Carbon $today = null): ?string
     {
         $today ??= now();
         $setting = $this->setting();
@@ -115,7 +128,15 @@ final class StaffDebtRules
             }
         }
 
-        if ($setting->max_open_debts && $this->engagedDebts($employee)->count() >= $setting->max_open_debts) {
+        $engaged = $this->engagedDebts($employee);
+
+        // ADR-234 — une dette en cours ferme les demandes, sauf autorisation du Super Admin.
+        if ($engaged->isNotEmpty() && ! $requester?->can(self::ADDITIONAL)) {
+            return ($engaged->count() > 1 ? 'Vous avez déjà des dettes en cours ('.$engaged->pluck('number')->implode(', ').')' : 'Vous avez déjà une dette en cours ('.$engaged->first()->number.')')
+                .' : vous pourrez en demander une autre une fois soldée. Demander pendant une dette en cours demande l’autorisation du Super Admin.';
+        }
+
+        if ($setting->max_open_debts && $engaged->count() >= $setting->max_open_debts) {
             return 'Vous avez déjà '.$this->plural($setting->max_open_debts, 'dette').' en cours, le maximum sur ce site : attendez d’en avoir soldé une.';
         }
 
@@ -132,13 +153,15 @@ final class StaffDebtRules
 
     /**
      * Ce que des conditions dépassent, par champ. Vide quand tout est dans les limites.
+     * Sans mensualité (ADR-234 : la demande de l'employé), seuls le montant et le nombre
+     * de dettes en cours se vérifient ; la durée et la part du salaire attendent le DG.
      *
      * @return array<string, string>
      */
-    public function violations(Employee $employee, int $amountMinor, int $installmentMinor, ?int $ignoreDebtId = null): array
+    public function violations(Employee $employee, int $amountMinor, ?int $installmentMinor, ?int $ignoreDebtId = null): array
     {
         $setting = $this->setting();
-        if ($setting === null || $amountMinor <= 0 || $installmentMinor <= 0) {
+        if ($setting === null || $amountMinor <= 0 || ($installmentMinor !== null && $installmentMinor <= 0)) {
             return [];
         }
 
@@ -149,6 +172,14 @@ final class StaffDebtRules
             $violations['amount'] = 'Le montant minimum est de '.StaffDebtNotifier::money($setting->min_amount).'.';
         } elseif ($setting->max_amount !== null && $amountMinor > Money::toMinor((string) $setting->max_amount)) {
             $violations['amount'] = 'Le montant maximum est de '.StaffDebtNotifier::money($setting->max_amount).'.';
+        }
+
+        if ($installmentMinor === null) {
+            if ($setting->max_open_debts && $this->engagedDebts($employee, $ignoreDebtId)->count() >= $setting->max_open_debts) {
+                $violations['debt'] = 'Cette personne a déjà '.$this->plural($this->engagedDebts($employee, $ignoreDebtId)->count(), 'dette').' accordée ou en cours (maximum : '.$setting->max_open_debts.').';
+            }
+
+            return $violations;
         }
 
         if ($setting->max_months) {
@@ -227,6 +258,63 @@ final class StaffDebtRules
         ];
     }
 
+    /**
+     * ADR-234 — les règles et les conditions qu'un membre du personnel accepte en demandant
+     * une dette, en phrases. L'écran les montre telles quelles et la demande garde celles
+     * qui étaient en vigueur : ce qui est gardé est ce qui a été lu.
+     *
+     * @return list<string>
+     */
+    public function conditions(): array
+    {
+        $setting = $this->setting();
+        $money = fn (mixed $amount): string => $this->money($amount);
+        $lines = [];
+
+        if ($setting?->min_amount !== null && $setting?->max_amount !== null) {
+            $lines[] = 'Une dette va de '.$money($setting->min_amount).' à '.$money($setting->max_amount).'.';
+        }
+
+        $lines[] = 'Le DG décide : il accorde, ajuste le montant ou refuse. Il fixe le remboursement par mois, le premier mois et le mode — retenue sur la paie ou espèces à la Caisse.';
+
+        if ($setting?->max_months) {
+            $lines[] = "Une dette se rembourse en {$setting->max_months} mois au plus, intérêt compris.";
+        }
+
+        if ($setting?->max_salary_share) {
+            $lines[] = "Les remboursements de toutes vos dettes ne dépassent pas {$setting->max_salary_share} % de votre salaire déclaré.";
+        }
+
+        if (($tiers = $this->tiers()) !== []) {
+            $lines[] = 'Un intérêt s’ajoute une fois au montant et se rembourse avec lui — '
+                .implode(' ; ', array_map(fn (array $tier): string => $this->tierText($tier), $tiers)).'. Le DG peut le remettre.';
+        }
+
+        if (($penalty = $this->penaltyRule()) !== null) {
+            $lines[] = 'Remboursée en espèces, une mensualité en retard porte une pénalité de '.StaffDebtPenalties::rate($penalty['penalty_rate']).' % par mois sur le montant en retard'
+                .($penalty['penalty_grace_days'] > 0 ? ', après '.$this->plural($penalty['penalty_grace_days'], 'jour').' de grâce' : '')
+                .($penalty['penalty_cap_rate'] !== null ? ', plafonnée à '.StaffDebtPenalties::rate($penalty['penalty_cap_rate']).' % du montant emprunté' : '')
+                .'. Le DG peut l’écarter à l’accord.';
+        }
+
+        if ($setting?->max_open_debts) {
+            $lines[] = "{$setting->max_open_debts} dette".($setting->max_open_debts > 1 ? 's' : '').' en cours au plus à la fois.';
+        }
+
+        $lines[] = 'Rien n’est retenu avant que la dette vous soit versée. Une retenue sur la paie ne dépasse jamais le salaire du mois : le reste est reporté.';
+        $lines[] = 'Tant qu’une dette est en cours, vous ne pouvez pas en demander une autre, sauf autorisation du Super Admin.';
+        $lines[] = 'Si vous quittez la clinique avant d’avoir tout remboursé, le reste se règle avec le DG ; il peut être retenu sur votre solde de tout compte.';
+        $lines[] = 'Après l’accord, le DG peut vous faire signer une reconnaissance de dette qui reprend ces conditions.';
+
+        return $lines;
+    }
+
+    /** L'empreinte des conditions : la demande est refusée si elles ont changé depuis leur lecture. */
+    public function conditionsVersion(): string
+    {
+        return sha1((string) json_encode($this->conditions(), JSON_UNESCAPED_UNICODE));
+    }
+
     /** @return Collection<int, StaffDebt> */
     public function engagedDebts(Employee $employee, ?int $ignoreDebtId = null)
     {
@@ -235,6 +323,27 @@ final class StaffDebtRules
             ->whereIn('status', array_map(fn (StaffDebtStatus $status) => $status->value, self::ENGAGED))
             ->when($ignoreDebtId !== null, fn ($query) => $query->whereKeyNot($ignoreDebtId))
             ->get();
+    }
+
+    /** @param  array{from: string, to: ?string, mode: string, value: string}  $tier */
+    private function tierText(array $tier): string
+    {
+        $range = filled($tier['to'] ?? null)
+            ? 'de '.$this->money($tier['from']).' à '.$this->money($tier['to'])
+            : 'à partir de '.$this->money($tier['from']);
+        $value = $tier['mode'] === 'PERCENT' ? StaffDebtPenalties::rate($tier['value']).' %' : $this->money($tier['value']);
+
+        return "{$range} : {$value}";
+    }
+
+    /** « 999 999,99 Ar » : les centimes ne s'écrivent que s'il y en a — une borne de tranche ne s'arrondit pas. */
+    private function money(mixed $amount): string
+    {
+        $minor = Money::toMinor((string) $amount);
+
+        return $minor % 100 === 0
+            ? StaffDebtNotifier::money($amount)
+            : number_format($minor / 100, 2, ',', ' ').' Ar';
     }
 
     private function plural(int $count, string $word): string

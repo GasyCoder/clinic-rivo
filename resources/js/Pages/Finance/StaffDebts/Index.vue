@@ -143,7 +143,8 @@ const exportUrl = computed(() => {
                                 <p v-if="Number(debt.interest_amount) > 0" class="text-xs text-muted-foreground">+ {{ formatMoney(debt.interest_amount) }} d’intérêt</p>
                             </td>
                             <td class="px-4 py-3">
-                                <p class="text-foreground">{{ formatMoney(debt.installment_amount) }} / mois</p>
+                                <p v-if="debt.installment_amount" class="text-foreground">{{ formatMoney(debt.installment_amount) }} / mois</p>
+                                <p v-else class="text-muted-foreground">À fixer par le DG</p>
                                 <p class="text-xs text-muted-foreground">
                                     {{ debt.repayment_mode_label ?? 'Mode à décider' }}<template v-if="debt.next_period"> · <span class="capitalize">{{ monthLabel(debt.next_period) }}</span></template>
                                 </p>

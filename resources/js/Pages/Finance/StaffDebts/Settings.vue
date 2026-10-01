@@ -94,7 +94,7 @@ const submit = () => form
 const LIMITS = [
     { key: 'max_months', label: 'Durée maximale', suffix: 'mois', icon: CalendarRange, help: 'La dette se rembourse en ce nombre de mois au plus, intérêt compris.' },
     { key: 'max_salary_share', label: 'Part du salaire', suffix: '%', icon: Wallet, help: 'Les mensualités de toutes ses dettes ne dépassent pas cette part du salaire déclaré.' },
-    { key: 'max_open_debts', label: 'Dettes en cours par personne', suffix: 'au plus', icon: Landmark, help: 'Accordées ou en remboursement, à la fois.' },
+    { key: 'max_open_debts', label: 'Dettes en cours par personne', suffix: 'au plus', icon: Landmark, help: 'Accordées ou en remboursement, à la fois. Sans autorisation du Super Admin (staff_debts.request_additional), une seule : une dette en cours ferme les demandes.' },
     { key: 'min_seniority_months', label: 'Ancienneté minimale', suffix: 'mois', icon: CalendarClock, help: 'Depuis la date d’entrée de sa fiche.' },
 ];
 </script>

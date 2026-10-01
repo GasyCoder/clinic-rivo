@@ -26,6 +26,7 @@ use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -36,7 +37,9 @@ use Tests\TestCase;
  * compte, décidées, versées (hors RIVO) et réglées dans Finance au portail — par l'API
  * du site, au nom du Super Admin —, remboursées par retenue sur la paie du mois (jamais
  * plus que le brut) ou en espèces à la Caisse. Limites, intérêts par tranche, dérogations
- * du DG, relances des retards et export.
+ * du DG, relances des retards et export. ADR-234 — la demande ne porte que le montant et
+ * l'acceptation des règles ; le DG fixe le remboursement ; une dette en cours ferme les
+ * demandes, sauf autorisation du Super Admin.
  */
 class StaffDebtTest extends TestCase
 {
@@ -82,26 +85,35 @@ class StaffDebtTest extends TestCase
         [$user] = $this->staff(salary: 400000);
 
         $this->actingAs($user)->get('/mes-dettes')->assertInertia(fn (Assert $page) => $page
-            ->component('StaffDebts/Mine')->where('space.can_request', true)->where('space.debts', [])->etc());
+            ->component('StaffDebts/Mine')->where('space.can_request', true)->where('space.debts', [])
+            ->where('space.conditions_version', app(StaffDebtRules::class)->conditionsVersion())
+            ->has('space.conditions')->etc());
 
-        $this->actingAs($user)->post('/mes-dettes', [
-            'amount' => '300000', 'installment_amount' => '100000', 'first_period' => '2026-10', 'reason' => 'Frais de scolarité',
-        ])->assertSessionHasNoErrors()->assertSessionHas('status');
+        // ADR-234 — le montant et les règles acceptées ; pas de mensualité ni de premier mois.
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(300000, ['reason' => 'Frais de scolarité']))
+            ->assertSessionHasNoErrors()->assertSessionHas('status');
 
         $debt = StaffDebt::query()->sole();
         $this->assertSame(StaffDebtStatus::Requested, $debt->status);
         $this->assertSame('300000.00', (string) $debt->requested_amount);
+        $this->assertNull($debt->requested_installment);
+        $this->assertNull($debt->requested_first_period);
+        $this->assertNotNull($debt->terms_accepted_at);
+        $this->assertSame(app(StaffDebtRules::class)->conditions(), $debt->accepted_terms['conditions']);
+        $this->assertSame(0, $debt->engaged_at_request);
         $this->assertStringContainsString('DP-', $debt->number);
 
         // Une seule demande en attente à la fois.
-        $this->actingAs($user)->post('/mes-dettes', [
-            'amount' => '10000', 'installment_amount' => '5000', 'first_period' => '2026-10', 'reason' => 'Autre besoin',
-        ])->assertSessionHasErrors('employee');
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(10000, ['reason' => 'Autre besoin']))->assertSessionHasErrors('employee');
 
         $this->actingAs($user)->get('/mes-dettes')->assertInertia(fn (Assert $page) => $page
             ->where('space.can_request', false)
-            ->where('space.debts.0.requested.plan.count', 3)
-            ->where('space.debts.0.requested.plan.last_period', '2026-12')
+            ->where('space.debts.0.requested.installment_amount', null)
+            ->where('space.debts.0.requested.plan', null)
+            ->where('space.debts.0.installment_amount', null)
+            ->where('space.debts.0.schedule', [])
+            ->where('space.debts.0.timeline.0.detail', '300 000 Ar')
+            ->where('space.debts.0.terms.conditions', app(StaffDebtRules::class)->conditions())
             ->where('space.debts.0.can.withdraw', true)
             ->etc());
 
@@ -110,28 +122,98 @@ class StaffDebtTest extends TestCase
         $this->assertNull($debt->fresh()->pending_key);
     }
 
-    public function test_a_request_is_refused_without_a_linked_record_or_with_incoherent_terms(): void
+    public function test_a_request_needs_a_linked_record_and_the_accepted_rules_and_never_sets_the_repayment(): void
     {
         $unlinked = $this->user(['staff_debts.request'], 'NURSE');
-        $this->actingAs($unlinked)->post('/mes-dettes', [
-            'amount' => '10000', 'installment_amount' => '5000', 'first_period' => '2026-10', 'reason' => 'Besoin urgent',
-        ])->assertSessionHasErrors('employee');
+        $this->actingAs($unlinked)->post('/mes-dettes', $this->ask(10000))->assertSessionHasErrors('employee');
 
         [$user] = $this->staff(salary: 400000);
-        $this->actingAs($user)->post('/mes-dettes', [
-            'amount' => '10000', 'installment_amount' => '20000', 'first_period' => '2026-10', 'reason' => 'Besoin urgent',
-        ])->assertSessionHasErrors('installment_amount');
-        $this->actingAs($user)->post('/mes-dettes', [
-            'amount' => '10000', 'installment_amount' => '5000', 'first_period' => '2026-08', 'reason' => 'Besoin urgent',
-        ])->assertSessionHasErrors('first_period');
 
+        // Le remboursement est fixé par le DG : l'employé ne le propose pas.
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(10000, ['installment_amount' => '5000', 'first_period' => '2026-10']))
+            ->assertSessionHasErrors(['installment_amount', 'first_period']);
+
+        // Les règles et les conditions s'acceptent, telles qu'elles sont en vigueur.
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(10000, ['accept_terms' => false]))->assertSessionHasErrors('accept_terms');
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(10000, ['terms_version' => sha1('anciennes règles')]))
+            ->assertSessionHasErrors(['accept_terms' => 'Les règles du site ont changé pendant que vous remplissiez la demande : relisez-les, puis cochez à nouveau.']);
         $this->assertSame(0, StaffDebt::query()->count());
+
+        // Le motif est facultatif.
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(10000, ['reason' => '']))->assertSessionHasNoErrors();
+        $this->assertNull(StaffDebt::query()->sole()->reason);
+    }
+
+    public function test_a_debt_in_progress_closes_requests_unless_the_super_admin_allows_it(): void
+    {
+        [$user, $employee] = $this->staff(salary: 400000);
+        $debt = $this->approved($user, 100000, 50000, '2026-10');
+
+        // Accordée, pas encore versée : elle est en cours, la demande suivante attend.
+        $this->actingAs($user)->get('/mes-dettes')->assertInertia(fn (Assert $page) => $page
+            ->where('space.can_request', false)
+            ->where('space.request_blocker', fn (string $blocker) => str_contains($blocker, $debt->number) && str_contains($blocker, 'autorisation du Super Admin'))
+            ->etc());
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(50000))->assertSessionHasErrors('employee');
+        $this->disburse($debt);
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(50000))->assertSessionHasErrors('employee');
+        $this->assertSame(1, StaffDebt::query()->count());
+
+        // Le Super Admin l'autorise, pour ce compte seulement.
+        DB::table('user_permissions')->insert([
+            'user_id' => $user->id, 'permission_id' => Permission::query()->where('name', StaffDebtRules::ADDITIONAL)->value('id'),
+            'effect' => 'allow', 'source' => 'MANUAL', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $user = $user->fresh(); // les droits se lisent une fois par instance
+
+        $this->actingAs($user)->get('/mes-dettes')->assertInertia(fn (Assert $page) => $page->where('space.can_request', true)->etc());
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(50000))->assertSessionHasNoErrors();
+
+        $second = StaffDebt::query()->latest('id')->firstOrFail();
+        $this->assertSame(1, $second->engaged_at_request);
+        $this->portal('GET', $second->uuid)->assertOk()
+            ->assertJsonPath('props.debt.engaged_at_request', 1)
+            ->assertJsonPath('props.debt.employee.other_active', 1);
+
+        // L'autorisation ne lève ni la règle « une demande en attente », ni le maximum du site.
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(50000))->assertSessionHasErrors('employee');
+        $this->portal('POST', "{$second->uuid}/refuser", ['reason' => 'Pas maintenant'])->assertOk();
+        StaffDebtSetting::query()->update(['max_open_debts' => 1]);
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(50000))
+            ->assertSessionHasErrors(['employee' => 'Vous avez déjà 1 dette en cours, le maximum sur ce site : attendez d’en avoir soldé une.']);
+        $this->assertSame($employee->id, $second->employee_id);
+    }
+
+    public function test_the_dg_sets_the_repayment_of_an_amount_only_request(): void
+    {
+        [$user] = $this->staff(salary: 400000);
+        $debt = $this->request($user, 300000);
+
+        $this->portal('GET', $debt->uuid)->assertOk()
+            ->assertJsonPath('props.debt.requested.installment_amount', null)
+            ->assertJsonPath('props.debt.requested.plan', null)
+            ->assertJsonPath('props.debt.terms.conditions', app(StaffDebtRules::class)->conditions())
+            ->assertJsonPath('props.debt.can.decide', true);
+
+        // Sans remboursement fixé, rien n'est accordé.
+        $this->portal('POST', "{$debt->uuid}/accorder", ['amount' => '300000', 'repayment_mode' => 'SALARY'])
+            ->assertStatus(422)->assertJsonValidationErrors(['installment_amount', 'first_period']);
+
+        $this->portal('POST', "{$debt->uuid}/accorder", $this->terms(300000, 100000, '2026-10'))->assertOk();
+        $this->portal('GET', $debt->uuid)->assertOk()
+            ->assertJsonPath('props.debt.granted.adjusted', false)
+            ->assertJsonPath('props.debt.granted.plan.count', 3);
+
+        // Un montant changé par le DG reste « ajusté ».
+        $other = $this->request($this->staff(salary: 400000, number: 'EMP-2')[0], 300000);
+        $this->portal('POST', "{$other->uuid}/accorder", $this->terms(200000, 100000, '2026-10'))->assertOk();
+        $this->portal('GET', $other->uuid)->assertOk()->assertJsonPath('props.debt.granted.adjusted', true);
     }
 
     public function test_the_dg_approves_with_adjusted_terms_from_the_portal_and_the_employee_is_told(): void
     {
         [$user] = $this->staff(salary: 400000);
-        $debt = $this->request($user, 300000, 100000, '2026-10');
+        $debt = $this->request($user, 300000);
 
         // Sans le droit de décider, rien n'est accordé.
         $this->portal('POST', "{$debt->uuid}/accorder", $this->terms(200000, 50000, '2026-11'), ['staff_debts.view'])->assertForbidden();
@@ -165,7 +247,7 @@ class StaffDebtTest extends TestCase
     public function test_salary_repayment_needs_a_declared_salary_and_a_refusal_needs_a_reason(): void
     {
         [$user] = $this->staff(salary: null);
-        $debt = $this->request($user, 100000, 50000, '2026-10');
+        $debt = $this->request($user, 100000);
 
         $this->portal('POST', "{$debt->uuid}/accorder", $this->terms(100000, 50000, '2026-10'))->assertStatus(422)->assertJsonValidationErrors('repayment_mode');
         $this->portal('POST', "{$debt->uuid}/refuser", ['reason' => ''])->assertStatus(422)->assertJsonValidationErrors('reason');
@@ -318,7 +400,7 @@ class StaffDebtTest extends TestCase
     public function test_the_listing_lives_in_finance_on_the_portal_and_left_the_site_hr_area(): void
     {
         [$user] = $this->staff(salary: 400000);
-        $this->request($user, 50000, 10000, '2026-10');
+        $this->request($user, 50000);
         $this->approved($this->staff(salary: 400000, number: 'EMP-2')[0], 50000, 10000, '2026-10');
 
         $this->portal('GET', '')->assertOk()
@@ -382,7 +464,7 @@ class StaffDebtTest extends TestCase
         [$user] = $this->staff(salary: 2000000);
 
         // 1 000 000 Ar : tranche fixe de 300 000 Ar.
-        $debt = $this->request($user, 1000000, 325000, '2026-10');
+        $debt = $this->request($user, 1000000);
         $this->assertSame('300000.00', (string) $debt->requested_interest_amount);
         $this->assertSame(130000000, $debt->requestedTotalMinor());
 
@@ -405,7 +487,7 @@ class StaffDebtTest extends TestCase
         // 200 000 Ar à 5 % : 10 000 Ar ; le DG peut remettre l'intérêt.
         $this->configure($this->settings(['max_months' => null, 'max_salary_share' => null]));
         [$other] = $this->staff(salary: 2000000, number: 'EMP-2');
-        $small = $this->request($other, 200000, 50000, '2026-10');
+        $small = $this->request($other, 200000);
         $this->assertSame('10000.00', (string) $small->requested_interest_amount);
         $this->portal('POST', "{$small->uuid}/accorder", [...$this->terms(200000, 50000, '2026-10'), 'waive_interest' => true])->assertOk();
         $this->assertSame('0.00', (string) $small->fresh()->interest_amount);
@@ -419,29 +501,32 @@ class StaffDebtTest extends TestCase
         ]));
         [$user, $employee] = $this->staff(salary: 400000);
 
-        $post = fn (array $data) => $this->actingAs($user)->post('/mes-dettes', ['first_period' => '2026-10', 'reason' => 'Besoin personnel', ...$data]);
+        $post = fn (string $amount) => $this->actingAs($user)->post('/mes-dettes', $this->ask($amount));
 
         // Ancienneté : la date d'entrée manque, puis elle est trop récente.
-        $post(['amount' => '100000', 'installment_amount' => '50000'])->assertSessionHasErrors('employee');
+        $post('100000')->assertSessionHasErrors('employee');
         $employee->forceFill(['hire_date' => '2026-06-01'])->save();
-        $post(['amount' => '100000', 'installment_amount' => '50000'])->assertSessionHasErrors('employee');
+        $post('100000')->assertSessionHasErrors('employee');
         $employee->forceFill(['hire_date' => '2025-01-01'])->save();
 
-        $post(['amount' => '20000', 'installment_amount' => '10000'])->assertSessionHasErrors('amount');
-        $post(['amount' => '20000000', 'installment_amount' => '1000000'])->assertSessionHasErrors('amount');
+        $post('20000')->assertSessionHasErrors('amount');
+        $post('20000000')->assertSessionHasErrors('amount');
+        $this->assertSame(0, StaffDebt::query()->count());
+
+        // ADR-234 — la durée et la part du salaire ne se vérifient plus à la demande : le DG
+        // fixe le remboursement, et elles s'appliquent à sa décision.
+        $post('1000000')->assertSessionHasNoErrors();
+        $uuid = StaffDebt::query()->sole()->uuid;
         // Durée : 1 000 000 en 12 mois au plus ; part du salaire : 40 % de 400 000.
-        $post(['amount' => '1000000', 'installment_amount' => '50000'])->assertSessionHasErrors([
+        $this->portal('POST', "{$uuid}/accorder", $this->terms(1000000, 50000, '2026-10'))->assertStatus(422)->assertJsonValidationErrors([
             // 1 000 000 / 12 = 83 333,33 : arrondi à l'ariary supérieur, sinon on ne rembourse pas en 12 mois.
             'installment_amount' => 'Remboursement en 12 mois au plus : il faut une mensualité d’au moins 83 334 Ar pour 1 000 000 Ar à rembourser.',
         ]);
-        $post(['amount' => '1000000', 'installment_amount' => '200000'])->assertSessionHasErrors('installment_amount');
-        $this->assertSame(0, StaffDebt::query()->count());
+        $this->portal('POST', "{$uuid}/accorder", $this->terms(1000000, 200000, '2026-10'))->assertStatus(422)->assertJsonValidationErrors(['installment_amount', 'derogation']);
 
-        $post(['amount' => '1000000', 'installment_amount' => '160000'])->assertSessionHasNoErrors();
-
-        // Une dette engagée au plus : la suivante attend.
-        $this->portal('POST', StaffDebt::query()->sole()->uuid.'/accorder', $this->terms(1000000, 160000, '2026-10'))->assertOk();
-        $post(['amount' => '100000', 'installment_amount' => '50000'])->assertSessionHasErrors('employee');
+        // Une dette engagée : la suivante attend.
+        $this->portal('POST', "{$uuid}/accorder", $this->terms(1000000, 160000, '2026-10'))->assertOk();
+        $post('100000')->assertSessionHasErrors('employee');
 
         // Demandes fermées : le message du site.
         $this->configure($this->settings(['requests_open' => false, 'closed_message' => 'Reprise en janvier.']));
@@ -462,9 +547,7 @@ class StaffDebtTest extends TestCase
             ->where('space.rules.amount_limits_set', false)
             ->where('space.rules.accepting_requests', false)
             ->etc());
-        $this->actingAs($user)->post('/mes-dettes', [
-            'amount' => '500000000', 'installment_amount' => '166666700', 'first_period' => '2026-10', 'reason' => 'Besoin personnel',
-        ])->assertSessionHasErrors(['employee' => StaffDebtRules::LIMITS_MISSING]);
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(500000000))->assertSessionHasErrors(['employee' => StaffDebtRules::LIMITS_MISSING]);
         $this->assertSame(0, StaffDebt::query()->count());
 
         $this->portal('GET', '')->assertOk()
@@ -489,9 +572,7 @@ class StaffDebtTest extends TestCase
         $this->configure($this->settings(['max_months' => null, 'max_salary_share' => null, 'interest_tiers' => []]));
         $this->actingAs($user)->get('/mes-dettes')->assertInertia(fn (Assert $page) => $page
             ->where('space.can_request', true)->where('space.rules.accepting_requests', true)->etc());
-        $this->actingAs($user)->post('/mes-dettes', [
-            'amount' => '500000000', 'installment_amount' => '166666700', 'first_period' => '2026-10', 'reason' => 'Besoin personnel',
-        ])->assertSessionHasErrors(['amount' => 'Le montant maximum est de 10 000 000 Ar.']);
+        $this->actingAs($user)->post('/mes-dettes', $this->ask(500000000))->assertSessionHasErrors(['amount' => 'Le montant maximum est de 10 000 000 Ar.']);
         $this->assertSame(0, StaffDebt::query()->count());
 
         $this->portal('GET', '')->assertOk()
@@ -503,7 +584,7 @@ class StaffDebtTest extends TestCase
     public function test_the_dg_can_grant_beyond_the_limits_only_by_confirming_a_written_derogation(): void
     {
         [$user] = $this->staff(salary: 400000);
-        $debt = $this->request($user, 1000000, 160000, '2026-10');
+        $debt = $this->request($user, 1000000);
         $this->configure($this->settings(['max_amount' => '500000', 'interest_tiers' => []]));
 
         $this->portal('POST', "{$debt->uuid}/accorder", $this->terms(1000000, 160000, '2026-10'))
@@ -565,7 +646,7 @@ class StaffDebtTest extends TestCase
         [$user] = $this->staff(salary: null);
         $debt = $this->approved($user, 30000, 10000, '2026-09', mode: 'CASH');
         $this->disburse($debt);
-        $this->request($this->staff(salary: null, number: 'EMP-2')[0], 20000, 10000, '2026-10');
+        $this->request($this->staff(salary: null, number: 'EMP-2')[0], 20000);
 
         $this->withHeaders($this->headers(['staff_debts.view']))->getJson('/api/v1/super-admin/staff-debts/overview')
             ->assertOk()
@@ -625,7 +706,7 @@ class StaffDebtTest extends TestCase
         $this->disburse($salary);
 
         [$second] = $this->staff(salary: 400000, number: 'EMP-2');
-        $waived = $this->request($second, 100000, 50000, '2026-09');
+        $waived = $this->request($second, 100000);
         $this->portal('POST', "{$waived->uuid}/accorder", [...$this->terms(100000, 50000, '2026-09', 'CASH'), 'waive_penalty' => true])->assertOk();
         $this->disburse($waived->fresh());
         $this->assertNull($waived->fresh()->penalty_rate);
@@ -685,7 +766,7 @@ class StaffDebtTest extends TestCase
     public function test_a_requested_debt_has_no_acknowledgement_yet(): void
     {
         [$user] = $this->staff(salary: 400000);
-        $debt = $this->request($user, 100000, 50000, '2026-10');
+        $debt = $this->request($user, 100000);
 
         $this->portal('GET', "{$debt->uuid}/reconnaissance")->assertNotFound();
     }
@@ -708,18 +789,31 @@ class StaffDebtTest extends TestCase
         return [$user, $employee];
     }
 
-    private function request(User $user, int $amount, int $installment, string $first): StaffDebt
+    private function request(User $user, int $amount, string $reason = 'Besoin personnel'): StaffDebt
     {
-        $this->actingAs($user)->post('/mes-dettes', [
-            'amount' => (string) $amount, 'installment_amount' => (string) $installment, 'first_period' => $first, 'reason' => 'Besoin personnel',
-        ])->assertSessionHasNoErrors();
+        $this->actingAs($user)->post('/mes-dettes', $this->ask($amount, ['reason' => $reason]))->assertSessionHasNoErrors();
 
         return StaffDebt::query()->latest('id')->firstOrFail();
     }
 
+    /**
+     * ADR-234 — une demande : le montant, un motif, et les règles acceptées telles qu'elles
+     * sont en vigueur (leur empreinte).
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function ask(int|string $amount, array $overrides = []): array
+    {
+        return [
+            'amount' => (string) $amount, 'reason' => 'Besoin personnel', 'accept_terms' => true,
+            'terms_version' => app(StaffDebtRules::class)->conditionsVersion(), ...$overrides,
+        ];
+    }
+
     private function approved(User $user, int $amount, int $installment, string $first, string $mode = 'SALARY'): StaffDebt
     {
-        $debt = $this->request($user, $amount, $installment, $first);
+        $debt = $this->request($user, $amount);
         $this->portal('POST', "{$debt->uuid}/accorder", $this->terms($amount, $installment, $first, $mode))->assertOk();
 
         return $debt->fresh();

@@ -1090,6 +1090,8 @@ admin.rivo.mg
 - [x] Espace Fournisseurs pharmacie entièrement en shadcn (ADR-099) : index en dossiers avec vue liste, création et import en fenêtres, et les quatorze pages de détail migrées avec leurs composants partagés
 - [x] Portail Super Administration entièrement en shadcn (ADR-099) : les 36 écrans et les composants partagés (`PageHeader`, `IconInput`, `Card`, `Breadcrumb`, `EmptyState`, `Explorer*`, `FolderCard`, `FormSection`, `ValidationErrorSummary`) quittent la police d'icônes et la palette DashWind, sans changer aucun contrat de props
 - [x] Navigation du portail regroupée en six blocs repliables (un seul ouvert), destinations et permissions inchangées ; sidebar redimensionnable à la souris, au tactile et au clavier, largeur conservée sur le poste (ADR-196)
+- [x] Un site pas encore déployé (page « Bientôt disponible » en 200) est dit injoignable, plus « en ligne » sans données : fin de la page blanche des Paramètres ; le relais des écrans refuse aussi une page HTML (ADR-232, amendement du 2026-10-02)
+- [x] Lectures « tous les sites » du portail envoyées en même temps : une page attend le site le plus lent, plus la somme des trois (ADR-232, amendement du 2026-10-02)
 - [x] Modules rattachés au site alimentés par son rapport API réel : activité, caisse, patients et files Médecine/Soins/Chirurgie, période 7–90 jours, état ONLINE/OFFLINE sans faux zéro (ADR-232)
 - [x] Banc local distribué activable pour les trois sites, avec une API HTTP et une base SQLite indépendantes par site ; le portail ne lit jamais directement ces bases (ADR-043, ADR-232)
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste

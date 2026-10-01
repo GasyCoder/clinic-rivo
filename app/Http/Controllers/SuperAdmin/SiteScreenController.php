@@ -57,6 +57,13 @@ abstract class SiteScreenController extends Controller
             return $this->unavailable($request, "{$target['name']} ne répond pas. Les autres sites restent disponibles.");
         }
 
+        // Une page HTML n'est jamais une réponse de l'API : c'est la page d'attente d'un
+        // site pas encore déployé, ou celle de l'hébergeur. Elle ne s'affiche pas dans
+        // le portail comme si c'était un document du site.
+        if ($this->isHtmlPage($response)) {
+            return $this->unavailable($request, "{$target['name']} ne répond pas comme une API RIVO : il n’est sans doute pas encore déployé.");
+        }
+
         if ($this->isDataCall($request) && ! $this->isFile($response)) {
             // Un aperçu (congé, document) lu par `fetch()` : on rend la
             // réponse du site telle quelle, statut compris.
@@ -182,6 +189,12 @@ abstract class SiteScreenController extends Controller
         ]);
 
         return new Response($response->body(), 200, $headers);
+    }
+
+    private function isHtmlPage(SiteResponse $response): bool
+    {
+        return str_contains(strtolower((string) $response->header('Content-Type')), 'text/html')
+            && ! filled($response->header('Content-Disposition'));
     }
 
     private function isFile(SiteResponse $response): bool

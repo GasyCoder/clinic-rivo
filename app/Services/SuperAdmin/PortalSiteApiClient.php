@@ -4,6 +4,8 @@ namespace App\Services\SuperAdmin;
 
 use App\Models\User;
 use App\Support\SiteApi\RemoteActorPermissions;
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -15,10 +17,7 @@ class PortalSiteApiClient
     /** @return array<int, array<string, mixed>> */
     public function trashForAllSites(User $actor, array $query = []): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/trash', $query, $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/trash', $query, $actor);
     }
 
     /** @return array<string, mixed> */
@@ -40,19 +39,13 @@ class PortalSiteApiClient
     /** @return array<int, array<string, mixed>> */
     public function stockForAllSites(User $actor): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/pharmacy/stock', [], $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/pharmacy/stock', [], $actor);
     }
 
     /** @return array<int, array<string, mixed>> */
     public function humanResourcesForAllSites(User $actor): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/human-resources', [], $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/human-resources', [], $actor);
     }
 
     /** @param array<int, array<string, int|string|null>> $rows */
@@ -70,10 +63,7 @@ class PortalSiteApiClient
     /** @return array<int, array<string, mixed>> */
     public function addressesForAllSites(User $actor, array $query = []): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/address-entries', $query, $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/address-entries', $query, $actor);
     }
 
     /** @return array<string, mixed> */
@@ -139,10 +129,7 @@ class PortalSiteApiClient
     /** @return array<int, array<string, mixed>> */
     public function cashRegistersForAllSites(User $actor, array $query = []): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/cash-registers', $query, $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/cash-registers', $query, $actor);
     }
 
     /**
@@ -152,10 +139,7 @@ class PortalSiteApiClient
      */
     public function hospitalBedsForAllSites(User $actor, array $query = []): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/hospital-beds', $query, $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/hospital-beds', $query, $actor);
     }
 
     /**
@@ -176,10 +160,7 @@ class PortalSiteApiClient
      */
     public function professionalMailboxesForAllSites(User $actor): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/professional-mailboxes', [], $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/professional-mailboxes', [], $actor);
     }
 
     /**
@@ -214,10 +195,7 @@ class PortalSiteApiClient
      */
     public function staffDebtsPendingForAllSites(User $actor): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/staff-debts/pending', [], $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/staff-debts/pending', [], $actor);
     }
 
     /**
@@ -228,10 +206,7 @@ class PortalSiteApiClient
      */
     public function staffDebtsOverviewForAllSites(User $actor): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/staff-debts/overview', [], $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/staff-debts/overview', [], $actor);
     }
 
     /**
@@ -242,10 +217,7 @@ class PortalSiteApiClient
      */
     public function staffAccessForAllSites(User $actor): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/staff-access', [], $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/staff-access', [], $actor);
     }
 
     /** @return array<string, mixed> L'état d'un employé, relu juste avant de créer son accès. */
@@ -335,10 +307,7 @@ class PortalSiteApiClient
     /** @return array<int, array<string, mixed>> */
     public function paymentMethodsForAllSites(User $actor, array $query = []): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/payment-methods', $query, $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/payment-methods', $query, $actor);
     }
 
     /** @return array<string, mixed> */
@@ -373,10 +342,7 @@ class PortalSiteApiClient
      */
     public function patientVipSettingsForAllSites(User $actor): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/patient-vip-settings', [], $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/patient-vip-settings', [], $actor);
     }
 
     /** @return array<string, mixed> */
@@ -394,10 +360,7 @@ class PortalSiteApiClient
     /** ADR-184 — les paramètres de l'application de chaque site. @return array<int, array<string, mixed>> */
     public function appSettingsForAllSites(User $actor): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/app-settings', [], $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/app-settings', [], $actor);
     }
 
     /** @param array<string, mixed> $data
@@ -517,10 +480,7 @@ class PortalSiteApiClient
      */
     public function assistantSettingsForAllSites(User $actor): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/assistant-settings', [], $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/assistant-settings', [], $actor);
     }
 
     /**
@@ -557,10 +517,7 @@ class PortalSiteApiClient
     /** @return array<int, array<string, mixed>> */
     public function usersForAllSites(User $actor, array $query = []): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/users', $query, $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/users', $query, $actor);
     }
 
     /** @param array<string, mixed> $data
@@ -586,10 +543,7 @@ class PortalSiteApiClient
      */
     public function reportsForAllSites(User $actor, int $days): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/reports/overview', ['days' => $days], $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/reports/overview', ['days' => $days], $actor);
     }
 
     /**
@@ -619,10 +573,7 @@ class PortalSiteApiClient
      */
     public function rolesForAllSites(User $actor): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/roles', [], $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/roles', [], $actor);
     }
 
     /** @param array<string, mixed> $data
@@ -801,10 +752,7 @@ class PortalSiteApiClient
     /** @return array<int, array<string, mixed>> */
     public function catalogForAllSites(User $actor, array $query = []): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/catalog', $query, $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/catalog', $query, $actor);
     }
 
     /** Les listes de choix du formulaire d'une désignation, sur un site. */
@@ -937,10 +885,7 @@ class PortalSiteApiClient
     /** @return array<int, array<string, mixed>> */
     public function documentTemplatesForAllSites(User $actor, array $query = []): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/document-templates', $query, $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/document-templates', $query, $actor);
     }
 
     /** @return array<string, mixed> */
@@ -1126,10 +1071,7 @@ class PortalSiteApiClient
     /** @return array<int, array<string, mixed>> */
     public function analysisCatalogsForAllSites(User $actor, array $query = []): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/analysis-catalogs', $query, $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/analysis-catalogs', $query, $actor);
     }
 
     public function analysisDetail(string $siteCode, string $uuid, User $actor): array
@@ -1181,10 +1123,7 @@ class PortalSiteApiClient
     /** @return array<int, array<string, mixed>> */
     public function pharmacySuppliersForAllSites(User $actor, array $query = []): array
     {
-        return collect(config('rivo.clinics', []))
-            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/pharmacy/suppliers', $query, $actor))
-            ->values()
-            ->all();
+        return $this->getFromAllSites('super-admin/pharmacy/suppliers', $query, $actor);
     }
 
     /**
@@ -1438,6 +1377,59 @@ class PortalSiteApiClient
     }
 
     /** @return array<string, mixed> */
+    /**
+     * La même lecture sur chaque site, envoyée aux trois sites **en même temps**.
+     *
+     * Envoyées l'une après l'autre, les lectures s'additionnaient : une page du portail
+     * qui interroge trois sites attendait la somme de leurs temps de réponse. Elles
+     * partent désormais ensemble, et la page n'attend plus que le site le plus lent.
+     * Un site qui n'a pas répondu est relancé seul, avec les nouvelles tentatives
+     * habituelles de request() : rien n'est perdu à aller plus vite.
+     *
+     * @param  array<string, mixed>  $query
+     * @return array<int, array<string, mixed>>
+     */
+    private function getFromAllSites(string $path, array $query, User $actor): array
+    {
+        $sites = collect(config('rivo.clinics', []))->values();
+        $reachable = $sites->filter(fn (array $site) => filled(trim((string) ($site['api_url'] ?? '')))
+            && filled(trim((string) ($site['api_token'] ?? ''))));
+
+        $responses = $reachable->isEmpty() ? [] : Http::pool(fn (Pool $pool) => $reachable
+            ->map(fn (array $site, int $index) => $this->prepare(
+                $pool->as((string) $index)->acceptJson(),
+                trim((string) $site['api_token']),
+                $actor,
+            )->get(rtrim(trim((string) $site['api_url']), '/').'/'.ltrim($path, '/'), $query))
+            ->all());
+
+        return $sites
+            ->map(function (array $site, int $index) use ($responses, $path, $query, $actor): array {
+                $response = $responses[(string) $index] ?? null;
+
+                return $response instanceof Response
+                    ? $this->normalizeResponse(['code' => $site['code'], 'name' => $site['name']], $response)
+                    // Non configuré, injoignable ou en erreur réseau : le chemin habituel
+                    // le dit (UNCONFIGURED) ou réessaie (OFFLINE).
+                    : $this->request($site, 'GET', $path, $query, $actor);
+            })
+            ->all();
+    }
+
+    /** Le jeton, l'identité du Super Admin et ses droits, sur une requête vers un site. */
+    private function prepare(PendingRequest $pending, string $token, User $actor, ?int $timeout = null): PendingRequest
+    {
+        return $pending
+            ->withToken($token)
+            ->withHeaders([
+                'X-Request-UUID' => (string) Str::uuid(),
+                'X-Rivo-Actor-UUID' => $actor->uuid,
+                'X-Rivo-Actor-Name' => $actor->name,
+                ...RemoteActorPermissions::headers($actor->effectivePermissionNames()),
+            ])
+            ->timeout(max(1, $timeout ?? (int) config('rivo.site_api.timeout', 5)));
+    }
+
     private function request(array $site, string $method, string $path, array $payload, User $actor, ?UploadedFile $file = null, string $fileField = 'file', ?int $timeout = null, ?int $attempts = null): array
     {
         $identity = ['code' => $site['code'], 'name' => $site['name']];
@@ -1457,16 +1449,7 @@ class PortalSiteApiClient
         }
 
         try {
-            $requestUuid = (string) Str::uuid();
-            $pending = Http::acceptJson()
-                ->withToken($token)
-                ->withHeaders([
-                    'X-Request-UUID' => $requestUuid,
-                    'X-Rivo-Actor-UUID' => $actor->uuid,
-                    'X-Rivo-Actor-Name' => $actor->name,
-                    ...RemoteActorPermissions::headers($actor->effectivePermissionNames()),
-                ])
-                ->timeout(max(1, $timeout ?? (int) config('rivo.site_api.timeout', 5)))
+            $pending = $this->prepare(Http::acceptJson(), $token, $actor, $timeout)
                 ->retry(max(1, $attempts ?? (int) config('rivo.site_api.retry_times', 2)), 150, throw: false);
 
             if ($method !== 'GET') {
@@ -1503,6 +1486,24 @@ class PortalSiteApiClient
     private function normalizeResponse(array $site, Response $response): array
     {
         $json = $response->json();
+
+        // Une API RIVO répond toujours un objet JSON. Une page HTML servie en 200
+        // (« Bientôt disponible » d'un site pas encore déployé, page par défaut de
+        // l'hébergeur) n'est pas une réponse réussie : la prendre pour telle
+        // marquait le site « en ligne » sans aucune donnée, et l'écran qui lisait
+        // ces données plantait — page blanche.
+        if ($response->successful() && ! is_array($json)) {
+            return [
+                'site' => $site,
+                'status' => 'OFFLINE',
+                'ok' => false,
+                'message' => 'Ce site ne répond pas comme une API RIVO : il n’est sans doute pas encore déployé.',
+                'data' => null,
+                'meta' => null,
+                'errors' => [],
+                'http_status' => $response->status(),
+            ];
+        }
 
         return [
             'site' => $site,

@@ -22768,6 +22768,27 @@ Le banc local garde une base SQLite indépendante par clinique et des API sur le
 (`php artisan rivo:local-apis`). Le portail peut conserver une API de développement existante pour un site
 et utiliser le banc local pour les autres. Les jetons restent dans `.env.admin`, jamais dans Git.
 
+
+## Amendement du 2026-10-02 — un site pas encore déployé n'est jamais « en ligne », et les sites sont lus ensemble
+
+Constat en production : `/super-admin/settings/identite` restait une page blanche. Mampikony et Boriziny, pas
+encore déployés, servent une page HTML « Bientôt disponible » en **200** à n'importe quelle adresse. Le portail
+prenait tout 200 pour une réponse réussie : le site était « en ligne » sans données, et l'écran plantait en les
+lisant (`Cannot read properties of null`).
+
+```text
+réponse     une API RIVO répond toujours un objet JSON : un 200 qui n'en est pas un est OFFLINE, avec
+            « ne répond pas comme une API RIVO : il n'est sans doute pas encore déployé »
+            (PortalSiteApiClient::normalizeResponse)
+écrans      le relais des écrans (RH, Pharmacie, Laboratoire, Partenaires, Dettes) refuse une page
+relayés     HTML et ramène à l'espace avec ce message, au lieu de l'afficher comme un document du site
+ensemble    les 21 lectures « tous les sites » partent en même temps (Http::pool, getFromAllSites) :
+            une page n'attend plus la somme des trois sites mais le plus lent ; un site qui n'a pas
+            répondu est relancé seul, avec les tentatives habituelles
+```
+
+Aucune permission, route ni donnée ne change.
+
 ---
 
 # ADR-233 — La paie calcule les retenues légales selon des paramètres propres au site

@@ -6,7 +6,7 @@ import Dialog from '@/Components/Shadcn/Dialog.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Switch from '@/Components/Shadcn/Switch.vue';
 import Slider from '@/Components/Shadcn/Slider.vue';
-import ColorField from '@/Components/Settings/ColorField.vue';
+import Input from '@/Components/Shadcn/Input.vue';
 import { cn } from '@/lib/cn';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 import {
@@ -40,6 +40,12 @@ const preview = computed(() => orderQuotes(sample, draft.value).map((quote) => {
 
     return { ...quote, info, styles: tierStyles(info.tier, draft.value), gap: gapLabel(info, draft.value, formatMoney) };
 }));
+const validHex = (value) => /^#[0-9A-Fa-f]{6}$/.test(String(value ?? ''));
+const colors = computed(() => [
+    { key: 'best_color', label: 'Moins cher' },
+    { key: 'middle_color', label: 'Intermédiaire', disabled: !draft.value.color_middle },
+    { key: 'worst_color', label: 'Plus cher' },
+]);
 const tierText = { best: 'le moins cher', worst: 'le plus cher', middle: '' };
 
 const toggles = [
@@ -80,18 +86,47 @@ const save = (reset = false) => {
                 </div>
             </section>
 
-            <section class="grid gap-4 sm:grid-cols-3">
-                <div>
-                    <p class="mb-1.5 text-sm font-medium text-foreground">Moins cher</p>
-                    <ColorField v-model="draft.best_color" label="Couleur du moins cher" :fallback="PRICE_COMPARISON_DEFAULTS.best_color" :invalid="Boolean(errors.best_color)" />
-                </div>
-                <div>
-                    <p class="mb-1.5 text-sm font-medium text-foreground">Intermédiaire</p>
-                    <ColorField v-model="draft.middle_color" label="Couleur des prix intermédiaires" :fallback="PRICE_COMPARISON_DEFAULTS.middle_color" :disabled="!draft.color_middle" :invalid="Boolean(errors.middle_color)" />
-                </div>
-                <div>
-                    <p class="mb-1.5 text-sm font-medium text-foreground">Plus cher</p>
-                    <ColorField v-model="draft.worst_color" label="Couleur du plus cher" :fallback="PRICE_COMPARISON_DEFAULTS.worst_color" :invalid="Boolean(errors.worst_color)" />
+            <section>
+                <h3 class="text-sm font-semibold text-foreground">Couleurs</h3>
+                <div class="mt-2 grid gap-2 sm:grid-cols-3">
+                    <div
+                        v-for="color in colors"
+                        :key="color.key"
+                        :class="cn('rounded-lg border border-border p-2.5', color.disabled && 'opacity-50')"
+                    >
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-xs font-semibold text-foreground">{{ color.label }}</span>
+                            <button
+                                v-if="draft[color.key] !== PRICE_COMPARISON_DEFAULTS[color.key] && !color.disabled"
+                                type="button"
+                                class="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                :aria-label="`${color.label} : couleur d’origine`"
+                                title="Couleur d’origine"
+                                @click="draft[color.key] = PRICE_COMPARISON_DEFAULTS[color.key]"
+                            ><RotateCcw class="h-3.5 w-3.5" /></button>
+                        </div>
+                        <div class="mt-2 flex items-center gap-2">
+                            <label class="relative h-8 w-8 shrink-0 cursor-pointer overflow-hidden rounded-md border border-input shadow-sm" :style="{ backgroundColor: validHex(draft[color.key]) ? draft[color.key] : PRICE_COMPARISON_DEFAULTS[color.key] }">
+                                <span class="sr-only">Choisir : {{ color.label }}</span>
+                                <input
+                                    type="color"
+                                    class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                                    :value="(validHex(draft[color.key]) ? draft[color.key] : PRICE_COMPARISON_DEFAULTS[color.key]).toLowerCase()"
+                                    :disabled="color.disabled"
+                                    @input="draft[color.key] = $event.target.value.toUpperCase()"
+                                >
+                            </label>
+                            <Input
+                                :model-value="draft[color.key]"
+                                maxlength="7"
+                                spellcheck="false"
+                                :disabled="color.disabled"
+                                :aria-label="`${color.label} (code #RRVVBB)`"
+                                :class="cn('h-8 min-w-0 flex-1 font-mono text-xs uppercase', (errors[color.key] || !validHex(draft[color.key])) && 'border-destructive')"
+                                @update:model-value="(value) => { draft[color.key] = String(value).toUpperCase(); }"
+                            />
+                        </div>
+                    </div>
                 </div>
             </section>
 

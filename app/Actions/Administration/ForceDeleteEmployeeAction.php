@@ -56,11 +56,18 @@ class ForceDeleteEmployeeAction
             )]);
         }
 
+        // ADR-243 — ses contrats sans document partent avec lui : l'audit les nomme.
+        $contracts = \App\Models\EmploymentContract::withTrashed()->where('employee_id', $employee->getKey())
+            ->with(['contractType' => fn ($query) => $query->withTrashed()])->get()
+            ->map(fn ($contract) => trim(($contract->contractType?->label ?? 'Contrat').' '.$contract->starts_on?->toDateString().' → '.($contract->ends_on?->toDateString() ?? '…')))
+            ->all();
+
         $this->auditor->record('employee.force_delete', $employee, oldValues: [
             'employee_number' => $employee->employee_number,
             'name' => trim("{$employee->last_name} {$employee->first_name}"),
             'birth_date' => $employee->birth_date?->toDateString(),
             'delete_reason' => $employee->delete_reason,
+            'contracts' => $contracts,
         ], module: 'administration');
 
         EmployeeUsage::detach($employee);

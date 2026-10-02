@@ -264,6 +264,79 @@ class NumberingSettingsTest extends TestCase
         $this->assertSame('EMP-0005', $numbers['Rasoa']);
     }
 
+    public function test_interns_have_their_own_series_never_the_next_employee_number(): void
+    {
+        $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class, HrReferenceSeeder::class]);
+        $actor = $this->administration();
+        Employee::query()->create($this->employeePayload('EMP-0016'));
+        Employee::query()->create($this->employeePayload('STG-0003', 'Naivo'))->delete();
+
+        // ADR-243 — l'employé suivant et le stagiaire suivant ne se disputent aucun numéro.
+        $this->assertSame('EMP-0017', $this->allocator()->suggest());
+        $this->assertSame('STG-0004', $this->allocator()->suggest(intern: true), 'archives comprises');
+
+        $this->actingAs($actor)->get('/administration/employees/create?stagiaire=1')->assertOk()->assertInertia(fn ($page) => $page
+            ->where('internshipIntent', true)
+            ->where('suggestedEmployeeNumber', 'STG-0004')
+            ->where('employeeNumberModel', 'STG-0000'));
+
+        $this->actingAs($actor)->post('/administration/employees', [
+            ...$this->employeePayload('STG-0004', 'Rasoa'), 'employee_number_proposed' => 'STG-0004', 'internship' => true,
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('STG-0004', Employee::query()->where('last_name', 'Rasoa')->value('employee_number'));
+    }
+
+    public function test_an_untouched_proposal_already_taken_is_reallocated_at_creation(): void
+    {
+        $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class, HrReferenceSeeder::class]);
+        $actor = $this->administration();
+        Employee::query()->create($this->employeePayload('EMP-0017', 'Naivo'));
+
+        // La page affichait EMP-0017 ; un collègue l'a pris entre-temps.
+        $this->actingAs($actor)->post('/administration/employees', [
+            ...$this->employeePayload('EMP-0017', 'Rasoa'), 'employee_number_proposed' => 'EMP-0017',
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('EMP-0018', Employee::query()->where('last_name', 'Rasoa')->value('employee_number'));
+
+        // Un numéro écrit par le RH, lui, reste jugé par l'unicité.
+        $this->actingAs($actor)->post('/administration/employees', [
+            ...$this->employeePayload('EMP-0017', 'Rabe'), 'employee_number_proposed' => 'EMP-0019',
+        ])->assertSessionHasErrors('employee_number');
+    }
+
+    public function test_an_imported_intern_without_a_number_receives_the_intern_series(): void
+    {
+        $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class, HrReferenceSeeder::class]);
+
+        $csv = implode("\n", [
+            'MATRICULE,NOM,GENRE,STATUS,TYPE CONTRAT,DATE ENTREE',
+            ',Rakoto,Homme,Actif,Stagiaire,2026-09-01',
+            ',Rasoa,Femme,Actif,,',
+        ]);
+
+        $this->actingAs($this->administration())->post('/administration/employees/import', [
+            'file' => UploadedFile::fake()->createWithContent('personnel.csv', $csv),
+        ])->assertSessionHasNoErrors();
+
+        $numbers = Employee::query()->pluck('employee_number', 'last_name');
+        $this->assertSame('STG-0001', $numbers['Rakoto']);
+        $this->assertSame('EMP-0001', $numbers['Rasoa']);
+    }
+
+    public function test_the_intern_prefix_must_differ_from_the_employee_prefix(): void
+    {
+        $this->withHeaders($this->headers(['settings.update', 'settings.view']))
+            ->putJson(self::URL, [...$this->valid(), 'employee_number_prefix' => 'rh', 'intern_number_prefix' => 'RH'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('intern_number_prefix');
+
+        $this->withHeaders($this->headers(['settings.update', 'settings.view']))
+            ->putJson(self::URL, [...$this->valid(), 'intern_number_prefix' => 'st'])
+            ->assertOk()
+            ->assertJsonPath('data.values.intern_number_prefix', 'ST')
+            ->assertJsonPath('data.numbering.intern_next', 'ST-0001');
+    }
+
     private function patients(): PatientNumberGenerator
     {
         return new PatientNumberGenerator(new AppSettings);

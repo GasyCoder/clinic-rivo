@@ -23593,3 +23593,76 @@ marque ↔ générique   dans un gros catalogue, deux libellés sans mot ni nomb
 réglages par site    les couleurs sont propres au compte, pas imposées par site — à décider si besoin
 file d'attente       les lots sont menés par la page ouverte ; un traitement de fond (queue) reste à décider
 ```
+
+---
+
+# ADR-243 — Les stagiaires ont leur série de matricules ; « Stages » se manie comme « Employés »
+
+**Status:** ACCEPTED (2026-10-02 — signalement du propriétaire : « matricule de stagiaire et employé
+normalement différent, pourquoi stagiaire toujours EMP-0017 ? le problème après devient conflit », et
+demande : `/administration/internships` comme le tableau des employés — sélectionner, supprimer, badges
+de tous)
+
+**Complète l'ADR-191** (matricule proposé), **l'ADR-194** (stagiaire = dossier + contrat de stage),
+**l'ADR-236** (archiver, restaurer, supprimer un dossier) et **l'ADR-209** (badges). Le CDC ne décrit ni
+matricule ni stagiaire : les règles ci-dessous sont celles du propriétaire.
+
+## Le constat
+
+Une seule série pour tout le personnel : « Nouveau stagiaire » proposait le prochain matricule
+d'employé (EMP-0017). La proposition étant calculée à l'ouverture de la page et jamais réservée, deux
+créations parties de la même page se disputaient le même numéro : la seconde échouait sur « Ce matricule
+est déjà utilisé », à une étape où le champ n'est même pas affiché.
+
+## Deux séries
+
+```text
+employés     EMP-0001…  (préfixe, séparateur, chiffres : Matricules, ADR-191)
+stagiaires   STG-0001…  même séparateur et mêmes chiffres, son propre préfixe
+             (app_settings.intern_number_prefix, vide = STG)
+```
+
+« Nouveau stagiaire » propose le prochain de la série des stagiaires (`EmployeeNumberAllocator::suggest(intern: true)`),
+archives comprises ; un dossier créé sans matricule avec `internship` reçoit le sien ; à l'import, une ligne
+dont le contrat est un contrat de stage reçoit le prochain `STG-…` (avant le matricule H/F de l'ADR-225). Un
+préfixe des stagiaires identique à celui des employés est refusé : les deux séries se mêleraient. Le préfixe
+se règle dans RH › Paramètres › Matricules, avec son aperçu. Un stagiaire embauché ensuite garde son
+matricule : un numéro attribué ne change jamais (ADR-191).
+
+## La proposition est recalculée à l'enregistrement
+
+Le formulaire envoie aussi la proposition affichée (`employee_number_proposed`). Laissée telle quelle, elle
+est remplacée par le prochain numéro libre au moment d'écrire : plus de conflit entre deux créations. Un
+numéro changé à la main reste celui du RH, jugé par l'unicité.
+
+## « Stages » comme « Employés »
+
+```text
+sélection    case par stagiaire (un dossier, même avec deux stages), « tout cocher »
+gestes       Badges, Archiver (motif), Restaurer, Supprimer définitivement — le même
+             POST /administration/employees/bulk, chaque dossier jugé seul, rapport des refus
+par ligne    badge, modifier le stage, archiver, restaurer, supprimer
+Archivés     nouvelle vue : les dossiers de stagiaires archivés ; ailleurs, jamais
+             (un dossier archivé faisait jusque-là une ligne sans dossier)
+```
+
+Un geste porte sur le **dossier** du stagiaire, jamais sur son seul contrat. Droits inchangés :
+`employees.delete`, `employees.restore`, `employees.force_delete`, `employees.print`.
+
+## Un contrat sans document part avec le dossier
+
+**Amende l'ADR-236** : un stagiaire a toujours un contrat, et « 1 contrat » rendait la suppression
+définitive impossible même pour un dossier saisi à tort. Un contrat du dossier qui n'a produit **aucune
+pièce RH ni aucun document généré** ne retient plus la suppression et part avec le dossier ; l'audit
+`employee.force_delete` nomme les contrats retirés. Un contrat qui a produit un document, une présence, une
+paie… retient toujours le dossier. Un stage **encadré** (le dossier est encadrant) reste un usage.
+
+Migration `2026_12_11_090000_add_intern_number_prefix_to_app_settings`, sur chaque site et sur le portail.
+Aucune permission nouvelle.
+
+## Signalé, non tranché
+
+```text
+matricules existants   les stagiaires déjà numérotés EMP-… ne sont pas renumérotés (ADR-191)
+séparateur, chiffres   communs aux deux séries ; les rendre distincts reste à décider
+```

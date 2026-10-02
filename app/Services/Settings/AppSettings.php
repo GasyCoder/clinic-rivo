@@ -72,7 +72,7 @@ class AppSettings
         .'les migrations doivent d’abord être jouées (php artisan migrate).';
 
     /** Une colonne de chaque migration des paramètres : toutes présentes, la base est à jour. */
-    private const REQUIRED_COLUMNS = ['app_tagline', 'profile_template', 'theme_preset', 'employee_number_digits', 'staff_discount_value', 'badge_logo_style', 'badge_paper', 'ui_font_family', 'badge_show_qr', 'lab_report_show_qr'];
+    private const REQUIRED_COLUMNS = ['app_tagline', 'profile_template', 'theme_preset', 'employee_number_digits', 'staff_discount_value', 'badge_logo_style', 'badge_paper', 'ui_font_family', 'badge_show_qr', 'lab_report_show_qr', 'intern_number_prefix'];
 
     private ?AppSetting $setting = null;
 
@@ -460,6 +460,23 @@ class AppSettings
             prefix: strtoupper($this->filled($setting?->employee_number_prefix) ?? $defaults['prefix']),
             separator: in_array($setting?->employee_number_separator, EmployeeNumberFormat::SEPARATORS, true) ? $setting->employee_number_separator : $defaults['separator'],
             digits: $this->bounded($setting?->employee_number_digits, EmployeeNumberFormat::MIN_DIGITS, EmployeeNumberFormat::MAX_DIGITS, $defaults['digits']),
+        );
+    }
+
+    /**
+     * ADR-243 — la série des stagiaires : même séparateur et mêmes chiffres que les
+     * employés, son propre préfixe (`STG` par défaut). Un préfixe identique à celui
+     * des employés est refusé à l'enregistrement : les deux séries se mêleraient.
+     */
+    public function internNumbering(): EmployeeNumberFormat
+    {
+        $employee = $this->employeeNumbering();
+        $prefix = strtoupper($this->filled($this->setting()?->intern_number_prefix) ?? EmployeeNumberFormat::DEFAULT_INTERN_PREFIX);
+
+        return new EmployeeNumberFormat(
+            prefix: $prefix === $employee->prefix ? EmployeeNumberFormat::DEFAULT_INTERN_PREFIX : $prefix,
+            separator: $employee->separator,
+            digits: $employee->digits,
         );
     }
 

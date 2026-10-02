@@ -40,6 +40,14 @@ class EmployeeUsage
      * (le personnel d'une catégorie de bonus) qui part avec le dossier, ou une trace dont la
      * base efface déjà le lien (`SET NULL`).
      */
+    /**
+     * ADR-243 — le contrat d'un dossier saisi à tort (un stagiaire et son stage, en
+     * particulier) part avec lui, tant qu'aucune pièce RH ni aucun document généré ne
+     * le désigne : sans eux, il n'a jamais rien produit. Un stage encadré, lui, reste un
+     * usage — il appartient au dossier d'un autre.
+     */
+    public const OWN_CONTRACTS = ['employment_contracts', 'employee_id'];
+
     public const DETACHED = [
         'bonus_category_employees' => 'employee_id',
         'staff_access_handover_items' => 'employee_id',
@@ -83,6 +91,9 @@ class EmployeeUsage
 
             foreach ($columns as [$column, $singular, $plural]) {
                 $counts = DB::table($table)->whereIn($column, $ids)
+                    ->when([$table, $column] === self::OWN_CONTRACTS, fn ($query) => $query->where(fn ($used) => $used
+                        ->whereExists(fn ($pieces) => $pieces->selectRaw('1')->from('hr_documents')->whereColumn('hr_documents.employment_contract_id', 'employment_contracts.id'))
+                        ->orWhereExists(fn ($documents) => $documents->selectRaw('1')->from('generated_documents')->whereColumn('generated_documents.employment_contract_id', 'employment_contracts.id'))))
                     ->groupBy($column)->selectRaw("{$column} as employee, count(*) as total")
                     ->pluck('total', 'employee');
 
@@ -96,9 +107,19 @@ class EmployeeUsage
         return $blockers;
     }
 
-    /** Retire ce qui part avec le dossier ; la base efface le reste (`SET NULL`). */
-    public static function detach(Employee $employee): void
+    /**
+     * Retire ce qui part avec le dossier ; la base efface le reste (`SET NULL`).
+     *
+     * @return list<string> les références des contrats retirés avec lui
+     */
+    public static function detach(Employee $employee): array
     {
         DB::table('bonus_category_employees')->where('employee_id', $employee->getKey())->delete();
+
+        $contracts = DB::table('employment_contracts')->where('employee_id', $employee->getKey());
+        $removed = (clone $contracts)->pluck('uuid')->all();
+        $contracts->delete();
+
+        return $removed;
     }
 }

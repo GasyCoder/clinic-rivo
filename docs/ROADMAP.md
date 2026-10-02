@@ -866,6 +866,8 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Liste des employés : archiver une ligne ou une sélection (motif), restaurer, supprimer définitivement un dossier archivé qui n'a servi nulle part (`employees.force_delete`, aucun rôle par défaut), chaque dossier jugé séparément avec rapport (ADR-236)
 - [x] Doublons possibles repérés (même nom, prénom, naissance) : compteur, filtre, repère sur la ligne et la fiche (ADR-236)
 - [ ] Fusion de deux dossiers qui ont tous deux servi — à décider (ADR-236)
+- [x] Stagiaires sur leur propre série de matricules (STG-0001, préfixe réglable dans Matricules), à la création comme à l'import ; une proposition laissée telle quelle est recalculée à l'enregistrement — plus de conflit entre deux créations (ADR-243)
+- [x] « Stages » se manie comme « Employés » : sélection, badges de la sélection, archiver, restaurer, supprimer définitivement, vue « Archivés » ; un contrat sans document part avec un dossier supprimé (ADR-243)
 - [x] « Vider la corbeille » au portail : par site, catégorie et filtres, ce qui n'a servi nulle part est supprimé, le reste conservé avec sa raison ; « VIDER » à saisir (ADR-236, amendement)
 - [x] Employés et contrats archivés dans la corbeille : restaurables, détruits seulement s'ils n'ont servi nulle part (ADR-236, amende ADR-066)
 - [ ] Purge automatique de la corbeille après N jours — à décider (ADR-236)

@@ -163,7 +163,7 @@ class AppSettingsController extends Controller
                 'patient_digits' => [PatientNumberFormat::MIN_DIGITS, PatientNumberFormat::MAX_DIGITS],
                 'employee_digits' => [EmployeeNumberFormat::MIN_DIGITS, EmployeeNumberFormat::MAX_DIGITS],
                 'episode_digits' => [2, 4],
-                'defaults' => ['patient' => PatientNumberFormat::DEFAULTS, 'employee' => EmployeeNumberFormat::DEFAULTS],
+                'defaults' => ['patient' => PatientNumberFormat::DEFAULTS, 'employee' => [...EmployeeNumberFormat::DEFAULTS, 'intern_prefix' => EmployeeNumberFormat::DEFAULT_INTERN_PREFIX]],
             ],
         ]);
     }

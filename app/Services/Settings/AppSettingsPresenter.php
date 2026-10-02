@@ -83,6 +83,7 @@ class AppSettingsPresenter
                 'theme' => ThemePresets::ORIGIN,
                 'patient_number_prefix' => strtoupper((string) config('rivo.site.code')) ?: 'X',
                 'employee_number_prefix' => EmployeeNumberFormat::DEFAULT_PREFIX,
+                'intern_number_prefix' => EmployeeNumberFormat::DEFAULT_INTERN_PREFIX,
                 // ADR-209 — le modèle de la clinique, et le nom écrit autour du sceau.
                 'badge' => [
                     'primary' => BadgeDesign::DEFAULT_PRIMARY,
@@ -219,6 +220,7 @@ class AppSettingsPresenter
             $counters = DB::table('patient_number_sequences')->whereIn('year', [$year, 0])->pluck('next_number', 'year');
             $patientNext = app(PatientNumberGenerator::class)->peek();
             $employeeNext = app(EmployeeNumberAllocator::class)->suggest();
+            $internNext = app(EmployeeNumberAllocator::class)->suggest(intern: true);
         } catch (Throwable) {
             return ['available' => false, 'current_year' => $year];
         }
@@ -230,6 +232,7 @@ class AppSettingsPresenter
             'continuous_next' => (int) ($counters[0] ?? 1),
             'patient_next' => $patientNext,
             'employee_next' => $employeeNext,
+            'intern_next' => $internNext,
         ];
     }
 }

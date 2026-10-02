@@ -13,14 +13,18 @@ use App\Support\Numbering\EmployeeNumberFormat;
  * site, archives comprises : un matricule n'est jamais redonné. Un matricule saisi
  * autrement (« RH-001 ») ne compte pas, il ne suit pas le modèle. Rien n'est
  * réservé à l'affichage : c'est une proposition, que le RH peut corriger.
+ *
+ * ADR-243 — les stagiaires ont leur propre série (`STG-0001`), réglée à côté de
+ * celle des employés : un stagiaire ne prend jamais le prochain matricule d'un
+ * employé, et les deux séries ne se disputent aucun numéro.
  */
 class EmployeeNumberAllocator
 {
     public function __construct(private readonly AppSettings $settings) {}
 
-    public function suggest(): string
+    public function suggest(bool $intern = false): string
     {
-        return $this->sequence(1)[0];
+        return $this->sequence(1, intern: $intern)[0];
     }
 
     /**
@@ -30,9 +34,9 @@ class EmployeeNumberAllocator
      * @param  array<int, string>  $reserved
      * @return array<int, string>
      */
-    public function sequence(int $count, array $reserved = []): array
+    public function sequence(int $count, array $reserved = [], bool $intern = false): array
     {
-        $format = $this->format();
+        $format = $this->format($intern);
         $taken = array_map(fn (string $number) => mb_strtoupper(trim($number)), $reserved);
         $counter = max($this->highest($format), ...array_map(fn (string $number) => $format->counterOf($number) ?? 0, $reserved ?: ['']));
         $numbers = [];
@@ -79,9 +83,9 @@ class EmployeeNumberAllocator
         return $number;
     }
 
-    public function format(): EmployeeNumberFormat
+    public function format(bool $intern = false): EmployeeNumberFormat
     {
-        return $this->settings->employeeNumbering();
+        return $intern ? $this->settings->internNumbering() : $this->settings->employeeNumbering();
     }
 
     private function highest(EmployeeNumberFormat $format): int

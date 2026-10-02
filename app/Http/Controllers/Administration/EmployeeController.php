@@ -131,16 +131,18 @@ class EmployeeController extends Controller
         Gate::forUser($request->user())->authorize('create', Employee::class);
 
         $numbers = app(EmployeeNumberAllocator::class);
+        $intern = $request->boolean('stagiaire')
+            && $request->user()->can('contracts.create')
+            && $this->internships->hasInternshipType();
 
         return Inertia::render('Administration/Employees/Create', [
             ...$this->formData($request),
             // ADR-191 — proposé, jamais réservé : le RH peut le corriger.
-            'suggestedEmployeeNumber' => $numbers->suggest(),
-            'employeeNumberModel' => $numbers->format()->format(0),
+            // ADR-243 — un stagiaire reçoit le prochain de sa propre série.
+            'suggestedEmployeeNumber' => $numbers->suggest(intern: $intern),
+            'employeeNumberModel' => $numbers->format($intern)->format(0),
             // ADR-194 — « Nouveau stagiaire » : le dossier d'abord, puis son stage.
-            'internshipIntent' => $request->boolean('stagiaire')
-                && $request->user()->can('contracts.create')
-                && $this->internships->hasInternshipType(),
+            'internshipIntent' => $intern,
         ]);
     }
 
@@ -338,7 +340,9 @@ class EmployeeController extends Controller
 
     public function store(StoreEmployeeRequest $request, CreateEmployeeAction $action): RedirectResponse
     {
-        $employee = $action->execute($request->safe()->except(['after', 'internship']), $request->user());
+        // ADR-243 — un stagiaire sans matricule reçoit le prochain de sa propre série.
+        $data = $request->safe()->except(['after', 'internship', 'employee_number_proposed']);
+        $employee = $action->execute($data, $request->user(), intern: $request->boolean('internship'));
 
         // ADR-194 — un stagiaire : le dossier est créé, son stage vient ensuite.
         if ($request->validated('after') === 'internship' && $request->user()->can('contracts.create')) {

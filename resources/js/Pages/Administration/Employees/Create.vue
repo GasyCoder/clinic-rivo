@@ -39,6 +39,8 @@ const steps = computed(() => employeeSteps({ payroll: can('employees.payroll.vie
 const form = useForm({
     sex: '', last_name: '', first_name: '', birth_date: '', birth_place: '',
     employee_number: props.suggestedEmployeeNumber ?? '',
+    // ADR-243 — laissée telle quelle, la proposition est recalculée à l'enregistrement.
+    employee_number_proposed: props.suggestedEmployeeNumber ?? '',
     active: true,
     // ADR-194 — la photo 4 × 4 part avec le dossier (multipart).
     photo: null, remove_photo: false,

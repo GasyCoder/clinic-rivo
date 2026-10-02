@@ -178,7 +178,7 @@ test('the settings read module by module: the open module in a card, the modules
     }
     assert.equal(read('resources/js/Components/Settings/CurrencySettings.vue').match(/<template #leading/g)?.length, 3);
     // Champs texte : une icône en tête, via la primitive shadcn.
-    for (const [name, count] of [['IdentitySettings', 2], ['LegalSettings', 7], ['DirectionSettings', 2], ['AgeBandSettings', 3], ['NumberingSettings', 2]]) {
+    for (const [name, count] of [['IdentitySettings', 2], ['LegalSettings', 7], ['DirectionSettings', 2], ['AgeBandSettings', 3], ['NumberingSettings', 3]]) {
         assert.equal(read(`resources/js/Components/Settings/${name}.vue`).match(/<IconInput id="reglage-[^"]+"[^>]*:icon="/g)?.length, count, `${name} : ${count} champs avec leur icône`);
     }
     assert.match(page, /if \(! readonly\.value && target\.value\?\.ok\) submit\(\);/, 'jamais sans droit ni sur un site injoignable');

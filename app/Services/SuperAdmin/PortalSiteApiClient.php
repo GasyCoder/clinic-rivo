@@ -888,6 +888,12 @@ class PortalSiteApiClient
         return $this->getFromAllSites('super-admin/document-templates', $query, $actor);
     }
 
+    /** ADR-244 — les types de contrat et de congé qu'un modèle peut viser. */
+    public function documentTemplateTypeOptions(string $siteCode, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/document-templates/type-options', [], $actor);
+    }
+
     /** @return array<string, mixed> */
     public function documentTemplate(string $siteCode, string $uuid, User $actor): array
     {

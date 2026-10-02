@@ -18,6 +18,7 @@ class DuplicateDocumentTemplateAction
         return DocumentTemplate::query()->create([
             'document_type' => $template->document_type,
             'data_context' => $template->data_context,
+            'applies_to' => $template->applies_to,
             'name' => $template->name.' (copie)',
             'description' => $template->description,
             'content' => $template->content,

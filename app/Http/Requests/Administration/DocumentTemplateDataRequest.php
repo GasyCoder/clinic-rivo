@@ -31,6 +31,9 @@ class DocumentTemplateDataRequest extends FormRequest
             // code change or referential CRUD screen required.
             'document_type' => ['required', 'string', 'max:80'],
             'data_context' => ['required', new Enum(DocumentDataContext::class)],
+            // ADR-244 — les codes des types visés (CDI, CDD… ; maladie…), vides pour un modèle général.
+            'applies_to' => ['sometimes', 'nullable', 'array', 'max:30'],
+            'applies_to.*' => ['string', 'max:40'],
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
             'content' => ['required', 'array'],

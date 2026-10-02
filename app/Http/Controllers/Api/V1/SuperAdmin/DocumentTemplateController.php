@@ -14,6 +14,7 @@ use App\Http\Requests\Administration\CatalogReasonRequest;
 use App\Http\Requests\Api\V1\SuperAdmin\DocumentTemplateDataRequest;
 use App\Models\DocumentTemplate;
 use App\Services\Catalog\CatalogActor;
+use App\Support\Documents\DocumentTemplateTypes;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -62,6 +63,14 @@ class DocumentTemplateController extends Controller
                 'generated_at' => now()->toIso8601String(),
             ],
         ]);
+    }
+
+    /** ADR-244 — les types de contrat et de congé du site qu'un modèle peut viser. */
+    public function typeOptions(Request $request): JsonResponse
+    {
+        $this->authorizeActor(CatalogActor::fromRemoteRequest($request), 'document_templates.view');
+
+        return response()->json(['data' => DocumentTemplateTypes::allOptions()]);
     }
 
     public function show(Request $request, string $documentTemplateUuid): JsonResponse
@@ -216,6 +225,8 @@ class DocumentTemplateController extends Controller
             'document_type' => $template->document_type,
             'data_context' => $template->data_context->value,
             'data_context_label' => $template->data_context->label(),
+            'applies_to' => $template->appliesTo(),
+            'applies_to_labels' => DocumentTemplateTypes::labels($template),
             'name' => $template->name,
             'description' => $template->description,
             'content' => $template->content,

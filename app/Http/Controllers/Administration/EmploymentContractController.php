@@ -19,6 +19,7 @@ use App\Models\GeneratedDocument;
 use App\Models\HrReferenceValue;
 use App\Services\Administration\HrPresenter;
 use App\Services\Spreadsheet\ExcelWorkbook;
+use App\Support\Documents\DocumentTemplateTypes;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -162,8 +163,8 @@ class EmploymentContractController extends Controller
                 return to_route('administration.generated-documents.print', $existing);
             }
 
-            $only = DocumentTemplate::query()->where('active', true)
-                ->where('data_context', DocumentDataContext::EmployeeAndContract->value)->pluck('uuid');
+            // ADR-244 — le modèle de son type de contrat, sinon un modèle général.
+            $only = $this->contractTemplates($contract)->pluck('uuid');
             if ($only->count() === 1 && $user->can('generated_documents.create')) {
                 return to_route('administration.generated-documents.create', [
                     'template' => $only->first(),
@@ -179,9 +180,7 @@ class EmploymentContractController extends Controller
             // ADR-070/087: the printable contract is the Super Admin canevas,
             // filled for this contract. An archived contract only prints its sheet.
             'templates' => $user->can('generated_documents.create') && ! $contract->trashed()
-                ? DocumentTemplate::query()->where('active', true)
-                    ->where('data_context', DocumentDataContext::EmployeeAndContract->value)
-                    ->orderBy('name')->get()
+                ? $this->contractTemplates($contract)
                     ->map(fn (DocumentTemplate $template) => [
                         'uuid' => $template->uuid,
                         'name' => $template->name,
@@ -198,6 +197,17 @@ class EmploymentContractController extends Controller
                     ])->all()
                 : [],
         ]);
+    }
+
+    /** ADR-244 — les modèles actifs prévus pour le type de ce contrat, sinon les généraux. */
+    private function contractTemplates(EmploymentContract $contract)
+    {
+        return DocumentTemplateTypes::matching(
+            DocumentTemplate::query()->where('active', true)
+                ->where('data_context', DocumentDataContext::EmployeeAndContract->value)
+                ->orderBy('name')->get(),
+            DocumentTemplateTypes::contractCode($contract),
+        );
     }
 
     public function export(Request $request, ExcelWorkbook $excel): StreamedResponse

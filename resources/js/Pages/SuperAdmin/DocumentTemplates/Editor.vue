@@ -53,6 +53,8 @@ const props = defineProps({
     families: { type: Array, default: () => [] },
     /** ADR-208 — « Nouveau modèle » depuis un dossier : son type et son contexte. */
     preset: { type: Object, default: null },
+    /** ADR-244 — les types de contrat et de congé du site, par contexte de données. */
+    typeOptions: { type: Object, default: () => ({}) },
 });
 
 const isEditing = computed(() => props.template !== null);
@@ -62,6 +64,8 @@ const form = useForm({
     document_type: props.template?.document_type ?? props.preset?.document_type ?? '',
     // Un nouveau modèle ne présume rien : le dossier choisi règle les données reprises.
     data_context: props.template?.data_context ?? props.preset?.data_context ?? '',
+    // ADR-244 — vide : modèle général, pour tous les types.
+    applies_to: [...(props.template?.applies_to ?? [])],
     name: props.template?.name ?? '',
     description: props.template?.description ?? '',
     active: props.template?.active ?? true,
@@ -97,6 +101,20 @@ watch(customType, (value) => {
 
 // 2 · Ce que le RH verra : les champs de la page 1 et où le modèle lui est proposé (ADR-207).
 const selectedContext = computed(() => props.dataContexts.find((context) => context.value === form.data_context) ?? null);
+// ADR-244 — les types qu'un modèle de contrat ou de congé peut viser (CDI, CDD… ; maladie…).
+const typeChoices = computed(() => (props.typeOptions?.[form.data_context] ?? [])
+    .filter((type) => type.active || form.applies_to.includes(type.code)));
+const typeNoun = computed(() => (form.data_context === 'EMPLOYEE_AND_LEAVE' ? 'congé' : 'contrat'));
+const toggleType = (code) => {
+    if (isArchivedTemplate.value) return;
+    form.applies_to = form.applies_to.includes(code)
+        ? form.applies_to.filter((item) => item !== code)
+        : [...form.applies_to, code];
+};
+watch(() => form.data_context, () => {
+    const known = new Set((props.typeOptions?.[form.data_context] ?? []).map((type) => type.code));
+    form.applies_to = form.applies_to.filter((code) => known.has(code));
+});
 const contextOptions = computed(() => props.dataContexts.map((context) => ({ value: context.value, label: context.label })));
 const contextLabel = (value) => props.dataContexts.find((context) => context.value === value)?.label ?? value;
 const contextMismatch = computed(() => expectedContext({ document_type: form.document_type, data_context: form.data_context }));
@@ -458,7 +476,7 @@ const confirmRevert = () => {
     );
 };
 
-watch(() => [form.document_type, form.data_context, form.name, form.description, form.active], () => {
+watch(() => [form.document_type, form.data_context, form.applies_to.join(','), form.name, form.description, form.active], () => {
     isDirty.value = true;
 });
 
@@ -533,7 +551,7 @@ watch([contentVersion, activePageId, startMode], () => nextTick(measurePaper));
 const ficheSnapshot = ref(null);
 /** Ce que la fiche règle : le dossier, les données, le nom, et l'ordre et le nom des pages. */
 const ficheState = () => JSON.stringify({
-    form: { document_type: form.document_type, data_context: form.data_context, name: form.name, description: form.description, active: form.active },
+    form: { document_type: form.document_type, data_context: form.data_context, applies_to: [...form.applies_to], name: form.name, description: form.description, active: form.active },
     folder: folder.value,
     customType: customType.value,
     pages: pages.value.map(({ id, name }) => ({ id, name })),
@@ -897,6 +915,34 @@ const formatDateTime = (value) => (value ? new Date(value).toLocaleString('fr-FR
                     </div>
                     <p class="text-[11px] text-muted-foreground">Proposé au RH depuis : {{ selectedContext.offered_from.join(' · ') }}</p>
                 </div>
+                <div v-if="typeChoices.length" class="space-y-2">
+                    <p class="text-xs font-semibold text-foreground">Types de {{ typeNoun }} concernés</p>
+                    <div class="flex flex-wrap gap-1.5" role="group" :aria-label="`Types de ${typeNoun} concernés`">
+                        <button
+                            v-for="type in typeChoices"
+                            :key="type.code"
+                            type="button"
+                            :aria-pressed="form.applies_to.includes(type.code)"
+                            :disabled="isArchivedTemplate"
+                            :class="cn(
+                                'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60',
+                                form.applies_to.includes(type.code) ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground hover:border-primary/40',
+                            )"
+                            @click="toggleType(type.code)"
+                        >
+                            <Check v-if="form.applies_to.includes(type.code)" class="h-3 w-3" />{{ type.label }}<span v-if="! type.active" class="opacity-70">(archivé)</span>
+                        </button>
+                    </div>
+                    <p class="text-[11px] text-muted-foreground">
+                        {{ form.applies_to.length
+                            ? `Proposé seulement pour ces types. Les autres prennent le modèle prévu pour eux, sinon un modèle général.`
+                            : `Aucun type coché : modèle général, proposé pour tout ${typeNoun} qui n’a pas son propre modèle.` }}
+                    </p>
+                    <p v-if="form.errors.applies_to" class="text-xs text-destructive">{{ form.errors.applies_to }}</p>
+                </div>
+                <p v-else-if="form.data_context && form.data_context !== 'EMPLOYEE_ONLY'" class="text-[11px] text-muted-foreground">
+                    Les types de {{ typeNoun }} du site n’ont pas pu être lus : le modèle reste général.
+                </p>
                 <p v-if="contextMismatch" class="flex items-start gap-1.5 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200" role="status">
                     <TriangleAlert class="mt-0.5 h-3.5 w-3.5 shrink-0" />Ce dossier attend « {{ contextLabel(contextMismatch) }} » : sinon les dates ne sont pas reprises, et le modèle n’est pas proposé à l’impression.
                 </p>

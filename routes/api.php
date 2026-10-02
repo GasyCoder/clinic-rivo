@@ -310,6 +310,7 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
 
         Route::get('/document-templates', [DocumentTemplateController::class, 'index'])->name('document-templates.index');
         Route::post('/document-templates', [DocumentTemplateController::class, 'store'])->name('document-templates.store');
+        Route::get('/document-templates/type-options', [DocumentTemplateController::class, 'typeOptions'])->name('document-templates.type-options');
         Route::get('/document-templates/{documentTemplateUuid}', [DocumentTemplateController::class, 'show'])->name('document-templates.show');
         Route::put('/document-templates/{documentTemplateUuid}', [DocumentTemplateController::class, 'update'])->name('document-templates.update');
         Route::delete('/document-templates/{documentTemplateUuid}', [DocumentTemplateController::class, 'destroy'])->name('document-templates.destroy');

@@ -320,6 +320,10 @@ const emptyMessage = computed(() => {
                                     </td>
                                     <td class="px-3 py-2.5 text-xs text-muted-foreground">
                                         {{ contextLabel(template.data_context) }}
+                                        <span class="mt-1 flex flex-wrap gap-1">
+                                            <span v-for="label in template.applies_to_labels ?? []" :key="label" class="rounded-md bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">{{ label }}</span>
+                                            <span v-if="template.data_context !== 'EMPLOYEE_ONLY' && ! template.applies_to_labels?.length" class="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">Tous les types</span>
+                                        </span>
                                         <span v-if="expectedContext(template)" class="mt-1 flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300" :title="`Ce dossier attend « ${contextLabel(expectedContext(template))} » : sinon les dates ne sont pas reprises, et le modèle n’est pas proposé à l’impression.`">
                                             <TriangleAlert class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Attendu : {{ contextLabel(expectedContext(template)) }}
                                         </span>
@@ -352,6 +356,9 @@ const emptyMessage = computed(() => {
                                     <span class="block text-xs text-muted-foreground">{{ folderLabel(familyKey(template.document_type)) }} · {{ contextLabel(template.data_context) }}</span>
                                 </span>
                             </button>
+                            <p v-if="template.applies_to_labels?.length" class="mt-2 flex flex-wrap gap-1">
+                                <span v-for="label in template.applies_to_labels" :key="label" class="rounded-md bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">{{ label }}</span>
+                            </p>
                             <p v-if="template.description" class="mt-2 line-clamp-2 text-xs text-muted-foreground">{{ template.description }}</p>
                             <p v-if="expectedContext(template)" class="mt-2 flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"><TriangleAlert class="h-3.5 w-3.5 shrink-0" />Attendu : {{ contextLabel(expectedContext(template)) }}</p>
                             <div class="mt-auto flex items-center gap-2 pt-3">

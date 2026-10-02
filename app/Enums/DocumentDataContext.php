@@ -23,4 +23,18 @@ enum DocumentDataContext: string
             self::EmployeeAndLeave => 'Personnel + demande de congé',
         };
     }
+
+    /**
+     * ADR-244 — le référentiel RH dont un modèle de ce contexte peut viser des
+     * types précis (CDI, CDD… ; maladie, maternité…). Aucun pour « Personnel
+     * uniquement ».
+     */
+    public function referenceType(): ?HrReferenceType
+    {
+        return match ($this) {
+            self::EmployeeOnly => null,
+            self::EmployeeAndContract => HrReferenceType::ContractType,
+            self::EmployeeAndLeave => HrReferenceType::LeaveType,
+        };
+    }
 }

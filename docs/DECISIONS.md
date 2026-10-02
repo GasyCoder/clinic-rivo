@@ -23695,3 +23695,31 @@ Aucune permission nouvelle.
 matricules existants   les stagiaires déjà numérotés EMP-… ne sont pas renumérotés (ADR-191)
 séparateur, chiffres   communs aux deux séries ; les rendre distincts reste à décider
 ```
+
+---
+
+# ADR-244 — Un modèle de contrat ou de congé vise ses types (CDI, CDD… ; maladie, maternité…)
+
+**Status:** ACCEPTED (2026-10-02 — demande du propriétaire : « comment faire pour contrat : on a CDI, CDD, etc. ;
+pareil sur congé : maladie, maternité, paternité… »)
+
+**Complète l'ADR-070, l'ADR-207, l'ADR-208 et l'ADR-240.** Le CDC ne décrit pas les modèles de documents.
+
+```text
+donnée        document_templates.applies_to : codes du référentiel RH du site (CONTRACT_TYPE pour un
+              modèle « Personnel + contrat », LEAVE_TYPE pour « Personnel + congé ») ; vide = modèle
+              général. Les codes sont stables (ADR-100) : renommer « CDI » ne détache aucun modèle
+saisie        portail › Modèles de documents › fiche › 2 · Données reprises : « Types de contrat (ou de
+              congé) concernés », puces à cocher lues sur le site (GET /api/v1/super-admin/
+              document-templates/type-options) ; un code inconnu du site est refusé ; omis à la
+              modification, les types restent
+choix         pour un contrat ou un congé : les modèles qui visent son type, sinon les généraux, jamais
+              un modèle d'un autre type (DocumentTemplateTypes::matching). « Imprimer » un contrat
+              ouvre ainsi le modèle CDI pour un CDI ; l'impression d'un congé propose ceux de son type
+génération    la page « Générer un document » ne propose que les contrats ou congés du type visé ; le
+              serveur refuse un modèle CDI pour un contrat CDD (CreateGeneratedDocumentAction)
+reprise       aucune : les modèles existants restent généraux
+```
+
+Les types eux-mêmes (ajouter « Congé paternité », « Contrat d'apprentissage »…) se règlent dans RH ›
+Paramètres, comme avant. Aucune permission nouvelle. Migration `2026_12_12_090000`.

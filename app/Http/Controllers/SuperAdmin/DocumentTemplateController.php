@@ -34,7 +34,7 @@ class DocumentTemplateController extends Controller
         ]);
     }
 
-    public function create(Request $request, string $site): Response
+    public function create(Request $request, string $site, PortalSiteApiClient $client): Response
     {
         $this->assertRouteSite($site);
         // Unlike edit() (which already discovers this via the GET-detail
@@ -49,6 +49,7 @@ class DocumentTemplateController extends Controller
         return Inertia::render('SuperAdmin/DocumentTemplates/Editor', [
             'targetSite' => $this->siteMeta(mb_strtoupper($site)),
             'template' => null,
+            'typeOptions' => $this->typeOptions($site, $request, $client),
             'dataContexts' => $this->dataContextOptions(),
             'families' => $this->familyOptions(),
             'preset' => $folder === null ? null : [
@@ -68,6 +69,7 @@ class DocumentTemplateController extends Controller
         return Inertia::render('SuperAdmin/DocumentTemplates/Editor', [
             'targetSite' => $this->siteMeta(mb_strtoupper($site)),
             'template' => $detail['data'],
+            'typeOptions' => $this->typeOptions($site, $request, $client),
             'dataContexts' => $this->dataContextOptions(),
             'families' => $this->familyOptions(),
             'preset' => null,
@@ -208,6 +210,8 @@ class DocumentTemplateController extends Controller
         $validated = $request->validate([
             'document_type' => ['required', 'string', 'max:80'],
             'data_context' => ['required', new Enum(DocumentDataContext::class)],
+            'applies_to' => ['sometimes', 'nullable', 'array', 'max:30'],
+            'applies_to.*' => ['string', 'max:40'],
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
             'content' => ['required', 'array'],
@@ -215,7 +219,23 @@ class DocumentTemplateController extends Controller
             'active' => ['sometimes', 'boolean'],
         ]);
 
+        // ADR-244 — envoyé vide plutôt qu'omis : décocher tous les types rend le modèle général.
+        $validated['applies_to'] = array_values($validated['applies_to'] ?? []);
+
         return $validated;
+    }
+
+    /**
+     * ADR-244 — les types de contrat et de congé du site, qu'un modèle peut viser.
+     * Le site injoignable : aucun type, le modèle reste général.
+     *
+     * @return array<string, list<array<string, mixed>>>
+     */
+    private function typeOptions(string $site, Request $request, PortalSiteApiClient $client): array
+    {
+        $result = $client->documentTemplateTypeOptions(mb_strtoupper($site), $request->user());
+
+        return $result['ok'] ? (array) ($result['data'] ?? []) : [];
     }
 
     /** @return array<string, string> */

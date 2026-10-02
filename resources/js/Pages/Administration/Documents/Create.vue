@@ -59,8 +59,18 @@ const selectedTemplate = computed(() => props.templates.find((template) => templ
 const selectedEmployee = computed(() => props.employees.find((employee) => employee.uuid === form.employee_uuid));
 const needsContract = computed(() => selectedTemplate.value?.data_context === 'EMPLOYEE_AND_CONTRACT');
 const needsLeave = computed(() => selectedTemplate.value?.data_context === 'EMPLOYEE_AND_LEAVE');
-const availableContracts = computed(() => props.contractsByEmployee[form.employee_uuid] ?? []);
-const availableLeaves = computed(() => props.leavesByEmployee[form.employee_uuid] ?? []);
+// ADR-244 — un modèle qui vise des types précis (CDI, CDD… ; maladie…) ne propose
+// que les contrats ou congés de ces types ; un modèle général les propose tous.
+const templateCovers = (item) => {
+    const codes = selectedTemplate.value?.applies_to ?? [];
+
+    return codes.length === 0 || codes.includes(item.type_code);
+};
+const allContracts = computed(() => props.contractsByEmployee[form.employee_uuid] ?? []);
+const allLeaves = computed(() => props.leavesByEmployee[form.employee_uuid] ?? []);
+const availableContracts = computed(() => allContracts.value.filter(templateCovers));
+const availableLeaves = computed(() => allLeaves.value.filter(templateCovers));
+const typesLabel = computed(() => (selectedTemplate.value?.applies_to_labels ?? []).join(', '));
 const activeFields = computed(() => props.formFieldsByContext[selectedTemplate.value?.data_context] ?? []);
 
 // Keys the RH has explicitly edited — once touched, a later debounced
@@ -74,8 +84,9 @@ const markTouched = (key) => touchedFields.value.add(key);
 // Changer de canevas garde le contrat ou le congé déjà choisi quand le nouveau
 // canevas en parle aussi (ouvert depuis un congé, puis un autre canevas de congé).
 watch(() => form.document_template_uuid, () => {
-    if (! needsContract.value) form.employment_contract_uuid = '';
-    if (! needsLeave.value) form.leave_request_uuid = '';
+    // Un contrat ou un congé d'un type que le nouveau modèle ne vise pas est retiré (ADR-244).
+    if (! needsContract.value || ! availableContracts.value.some((contract) => contract.uuid === form.employment_contract_uuid)) form.employment_contract_uuid = '';
+    if (! needsLeave.value || ! availableLeaves.value.some((leave) => leave.uuid === form.leave_request_uuid)) form.leave_request_uuid = '';
     form.form_data = {};
     touchedFields.value = new Set();
 });
@@ -279,6 +290,9 @@ const stepDone = computed(() => ({
                                     <span class="min-w-0">
                                         <span class="block truncate text-sm font-semibold text-foreground">{{ template.name }}</span>
                                         <span class="mt-0.5 block text-xs text-muted-foreground">{{ template.data_context_label }}</span>
+                                        <span v-if="template.applies_to_labels?.length" class="mt-1 flex flex-wrap gap-1">
+                                            <span v-for="label in template.applies_to_labels" :key="label" class="rounded-md bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">{{ label }}</span>
+                                        </span>
                                         <span v-if="template.description" class="mt-1 line-clamp-2 block text-xs text-muted-foreground">{{ template.description }}</span>
                                     </span>
                                 </button>
@@ -347,8 +361,12 @@ const stepDone = computed(() => ({
                         <FormField v-else label="Demande de congé" required :error="form.errors.leave_request_uuid" as="div">
                             <Select v-model="form.leave_request_uuid" :options="leaveOptions" :placeholder="form.employee_uuid ? 'Sélectionner une demande' : 'Choisissez d’abord la personne'" :disabled="! form.employee_uuid" class="w-full" :icon="CalendarRange" />
                         </FormField>
-                        <p v-if="form.employee_uuid && needsContract && ! availableContracts.length" class="mt-2 text-sm text-amber-700 dark:text-amber-300">Cette personne n’a aucun contrat enregistré.</p>
-                        <p v-if="form.employee_uuid && needsLeave && ! availableLeaves.length" class="mt-2 text-sm text-amber-700 dark:text-amber-300">Cette personne n’a aucune demande de congé enregistrée.</p>
+                        <p v-if="form.employee_uuid && needsContract && ! availableContracts.length" class="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                            {{ allContracts.length ? `Ce modèle est réservé à : ${typesLabel}. Cette personne n’a aucun contrat de ce type.` : 'Cette personne n’a aucun contrat enregistré.' }}
+                        </p>
+                        <p v-if="form.employee_uuid && needsLeave && ! availableLeaves.length" class="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                            {{ allLeaves.length ? `Ce modèle est réservé à : ${typesLabel}. Cette personne n’a aucune demande de ce type.` : 'Cette personne n’a aucune demande de congé enregistrée.' }}
+                        </p>
                     </div>
                 </Card>
 

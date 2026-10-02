@@ -41,6 +41,7 @@ class RevertDocumentTemplateVersionAction
                 'lineage_id' => $historicalVersion->lineage_id,
                 'document_type' => $historicalVersion->document_type,
                 'data_context' => $historicalVersion->data_context,
+                'applies_to' => $historicalVersion->applies_to,
                 'name' => $historicalVersion->name,
                 'description' => $historicalVersion->description,
                 'content' => $historicalVersion->content,

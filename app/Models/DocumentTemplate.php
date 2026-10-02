@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
-    'lineage_id', 'document_type', 'data_context', 'name', 'description', 'content', 'content_html', 'active',
+    'lineage_id', 'document_type', 'data_context', 'applies_to', 'name', 'description', 'content', 'content_html', 'active',
     'created_by', 'updated_by',
     'external_created_by_uuid', 'external_created_by_name',
     'external_updated_by_uuid', 'external_updated_by_name',
@@ -25,6 +25,7 @@ class DocumentTemplate extends Model
     {
         return [
             'data_context' => DocumentDataContext::class,
+            'applies_to' => 'array',
             'content' => 'array',
             'active' => 'boolean',
         ];
@@ -56,6 +57,25 @@ class DocumentTemplate extends Model
     public function updater(): BelongsTo
     {
         return $this->belongsTo(User::class, 'updated_by');
+    }
+
+    /**
+     * ADR-244 — les codes des types visés (CDI, CDD… ; maladie…), vide pour un
+     * modèle général.
+     *
+     * @return list<string>
+     */
+    public function appliesTo(): array
+    {
+        return array_values($this->applies_to ?? []);
+    }
+
+    /** Ce modèle convient-il à ce type de contrat ou de congé ? Un modèle général convient à tous. */
+    public function covers(?string $typeCode): bool
+    {
+        $codes = $this->appliesTo();
+
+        return $codes === [] || ($typeCode !== null && in_array($typeCode, $codes, true));
     }
 
     public function isForceDeleteProtected(): bool

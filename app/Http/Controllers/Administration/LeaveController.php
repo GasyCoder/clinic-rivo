@@ -21,6 +21,7 @@ use App\Models\HrReferenceValue;
 use App\Models\LeaveRequest;
 use App\Services\Administration\HrPresenter;
 use App\Services\Administration\LeaveBalanceCalculator;
+use App\Support\Documents\DocumentTemplateTypes;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -130,9 +131,13 @@ class LeaveController extends Controller
             // est un canevas du Super Admin, rempli pour ce congé. La fiche de demande
             // reste imprimable telle quelle.
             'templates' => $user->can('generated_documents.create') && $leave->status !== LeaveRequestStatus::Cancelled
-                ? DocumentTemplate::query()->where('active', true)
-                    ->where('data_context', DocumentDataContext::EmployeeAndLeave->value)
-                    ->orderBy('name')->get()
+                ? DocumentTemplateTypes::matching(
+                    DocumentTemplate::query()->where('active', true)
+                        ->where('data_context', DocumentDataContext::EmployeeAndLeave->value)
+                        ->orderBy('name')->get(),
+                    // ADR-244 — le modèle de son type de congé, sinon un modèle général.
+                    DocumentTemplateTypes::leaveCode($leave),
+                )
                     ->map(fn (DocumentTemplate $template) => [
                         'uuid' => $template->uuid,
                         'name' => $template->name,

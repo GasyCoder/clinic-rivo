@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Administration\DocumentFormDataResolver;
 use App\Services\Settings\AppSettings;
 use App\Support\Authorization\RemoteActorAttribution;
+use App\Support\Documents\DocumentTemplateTypes;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -53,6 +54,17 @@ class CreateGeneratedDocumentAction
 
         if ($leave && $leave->employee_id !== $employee->getKey()) {
             throw ValidationException::withMessages(['leave_request_uuid' => 'Cette demande de congé n’appartient pas à cet employé.']);
+        }
+
+        // ADR-244 — un modèle qui vise des types précis ne sert que pour eux : un
+        // modèle CDI ne produit pas le document d'un CDD.
+        $typeCode = $contract ? DocumentTemplateTypes::contractCode($contract) : DocumentTemplateTypes::leaveCode($leave);
+        if (($contract || $leave) && ! $template->covers($typeCode)) {
+            throw ValidationException::withMessages(['document_template_uuid' => sprintf(
+                'Ce modèle est réservé à : %s. Choisissez un modèle prévu pour ce %s.',
+                implode(', ', DocumentTemplateTypes::labels($template)),
+                $contract ? 'type de contrat' : 'type de congé',
+            )]);
         }
 
         return DB::transaction(function () use ($template, $employee, $contract, $leave, $formData, $actor, $withDirectorSignature, $replaces): GeneratedDocument {

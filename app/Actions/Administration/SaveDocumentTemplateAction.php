@@ -5,6 +5,7 @@ namespace App\Actions\Administration;
 use App\Enums\DocumentDataContext;
 use App\Models\DocumentTemplate;
 use App\Services\Catalog\CatalogActor;
+use App\Support\Documents\DocumentTemplateTypes;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -18,9 +19,16 @@ class SaveDocumentTemplateAction
             throw new AuthorizationException('Cette action distante n’est pas autorisée.');
         }
 
+        $context = DocumentDataContext::from($data['data_context']);
+        // ADR-244 — les types visés. Omis : gardés tels quels si le contexte ne change pas.
+        $appliesTo = array_key_exists('applies_to', $data)
+            ? DocumentTemplateTypes::normalize($data['applies_to'], $context)
+            : ($template && $template->data_context === $context ? ($template->applies_to ?: null) : null);
+
         $values = [
             'document_type' => mb_strtoupper(trim((string) $data['document_type'])),
-            'data_context' => DocumentDataContext::from($data['data_context']),
+            'data_context' => $context,
+            'applies_to' => $appliesTo,
             'name' => trim((string) $data['name']),
             'description' => filled($data['description'] ?? null) ? trim((string) $data['description']) : null,
             'content' => $data['content'],

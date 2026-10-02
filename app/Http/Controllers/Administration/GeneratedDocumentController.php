@@ -2,16 +2,14 @@
 
 namespace App\Http\Controllers\Administration;
 
-use App\Support\Documents\DocumentFamily;
-use App\Models\User;
-use App\Http\Requests\Administration\ArchiveGeneratedDocumentRequest;
-use App\Actions\Administration\RestoreGeneratedDocumentAction;
 use App\Actions\Administration\ArchiveGeneratedDocumentAction;
 use App\Actions\Administration\CreateGeneratedDocumentAction;
 use App\Actions\Administration\PreviewGeneratedDocumentAction;
+use App\Actions\Administration\RestoreGeneratedDocumentAction;
 use App\Enums\DocumentDataContext;
 use App\Enums\LeaveRequestStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Administration\ArchiveGeneratedDocumentRequest;
 use App\Http\Requests\Administration\PreviewGeneratedDocumentRequest;
 use App\Http\Requests\Administration\StoreGeneratedDocumentRequest;
 use App\Models\DocumentTemplate;
@@ -19,10 +17,13 @@ use App\Models\Employee;
 use App\Models\EmploymentContract;
 use App\Models\GeneratedDocument;
 use App\Models\LeaveRequest;
+use App\Models\User;
 use App\Services\Administration\DocumentFormFieldCatalog;
 use App\Services\Administration\HrPresenter;
 use App\Services\Settings\AppSettings;
 use App\Support\Authorization\RemoteActorAttribution;
+use App\Support\Documents\DocumentFamily;
+use App\Support\Documents\DocumentTemplateTypes;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -124,7 +125,12 @@ class GeneratedDocumentController extends Controller
         $leave = (string) ($replaces?->leaveRequest?->uuid ?? $request->query('leave', ''));
         $leave = $employee !== '' && collect($leaves[$employee] ?? [])->contains('uuid', $leave) ? $leave : '';
         $context = $leave !== '' ? DocumentDataContext::EmployeeAndLeave : ($contract !== '' ? DocumentDataContext::EmployeeAndContract : null);
-        $candidates = $context ? collect($templates)->where('data_context', $context->value)->values() : collect();
+        // ADR-244 — le modèle du type de ce contrat ou de ce congé, sinon un général.
+        $typeCode = $leave !== '' ? collect($leaves[$employee] ?? [])->firstWhere('uuid', $leave)['type_code'] ?? null
+            : ($contract !== '' ? collect($contracts[$employee] ?? [])->firstWhere('uuid', $contract)['type_code'] ?? null : null);
+        $candidates = $context
+            ? DocumentTemplateTypes::matching(collect($templates)->where('data_context', $context->value)->values(), $typeCode)
+            : collect();
         if ($template === '' && $candidates->count() === 1) {
             $template = $candidates->first()['uuid'];
         }
@@ -262,6 +268,8 @@ class GeneratedDocumentController extends Controller
                 'document_type' => $template->document_type,
                 'data_context' => $template->data_context->value,
                 'data_context_label' => $template->data_context->label(),
+                'applies_to' => $template->appliesTo(),
+                'applies_to_labels' => DocumentTemplateTypes::labels($template),
                 'description' => $template->description,
             ])->all();
     }
@@ -269,11 +277,12 @@ class GeneratedDocumentController extends Controller
     /** @return array<string, array<int, array<string, string>>> employee uuid => contracts */
     private function contractsByEmployee(): array
     {
-        return EmploymentContract::query()->with('employee:id,uuid')->orderByDesc('starts_on')->get()
+        return EmploymentContract::query()->with(['employee:id,uuid', 'contractType' => fn ($query) => $query->withTrashed()])->orderByDesc('starts_on')->get()
             ->groupBy(fn (EmploymentContract $contract) => $contract->employee->uuid)
             ->map(fn ($contracts) => $contracts->map(fn (EmploymentContract $contract) => [
                 'uuid' => $contract->uuid,
-                'label' => trim(($contract->reference_number ?: 'Contrat').' · '.$contract->starts_on?->toDateString()),
+                'label' => trim(($contract->contractType?->label ?? $contract->reference_number ?: 'Contrat').' · '.$contract->starts_on?->format('d/m/Y')),
+                'type_code' => $contract->contractType?->code,
             ])->values()->all())->all();
     }
 
@@ -288,6 +297,7 @@ class GeneratedDocumentController extends Controller
                 'uuid' => $leave->uuid,
                 'label' => ($leave->leaveType?->label ?? 'Congé').' · du '.$leave->starts_on?->format('d/m/Y').' au '.$leave->returns_on?->format('d/m/Y'),
                 'status' => $leave->status->label(),
+                'type_code' => $leave->leaveType?->code,
             ])->values()->all())->all();
     }
 

@@ -462,7 +462,9 @@ désactivés avec motif, auteur et audit, puis leurs sessions sont révoquées.
 Les seeders standards ne doivent créer aucun compte ou mot de passe de
 démonstration. L'unique exception est `DevelopmentUserSeeder`, explicitement
 réservé à `local/testing`, jamais appelé par `DatabaseSeeder` et refusé en
-production. Voir ADR-022.
+production. Voir ADR-022. En production, le premier Super Admin du portail vient de
+`ProductionSuperAdminSeeder` (RIVO_SUPER_ADMIN_EMAIL / _NAME / _PASSWORD, une seule fois,
+`BootstrapSuperAdminAction` partagée avec `rivo:provision-super-admin`).
 
 La compatibilité compte/déploiement est contrôlée à la connexion et sur chaque
 session : `SUPER_ADMIN` uniquement sur `admin`, tout rôle opérationnel uniquement

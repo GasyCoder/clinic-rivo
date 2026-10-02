@@ -21,6 +21,8 @@ class DatabaseSeeder extends Seeder
             PartnerOrganizationSeeder::class,
             HrReferenceSeeder::class,
             RolePermissionSeeder::class,
+            // Portal only, once: the first real Super Admin from RIVO_SUPER_ADMIN_* (ADR-022).
+            ProductionSuperAdminSeeder::class,
         ]);
 
         // Local only: test accounts, catalogue, tariffs, analyses, stock and

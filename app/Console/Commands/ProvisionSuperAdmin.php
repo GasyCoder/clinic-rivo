@@ -2,13 +2,13 @@
 
 namespace App\Console\Commands;
 
+use App\Actions\User\BootstrapSuperAdminAction;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\Auditor;
-use App\Support\SecurePassword;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class ProvisionSuperAdmin extends Command
 {
@@ -30,7 +30,7 @@ class ProvisionSuperAdmin extends Command
         'demo.nurse2@rivo.mg',
     ];
 
-    public function handle(Auditor $auditor): int
+    public function handle(Auditor $auditor, BootstrapSuperAdminAction $bootstrap): int
     {
         if (config('rivo.site.type') !== 'admin') {
             $this->error('Cette commande est réservée au déploiement central RIVO_SITE_TYPE=admin.');
@@ -44,73 +44,33 @@ class ProvisionSuperAdmin extends Command
             return self::FAILURE;
         }
 
-        $role = Role::query()->where('code', 'SUPER_ADMIN')->first();
-
-        if (! $role) {
+        if (! Role::query()->where('code', 'SUPER_ADMIN')->exists()) {
             $this->error('Le rôle SUPER_ADMIN est absent. Exécutez les seeders RBAC avant cette commande.');
 
             return self::FAILURE;
         }
 
-        $name = trim((string) ($this->option('name') ?: $this->ask('Nom complet')));
-        $email = mb_strtolower(trim((string) $this->argument('email')));
+        $name = (string) ($this->option('name') ?: $this->ask('Nom complet'));
         $password = (string) $this->secret('Mot de passe (12 caractères minimum, majuscule, minuscule, chiffre et symbole)');
         $confirmation = (string) $this->secret('Confirmez le mot de passe');
 
-        $validator = Validator::make([
-            'name' => $name,
-            'email' => $email,
-            'password' => $password,
-            'password_confirmation' => $confirmation,
-        ], [
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'confirmed', SecurePassword::rule()],
-        ]);
+        try {
+            $user = DB::transaction(function () use ($bootstrap, $auditor, $name, $password, $confirmation) {
+                $user = $bootstrap->execute($name, (string) $this->argument('email'), $password, $confirmation);
 
-        if ($validator->fails()) {
-            foreach ($validator->errors()->all() as $error) {
+                if ($this->option('replace-demo-users')) {
+                    $this->deactivateDemoUsers($auditor, $user);
+                }
+
+                return $user;
+            });
+        } catch (ValidationException $exception) {
+            foreach ($exception->validator->errors()->all() as $error) {
                 $this->error($error);
             }
 
             return self::FAILURE;
         }
-
-        $user = DB::transaction(function () use ($auditor, $email, $name, $password, $role) {
-            $user = new User([
-                'name' => $name,
-                'email' => $email,
-                'password' => $password,
-                'role_id' => $role->id,
-                'email_verified_at' => now(),
-            ]);
-            $user->forceFill(['active' => true])->save();
-
-            $auditor->record(
-                'user.bootstrap_super_admin',
-                entity: $user,
-                newValues: [
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'role' => 'SUPER_ADMIN',
-                    'active' => true,
-                ],
-                module: 'administration',
-            );
-
-            $auditor->record(
-                'user.role.assign',
-                entity: $user,
-                newValues: ['role' => 'SUPER_ADMIN'],
-                module: 'administration',
-            );
-
-            if ($this->option('replace-demo-users')) {
-                $this->deactivateDemoUsers($auditor, $user);
-            }
-
-            return $user;
-        });
 
         $this->info("Super Administrateur {$user->email} créé pour le portail central ".config('rivo.site.name').'.');
 

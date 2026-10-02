@@ -557,6 +557,17 @@ chaque lancement. Son mot de passe est configurable par
 `RIVO_DEVELOPMENT_USERS_PASSWORD`. Cette exception ne permet aucun compte
 générique ou mot de passe de test sur un environnement de production.
 
+**Amendement du 2026-10-02 — le premier Super Admin depuis le .env de production.** Une base portail
+neuve reçoit par `php artisan migrate --seed --force` tous ses référentiels (rôles, permissions, profils,
+adresses, banques, RH, modes de paiement) — vérifié contre la base locale, qui en a moins. Il ne lui
+manquait que le compte pour se connecter, la commande interactive étant malcommode sur un hébergement
+mutualisé. `ProductionSuperAdminSeeder` (appelé par `DatabaseSeeder`) le crée depuis
+`RIVO_SUPER_ADMIN_EMAIL` / `_NAME` / `_PASSWORD` : portail seulement, une seule fois (rien n'est touché
+dès qu'un Super Admin actif existe), même politique de mot de passe et même audit que
+`rivo:provision-super-admin` (`BootstrapSuperAdminAction`, partagée, audit `via: seeder`). Aucun mot de
+passe dans le code ; le retirer du .env une fois le compte créé. Les comptes de test, l'historique et la
+clé de l'assistant IA (chiffrée par la clé locale) ne sont pas recopiés.
+
 ---
 
 # ADR-023 — Séparation Réception Patient / Réception Visiteur

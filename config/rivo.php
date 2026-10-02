@@ -96,6 +96,17 @@ return [
     |
     */
 
+    /*
+    | First Super Administrator of the central portal, created once by
+    | ProductionSuperAdminSeeder (`php artisan db:seed --force`) when no active
+    | Super Admin exists yet. Remove the password from .env once it is done.
+    */
+    'bootstrap_super_admin' => [
+        'email' => env('RIVO_SUPER_ADMIN_EMAIL'),
+        'name' => env('RIVO_SUPER_ADMIN_NAME'),
+        'password' => env('RIVO_SUPER_ADMIN_PASSWORD'),
+    ],
+
     'site' => [
         'code' => env('RIVO_SITE_CODE'),
         'name' => env('RIVO_SITE_NAME'),

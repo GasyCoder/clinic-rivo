@@ -674,6 +674,9 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Propositions entre fournisseurs différents, par la règle et par « Rapprocher avec l'IA » (libellés seulement, à confirmer) (ADR-241)
 - [x] « Générer le prompt » d'un catalogue fournisseur : structure exacte du fichier, prompt qui la tient pour source de vérité, « Copier » (ADR-241)
 - [ ] Dictionnaire commun poussé à tous les sites ; IA face au catalogue de la clinique — à décider (ADR-241)
+- [x] Comparateur : le moins cher, l'intermédiaire et le plus cher colorés, écart affiché, légende ; couleurs, marquage, seuil, tri et mentions réglables par compte (ADR-242)
+- [x] « Rapprocher avec l'IA » par lots (ancres et voisins, 70 lignes au plus) avec état de chaque lot, progression, arrêt et relance des échecs — plus de délai dépassé sur un gros catalogue (ADR-242)
+- [ ] Lots menés en tâche de fond plutôt que par la page ouverte — à décider (ADR-242)
 - [ ] Transfert stock
 - [ ] Rapports
 

@@ -96,10 +96,26 @@ class SupplierEquivalencePortalTest extends TestCase
             self::API.'/product-equivalences/proposals' => Http::response(['message' => '1 rapprochement(s) proposé(s), à confirmer.', 'data' => ['proposed' => 1]]),
         ]);
 
+        $plan = $this->actingAs($this->superAdmin)
+            ->postJson('/super-admin/pharmacy-suppliers/A/commander/ia', [])
+            ->assertOk()
+            ->assertJsonCount(1, 'data.batches')
+            ->json();
+
+        // Rien n'est encore parti à l'IA : seul le plan est prêt.
+        $this->assertNull($received);
+
         $this->actingAs($this->superAdmin)
-            ->post('/super-admin/pharmacy-suppliers/A/commander/ia', [])
-            ->assertSessionHasNoErrors()
-            ->assertSessionHas('status', '1 rapprochement(s) proposé(s), à confirmer.');
+            ->postJson("/super-admin/pharmacy-suppliers/A/commander/ia/{$plan['data']['run']}/0")
+            ->assertOk()
+            ->assertJsonPath('data.proposed', 1)
+            ->assertJsonPath('message', '1 rapprochement(s) proposé(s), à confirmer.');
+
+        // Un autre compte ne relance pas le lot d'un autre.
+        $other = User::factory()->create(['role_id' => $this->superAdmin->role_id]);
+        $this->actingAs($other)
+            ->postJson("/super-admin/pharmacy-suppliers/A/commander/ia/{$plan['data']['run']}/0")
+            ->assertNotFound();
 
         $this->assertStringContainsString('1. Doliprane 500 — Boîte [Fournisseur A]', $received);
         $this->assertStringNotContainsString('Seringue', $received);
@@ -121,8 +137,9 @@ class SupplierEquivalencePortalTest extends TestCase
         ]]])]);
 
         $this->actingAs($this->superAdmin)
-            ->post('/super-admin/pharmacy-suppliers/A/commander/ia', [])
-            ->assertSessionHasErrors('ai');
+            ->postJson('/super-admin/pharmacy-suppliers/A/commander/ia', [])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'L’assistant IA n’est pas configuré sur le portail (Paramètres › Assistant IA).');
 
         Http::assertNotSent(fn ($request) => str_contains($request->url(), 'proposals'));
     }
@@ -137,6 +154,26 @@ class SupplierEquivalencePortalTest extends TestCase
         $this->assertSame([], SupplierProductAiMatcher::pairs('Désolé, je ne sais pas.', $lines));
         $this->assertSame([], SupplierProductAiMatcher::pairs('{"pairs":[{"a":1,"b":1}]}', $lines));
         $this->assertCount(1, SupplierProductAiMatcher::pairs("```json\n{\"pairs\":[{\"a\":2,\"b\":1},{\"a\":1,\"b\":2}]}\n```", $lines));
+    }
+
+    public function test_many_lines_are_split_into_batches_of_neighbours(): void
+    {
+        $lines = [];
+        foreach (range(1, 120) as $i) {
+            $lines[] = ['item_uuid' => "big-{$i}", 'label' => "Produit grand {$i} gel", 'supplier' => 'Grand'];
+        }
+        $lines[] = ['item_uuid' => 'small-1', 'label' => 'Amoxicilline 1g gelule', 'supplier' => 'Petit'];
+        $lines[] = ['item_uuid' => 'big-amox', 'label' => 'AMOXICILLINE 1000 MG GELULES', 'supplier' => 'Grand'];
+        $lines[] = ['item_uuid' => 'small-2', 'label' => 'Xylozzz inconnu', 'supplier' => 'Petit'];
+
+        $plan = SupplierProductAiMatcher::plan($lines);
+
+        $this->assertCount(1, $plan['batches']);
+        $this->assertSame(1, $plan['alone']);
+        $uuids = array_column($plan['batches'][0], 'item_uuid');
+        $this->assertSame('small-1', $uuids[0]);
+        $this->assertContains('big-amox', $uuids);
+        $this->assertLessThanOrEqual(SupplierProductAiMatcher::BATCH_LINES, count($uuids));
     }
 
     /** @return array<string, mixed> */

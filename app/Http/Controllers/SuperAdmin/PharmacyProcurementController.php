@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\SuperAdmin\Concerns\RespondsToSiteApi;
 use App\Services\Assistant\AssistantConfiguration;
 use App\Services\SuperAdmin\PortalSiteApiClient;
+use App\Support\Pharmacy\PriceComparisonPreferences;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -47,6 +48,8 @@ class PharmacyProcurementController extends Controller
             'canManageEquivalences' => $request->user()->can('supplier_equivalences.manage'),
             'aiAvailable' => app(AssistantConfiguration::class)->available(),
             'selectedSuppliers' => $selected,
+            // ADR-242 — couleurs du moins cher et du plus cher, propres au compte.
+            'priceComparison' => PriceComparisonPreferences::resolve($request->user()->ui_preferences),
             'error' => $result['ok'] ? null : $result['message'],
         ]);
     }

@@ -23529,3 +23529,67 @@ IA                  seulement entre lignes de catalogue de fournisseurs différe
                     de la clinique (ce serait un rattachement, qui crée un prix)
 dictionnaire        par site ; une liste commune poussée à tous les sites reste à décider
 ```
+
+---
+
+# ADR-242 — Comparateur des fournisseurs : couleurs des prix réglables, IA par lots avec son état
+
+**Status:** ACCEPTED (2026-10-02 — demande du propriétaire : « code couleur entre le prix le moins cher et le plus
+cher, et paramètres pour modifier la couleur, etc. — tous les paramètres possibles » ; « Rapprocher avec l'IA : partir
+directement en IA et pouvoir suivre son état », après un « Le fournisseur d'IA ne répond pas (délai dépassé) »)
+
+**Complète l'ADR-241** (rapprochement par l'IA) et **l'ADR-181** (comparateur). Aucune règle d'achat ne change : le
+choix du fournisseur reste celui de l'acheteur (ADR-098). Aucune permission nouvelle, aucune migration.
+
+## Le moins cher, le plus cher, ce qui est entre les deux
+
+Sur chaque ligne de « Comparer et commander », les offres chiffrées se rangent (`utilities/priceComparison.js`) :
+`best` (le moins cher), `worst` (le plus cher), `middle` ; rien ne se colore quand il n'y a qu'un prix ou que tous sont
+égaux. Une légende au-dessus du tableau ; « le moins cher » / « le plus cher » restent écrits — la couleur ne porte
+jamais seule le sens ; l'écart au moins cher s'affiche sous chaque autre prix.
+
+Réglages (« Affichage des prix », `PriceComparisonSettings`, aperçu en direct) :
+
+```text
+couleurs        moins cher (#059669), intermédiaire (#D97706), plus cher (#DC2626)
+marquage        carte teintée · bordure · texte seul
+écart           en % · en Ariary · les deux · aucun
+seuil           « le plus cher » seulement à partir de N % d'écart (0–100, pas de 5) ; en deçà, intermédiaire
+interrupteurs   colorer l'intermédiaire, écrire les mentions, ranger du moins cher au plus cher, légende
+```
+
+Gardés **sur le compte** (`users.ui_preferences.price_comparison`, ADR-191 — un poste est partagé), seulement ce qui
+s'écarte des valeurs d'origine (`App\Support\Pharmacy\PriceComparisonPreferences`, même liste que le JS) ;
+`PUT /profil/comparateur-prix` (aucun droit : son compte ; `reset` rend l'origine). Défaut corrigé au passage :
+« Mon profil › Apparence » réécrivait tout `ui_preferences` ; il ne touche plus que ses trois réglages.
+
+## L'IA par lots, avec son état
+
+Une seule question de 150 libellés dépassait le délai du fournisseur, et ne portait que les 150 premières lignes —
+sur 4 889 produits d'un fournisseur et 100 de l'autre, presque rien d'utile. Désormais :
+
+```text
+1. préparer   POST …/commander/ia → SupplierProductAiMatcher::plan() : ≤ 70 lignes, un seul lot dans l'ordre ;
+              sinon chaque produit des fournisseurs autres que le plus gros (« ancre ») part avec ses 6 voisins
+              les plus proches chez les autres (mots rares partagés, puis nombres), 10 ancres par lot, 70 lignes
+              au plus, 40 lots au plus ; une ancre sans voisin ne part pas ; le reste attend une prochaine passe.
+              Plan gardé 2 h en cache, lié au compte et au site. Rien ne part encore à l'IA.
+2. un lot     POST …/commander/ia/{run}/{lot} : la question du lot, puis ses paires confiées au site comme
+              propositions (inchangé) ; un autre compte reçoit 404 ; throttle 60/min
+écran         SupplierAiMatchingPanel : préparation, barre d'avancement, état de chaque lot (en attente, en cours,
+              terminé avec N propositions, échec avec sa raison), Arrêter, « Relancer les lots en échec »,
+              « Voir les propositions » (recharge et filtre « À rapprocher »)
+```
+
+Les lots partent l'un après l'autre : un lot lent ou refusé n'emporte pas les autres. Ce qui part au fournisseur
+d'IA ne change pas : des libellés, jamais un prix ni un patient (ADR-241). Les quotas de l'assistant (ADR-222)
+s'appliquent à chaque lot.
+
+## Signalé, non tranché
+
+```text
+marque ↔ générique   dans un gros catalogue, deux libellés sans mot ni nombre commun (« Doliprane » / « paracétamol »)
+                      ne tombent pas dans le même lot : seule une liste de ≤ 70 lignes les compare tous
+réglages par site    les couleurs sont propres au compte, pas imposées par site — à décider si besoin
+file d'attente       les lots sont menés par la page ouverte ; un traitement de fond (queue) reste à décider
+```

@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\Assistant\AssistantConfiguration;
 use App\Services\Assistant\AssistantErrors;
 use App\Services\Assistant\AssistantUsageLedger;
+use App\Support\ProductLabel;
 use Throwable;
 
 /**
@@ -20,8 +21,19 @@ use Throwable;
  */
 class SupplierProductAiMatcher
 {
-    /** Au-delà, la liste ne tient plus dans une question raisonnable. */
-    public const MAX_LINES = 150;
+    /**
+     * ADR-242 — une seule question par lot, assez courte pour que le
+     * fournisseur d'IA réponde avant le délai : au plus 70 lignes.
+     */
+    public const BATCH_LINES = 70;
+
+    /** Produits « ancres » par lot, chacun avec ses voisins les plus proches. */
+    public const ANCHORS_PER_BATCH = 10;
+
+    public const NEIGHBORS = 6;
+
+    /** Au-delà, le reste attend une prochaine passe. */
+    public const MAX_BATCHES = 40;
 
     public function __construct(
         private readonly AssistantConfiguration $configuration,
@@ -63,7 +75,117 @@ class SupplierProductAiMatcher
             return [];
         }
 
-        return array_slice($lines, 0, self::MAX_LINES);
+        return $lines;
+    }
+
+    /** Pourquoi l'IA ne peut pas tourner pour ce compte, ou null. */
+    public function unavailable(User $user): ?string
+    {
+        if (! $this->configuration->available()) {
+            return 'L’assistant IA n’est pas configuré sur le portail (Paramètres › Assistant IA).';
+        }
+
+        return $this->ledger->refusal($user)['message'] ?? null;
+    }
+
+    /**
+     * ADR-242 — les lignes découpées en lots. Peu de lignes : un seul lot, dans
+     * l'ordre. Sinon chaque produit du (des) plus petit(s) fournisseur(s) part
+     * avec les lignes des autres fournisseurs qui lui ressemblent le plus —
+     * mots rares partagés, puis nombres —, pour qu'un lot de 70 lignes porte
+     * ses chances de trouver une paire au lieu de 70 produits au hasard. Un
+     * produit sans aucun voisin ne part pas : il n'a rien à quoi se comparer.
+     *
+     * @param  array<int, array{item_uuid: string, label: string, supplier: string, family?: ?string}>  $lines
+     * @return array{batches: array<int, array<int, array<string, mixed>>>, remaining: int, alone: int}
+     */
+    public static function plan(array $lines): array
+    {
+        $lines = array_values($lines);
+
+        if (count($lines) <= self::BATCH_LINES) {
+            return ['batches' => count($lines) >= 2 ? [$lines] : [], 'remaining' => 0, 'alone' => 0];
+        }
+
+        $bySupplier = collect($lines)->countBy('supplier');
+        $largest = $bySupplier->sortDesc()->keys()->first();
+
+        $words = [];
+        $numbers = [];
+        $wordIndex = [];
+        $numberIndex = [];
+
+        foreach ($lines as $index => $line) {
+            $tokens = explode(' ', ProductLabel::key($line['label']));
+            $words[$index] = array_values(array_unique(array_filter($tokens, fn (string $token) => strlen($token) >= 3 && ! ctype_digit($token[0]))));
+            $numbers[$index] = array_values(array_unique(array_filter($tokens, fn (string $token) => $token !== '' && ctype_digit($token[0]))));
+
+            foreach ($words[$index] as $word) {
+                $wordIndex[$word][] = $index;
+            }
+
+            foreach ($numbers[$index] as $number) {
+                $numberIndex[$number][] = $index;
+            }
+        }
+
+        $total = count($lines);
+        $idf = array_map(fn (array $hits): float => log(1 + $total / count($hits)), $wordIndex);
+
+        $anchors = collect($lines)
+            ->filter(fn (array $line) => $line['supplier'] !== $largest)
+            ->sortBy(fn (array $line) => mb_strtolower(($line['family'] ?? '~')."\u{0}".ProductLabel::key($line['label'])))
+            ->keys()
+            ->all();
+
+        $limit = self::MAX_BATCHES * self::ANCHORS_PER_BATCH;
+        $remaining = max(0, count($anchors) - $limit);
+        $anchors = array_slice($anchors, 0, $limit);
+
+        $groups = [];
+        $alone = 0;
+
+        foreach ($anchors as $anchor) {
+            $scores = [];
+
+            foreach ($words[$anchor] as $word) {
+                foreach ($wordIndex[$word] as $other) {
+                    $scores[$other] = ($scores[$other] ?? 0) + $idf[$word];
+                }
+            }
+
+            foreach ($numbers[$anchor] as $number) {
+                // Un nombre trop courant (500, 100…) ne dit rien à lui seul.
+                if (count($numberIndex[$number]) > 400) {
+                    continue;
+                }
+
+                foreach ($numberIndex[$number] as $other) {
+                    $scores[$other] = ($scores[$other] ?? 0) + 0.3;
+                }
+            }
+
+            $scores = array_filter($scores, fn (float $score, int $other) => $lines[$other]['supplier'] !== $lines[$anchor]['supplier'], ARRAY_FILTER_USE_BOTH);
+            arsort($scores);
+            $neighbors = array_slice(array_keys($scores), 0, self::NEIGHBORS);
+
+            if ($neighbors === []) {
+                $alone++;
+
+                continue;
+            }
+
+            $groups[] = [$anchor, ...$neighbors];
+        }
+
+        $batches = [];
+
+        foreach (array_chunk($groups, self::ANCHORS_PER_BATCH) as $chunk) {
+            $indexes = array_slice(array_values(array_unique(array_merge(...$chunk))), 0, self::BATCH_LINES);
+            $batches[] = array_map(fn (int $index) => $lines[$index], $indexes);
+        }
+
+        return ['batches' => $batches, 'remaining' => $remaining, 'alone' => $alone];
     }
 
     /**

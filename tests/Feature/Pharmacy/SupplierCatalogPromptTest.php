@@ -4,6 +4,7 @@ namespace Tests\Feature\Pharmacy;
 
 use App\Models\MedicineSupplier;
 use App\Models\SupplierCatalog;
+use App\Support\Pharmacy\SupplierCatalogPrompt;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -62,14 +63,10 @@ class SupplierCatalogPromptTest extends TestCase
         $prompt = $response->json('data.prompt');
         $this->assertStringStartsWith('Rôle : tu génères un canevas Excel (.xlsx)', $prompt);
         $this->assertStringContainsString('Le document joint (xlsx, csv, pdf, image ou texte) est la seule source de vérité.', $prompt);
-        $this->assertStringContainsString('N\'impose la structure d\'aucun autre système.', $prompt);
         $this->assertStringContainsString('garde la structure du fournisseur et signale l\'écart. Ne le corrige pas.', $prompt);
         $this->assertStringContainsString('Ligne 1 : les intitulés exacts du fournisseur, en gras blanc sur fond #334155.', $prompt);
         $this->assertStringContainsString('Réponse : livre uniquement le fichier.', $prompt);
-        $this->assertStringContainsString('en cas d’écart, le document fait foi', $prompt);
-        $this->assertStringContainsString('| B | Désignation |', $prompt);
-        $this->assertStringContainsString('« ANTALGIQUES »', $prompt);
-        $this->assertStringContainsString('Texte au-dessus des en-têtes : « Tarif Arbiochem 2026 »', $prompt);
+        $this->assertSame(SupplierCatalogPrompt::INSTRUCTIONS, $prompt);
         // Rien de la structure de RIVO n'est imposé : ses colonnes d'import n'apparaissent pas.
         $this->assertStringNotContainsString('prix_fournisseur', $prompt);
 
@@ -90,7 +87,6 @@ class SupplierCatalogPromptTest extends TestCase
             ->assertJsonPath('data.structure.readable', false)
             ->json('data.prompt');
 
-        $this->assertStringContainsString('ne suppose aucune colonne', $prompt);
         $this->assertStringStartsWith('Rôle : tu génères un canevas Excel (.xlsx)', $prompt);
     }
 

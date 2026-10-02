@@ -23497,21 +23497,14 @@ Consommation comptée dans `ai_assistant_usages`, quotas de l'assistant appliqu�
 
 ## Générer le prompt d'un catalogue
 
-Page « Catalogues » d'un fournisseur (portail) : choisir un catalogue (l'actif d'abord), « Générer le prompt »,
-le bloc l'affiche, « Copier » ne copie que lui, « Fichier à joindre » télécharge le fichier du fournisseur.
-
-Le prompt commence par **les consignes de la clinique, reprises telles qu'elles les ont écrites**
-(`SupplierCatalogPrompt::INSTRUCTIONS`, amendement du 2026-10-02) : l'autre IA produit un canevas Excel `.xlsx`
-qui reproduit exactement le catalogue joint — mêmes feuilles, colonnes, ordre et intitulés ; rien renommé, ajouté,
-fusionné ni supprimé ; aucune structure d'un autre système imposée ; écart signalé, jamais corrigé ; aucune donnée
-inventée ; ligne 1 en gras blanc sur `#334155`, panneau figé, 3 exemples tirés du document, listes déroulantes et
-validations numériques seulement quand elles sont sûres ; réponse = le fichier et au plus 3 lignes de notes.
-**Le document joint fait foi.** Suivent, à titre de vérification, les repères que le site a lus dans le fichier
-(`SupplierCatalogStructure` : feuilles, ligne d'en-têtes, texte au-dessus, colonnes avec type observé, remplissage,
-valeurs distinctes, exemples, listes de choix, plages, rubriques, cellules fusionnées ; 5 000 lignes par feuille au
-plus). Les colonnes d'import de RIVO n'y figurent pas. Un catalogue PDF n'est pas lu : le prompt demande de lire les
-colonnes dans le document joint au lieu de les supposer. Droit : celui de voir les catalogues
-(`supplier_catalogs.view` ou `medicine_suppliers.view`). Une lecture, rien n'est écrit. Déterministe.
+Page « Catalogues » d'un fournisseur (portail) : choisir un catalogue (l'actif d'abord), « Générer le prompt » ouvre
+le bloc, « Fermer » le referme. Le prompt est **exactement le texte de la clinique**
+(`SupplierCatalogPrompt::INSTRUCTIONS`, amendement du 2026-10-02) : l'autre IA produit un canevas `.xlsx` qui reproduit
+le catalogue du fournisseur — mêmes feuilles, colonnes, ordre et intitulés, rien renommé, ajouté, fusionné ni supprimé,
+écart signalé jamais corrigé, aucune donnée inventée ; réponse = le fichier et au plus 3 lignes de notes. Rien n'y est
+ajouté. Le texte se retouche dans le bloc avant d'être copié (« Rétablir » revient au texte d'origine) ; « Copier » ne
+copie que lui. Le site lit encore le fichier (`SupplierCatalogStructure`) pour le seul résumé affiché (feuilles,
+colonnes, lignes, rubriques). Droit : `supplier_catalogs.view` ou `medicine_suppliers.view`. Une lecture, rien n'est écrit.
 
 ## Routes et données
 

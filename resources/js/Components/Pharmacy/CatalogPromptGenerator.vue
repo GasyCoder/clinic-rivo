@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Select from '@/Components/Shadcn/Select.vue';
-import { Check, Copy, Download, FileSpreadsheet, Sparkles, TriangleAlert } from 'lucide-vue-next';
+import { Check, Copy, FileSpreadsheet, RotateCcw, Sparkles, TriangleAlert, X } from 'lucide-vue-next';
 import { copyText, jsonRequest } from '@/utilities/jsonRequest';
 
 /**
@@ -15,8 +15,6 @@ const props = defineProps({
     catalogs: { type: Array, default: () => [] },
     /** (catalog) => adresse JSON de la structure et du prompt */
     promptUrl: { type: Function, required: true },
-    /** (catalog) => adresse du fichier, à joindre au prompt */
-    downloadUrl: { type: Function, default: null },
 });
 
 // Le catalogue actif d'abord : c'est celui que le fournisseur fait foi aujourd'hui.
@@ -35,6 +33,9 @@ watch(usable, (list) => {
 const loading = ref(false);
 const error = ref('');
 const prompt = ref('');
+// Le texte servi par le serveur : « Rétablir » y revient après une retouche.
+const original = ref('');
+const open = ref(false);
 const structure = ref(null);
 const copied = ref(false);
 
@@ -43,6 +44,7 @@ const generate = async () => {
 
     if (!catalog) return;
 
+    open.value = true;
     loading.value = true;
     error.value = '';
     copied.value = false;
@@ -58,16 +60,21 @@ const generate = async () => {
     }
 
     prompt.value = result.data?.prompt ?? '';
+    original.value = prompt.value;
     structure.value = result.data?.structure ?? null;
 };
+
+const close = () => {
+    open.value = false;
+    copied.value = false;
+};
+
+const edited = computed(() => prompt.value !== original.value);
 
 const copy = async () => {
     copied.value = await copyText(prompt.value);
     if (copied.value) setTimeout(() => { copied.value = false; }, 2500);
 };
-
-const chosenCatalog = computed(() => usable.value.find((catalog) => catalog.uuid === chosen.value) ?? null);
-const fileHref = computed(() => (props.downloadUrl && chosenCatalog.value ? props.downloadUrl(chosenCatalog.value) : null));
 
 const summary = computed(() => {
     if (!structure.value?.readable) return null;
@@ -87,11 +94,14 @@ const summary = computed(() => {
         <header class="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
             <div class="min-w-0">
                 <h2 class="flex items-center gap-2 font-heading text-base font-bold text-foreground"><Sparkles class="h-4.5 w-4.5 text-primary" aria-hidden="true" />Prompt du catalogue</h2>
-                <p class="mt-0.5 text-sm text-muted-foreground">Un prompt qui demande à une autre IA un canevas Excel reproduisant exactement ce catalogue. Joignez-lui le fichier du fournisseur : c’est lui qui fait foi.</p>
+                <p class="mt-0.5 text-sm text-muted-foreground">Un prompt qui demande à une autre IA un canevas Excel reproduisant exactement ce catalogue. Vous pouvez le retoucher avant de le copier.</p>
             </div>
             <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                 <Select v-if="options.length > 1" v-model="chosen" :icon="FileSpreadsheet" :options="options" class="w-full sm:w-72" aria-label="Catalogue" />
-                <Button type="button" :disabled="!chosen || loading" @click="generate">
+                <Button v-if="open" type="button" variant="outline" @click="close">
+                    <X class="h-4 w-4" />Fermer
+                </Button>
+                <Button v-else type="button" :disabled="!chosen || loading" @click="generate">
                     <Sparkles class="h-4 w-4" />{{ loading ? 'Lecture du fichier…' : 'Générer le prompt' }}
                 </Button>
             </div>
@@ -99,11 +109,11 @@ const summary = computed(() => {
 
         <p v-if="!usable.length" class="px-5 py-4 text-sm text-muted-foreground">Ajoutez un catalogue pour en générer le prompt.</p>
 
-        <p v-if="error" class="mx-5 my-4 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
+        <p v-if="open && error" class="mx-5 my-4 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
             <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />{{ error }}
         </p>
 
-        <div v-if="prompt" class="space-y-3 px-5 py-4">
+        <div v-if="open && prompt" class="space-y-3 px-5 py-4">
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <p v-if="summary" class="text-xs text-muted-foreground">
                     {{ summary.sheets }} feuille{{ summary.sheets > 1 ? 's' : '' }} · {{ summary.columns }} colonne{{ summary.columns > 1 ? 's' : '' }} ·
@@ -111,19 +121,21 @@ const summary = computed(() => {
                 </p>
                 <p v-else class="text-xs text-muted-foreground">{{ structure?.reason }}</p>
                 <div class="flex flex-wrap items-center gap-2">
-                    <Button v-if="fileHref" as="a" :href="fileHref" variant="ghost" size="sm" title="Le fichier à joindre au prompt">
-                        <Download class="h-4 w-4" />Fichier à joindre
+                    <Button v-if="edited" type="button" variant="ghost" size="sm" @click="prompt = original">
+                        <RotateCcw class="h-4 w-4" />Rétablir
                     </Button>
                     <Button type="button" variant="outline" size="sm" aria-live="polite" @click="copy">
                         <component :is="copied ? Check : Copy" class="h-4 w-4" />{{ copied ? 'Copié' : 'Copier' }}
                     </Button>
                 </div>
             </div>
-            <pre
-                class="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-4 font-mono text-xs leading-relaxed text-foreground"
-                aria-label="Prompt généré"
-                tabindex="0"
-            >{{ prompt }}</pre>
+            <textarea
+                v-model="prompt"
+                rows="18"
+                spellcheck="false"
+                class="block max-h-[32rem] min-h-[16rem] w-full resize-y rounded-lg border border-border bg-muted/40 p-4 font-mono text-xs leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Prompt généré, modifiable"
+            />
         </div>
     </section>
 </template>

@@ -61,7 +61,6 @@ const catalogCan = computed(() => (props.supplier?.archived
             <CatalogPromptGenerator
                 :catalogs="catalogs"
                 :prompt-url="(catalog) => `${folderHref}/catalogs/${catalog.uuid}/prompt`"
-                :download-url="(catalog) => `${folderHref}/catalogs/${catalog.uuid}/download?name=${encodeURIComponent(catalog.original_name)}`"
             />
         </template>
     </div>

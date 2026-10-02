@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { ArrowRight, Briefcase, Building2, CheckCircle2, CircleSlash, LayoutGrid, ServerOff, ShieldCheck, WifiOff } from 'lucide-vue-next';
+import { ArrowRight, BadgeCheck, Briefcase, Hash, PenLine, Settings, Building2, CheckCircle2, CircleSlash, LayoutGrid, ServerOff, ShieldCheck, WifiOff } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -13,6 +13,8 @@ import { lucideIcon } from '@/lib/icons';
 import { cn } from '@/lib/cn';
 import { HR_FIGURE_TONES, HR_FIGURES, isVisibleFigure, pendingTotal } from '@/utilities/hrFigures';
 import { mapHrPath } from '@/utilities/hrPath';
+import { usePermissions } from '@/composables/usePermissions';
+import DropdownMenu from '@/Components/Shadcn/DropdownMenu.vue';
 
 defineOptions({ layout: AppLayout });
 
@@ -27,6 +29,15 @@ defineOptions({ layout: AppLayout });
  * site vient de renvoyer : rien n'est lu ailleurs.
  */
 const props = defineProps({ sites: Array, summary: Object });
+const { can } = usePermissions();
+
+// Paramètres RH (ADR-237) : matricules des employés et des stagiaires, badge, direction.
+const HR_SETTINGS = [
+    { key: 'matricules', label: 'Matricules (employés, stagiaires)', icon: Hash },
+    { key: 'badges', label: 'Badge du personnel', icon: BadgeCheck },
+    { key: 'direction', label: 'Direction et signature', icon: PenLine },
+];
+const openHrSetting = (key) => router.visit(`/super-admin/human-resources/settings/${key}`);
 
 const refreshing = ref(false);
 const refresh = () => router.reload({
@@ -80,6 +91,11 @@ const tabClass = 'inline-flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2
             tone="primary"
         >
             <template #actions>
+                <DropdownMenu v-if="can('settings.view')" :items="HR_SETTINGS" label="Paramètres RH" @select="openHrSetting">
+                    <template #trigger>
+                        <Button variant="outline"><Settings class="h-4 w-4" />Paramètres RH</Button>
+                    </template>
+                </DropdownMenu>
                 <Button variant="outline" :aria-busy="refreshing" :disabled="refreshing" @click="refresh">
                     <RefreshIcon :spinning="refreshing" class="h-4 w-4" />Actualiser
                 </Button>

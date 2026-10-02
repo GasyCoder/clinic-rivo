@@ -10,8 +10,10 @@ use App\Services\Settings\AppSettings;
 use App\Services\Settings\SiteMaintenanceState;
 use App\Services\SuperAdmin\PortalDirectory;
 use App\Services\Webmail\WebmailAccess;
+use Closure;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
+use Inertia\Support\Header;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -23,6 +25,26 @@ class HandleInertiaRequests extends Middleware
      * @var string
      */
     protected $rootView = 'app';
+
+    /**
+     * Une réponse Inertia (JSON) n'est jamais gardée par le navigateur.
+     *
+     * Inertia envoie `Vary: X-Inertia` pour que la page HTML et la réponse JSON
+     * d'une même adresse soient deux entrées de cache distinctes. Le proxy de
+     * l'hébergeur (o2switch) remplace cet en-tête par le sien : le navigateur
+     * rangeait alors le JSON sous l'adresse de la page, et un retour arrière ou
+     * un onglet restauré l'affichait brut. `no-store` ne dépend d'aucun proxy.
+     */
+    public function handle(Request $request, Closure $next)
+    {
+        $response = parent::handle($request, $next);
+
+        if ($request->header(Header::INERTIA)) {
+            $response->headers->set('Cache-Control', 'no-store, private');
+        }
+
+        return $response;
+    }
 
     /**
      * Determines the current asset version.

@@ -23,6 +23,8 @@ test('the comparator lets a human say « same » or « two products », and sepa
 test('the AI button and the dictionary only appear for those who may decide', () => {
     assert.match(COMPARE, /v-if="canManageEquivalences && aiAvailable"/);
     assert.match(COMPARE, /ProductMatchingSettings/);
+    // Sans IA prête, le bouton reste visible, grisé, et dit quoi régler (ADR-158).
+    assert.match(COMPARE, /v-else-if="canManageEquivalences"[\s\S]*?aiUnavailableReason[\s\S]*?à configurer/);
 });
 
 test('« Copier » copies the generated prompt and nothing else', () => {

@@ -47,6 +47,8 @@ class PharmacyProcurementController extends Controller
             'proposedByAi' => (int) data_get($result, 'data.proposed_by_ai', 0),
             'canManageEquivalences' => $request->user()->can('supplier_equivalences.manage'),
             'aiAvailable' => app(AssistantConfiguration::class)->available(),
+            // Le bouton reste visible, grisé, avec ce qui manque (ADR-158) : masqué, on le croyait disparu.
+            'aiUnavailableReason' => $this->aiUnavailableReason(),
             'selectedSuppliers' => $selected,
             // ADR-242 — couleurs du moins cher et du plus cher, propres au compte.
             'priceComparison' => PriceComparisonPreferences::resolve($request->user()->ui_preferences),
@@ -446,5 +448,17 @@ class PharmacyProcurementController extends Controller
             $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'invoices/'.rawurlencode($invoice).'/restore'),
             'Facture restaurée.',
         );
+    }
+
+    /** Pourquoi « Rapprocher avec l'IA » n'est pas utilisable sur ce portail, ou null s'il l'est. */
+    private function aiUnavailableReason(): ?string
+    {
+        $assistant = app(AssistantConfiguration::class);
+
+        return match (true) {
+            $assistant->available() => null,
+            ! $assistant->enabled() => 'L’assistant IA est désactivé sur ce portail : activez-le dans Apparence & système › Assistant IA.',
+            default => 'L’assistant IA n’est pas configuré sur ce portail (fournisseur, modèle ou clé API) : réglez-le dans Apparence & système › Assistant IA.',
+        };
     }
 }

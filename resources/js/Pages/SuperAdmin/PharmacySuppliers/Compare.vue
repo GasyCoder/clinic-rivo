@@ -44,6 +44,7 @@ const props = defineProps({
     proposedByAi: { type: Number, default: 0 },
     canManageEquivalences: { type: Boolean, default: false },
     aiAvailable: { type: Boolean, default: false },
+    aiUnavailableReason: { type: String, default: null },
     selectedSuppliers: { type: Array, default: () => [] },
     // ADR-242 — couleurs du moins cher / plus cher, propres au compte.
     priceComparison: { type: Object, default: () => ({}) },
@@ -384,6 +385,17 @@ const stockTone = (medicine) => {
                         </button>
                         <Button v-if="canManageEquivalences && aiAvailable" type="button" variant="outline" size="sm" :disabled="aiRunning" title="Envoie à l’IA, lot par lot, les seuls libellés que la règle n’a pas rapprochés — jamais un prix ni un patient. Ses propositions attendent votre confirmation." @click="runAi">
                             <Sparkles class="h-4 w-4" />{{ aiRunning ? 'L’IA compare…' : 'Rapprocher avec l’IA' }}
+                        </Button>
+                        <Button
+                            v-else-if="canManageEquivalences"
+                            :as="Link"
+                            href="/super-admin/settings/assistant"
+                            variant="outline"
+                            size="sm"
+                            class="opacity-70"
+                            :title="aiUnavailableReason || 'L’assistant IA n’est pas prêt sur ce portail.'"
+                        >
+                            <Sparkles class="h-4 w-4" />Rapprocher avec l’IA · à configurer
                         </Button>
                         <Button type="button" variant="ghost" size="sm" title="Couleurs du moins cher et du plus cher, écart, tri" @click="priceSettingsOpen = true">
                             <Palette class="h-4 w-4" />Affichage des prix

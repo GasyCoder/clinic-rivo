@@ -1,5 +1,6 @@
 import {
     LayoutList,
+    GitMerge,
     Bug,
     Droplets,
     TestTubeDiagonal,
@@ -252,6 +253,7 @@ export const PERMISSION_CATEGORIES = {
     medicine_suppliers: { label: 'Fournisseurs de médicaments', module: 'pharmacy', icon: Factory },
     supplier_catalogs: { label: 'Catalogues fournisseurs', module: 'pharmacy', icon: BookOpen },
     medicine_supplier_offers: { label: 'Prix d’achat des fournisseurs', module: 'pharmacy', icon: BadgeDollarSign },
+    supplier_equivalences: { label: 'Même produit sous deux noms', module: 'pharmacy', icon: GitMerge },
 
     // Caisse & facturation
     billing: { label: 'Factures', module: 'finance', icon: FileText },

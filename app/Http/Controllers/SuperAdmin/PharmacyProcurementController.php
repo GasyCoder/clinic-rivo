@@ -4,6 +4,7 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\SuperAdmin\Concerns\RespondsToSiteApi;
+use App\Services\Assistant\AssistantConfiguration;
 use App\Services\SuperAdmin\PortalSiteApiClient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -40,6 +41,11 @@ class PharmacyProcurementController extends Controller
             // ADR-181 — combien de lignes de catalogue ressemblent à un
             // produit déjà tenu par la clinique, sous un autre nom.
             'toReconcile' => (int) data_get($result, 'data.to_reconcile', 0),
+            // ADR-241 — dire « même produit / deux produits », régler le
+            // dictionnaire, et rapprocher par l'IA quand elle est configurée.
+            'proposedByAi' => (int) data_get($result, 'data.proposed_by_ai', 0),
+            'canManageEquivalences' => $request->user()->can('supplier_equivalences.manage'),
+            'aiAvailable' => app(AssistantConfiguration::class)->available(),
             'selectedSuppliers' => $selected,
             'error' => $result['ok'] ? null : $result['message'],
         ]);

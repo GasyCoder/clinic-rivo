@@ -11,6 +11,7 @@ use App\Models\Medicine;
 use App\Models\MedicineCategory;
 use App\Models\SupplierCatalogItem;
 use App\Services\Catalog\CatalogActor;
+use App\Services\Pharmacy\SupplierProductEquivalences;
 use App\Support\Money;
 use App\Support\ProductLabel;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -50,6 +51,7 @@ class CreateMedicineFromSupplierCatalogAction
     public function __construct(
         private readonly CreateCatalogItemAction $createCatalogItem,
         private readonly SetMedicineSupplierOfferAction $setOffer,
+        private readonly SupplierProductEquivalences $equivalences,
     ) {}
 
     public function execute(SupplierCatalogItem $item, CatalogActor $actor): Medicine
@@ -71,7 +73,11 @@ class CreateMedicineFromSupplierCatalogAction
             // the other's (ADR-097 allows several current offers). Creating
             // "Paracétamol 500 mg" twice because two folders name it would
             // split its stock, its history and its selling price in two.
-            if ($existing = $this->existingMedicine($item->medicine_label)) {
+            //
+            // ADR-241 — « le même produit » se lit par la règle (abréviations,
+            // unités, ordre des mots) ou par ce qu'un humain a déjà dit d'une
+            // autre ligne rattachée.
+            if ($existing = $this->equivalences->linkedMedicineFor($item) ?? $this->existingMedicine($item)) {
                 return $this->attach($item, $existing, $actor);
             }
 
@@ -103,7 +109,7 @@ class CreateMedicineFromSupplierCatalogAction
                 ...$actor->externalAttribution('updated'),
             ]);
 
-            $this->byName?->put($this->normalize((string) $catalogItem->name), $medicine);
+            $this->byName?->put(ProductLabel::key((string) $catalogItem->name), $medicine);
 
             return $this->attach($item, $medicine, $actor);
         });
@@ -195,9 +201,9 @@ class CreateMedicineFromSupplierCatalogAction
      * A deactivated product is not silently revived: deactivating it was a
      * decision with a reason (ADR-098), and ordering it again is one too.
      */
-    private function existingMedicine(string $label): ?Medicine
+    private function existingMedicine(SupplierCatalogItem $item): ?Medicine
     {
-        $wanted = $this->normalize($label);
+        $wanted = ProductLabel::key($item->medicine_label);
 
         if ($wanted === '') {
             return null;
@@ -210,11 +216,18 @@ class CreateMedicineFromSupplierCatalogAction
             ->whereRelation('catalogItem', 'type', CatalogItemType::Medicine->value)
             ->with('catalogItem:id,name')
             ->get()
-            ->keyBy(fn (Medicine $medicine) => $this->normalize((string) $medicine->catalogItem?->name));
+            ->keyBy(fn (Medicine $medicine) => ProductLabel::key((string) $medicine->catalogItem?->name));
 
         $match = $this->byName->get($wanted);
 
         if (! $match) {
+            return null;
+        }
+
+        // Un humain a dit que cette ligne n'est pas ce produit-là.
+        $node = SupplierProductEquivalences::nodeOf($item, (int) $item->catalog->medicine_supplier_id);
+
+        if (isset($this->equivalences->differentFromMedicine()[$node.'#'.$match->getKey()])) {
             return null;
         }
 

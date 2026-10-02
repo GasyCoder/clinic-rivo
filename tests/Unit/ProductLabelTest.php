@@ -77,4 +77,47 @@ class ProductLabelTest extends TestCase
             ProductLabel::normalize('PARACETAMOL  500   MG'),
         );
     }
+
+    /** @return array<string, array{0: string, 1: string}> */
+    public static function sameKey(): array
+    {
+        return [
+            'abréviation et ordre des mots' => ['Paracetamol 500mg cp', 'Comprimé paracétamol 500 mg'],
+            'gramme et milligramme' => ['Amoxicilline 1g gélule', 'Amoxicilline 1000 mg gelules'],
+            'litre et millilitre' => ['Sérum salé 0,5 L', 'serum sale 500ml'],
+            'virgule ou point décimal' => ['NaCl 0,9% 500ml', 'NaCl 0.9 % 500 ml'],
+            'injectable et ampoule abrégés' => ['Ceftriaxone 1g inj amp', 'Ceftriaxone injectable 1000mg ampoule'],
+            'un pluriel' => ['Gants latex', 'Gant latex'],
+            'boîte abrégée' => ['Paracétamol 500 mg bte 100', 'Paracetamol 500mg boîte de 100'],
+        ];
+    }
+
+    #[DataProvider('sameKey')]
+    public function test_abbreviations_units_and_word_order_give_the_same_key(string $first, string $second): void
+    {
+        $this->assertSame(ProductLabel::key($first), ProductLabel::key($second), "« {$first} » et « {$second} »");
+        $this->assertTrue(ProductLabel::looksLikeSameProduct($first, $second));
+    }
+
+    /** @return array<string, array{0: string, 1: string}> */
+    public static function differentKey(): array
+    {
+        return [
+            'dimensions comptées' => ['Compresse 10x10', 'Compresse 10x20'],
+            'un dosage converti différent' => ['Paracétamol 1g cp', 'Paracétamol 500 mg cp'],
+            'forme différente' => ['Paracétamol 500mg cp', 'Paracétamol 500mg sirop'],
+        ];
+    }
+
+    #[DataProvider('differentKey')]
+    public function test_a_different_count_dose_or_form_keeps_two_keys(string $first, string $second): void
+    {
+        $this->assertNotSame(ProductLabel::key($first), ProductLabel::key($second));
+    }
+
+    public function test_a_line_without_its_dose_is_proposed_not_merged(): void
+    {
+        $this->assertNotSame(ProductLabel::key('Paracetamol cp'), ProductLabel::key('Comprimé paracétamol 500mg'));
+        $this->assertTrue(ProductLabel::looksLikeSameProduct('Paracetamol cp', 'Comprimé paracétamol 500mg'));
+    }
 }

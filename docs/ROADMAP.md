@@ -668,6 +668,12 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Règle de rapprochement corrigée : un libellé doit dire tout ce que dit l'autre, mots et nombres dans le même sens — « Alcool 125ml 70° » n'est plus proposé pour « Alcool iodé salicylé 125 ml » (ADR-181, amendement du 2026-09-24)
 - [x] Comparateur filtré par couverture (« Chez les deux fournisseurs », « Seulement chez X », chaque produit dans une seule case) et par famille, liste rangée par famille (ADR-181, amendement du 2026-09-24)
 - [x] Mettre un catalogue ou une ligne fournisseur à la corbeille clôt les prix d'achat qu'ils avaient fournis ; restaurer les rétablit sans écraser un prix fixé depuis ; reprise des catalogues déjà à la corbeille, auditée (ADR-183)
+- [x] Le même produit sous deux noms : abréviations, unités et ordre des mots ramenés à une forme canonique ; même produit réuni sur une ligne du comparateur et jamais créé deux fois (ADR-241)
+- [x] Dictionnaire des abréviations par site, réglé depuis le comparateur du portail (ADR-241)
+- [x] « C'est le même produit » / « Ce n'est pas le même » / « Séparer » mémorisés, réversibles, audités ; rien n'est créé au catalogue de la clinique (ADR-241)
+- [x] Propositions entre fournisseurs différents, par la règle et par « Rapprocher avec l'IA » (libellés seulement, à confirmer) (ADR-241)
+- [x] « Générer le prompt » d'un catalogue fournisseur : structure exacte du fichier, prompt qui la tient pour source de vérité, « Copier » (ADR-241)
+- [ ] Dictionnaire commun poussé à tous les sites ; IA face au catalogue de la clinique — à décider (ADR-241)
 - [ ] Transfert stock
 - [ ] Rapports
 
@@ -1123,6 +1129,7 @@ admin.rivo.mg
 - [ ] Tests restauration
 - [x] Performance : la liste des permissions n'est plus relue en base à chaque vérification de droit (47 lectures sur la vue d'ensemble), mémorisée une fois par requête
 - [x] Performance : fichiers JS/CSS de `public/build/assets` mis en cache un an par le navigateur (`immutable`) ; l'hébergeur n'envoyait aucun Cache-Control
+- [x] Page affichée en JSON brut en production (retour arrière, onglet restauré) : le proxy d'o2switch remplace `Vary: X-Inertia`, le navigateur rangeait la réponse Inertia sous l'adresse de la page ; les réponses Inertia sont désormais `Cache-Control: no-store`
 - [x] Page de connexion allégée : image de fond 742 → 216 Ko (1600 px, JPEG progressif), logo 330 → 32 Ko (800 px), images de la marque en cache 7 jours, photo chargée après le logo ; une image de fond téléversée est réduite à 1600 px à l'enregistrement
 - [x] Script de diagnostic de lenteur à lancer sur le serveur (`scripts/diagnose-performance.sh`) : temps serveur sans réseau, OPcache web, caches Laravel, latence base
 - [ ] Prod : OPcache web, `php artisan optimize`, `APP_ENV=production` / `APP_DEBUG=false`, cache et sessions hors base — à vérifier avec le script

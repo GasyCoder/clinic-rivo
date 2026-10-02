@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\ReportController as SuperAdminReportC
 use App\Http\Controllers\Api\V1\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\Api\V1\SuperAdmin\StaffAccessController;
 use App\Http\Controllers\Api\V1\SuperAdmin\StaffDebtController;
+use App\Http\Controllers\Api\V1\SuperAdmin\SupplierEquivalenceController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
 use App\Http\Controllers\Api\V1\SuperAdmin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -119,6 +120,14 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/pharmacy/suppliers/import', [PharmacySupplierController::class, 'importSuppliers'])->name('pharmacy.suppliers.import');
         // Before the {supplierUuid} routes: this one compares every supplier.
         Route::get('/pharmacy/supplier-offers', [PharmacySupplierController::class, 'offers'])->name('pharmacy.supplier-offers');
+        // ADR-241 — reconnaître le même produit sous deux noms : dictionnaire et décisions.
+        Route::get('/pharmacy/product-synonyms', [SupplierEquivalenceController::class, 'synonyms'])->name('pharmacy.product-synonyms.index');
+        Route::post('/pharmacy/product-synonyms', [SupplierEquivalenceController::class, 'storeSynonym'])->name('pharmacy.product-synonyms.store');
+        Route::delete('/pharmacy/product-synonyms/{synonymUuid}', [SupplierEquivalenceController::class, 'destroySynonym'])->name('pharmacy.product-synonyms.destroy');
+        Route::get('/pharmacy/product-equivalences', [SupplierEquivalenceController::class, 'decisions'])->name('pharmacy.product-equivalences.index');
+        Route::post('/pharmacy/product-equivalences', [SupplierEquivalenceController::class, 'decide'])->name('pharmacy.product-equivalences.decide');
+        Route::post('/pharmacy/product-equivalences/proposals', [SupplierEquivalenceController::class, 'propose'])->name('pharmacy.product-equivalences.propose');
+        Route::delete('/pharmacy/product-equivalences/{equivalenceUuid}', [SupplierEquivalenceController::class, 'forget'])->name('pharmacy.product-equivalences.forget');
         Route::get('/pharmacy/suppliers/{supplierUuid}', [PharmacySupplierController::class, 'show'])->name('pharmacy.suppliers.show');
         Route::get('/pharmacy/suppliers/{supplierUuid}/orders', [PharmacySupplierController::class, 'orders'])->name('pharmacy.suppliers.orders');
         // ADR-098 — orders and invoices from the portal; receiving stays at the site.
@@ -150,6 +159,7 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::get('/pharmacy/suppliers/{supplierUuid}/catalogs', [PharmacySupplierController::class, 'catalogs'])->name('pharmacy.suppliers.catalogs.index');
         Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs', [PharmacySupplierController::class, 'uploadCatalog'])->name('pharmacy.suppliers.catalogs.store');
         Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/activate', [PharmacySupplierController::class, 'activateCatalog'])->name('pharmacy.suppliers.catalogs.activate');
+        Route::get('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/structure', [PharmacySupplierController::class, 'catalogStructure'])->name('pharmacy.suppliers.catalogs.structure');
         Route::get('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/download', [PharmacySupplierController::class, 'downloadCatalog'])->name('pharmacy.suppliers.catalogs.download');
         Route::get('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items', [PharmacySupplierController::class, 'catalogItems'])->name('pharmacy.suppliers.catalogs.items');
         Route::put('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items/{itemUuid}', [PharmacySupplierController::class, 'updateCatalogItem'])->name('pharmacy.suppliers.catalogs.items.update');

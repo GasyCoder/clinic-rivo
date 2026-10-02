@@ -57,7 +57,7 @@ class ProcurementFormOptions
                 // Deux entrées de même groupe sont le même produit pour le
                 // serveur : l'écran doit le savoir avant de les proposer
                 // toutes les deux, car la commande n'en accepte qu'une.
-                'product_group' => ProductLabel::normalize($medicine->catalogItem?->name),
+                'product_group' => ProductLabel::key($medicine->catalogItem?->name),
             ]);
 
         return $medicines->concat($this->unlinkedCatalogLines($supplier))
@@ -101,7 +101,7 @@ class ProcurementFormOptions
                 'unit' => $item->presentation,
                 'quoted_price' => filled($item->supplier_price) ? Money::normalize((string) $item->supplier_price) : null,
                 'in_clinic_catalog' => false,
-                'product_group' => ProductLabel::normalize($item->medicine_label),
+                'product_group' => ProductLabel::key($item->medicine_label),
             ]);
     }
 

@@ -14,11 +14,16 @@ import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import ProductMatchingSettings from '@/Components/Pharmacy/ProductMatchingSettings.vue';
+import PriceComparisonSettings from '@/Components/Pharmacy/PriceComparisonSettings.vue';
+import SupplierAiMatchingPanel from '@/Components/Pharmacy/SupplierAiMatchingPanel.vue';
 import {
-    BookA, Check, GitMerge, Layers, Link2, PackageCheck, Scale, Search, ShoppingCart, Sparkles, Split, Store, TriangleAlert, Trash2, Unlink, X,
+    BookA, Check, GitMerge, Palette, Layers, Link2, PackageCheck, Scale, Search, ShoppingCart, Sparkles, Split, Store, TriangleAlert, Trash2, Unlink, X,
 } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import { formatMoney } from '@/utilities/pharmacyStatus';
+import {
+    gapLabel, orderQuotes, priceTier, resolvePriceComparison, tierColor, tierStyles,
+} from '@/utilities/priceComparison';
 import {
     SEVERAL, compareFamilies, countBy, coverageOf, familyOf, groupByFamily, suppliersOf,
 } from '@/utilities/supplierComparison';
@@ -40,6 +45,8 @@ const props = defineProps({
     canManageEquivalences: { type: Boolean, default: false },
     aiAvailable: { type: Boolean, default: false },
     selectedSuppliers: { type: Array, default: () => [] },
+    // ADR-242 — couleurs du moins cher / plus cher, propres au compte.
+    priceComparison: { type: Object, default: () => ({}) },
     error: { type: String, default: null },
 });
 
@@ -226,18 +233,32 @@ const decisionErrors = computed(() => Object.fromEntries(
     Object.entries(page.props.errors ?? {}).filter(([key]) => ['ai', 'site', 'status', 'item_uuid', 'other_item_uuids', 'medicine_uuids', 'actor'].includes(key)),
 ));
 
-// « Rapprocher avec l'IA » : seuls les libellés non rapprochés partent, jamais un prix ni un patient.
+// ADR-242 — « Rapprocher avec l'IA » par lots : le panneau prépare les lots,
+// les envoie un par un et montre leur état ; seuls les libellés partent.
+const aiPanel = ref(null);
 const aiRunning = ref(false);
-const runAi = () => {
-    aiRunning.value = true;
-    router.post(`/super-admin/pharmacy-suppliers/${props.targetSite.code}/commander/ia`, {
-        suppliers: chosen.value,
-        family: family.value || null,
-    }, {
-        preserveScroll: true,
-        onFinish: () => { aiRunning.value = false; },
+const runAi = () => aiPanel.value?.start({ suppliers: chosen.value, family: family.value || null });
+const showAiProposals = () => {
+    router.reload({
+        only: ['medicines', 'toReconcile', 'proposedByAi'],
+        onSuccess: () => { onlyToReconcile.value = true; },
     });
 };
+
+// ADR-242 — le moins cher, le plus cher et l'écart, selon les réglages du compte.
+const priceSettings = computed(() => resolvePriceComparison(props.priceComparison));
+const priceSettingsOpen = ref(false);
+const quotesOf = (medicine) => orderQuotes(medicine.quotes, priceSettings.value).map((quote) => {
+    const info = priceTier(medicine.quotes, quote, priceSettings.value);
+
+    return { quote, info, styles: tierStyles(info.tier, priceSettings.value), gap: gapLabel(info, priceSettings.value, formatMoney) };
+});
+const tierLabels = { best: 'le moins cher', worst: 'le plus cher' };
+const legend = computed(() => [
+    { key: 'best', label: 'Moins cher', color: tierColor('best', priceSettings.value) },
+    ...(priceSettings.value.color_middle ? [{ key: 'middle', label: 'Intermédiaire', color: tierColor('middle', priceSettings.value) }] : []),
+    { key: 'worst', label: priceSettings.value.min_gap_percent ? `Plus cher (écart ≥ ${priceSettings.value.min_gap_percent} %)` : 'Plus cher', color: tierColor('worst', priceSettings.value) },
+]);
 
 // key: `${row}|${supplier}` — the same product can be ordered from two
 // suppliers at once, each with its own quantity. A supplier listing the same
@@ -361,8 +382,11 @@ const stockTone = (medicine) => {
                         >
                             <Link2 class="h-3.5 w-3.5" />À rapprocher · {{ toReconcile }}<span v-if="proposedByAi" class="opacity-80">(dont {{ proposedByAi }} par l’IA)</span>
                         </button>
-                        <Button v-if="canManageEquivalences && aiAvailable" type="button" variant="outline" size="sm" :disabled="aiRunning" title="Envoie à l’IA les seuls libellés que la règle n’a pas rapprochés — jamais un prix ni un patient. Ses propositions attendent votre confirmation." @click="runAi">
+                        <Button v-if="canManageEquivalences && aiAvailable" type="button" variant="outline" size="sm" :disabled="aiRunning" title="Envoie à l’IA, lot par lot, les seuls libellés que la règle n’a pas rapprochés — jamais un prix ni un patient. Ses propositions attendent votre confirmation." @click="runAi">
                             <Sparkles class="h-4 w-4" />{{ aiRunning ? 'L’IA compare…' : 'Rapprocher avec l’IA' }}
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" title="Couleurs du moins cher et du plus cher, écart, tri" @click="priceSettingsOpen = true">
+                            <Palette class="h-4 w-4" />Affichage des prix
                         </Button>
                         <Button type="button" variant="ghost" size="sm" title="Abréviations et décisions mémorisées" @click="settingsOpen = true">
                             <BookA class="h-4 w-4" />Dictionnaire
@@ -370,6 +394,8 @@ const stockTone = (medicine) => {
                         <IconInput v-model="search" :icon="Search" placeholder="Rechercher un médicament…" class="w-full sm:w-72" />
                     </div>
                 </header>
+
+                <SupplierAiMatchingPanel ref="aiPanel" :site-code="targetSite.code" @busy="(value) => { aiRunning = value; }" @proposals="showAiProposals" />
 
                 <!-- Où le produit est proposé, et sa famille : chaque produit
                      tombe dans une seule case, et la liste se range par famille. -->
@@ -402,6 +428,13 @@ const stockTone = (medicine) => {
                         />
                         <Button v-if="filtered" type="button" variant="ghost" size="sm" @click="resetFilters"><X class="h-4 w-4" />Effacer</Button>
                     </div>
+                </div>
+
+                <div v-if="priceSettings.show_legend && visible.length" class="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-5 py-2 text-xs text-muted-foreground">
+                    <span v-for="item in legend" :key="item.key" class="inline-flex items-center gap-1.5">
+                        <span class="h-2.5 w-2.5 rounded-full" :style="{ backgroundColor: item.color }" aria-hidden="true" />{{ item.label }}
+                    </span>
+                    <button type="button" class="ms-auto font-semibold text-primary hover:underline" @click="priceSettingsOpen = true">Modifier</button>
                 </div>
 
                 <div v-if="!visible.length && medicines.length" class="px-6 py-12 text-center">
@@ -492,19 +525,21 @@ const stockTone = (medicine) => {
                                 </td>
                                 <td class="px-5 py-4">
                                     <div class="flex flex-wrap gap-2">
-                                        <div v-for="quote in medicine.quotes" :key="quote.key" class="flex flex-col">
+                                        <div v-for="{ quote, info, styles, gap } in quotesOf(medicine)" :key="quote.key" class="flex flex-col">
                                         <button
                                             type="button"
                                             :class="['group flex min-w-44 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-start transition',
-                                                     inBasket(medicine, quote) ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40']"
+                                                     inBasket(medicine, quote) ? 'border-primary bg-primary/10 ring-2 ring-primary/30' : 'border-border hover:border-primary/40']"
+                                            :style="inBasket(medicine, quote) ? {} : styles.card"
                                             @click="addToBasket(medicine, quote)"
                                         >
                                             <span class="min-w-0">
                                                 <span class="block truncate text-sm font-medium text-foreground">{{ quote.supplier_name }}</span>
                                                 <span v-if="quote.price === null" class="block text-xs text-muted-foreground">Prix non communiqué<span v-if="quote.reference"> · {{ quote.reference }}</span></span>
-                                                <span v-else class="block text-xs" :class="quote.price === medicine.best_price ? 'font-bold text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'">
-                                                    {{ formatMoney(quote.price) }}<span v-if="quote.price === medicine.best_price && medicine.quotes.length > 1"> · le moins cher</span><span v-if="quote.reference"> · {{ quote.reference }}</span>
+                                                <span v-else class="block text-xs" :class="info.tier ? '' : 'text-muted-foreground'" :style="styles.price">
+                                                    {{ formatMoney(quote.price) }}<span v-if="priceSettings.show_labels && tierLabels[info.tier]"> · {{ tierLabels[info.tier] }}</span><span v-if="quote.reference" class="font-normal text-muted-foreground"> · {{ quote.reference }}</span>
                                                 </span>
+                                                <span v-if="gap" class="block text-[11px] tabular-nums text-muted-foreground">{{ gap }} vs le moins cher</span>
                                             </span>
                                             <component :is="inBasket(medicine, quote) ? Check : ShoppingCart" class="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" />
                                         </button>
@@ -692,6 +727,7 @@ const stockTone = (medicine) => {
             </template>
         </ConfirmModal>
 
+        <PriceComparisonSettings v-model:open="priceSettingsOpen" :settings="priceComparison" />
         <ProductMatchingSettings v-model:open="settingsOpen" :site-code="targetSite.code" :can-manage="canManageEquivalences" />
     </div>
 </template>

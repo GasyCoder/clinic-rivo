@@ -41,7 +41,6 @@ test('les écrans Pharmacie décrivent un médicament par le même helper', () =
     const screens = [
         'resources/js/Pages/Pharmacy/Stock/Index.vue',
         'resources/js/Pages/Pharmacy/Stock/Show.vue',
-        'resources/js/Pages/Pharmacy/Partials/ExternalCounterSaleWorkspace.vue',
     ];
 
     for (const screen of screens) {

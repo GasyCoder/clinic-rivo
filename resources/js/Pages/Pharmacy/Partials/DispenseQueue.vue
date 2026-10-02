@@ -2,7 +2,7 @@
 import { formatMoney } from '@/utilities/money';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import Badge from '@/Components/UI/Badge.vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import ExplorerTile from '@/Components/UI/ExplorerTile.vue';
 import ExplorerView from '@/Components/UI/ExplorerView.vue';
 import { lucideIcon } from '@/lib/icons';
@@ -287,8 +287,8 @@ const formatDate = (value) => value
                 <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 bg-gray-50 px-5 py-3 dark:border-gray-900 dark:bg-gray-1000">
                     <Button variant="white-outline" size="rg" type="button" @click="closeDispense">Fermer</Button>
                     <div class="flex items-center gap-2">
-                        <SiteOnlyAction v-if="selectedDispense.invoice && capabilities.can_print_ticket" label="Imprimer le ticket" size="rg" variant="white-outline"><Button size="rg" variant="white-outline" type="button" :disabled="printingDispenseUuid === selectedDispense.uuid" @click="printTicket(selectedDispense)"><Printer class="h-4 w-4" /><span class="ms-2">{{ printingDispenseUuid === selectedDispense.uuid ? 'Préparation…' : 'Imprimer le ticket' }}</span></Button></SiteOnlyAction>
-                        <SiteOnlyAction v-if="selectedDispense.can_dispense && capabilities.can_dispense" label="Délivrer" size="rg" variant="default"><Button size="rg" type="button" @click="deliverDispense(selectedDispense)"><Package class="h-4 w-4" /><span class="ms-2">Délivrer</span></Button></SiteOnlyAction>
+                        <SiteOnlyAction v-if="selectedDispense.invoice && capabilities.can_print_ticket" label="Imprimer le ticket" size="rg" variant="white-outline"><Button size="rg" variant="white-outline" type="button" :disabled="printingDispenseUuid === selectedDispense.uuid" @click="printTicket(selectedDispense)"><Printer class="h-4 w-4" />{{ printingDispenseUuid === selectedDispense.uuid ? 'Préparation…' : 'Imprimer le ticket' }}</Button></SiteOnlyAction>
+                        <SiteOnlyAction v-if="selectedDispense.can_dispense && capabilities.can_dispense" label="Délivrer" size="rg" variant="default"><Button size="rg" type="button" @click="deliverDispense(selectedDispense)"><Package class="h-4 w-4" />Délivrer</Button></SiteOnlyAction>
                     </div>
                 </footer>
             </section>

@@ -98,7 +98,7 @@ const FIELDS = [
     'ui_font_family', 'ui_font_size', 'ui_density', 'ui_radius', 'ui_motion', 'ui_contrast',
     'patient_number_prefix', 'patient_number_year', 'patient_number_digits', 'patient_number_separator',
     'patient_number_reset', 'episode_number_digits',
-    'employee_number_prefix', 'employee_number_separator', 'employee_number_digits',
+    'employee_number_prefix', 'employee_number_separator', 'employee_number_digits', 'intern_number_prefix',
     'auth_template', 'profile_template',
     // ADR-209 — le badge du personnel : une seule liste, celle de BadgeDesign::FIELDS.
     ...BADGE_FIELDS,

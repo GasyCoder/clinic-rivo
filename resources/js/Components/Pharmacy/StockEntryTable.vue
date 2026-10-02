@@ -1,4 +1,5 @@
 <script setup>
+import { localToday } from '@/utilities/date';
 import { currencyLabel } from '@/utilities/money';
 import { computed, nextTick } from 'vue';
 import { Banknote, Boxes, CalendarDays, Hash, Minus, Pencil, Pill, Plus, Sparkles, Tag, X } from 'lucide-vue-next';
@@ -41,7 +42,7 @@ const groups = computed(() => props.rows.reduce((list, row) => {
     return list;
 }, []));
 
-const today = new Date().toISOString().slice(0, 10);
+const today = localToday();
 
 const knownLot = (row) => (row.known_lots ?? []).find(
     (lot) => lot.lot_number.toLocaleLowerCase() === String(row.lot_number ?? '').trim().toLocaleLowerCase(),

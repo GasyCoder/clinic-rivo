@@ -4,7 +4,7 @@ import { medicineFamily, medicineSubtitle } from '@/utilities/medicine';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/UI/Badge.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
 import { ArrowLeft, Pencil } from 'lucide-vue-next';
 import { formatDate, formatDateTime } from '@/utilities/date';
@@ -40,7 +40,7 @@ defineProps({
                 </div>
                 <div class="flex flex-wrap gap-2">
                     <Button v-if="capabilities.can_update_medicine" :as="Link" :href="pharmacyUrl(`/pharmacy/medicines/${medicine.uuid}/edit`)" size="rg" variant="white-outline">
-                        <Pencil class="h-4 w-4" /><span class="ms-2">Modifier la fiche</span>
+                        <Pencil class="h-4 w-4" />Modifier la fiche
                     </Button>
                 </div>
             </div>

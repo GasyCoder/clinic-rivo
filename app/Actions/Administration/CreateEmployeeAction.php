@@ -26,7 +26,7 @@ class CreateEmployeeAction
     ) {}
 
     /** @param array<string, mixed> $data */
-    public function execute(array $data, User $actor): Employee
+    public function execute(array $data, User $actor, bool $intern = false): Employee
     {
         // ADR-190 : l'email de la fiche n'est posé que par la création de l'adresse
         // professionnelle ; une fiche enregistrée ne l'écrit ni ne l'efface jamais.
@@ -43,10 +43,11 @@ class CreateEmployeeAction
         $photoPath = $photo instanceof UploadedFile ? $this->photos->store($photo) : null;
 
         try {
-            return DB::transaction(function () use ($data, $actor, $photoPath): Employee {
-                // ADR-191 — un matricule laissé vide reçoit le prochain du modèle du site.
+            return DB::transaction(function () use ($data, $actor, $photoPath, $intern): Employee {
+                // ADR-191 — un matricule laissé vide reçoit le prochain du modèle du site ;
+                // ADR-243 — celui de la série des stagiaires pour un stagiaire.
                 if (trim((string) ($data['employee_number'] ?? '')) === '') {
-                    $data['employee_number'] = $this->numbers->suggest();
+                    $data['employee_number'] = $this->numbers->suggest(intern: $intern);
                 }
 
                 $data = $this->identityNormalizer->normalize($data);

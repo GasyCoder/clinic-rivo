@@ -78,6 +78,17 @@ final class AppSettingsRules
             'employee_number_prefix' => ['nullable', 'string', 'max:12', 'regex:/^[A-Za-z0-9]+$/'],
             'employee_number_separator' => ['nullable', Rule::in(EmployeeNumberFormat::SEPARATORS)],
             'employee_number_digits' => ['nullable', 'integer', 'min:'.EmployeeNumberFormat::MIN_DIGITS, 'max:'.EmployeeNumberFormat::MAX_DIGITS],
+            // ADR-243 — la série des stagiaires ne se mêle jamais à celle des employés.
+            'intern_number_prefix' => [
+                'nullable', 'string', 'max:12', 'regex:/^[A-Za-z0-9]+$/',
+                function (string $attribute, mixed $value, \Closure $fail): void {
+                    $intern = strtoupper(trim((string) $value)) ?: EmployeeNumberFormat::DEFAULT_INTERN_PREFIX;
+                    $employee = strtoupper(trim((string) request()->input('employee_number_prefix'))) ?: EmployeeNumberFormat::DEFAULT_PREFIX;
+                    if ($intern === $employee) {
+                        $fail('Le préfixe des stagiaires doit différer de celui des employés : les deux séries se mêleraient.');
+                    }
+                },
+            ],
             'currency_label' => ['required', Rule::in(AppSettings::CURRENCY_LABELS)],
             'currency_position' => ['required', Rule::in(['after', 'before'])],
             'currency_decimals' => ['required', 'integer', Rule::in([0, 2])],
@@ -250,6 +261,8 @@ final class AppSettingsRules
             'patient_number_reset.not_in' => 'Sans année dans le numéro, la remise à 1 chaque année redonnerait les mêmes numéros : choisissez une numérotation continue.',
             'employee_number_prefix.regex' => 'Le préfixe ne contient que des lettres et des chiffres.',
             'employee_number_prefix.max' => 'Le préfixe tient en 12 caractères au plus.',
+            'intern_number_prefix.regex' => 'Le préfixe ne contient que des lettres et des chiffres.',
+            'intern_number_prefix.max' => 'Le préfixe tient en 12 caractères au plus.',
             'employee_number_digits.min' => 'Le numéro a au moins '.EmployeeNumberFormat::MIN_DIGITS.' chiffres.',
             'employee_number_digits.max' => 'Le numéro a au plus '.EmployeeNumberFormat::MAX_DIGITS.' chiffres.',
             'currency_label.in' => 'Choisissez Ar, Ariary ou MGA.',

@@ -4,7 +4,7 @@ import { medicineFamily, medicineMatches, medicineSubtitle } from '@/utilities/m
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/UI/Badge.vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import ExplorerTile from '@/Components/UI/ExplorerTile.vue';
 import ExplorerView from '@/Components/UI/ExplorerView.vue';
 import { lucideIcon } from '@/lib/icons';
@@ -188,22 +188,22 @@ const summaryCards = computed(() => (showStock.value ? [
             <template #actions>
                 <SiteOnlyAction v-if="capabilities.can_adjust_stock && capabilities.can_view_lots" label="Inventaire" size="rg" variant="white-outline">
                     <Button :as="Link" :href="pharmacyUrl('/pharmacy/stock/inventory')" size="rg" variant="white-outline">
-                        <ListChecks class="h-4 w-4" /><span class="ms-2">Inventaire</span>
+                        <ListChecks class="h-4 w-4" />Inventaire
                     </Button>
                 </SiteOnlyAction>
                 <SiteOnlyAction v-if="capabilities.can_adjust_stock" label="Corriger" size="rg" variant="white-outline">
                     <Button :as="Link" :href="pharmacyUrl('/pharmacy/stock/adjustments/create')" size="rg" variant="white-outline">
-                        <Pencil class="h-4 w-4" /><span class="ms-2">Corriger</span>
+                        <Pencil class="h-4 w-4" />Corriger
                     </Button>
                 </SiteOnlyAction>
                 <Button v-if="capabilities.can_create_medicine" :as="Link" :href="pharmacyUrl('/pharmacy/medicines/create')" size="rg" variant="white-outline">
-                    <Plus class="h-4 w-4" /><span class="ms-2">Nouveau médicament</span>
+                    <Plus class="h-4 w-4" />Nouveau médicament
                 </Button>
                 <!-- ADR-182 — le stock n'entre que depuis une livraison
                      réceptionnée : le bouton dit ce qui attend d'être rangé. -->
                 <SiteOnlyAction v-if="capabilities.can_record_entry" :label="awaitingStockCount ? `Entrée en stock · ${formatNumber(awaitingStockCount)} à ranger` : 'Entrée en stock'" size="rg" variant="default">
                     <Button :as="Link" :href="pharmacyUrl('/pharmacy/stock/entries/create')" size="rg" title="Ranger au stock ce qui a été réceptionné">
-                        <Package class="h-4 w-4" /><span class="ms-2">Entrée en stock</span>
+                        <Package class="h-4 w-4" />Entrée en stock
                         <span v-if="awaitingStockCount" class="ms-2 rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold tabular-nums">{{ formatNumber(awaitingStockCount) }} à ranger</span>
                     </Button>
                 </SiteOnlyAction>
@@ -288,7 +288,7 @@ const summaryCards = computed(() => (showStock.value ? [
                             Tout sélectionner
                         </label>
                         <button v-if="selected.length" type="button" class="text-xs font-bold text-slate-500 hover:text-slate-700" @click="selected = []">Désélectionner ({{ selected.length }})</button>
-                        <Button size="sm" type="button" :disabled="!selected.length" @click="printSelection"><QrCode class="h-4 w-4" /><span class="ms-1.5">Étiquettes QR</span></Button>
+                        <Button size="sm" type="button" :disabled="!selected.length" @click="printSelection"><QrCode class="h-4 w-4" />Étiquettes QR</Button>
                     </div>
                     <p v-if="popupBlocked" class="w-full text-xs text-red-600">Le navigateur a bloqué la fenêtre d’impression : autorisez les fenêtres pour ce site, puis réessayez.</p>
                 </div>
@@ -409,7 +409,7 @@ const summaryCards = computed(() => (showStock.value ? [
                 <a :href="pharmacyUrl('/pharmacy/setup/medicines/import-template')" class="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary-600 hover:underline"><Download class="h-4 w-4" />Télécharger le modèle</a>
                 <form class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center" @submit.prevent="submitImport">
                     <input name="file" type="file" accept=".xlsx,.xls,.csv" class="block flex-1 text-sm text-slate-500 file:me-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm file:font-semibold dark:file:bg-gray-900" required @input="importForm.file = $event.target.files[0]">
-                    <Button size="rg" type="submit" :disabled="importForm.processing || !importForm.file"><Upload class="h-4 w-4" /><span class="ms-2">Envoyer</span></Button>
+                    <Button size="rg" type="submit" :disabled="importForm.processing || !importForm.file"><Upload class="h-4 w-4" />Envoyer</Button>
                 </form>
                 <p v-if="importForm.errors.file" class="mt-2 text-xs text-red-600">{{ importForm.errors.file }}</p>
             </section>

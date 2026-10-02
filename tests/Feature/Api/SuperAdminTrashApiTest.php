@@ -185,8 +185,9 @@ class SuperAdminTrashApiTest extends TestCase
             ->getJson('/api/v1/super-admin/trash?category=EMPLOYEE')
             ->assertOk()
             ->assertJsonPath('data.0.reference', 'EMP-9')
-            ->assertJsonPath('data.0.can_force_delete', false)
-            ->assertJsonPath('data.0.force_delete_blockers', ['1 contrat']);
+            // ADR-243 — un contrat qui n'a produit aucun document part avec le dossier.
+            ->assertJsonPath('data.0.can_force_delete', true)
+            ->assertJsonPath('data.0.force_delete_blockers', []);
 
         // Le contrat part d'abord, puis le dossier qui n'est plus désigné par rien.
         $this->withHeaders($this->headers(['trash.force_delete', 'contracts.restore', 'employees.force_delete']))

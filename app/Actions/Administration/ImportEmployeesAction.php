@@ -27,6 +27,7 @@ class ImportEmployeesAction
         private readonly EmployeeIdentityNormalizer $identityNormalizer,
         private readonly EmployeeNumberAllocator $numbers,
         private readonly JobTitleDepartmentGuard $jobTitles,
+        private readonly \App\Services\Administration\InternshipDirectory $internships,
     ) {}
 
     /** @return array{created: int, contracts: int} */
@@ -54,6 +55,7 @@ class ImportEmployeesAction
         $prepared = [];
         $errors = [];
         $seenNumbers = [];
+        $internTypes = $this->internships->contractTypeIds()->all();
 
         // ADR-191 — une ligne sans matricule reçoit le prochain du modèle du site, sans
         // jamais reprendre un matricule écrit ailleurs dans le même fichier.
@@ -63,7 +65,11 @@ class ImportEmployeesAction
             $line = $index + 2;
             $data = $this->prepareRow($row, $references, $line, $errors);
 
-            if (trim((string) ($data['employee_number'] ?? '')) === '') {
+            if (trim((string) ($data['employee_number'] ?? '')) === '' && in_array($data['contract_type_id'] ?? null, $internTypes, true)) {
+                // ADR-243 — un stagiaire (contrat de stage) reçoit le prochain de sa propre série.
+                $data['employee_number'] = $this->numbers->sequence(1, $reserved, intern: true)[0];
+                $reserved[] = $data['employee_number'];
+            } elseif (trim((string) ($data['employee_number'] ?? '')) === '') {
                 // Matricule de la clinique (H/F + année d'entrée + jour et mois de naissance) quand la fiche le permet.
                 $data['employee_number'] = $this->numbers->fromProfile($data['sex'] ?? null, $data['hire_date'] ?? null, $data['birth_date'] ?? null, $reserved)
                     ?? $this->numbers->sequence(1, $reserved)[0];

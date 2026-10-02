@@ -88,8 +88,8 @@ export const SETTINGS_SECTIONS = Object.freeze([
     },
     {
         id: 'matricules', owner: 'hr', group: 'dossiers', label: 'Matricules', icon: BriefcaseBusiness,
-        description: 'Format du matricule proposé à la création d’un employé.',
-        fields: ['employee_number_prefix', 'employee_number_separator', 'employee_number_digits'],
+        description: 'Format du matricule proposé à la création d’un employé ou d’un stagiaire.',
+        fields: ['employee_number_prefix', 'employee_number_separator', 'employee_number_digits', 'intern_number_prefix'],
     },
     {
         // ADR-209 — un seul modèle pour tout le personnel, dont tout l'aspect se règle (amendement du 2026-09-27).

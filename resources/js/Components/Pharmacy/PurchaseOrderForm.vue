@@ -14,7 +14,7 @@ import {
     Building2, CalendarDays, FileSpreadsheet, Hash, Mail, PackageOpen, Phone, Save, Search, Send, User,
 } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
-import { formatDate } from '@/utilities/date';
+import { formatDate, localToday, toLocalDateInput } from '@/utilities/date';
 import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
 import { openSupplierOrderMail } from '@/utilities/supplierOrderMail';
 import { usePage } from '@inertiajs/vue3';
@@ -175,7 +175,7 @@ const page = usePage();
 const supplierEmail = computed(() => currentSupplier.value?.email ?? null);
 const openMailDraft = (lines, amount) => openSupplierOrderMail(supplierEmail.value, {
     order_number: props.order?.order_number ?? null,
-    ordered_on: formatDate(new Date().toISOString().slice(0, 10)),
+    ordered_on: formatDate(localToday()),
     expected_delivery_on: form.expected_delivery_at ? formatDate(form.expected_delivery_at) : null,
     total: formatMoney(amount),
     notes: form.notes,
@@ -214,7 +214,7 @@ const save = (send) => {
 };
 
 // --- Livraison attendue : un délai, pas un calendrier -------------------------
-const today = new Date().toISOString().slice(0, 10);
+const today = localToday();
 const deliveryTerms = [
     { label: 'Non précisée', days: null },
     { label: 'Sous 3 jours', days: 3 },
@@ -226,7 +226,7 @@ const inDays = (days) => {
     const date = new Date();
     date.setDate(date.getDate() + days);
 
-    return date.toISOString().slice(0, 10);
+    return toLocalDateInput(date);
 };
 const customDelivery = ref(Boolean(props.order?.expected_delivery_at));
 const chip = (active) => cn(

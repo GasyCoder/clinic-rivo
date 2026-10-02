@@ -22,7 +22,8 @@ use Illuminate\Support\Collection;
 class InternshipDirectory
 {
     /** Les vues de la page « Stages ». */
-    public const STATUSES = ['current', 'future', 'ended', 'all'];
+    /** ADR-243 — « archived » : les stagiaires dont le dossier est archivé, et eux seuls. */
+    public const STATUSES = ['current', 'future', 'ended', 'all', 'archived'];
 
     /** @var Collection<int, int>|null */
     private ?Collection $typeIds = null;
@@ -144,6 +145,10 @@ class InternshipDirectory
         $today = now()->toDateString();
 
         return $this->internships(EmploymentContract::query())
+            // ADR-243 — un dossier archivé ne se lit que dans « Archivés » ; ailleurs, jamais.
+            ->when($status === 'archived',
+                fn (Builder $query) => $query->whereHas('employee', fn ($employee) => $employee->onlyTrashed()),
+                fn (Builder $query) => $query->whereHas('employee'))
             ->when($status === 'current', fn (Builder $query) => $this->current($query))
             ->when($status === 'future', fn (Builder $query) => $query->whereDate('starts_on', '>', $today))
             ->when($status === 'ended', fn (Builder $query) => $query->whereDate('ends_on', '<', $today))

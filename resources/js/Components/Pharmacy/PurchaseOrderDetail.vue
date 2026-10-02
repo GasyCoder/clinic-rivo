@@ -8,7 +8,7 @@ import Textarea from '@/Components/Shadcn/Textarea.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { Ban, CheckCheck, FileText, Info, Mail, Package, PackageX, Paperclip, Pencil, Send, Undo2 } from 'lucide-vue-next';
-import { formatDate, formatDateTime } from '@/utilities/date';
+import { formatDate, formatDateTime, localToday } from '@/utilities/date';
 import { formatMoney, statusTone } from '@/utilities/pharmacyStatus';
 import { openSupplierOrderMail } from '@/utilities/supplierOrderMail';
 import SiteOnlyAction from '@/Components/Pharmacy/SiteOnlyAction.vue';
@@ -98,7 +98,7 @@ const awaitingGoods = () => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(props.ord
  */
 const confirming = ref(false);
 const confirmForm = useForm({
-    confirmed_at: new Date().toISOString().slice(0, 10),
+    confirmed_at: localToday(),
     reference: '',
     notes: '',
     attachment: null,
@@ -106,7 +106,7 @@ const confirmForm = useForm({
 const openConfirm = () => {
     const known = props.order.supplier_confirmation;
     confirmForm.defaults({
-        confirmed_at: known?.confirmed_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+        confirmed_at: known?.confirmed_at?.slice(0, 10) ?? localToday(),
         reference: known?.reference ?? '',
         notes: known?.notes ?? '',
         attachment: null,
@@ -356,7 +356,7 @@ const revertShortage = (line) => router.delete(props.links.shortage(line.id), { 
             <div class="space-y-3">
                 <label class="block">
                     <span class="mb-1.5 block text-sm font-medium text-foreground">Date de la confirmation <span class="text-destructive">*</span></span>
-                    <DatePicker v-model="confirmForm.confirmed_at" :max="new Date().toISOString().slice(0, 10)" />
+                    <DatePicker v-model="confirmForm.confirmed_at" :max="localToday()" />
                     <span class="mt-1 block text-xs text-muted-foreground">Celle du document du fournisseur, pas celle du jour de la saisie.</span>
                 </label>
                 <label class="block">

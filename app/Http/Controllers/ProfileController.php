@@ -6,6 +6,7 @@ use App\Actions\User\ChangeOwnPasswordAction;
 use App\Http\Requests\UpdateOwnPasswordRequest;
 use App\Models\Permission;
 use App\Services\Webmail\WebmailAccess;
+use App\Support\Pharmacy\PriceComparisonPreferences;
 use App\Support\Settings\UiOptions;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -64,16 +65,47 @@ class ProfileController extends Controller
             'contrast.in' => 'Choisissez un niveau de contraste proposé.',
         ]);
 
-        $preferences = [];
+        // Les autres réglages du compte (couleurs du comparateur, ADR-242) restent.
+        $stored = is_array($request->user()->ui_preferences) ? $request->user()->ui_preferences : [];
+        $preferences = array_diff_key($stored, array_flip(UiOptions::PERSONAL));
+        $personal = 0;
         foreach (UiOptions::PERSONAL as $key) {
             if (($value = UiOptions::clean($key, $data[$key] ?? null)) !== null) {
                 $preferences[$key] = $value;
+                $personal++;
             }
         }
 
         $request->user()->forceFill(['ui_preferences' => $preferences ?: null])->save();
 
-        return back()->with('status', $preferences ? 'Apparence enregistrée.' : 'Apparence du site rétablie.');
+        return back()->with('status', $personal ? 'Apparence enregistrée.' : 'Apparence du site rétablie.');
+    }
+
+    /**
+     * ADR-242 — les couleurs et le marquage des prix du comparateur des
+     * fournisseurs, propres à ce compte. `reset` rend les valeurs d'origine.
+     */
+    public function updatePriceComparison(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'reset' => ['nullable', 'boolean'],
+            ...PriceComparisonPreferences::rules(),
+        ], [
+            '*.regex' => 'Une couleur s’écrit #RRVVBB.',
+            'min_gap_percent.max' => 'L’écart minimal ne dépasse pas 500 %.',
+        ]);
+
+        $stored = is_array($request->user()->ui_preferences) ? $request->user()->ui_preferences : [];
+        unset($stored[PriceComparisonPreferences::KEY]);
+        $kept = $request->boolean('reset') ? [] : PriceComparisonPreferences::clean($data);
+
+        if ($kept !== []) {
+            $stored[PriceComparisonPreferences::KEY] = $kept;
+        }
+
+        $request->user()->forceFill(['ui_preferences' => $stored ?: null])->save();
+
+        return back()->with('status', $kept ? 'Affichage des prix enregistré.' : 'Affichage des prix d’origine rétabli.');
     }
 
     public function updatePassword(UpdateOwnPasswordRequest $request, ChangeOwnPasswordAction $action, WebmailAccess $webmail): RedirectResponse

@@ -4,7 +4,7 @@ import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/UI/Badge.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
 import { Check, Printer, Search } from 'lucide-vue-next';
@@ -112,7 +112,7 @@ const inputClass = 'h-10 w-24 rounded-lg border border-gray-200 bg-white px-2 te
                 <p class="mt-1 text-sm text-slate-500">Comptez ce qui est réellement sur l’étagère et saisissez-le. Seuls les lots avec un écart sont corrigés, tous en une fois ; chaque correction est tracée avec votre motif.</p>
             </div>
             <div class="flex flex-wrap gap-2">
-                <Button type="button" size="rg" variant="white-outline" :disabled="!visible.length" @click="printSheet"><Printer class="h-4 w-4" /><span class="ms-2">Imprimer la feuille</span></Button>
+                <Button type="button" size="rg" variant="white-outline" :disabled="!visible.length" @click="printSheet"><Printer class="h-4 w-4" />Imprimer la feuille</Button>
             </div>
         </div>
 
@@ -198,7 +198,7 @@ const inputClass = 'h-10 w-24 rounded-lg border border-gray-200 bg-white px-2 te
                 <div class="flex gap-2">
                     <Button :as="Link" :href="pharmacyUrl('/pharmacy/stock')" size="lg" variant="white-outline">Annuler</Button>
                     <Button type="button" size="lg" :disabled="form.processing || !counted.length || form.reason.trim().length < 3" @click="confirming = true">
-                        <Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : `Valider l’inventaire (${counted.length})` }}</span>
+                        <Check class="h-4 w-4" />{{ form.processing ? 'Validation…' : `Valider l’inventaire (${counted.length})` }}
                     </Button>
                 </div>
             </section>

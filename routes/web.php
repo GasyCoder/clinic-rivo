@@ -169,6 +169,8 @@ Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.
         ->middleware('throttle:6,1');
     // ADR-191 — taille du texte, animations et contraste propres à ce compte.
     Route::put('/profil/apparence', [ProfileController::class, 'updateAppearance'])->name('profile.appearance.update');
+    // ADR-242 — couleurs et marquage des prix du comparateur des fournisseurs.
+    Route::put('/profil/comparateur-prix', [ProfileController::class, 'updatePriceComparison'])->name('profile.price-comparison.update');
 
     // ADR-228 — « Mes dettes » : chacun demande une dette au DG et suit la sienne.
     Route::get('/mes-dettes', [StaffDebtController::class, 'index'])->name('my-debts.index')->middleware('can:staff_debts.request');
@@ -269,7 +271,9 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::get('/pharmacy-suppliers/{site}/synonyms', [SupplierEquivalenceController::class, 'synonyms'])->name('pharmacy-suppliers.synonyms.index')->middleware('can:view-supplier-offers');
         Route::post('/pharmacy-suppliers/{site}/synonyms', [SupplierEquivalenceController::class, 'storeSynonym'])->name('pharmacy-suppliers.synonyms.store')->middleware('can:supplier_equivalences.manage');
         Route::delete('/pharmacy-suppliers/{site}/synonyms/{synonym}', [SupplierEquivalenceController::class, 'destroySynonym'])->name('pharmacy-suppliers.synonyms.destroy')->middleware('can:supplier_equivalences.manage');
-        Route::post('/pharmacy-suppliers/{site}/commander/ia', [SupplierEquivalenceController::class, 'aiMatch'])->name('pharmacy-suppliers.equivalences.ai')->middleware('can:supplier_equivalences.manage')->middleware('throttle:10,1');
+        // ADR-242 — l'IA par lots : préparer, puis un lot à la fois, avec son état à l'écran.
+        Route::post('/pharmacy-suppliers/{site}/commander/ia', [SupplierEquivalenceController::class, 'aiPlan'])->name('pharmacy-suppliers.equivalences.ai')->middleware('can:supplier_equivalences.manage')->middleware('throttle:10,1');
+        Route::post('/pharmacy-suppliers/{site}/commander/ia/{run}/{batch}', [SupplierEquivalenceController::class, 'aiBatch'])->whereUuid('run')->whereNumber('batch')->name('pharmacy-suppliers.equivalences.ai-batch')->middleware('can:supplier_equivalences.manage')->middleware('throttle:60,1');
         Route::get('/pharmacy-suppliers/{site}/{supplier}', [SuperAdminPharmacySupplierController::class, 'show'])->name('pharmacy-suppliers.show')->middleware('can:medicine_suppliers.view');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/catalogs', [SuperAdminPharmacySupplierController::class, 'catalogs'])->name('pharmacy-suppliers.catalogs.index')->middleware('can:view-supplier-catalogs');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/orders', [SuperAdminPharmacySupplierController::class, 'orders'])->name('pharmacy-suppliers.orders')->middleware('can:view-supplier-orders');

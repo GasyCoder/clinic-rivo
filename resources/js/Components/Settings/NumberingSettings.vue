@@ -24,7 +24,7 @@ const props = defineProps({
 });
 
 const PATIENT_FIELDS = ['patient_number_prefix', 'patient_number_year', 'patient_number_digits', 'patient_number_separator', 'patient_number_reset', 'episode_number_digits'];
-const EMPLOYEE_FIELDS = ['employee_number_prefix', 'employee_number_separator', 'employee_number_digits'];
+const EMPLOYEE_FIELDS = ['employee_number_prefix', 'employee_number_separator', 'employee_number_digits', 'intern_number_prefix'];
 
 const patientDefaults = computed(() => props.options.defaults?.patient ?? { year: '2', digits: 4, separator: '-', reset: 'yearly', episode_digits: 2 });
 const employeeDefaults = computed(() => props.options.defaults?.employee ?? { prefix: 'EMP', separator: '-', digits: 4 });
@@ -87,10 +87,16 @@ const employee = computed(() => ({
     separator: String(value('employee_number_separator', employeeDefaults.value.separator)),
     digits: Number(value('employee_number_digits', employeeDefaults.value.digits)),
 }));
+// ADR-243 — la série des stagiaires : même séparateur et mêmes chiffres, son propre préfixe.
+const internPrefix = computed(() => String(value('intern_number_prefix', props.fallbacks.intern_number_prefix || employeeDefaults.value.intern_prefix || 'STG')).toUpperCase());
+const internClash = computed(() => internPrefix.value === employee.value.prefix);
 const employeeExact = computed(() => props.numbering.available && unchanged(EMPLOYEE_FIELDS));
 const employeeNumber = computed(() => (employeeExact.value
     ? props.numbering.employee_next
     : `${employee.value.prefix}${employee.value.separator}${'1'.padStart(employee.value.digits, '0')}`));
+const internNumber = computed(() => (employeeExact.value && props.numbering.intern_next
+    ? props.numbering.intern_next
+    : `${internPrefix.value}${employee.value.separator}${'1'.padStart(employee.value.digits, '0')}`));
 </script>
 
 <template>
@@ -172,6 +178,20 @@ const employeeNumber = computed(() => (employeeExact.value
                 <div class="flex max-w-2xl items-center justify-between gap-3 rounded-md border border-border px-4 py-2.5 text-sm" aria-label="Aperçu du matricule">
                     <span class="flex items-center gap-2 text-muted-foreground"><IdCard class="h-4 w-4 shrink-0" aria-hidden="true" />Prochain matricule proposé</span>
                     <span class="font-mono font-medium text-foreground">{{ employeeNumber }}</span>
+                </div>
+            </SettingsField>
+            <SettingsField
+                label="Préfixe des stagiaires"
+                for="reglage-intern-prefix"
+                :description="`Vide : ${employeeDefaults.intern_prefix || 'STG'}. Les stagiaires ont leur propre série, avec le même séparateur et les mêmes chiffres : ils ne prennent jamais le prochain matricule d’un employé.`"
+                :error="form.errors.intern_number_prefix || (internClash ? 'Le préfixe des stagiaires doit différer de celui des employés.' : '')"
+            >
+                <div class="grid gap-3 sm:grid-cols-3">
+                    <IconInput id="reglage-intern-prefix" v-model="form.intern_number_prefix" :icon="Type" class="font-mono uppercase" maxlength="12" :placeholder="employeeDefaults.intern_prefix || 'STG'" :disabled="readonly" />
+                    <div class="flex items-center justify-between gap-3 rounded-md border border-border px-4 py-2 text-sm sm:col-span-2" aria-label="Aperçu du matricule d’un stagiaire">
+                        <span class="text-muted-foreground">Prochain matricule de stagiaire</span>
+                        <span class="font-mono font-medium text-foreground">{{ internNumber }}</span>
+                    </div>
                 </div>
             </SettingsField>
         </div>

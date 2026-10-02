@@ -2,8 +2,8 @@
 import { hrSiteName, hrUrl } from '@/utilities/hrUrl';
 import { Head, Link, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from '@/Components/UI/Button.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import { ArrowLeft, Printer } from 'lucide-vue-next';
 import { formatMoney } from '@/utilities/money';
 
 defineOptions({ layout: AppLayout });
@@ -16,7 +16,7 @@ const formatDate = (value) => value ? new Intl.DateTimeFormat('fr-FR', { dateSty
 <template>
     <Head :title="`Fiche ${employee.employee_number}`" />
     <div class="employee-print-page mx-auto w-full max-w-4xl space-y-3">
-        <div class="print-actions flex items-center justify-between gap-3"><Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" size="rg" variant="white-outline"><Icon name="arrow-left" /><span class="ms-2">Retour au dossier</span></Button><Button size="rg" @click="printDocument"><Icon name="printer" /><span class="ms-2">Imprimer</span></Button></div>
+        <div class="print-actions flex items-center justify-between gap-3"><Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" size="rg" variant="white-outline"><ArrowLeft class="h-4 w-4 shrink-0" />Retour au dossier</Button><Button size="rg" @click="printDocument"><Printer class="h-4 w-4 shrink-0" />Imprimer</Button></div>
         <article class="employee-print-document">
             <header class="flex items-start justify-between gap-6 border-b-2 border-slate-900 pb-4"><div><p class="text-lg font-black uppercase">{{ page.props.site?.brand || 'Clinique Saint Georges' }}</p><p class="mt-1 text-xs">Site {{ hrSiteName() }}</p></div><div class="flex items-start gap-4 text-end"><div><h1 class="text-xl font-black uppercase">Fiche du personnel</h1><p class="mt-1 font-mono text-sm">{{ employee.employee_number }}</p></div><!-- ADR-194 — la photo au format réel 4 × 4 cm ; un cadre vide sans photo, pour la coller à la main. --><img v-if="employee.photo_url" :src="employee.photo_url" :alt="`Photo de ${employee.name}`" class="employee-print-photo object-cover"><div v-else class="employee-print-photo grid place-items-center border border-dashed border-slate-400 text-[10px] text-slate-400">Photo 4 × 4</div></div></header>
             <section class="mt-6"><h2 class="border-b border-slate-300 pb-1 text-xs font-black uppercase tracking-wider">Identité professionnelle</h2><div class="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 text-sm"><p><strong>Nom et prénoms :</strong> {{ employee.name }}</p><p><strong>Fonction :</strong> {{ employee.job_title || 'N/R' }}</p><p><strong>Département :</strong> {{ employee.department || 'N/R' }}</p><p><strong>Date d’entrée :</strong> {{ formatDate(employee.hire_date) }}</p><p><strong>Ancienneté :</strong> {{ employee.seniority?.label || 'N/R' }}</p><p><strong>Diplôme :</strong> {{ employee.diploma || 'N/R' }}</p><p><strong>Niveau :</strong> {{ employee.education_level || 'N/R' }}</p><p><strong>Badge :</strong> {{ employee.badge || 'N/R' }}</p><p><strong>Blouse :</strong> {{ employee.blouse || 'N/R' }}</p><p><strong>T-shirt / blouse :</strong> {{ employee.tshirt_size || 'N/R' }} / {{ employee.blouse_size || 'N/R' }}</p><p><strong>Pointure :</strong> {{ employee.shoe_size || 'N/R' }}</p><p><strong>Tenue bloc / callot / sabot :</strong> {{ employee.bloc_outfit || 'N/R' }} / {{ employee.scrub_cap || 'N/R' }} / {{ employee.clog || 'N/R' }}</p><p><strong>Second téléphone :</strong> {{ employee.phone_secondary || 'N/R' }}</p></div></section>

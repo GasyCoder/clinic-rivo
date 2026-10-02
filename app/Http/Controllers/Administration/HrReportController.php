@@ -11,6 +11,7 @@ use App\Models\EmploymentContract;
 use App\Models\HrReferenceValue;
 use App\Models\LeaveRequest;
 use App\Models\PlanningShift;
+use App\Services\Administration\InternshipDirectory;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -69,9 +70,13 @@ class HrReportController extends Controller
         $today = now()->toDateString();
         $attendance = AttendanceRecord::query()->whereBetween('work_date', [$from, $to])->get(['started_at', 'ended_at']);
 
+        // ADR-207 — un stagiaire n'est pas un employé : il ne compte ni dans
+        // l'effectif actif, ni dans l'effectif par département.
+        $internships = app(InternshipDirectory::class);
+
         return [
             'summary' => [
-                'active_employees' => Employee::query()->where('active', true)->count(),
+                'active_employees' => $internships->withoutInterns(Employee::query())->where('active', true)->count(),
                 'current_contracts' => EmploymentContract::query()->whereDate('starts_on', '<=', $today)
                     ->where(fn ($period) => $period->whereNull('ends_on')->orWhereDate('ends_on', '>=', $today))->count(),
                 'attendance_sessions' => $attendance->count(),
@@ -83,7 +88,7 @@ class HrReportController extends Controller
                 'planning_shifts' => PlanningShift::query()->whereBetween('starts_at', [$from.' 00:00:00', $to.' 23:59:59'])->count(),
             ],
             'by_department' => HrReferenceValue::query()->ofType(HrReferenceType::Department)
-                ->withCount(['departmentEmployees' => fn ($query) => $query->where('active', true)])
+                ->withCount(['departmentEmployees' => fn ($query) => $internships->withoutInterns($query)->where('active', true)])
                 ->orderBy('position')->get()->map(fn ($department) => [
                     'uuid' => $department->uuid, 'label' => $department->label,
                     'count' => $department->department_employees_count,

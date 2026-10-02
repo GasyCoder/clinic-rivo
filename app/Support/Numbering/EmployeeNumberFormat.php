@@ -11,6 +11,9 @@ final class EmployeeNumberFormat
 {
     public const DEFAULT_PREFIX = 'EMP';
 
+    /** ADR-243 — la série des stagiaires. */
+    public const DEFAULT_INTERN_PREFIX = 'STG';
+
     public const SEPARATORS = ['-', '/', '.', '_'];
 
     public const MIN_DIGITS = 3;

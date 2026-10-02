@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import FolderCard from '@/Components/UI/FolderCard.vue';
 import { lucideIcon } from '@/lib/icons';
 import { Folder, Plus } from 'lucide-vue-next';
@@ -77,7 +77,7 @@ const details = computed(() => [
                     </div>
                 </div>
                 <Button v-if="can.create_order" :as="Link" :href="pharmacyUrl(`/pharmacy/purchase-orders/create?supplier=${supplier.uuid}`)" size="rg">
-                    <Plus class="h-4 w-4" /><span class="ms-2">Passer une commande</span>
+                    <Plus class="h-4 w-4" />Passer une commande
                 </Button>
             </div>
 

@@ -33,6 +33,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Profils professionnels NURSE, SUPPORT et MAINTENANCE sans droits implicites
 - [x] Permissions supplémentaires affectées individuellement par compte
 - [x] Séparation stricte des comptes Super Admin et des comptes opérationnels
+- [x] Référentiels d'un site chargés en production par `migrate --seed` : désignations sans tarif, 719 analyses, examens, microbiologie, prélèvements, diagnostics, mutuelles — jamais comptes de test, tarifs, caisses ni stock (ADR-086, amendement du 2026-10-02)
 - [x] Premier Super Admin du portail créé par `migrate --seed --force` depuis RIVO_SUPER_ADMIN_* du .env, une seule fois, mot de passe jamais dans le code (ADR-022, amendement du 2026-10-02)
 - [ ] Soft Delete
 - [ ] Audit

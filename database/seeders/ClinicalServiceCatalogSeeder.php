@@ -10,6 +10,7 @@ use App\Models\CatalogItem;
 use App\Models\User;
 use App\Support\Money;
 use App\Support\SurgeryReferenceData;
+use Database\Seeders\Concerns\LocalOnly;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,8 @@ use RuntimeException;
 
 class ClinicalServiceCatalogSeeder extends Seeder
 {
+    use LocalOnly;
+
     /**
      * Provisional local data used to validate the Reception billing workflow.
      * Amounts are MGA and must be confirmed by the clinic before production.
@@ -539,16 +542,15 @@ class ClinicalServiceCatalogSeeder extends Seeder
 
     public function run(): void
     {
-        if (! app()->environment(['local', 'testing'])) {
-            throw new RuntimeException(
-                'ClinicalServiceCatalogSeeder est réservé aux environnements local et testing.',
-            );
-        }
-
+        // Production (ADR-024): the designations are the clinic's reference
+        // list, their prices are not — the amounts below are provisional and
+        // set by the Super Admin. A production site gets the items, no tariff.
         $actor = $this->resolveActor();
         $guard = Auth::guard();
         $previousActor = $guard->user();
-        $guard->setUser($actor);
+        if ($actor) {
+            $guard->setUser($actor);
+        }
 
         $created = 0;
         $tariffsCreated = 0;
@@ -598,8 +600,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
                             'care_recommends_vitals' => $service['care_recommends_vitals'] ?? false,
                             'clinician_orderable' => $service['clinician_orderable'] ?? false,
                             'description' => $service['description'],
-                            'created_by' => $actor->id,
-                            'updated_by' => $actor->id,
+                            'created_by' => $actor?->id,
+                            'updated_by' => $actor?->id,
                         ]);
                         $created++;
                     }
@@ -663,7 +665,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
         return [...self::SERVICES, ...$surgicalProcedures];
     }
 
-    private function resolveActor(): User
+    private function resolveActor(): ?User
     {
         $identity = trim((string) config('rivo.seeders.catalog_actor'));
 
@@ -681,6 +683,11 @@ class ClinicalServiceCatalogSeeder extends Seeder
             $this->assertProvisioningActor($actor);
 
             return $actor;
+        }
+
+        // Production: no author — the reference list is no one's decision.
+        if (! self::isLocalEnvironment()) {
+            return null;
         }
 
         $actor = User::query()
@@ -702,7 +709,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
         return $actor;
     }
 
-    private function assertProvisioningActor(User $actor): void
+    private function assertProvisioningActor(?User $actor): void
     {
         if (! $actor->isActive() || ! $actor->role_id) {
             throw new RuntimeException(
@@ -724,7 +731,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
         }
     }
 
-    private function canSeedCatalog(User $actor): bool
+    private function canSeedCatalog(?User $actor): bool
     {
         return $actor->hasPermissionTo('catalog.items.create')
             && $actor->hasPermissionTo('catalog.items.update')
@@ -799,7 +806,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
      *
      * @param  array{code: string, routing_mode: ?ReceptionRoutingMode}  $service
      */
-    private function applyAcceptedRoutingCorrection(CatalogItem $item, array $service, User $actor): void
+    private function applyAcceptedRoutingCorrection(CatalogItem $item, array $service, ?User $actor): void
     {
         if ($service['code'] !== 'CONSULT-SPEC'
             || $item->reception_routing_mode !== ReceptionRoutingMode::CareThenMedicine
@@ -809,7 +816,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
 
         $item->forceFill([
             'reception_routing_mode' => ReceptionRoutingMode::MedicineDirect,
-            'updated_by' => $actor->id,
+            'updated_by' => $actor?->id,
         ])->save();
     }
 
@@ -821,7 +828,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
      *
      * @param  array{code: string, module: CatalogModule}  $service
      */
-    private function applyAcceptedModuleCorrection(CatalogItem $item, array $service, User $actor): void
+    private function applyAcceptedModuleCorrection(CatalogItem $item, array $service, ?User $actor): void
     {
         if ($service['code'] !== 'FP-INJECTABLE'
             || $service['module'] !== CatalogModule::Maternity
@@ -833,7 +840,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'module' => CatalogModule::Maternity,
             'reception_selectable' => true,
             'reception_routing_mode' => ReceptionRoutingMode::MaternityDirect,
-            'updated_by' => $actor->id,
+            'updated_by' => $actor?->id,
         ])->save();
     }
 
@@ -846,7 +853,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
      *
      * @param  array{clinician_orderable?: bool}  $service
      */
-    private function applyClinicianOrderableIfUnset(CatalogItem $item, array $service, User $actor): void
+    private function applyClinicianOrderableIfUnset(CatalogItem $item, array $service, ?User $actor): void
     {
         if (! ($service['clinician_orderable'] ?? false) || $item->clinician_orderable) {
             return;
@@ -854,7 +861,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
 
         $item->forceFill([
             'clinician_orderable' => true,
-            'updated_by' => $actor->id,
+            'updated_by' => $actor?->id,
         ])->save();
     }
 
@@ -867,11 +874,17 @@ class ClinicalServiceCatalogSeeder extends Seeder
         CatalogItem $item,
         CatalogTariffCategory $category,
         ?int $amount,
-        User $actor,
+        ?User $actor,
         int &$preserved,
         int &$withoutTariff,
         int &$tariffsCreated,
     ): void {
+        if (! self::isLocalEnvironment()) {
+            $withoutTariff++;
+
+            return;
+        }
+
         if ($item->currentTariffFor($category)->exists()) {
             $preserved++;
 
@@ -891,7 +904,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
     private function createTariff(
         CatalogItem $item,
         int $amount,
-        User $actor,
+        ?User $actor,
         CatalogTariffCategory $category = CatalogTariffCategory::Standard,
     ): void {
         $item->tariffs()->create([
@@ -901,7 +914,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'effective_from' => now(),
             'active_key' => 'CURRENT',
             'change_reason' => 'Tarif initial de validation locale à confirmer par la clinique.',
-            'created_by' => $actor->id,
+            'created_by' => $actor?->id,
         ]);
     }
 }

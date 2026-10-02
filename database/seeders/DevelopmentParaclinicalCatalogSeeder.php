@@ -9,6 +9,7 @@ use App\Enums\ReceptionRoutingMode;
 use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
 use App\Models\User;
+use Database\Seeders\Concerns\LocalOnly;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +17,8 @@ use RuntimeException;
 
 class DevelopmentParaclinicalCatalogSeeder extends Seeder
 {
+    use LocalOnly;
+
     /**
      * ADR-106 — la famille accompagne chaque examen d'imagerie dès sa
      * création. La migration classe ce qui existe déjà ; sans cette
@@ -108,13 +111,11 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
 
     public function run(): void
     {
-        if (! app()->environment(['local', 'testing'])) {
-            throw new RuntimeException('DevelopmentParaclinicalCatalogSeeder est réservé à local/testing.');
-        }
-
         $actor = $this->resolveActor();
         $previous = Auth::guard()->user();
-        Auth::guard()->setUser($actor);
+        if ($actor) {
+            Auth::guard()->setUser($actor);
+        }
 
         try {
             DB::transaction(function () use ($actor): void {
@@ -153,8 +154,8 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
                         'predefined_values' => $definition['values'] ?? null,
                         'display_order' => $definition['order'],
                         'is_active' => true,
-                        'created_by' => $actor->id,
-                        'updated_by' => $actor->id,
+                        'created_by' => $actor?->id,
+                        'updated_by' => $actor?->id,
                     ])->save();
                 }
             });
@@ -166,7 +167,7 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
     }
 
     /** @param array{code: string, name: string, description: string, modality?: ImagingModality} $service */
-    private function upsertService(array $service, CatalogModule $module, User $actor): void
+    private function upsertService(array $service, CatalogModule $module, ?User $actor): void
     {
         $item = CatalogItem::withTrashed()->where('code', $service['code'])->first();
         if ($item?->trashed()) {
@@ -177,7 +178,7 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
                 throw new RuntimeException("Le code {$service['code']} existe avec un type incompatible.");
             }
             if ($item->module !== $module) {
-                $item->update(['module' => $module->value, 'updated_by' => $actor->id]);
+                $item->update(['module' => $module->value, 'updated_by' => $actor?->id]);
             }
 
             // ADR-106 — un examen déplacé vers l'Imagerie (ECG, ECHO-ABD, ECHO-OBS,
@@ -186,7 +187,7 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
             if ($module === CatalogModule::Imaging
                 && $item->imaging_modality === null
                 && ($service['modality'] ?? null) !== null) {
-                $item->update(['imaging_modality' => $service['modality'], 'updated_by' => $actor->id]);
+                $item->update(['imaging_modality' => $service['modality'], 'updated_by' => $actor?->id]);
             }
 
             if ($module === CatalogModule::Laboratory
@@ -195,7 +196,7 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
                 $item->update([
                     'reception_selectable' => true,
                     'reception_routing_mode' => ReceptionRoutingMode::LaboratoryDirect,
-                    'updated_by' => $actor->id,
+                    'updated_by' => $actor?->id,
                 ]);
             }
 
@@ -213,13 +214,18 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
                 : null,
             'imaging_modality' => $service['modality'] ?? null,
             'clinician_orderable' => true,
-            'description' => $service['description'], 'created_by' => $actor->id, 'updated_by' => $actor->id,
+            'description' => $service['description'], 'created_by' => $actor?->id, 'updated_by' => $actor?->id,
         ]);
     }
 
-    private function resolveActor(): User
+    private function resolveActor(): ?User
     {
         $identity = trim((string) config('rivo.seeders.catalog_actor'));
+
+        // Production: the reference list is written without an author.
+        if ($identity === '' && ! self::isLocalEnvironment()) {
+            return null;
+        }
         $query = User::query()->where('active', true)->whereNull('deactivated_at');
         $actor = $identity !== ''
             ? $query->where(fn ($nested) => $nested->where('uuid', $identity)->orWhere('email', $identity))->first()

@@ -29,18 +29,19 @@ class DevelopmentLegacyAnalysisCatalogSeeder extends Seeder
 
     public function run(): void
     {
-        $this->ensureLocal();
-
         $path = database_path('seeders/data/legacy_analysis_catalog.json');
         $data = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
-        $actor = User::query()->where('active', true)->orderBy('id')->first()
-            ?? throw new RuntimeException('Créez d’abord un compte local actif (DevelopmentTestAccountSeeder).');
+        // Production: written without an author (a fresh site has no account yet).
+        $actor = self::isLocalEnvironment()
+            ? (User::query()->where('active', true)->orderBy('id')->first()
+                ?? throw new RuntimeException('Créez d’abord un compte local actif (DevelopmentTestAccountSeeder).'))
+            : null;
 
         DB::transaction(function () use ($data, $actor): void {
             $items = collect($data['catalog_items'])->mapWithKeys(fn (array $item) => [
                 $item['code'] => CatalogItem::withTrashed()->firstOrCreate(
                     ['code' => $item['code']],
-                    [...$item, 'created_by' => $actor->id, 'updated_by' => $actor->id],
+                    [...$item, 'created_by' => $actor?->id, 'updated_by' => $actor?->id],
                 ),
             ]);
 
@@ -70,8 +71,8 @@ class DevelopmentLegacyAnalysisCatalogSeeder extends Seeder
                         'source_metadata' => $this->decode($row['source_metadata']),
                         'catalog_item_id' => $items[$row['catalog_item_code']]->id,
                         'parent_id' => $row['parent_code'] ? $idFor($row['parent_code']) : null,
-                        'created_by' => $actor->id,
-                        'updated_by' => $actor->id,
+                        'created_by' => $actor?->id,
+                        'updated_by' => $actor?->id,
                     ]);
                 }
 

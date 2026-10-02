@@ -29,6 +29,14 @@ class DatabaseSeeder extends Seeder
         // cash desks, so a fresh database is immediately usable.
         if (app()->environment('local') || config('app.env') === 'local') {
             $this->call(DevelopmentSeeder::class);
+
+            return;
+        }
+
+        // Production clinic site: analyses, designations (without tariff),
+        // diagnostics, mutuals, microbiology — never test accounts or prices.
+        if (! app()->environment('testing')) {
+            $this->call(ReferenceDataSeeder::class);
         }
     }
 }

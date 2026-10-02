@@ -5042,6 +5042,24 @@ Tous ces seeders refusent de s'exécuter hors `local`/`testing`
 `--env=admin`, le garde-fou lit aussi `APP_ENV` ; un déploiement
 `APP_ENV=production` est refusé dans tous les cas.
 
+## Amendement du 2026-10-02 — les référentiels d'un site arrivent aussi en production
+
+Constat du propriétaire : après `php artisan migrate:fresh --seed` sur le site Ambondromamy en production,
+le catalogue des analyses restait vide au portail. Tous ces référentiels ne passaient que par
+`DevelopmentSeeder`, réservé au local. `ReferenceDataSeeder`, appelé par `DatabaseSeeder` sur un site
+clinique hors local (et hors tests), joue désormais les seeders de **référentiels** :
+
+```text
+chargés      désignations (sans tarif), 719 analyses historiques, ECG / échographies / analyses de
+             base, microbiologie, tubes et prélèvements, diagnostics courants (sans code), mutuelles
+jamais       comptes de test, tarifs provisoires (fixés par le Super Admin, ADR-024), caisses nommées
+             (ADR-058), médicaments et stock de démonstration
+```
+
+Chaque seeder n'ajoute que ce qui manque et ne réécrit rien : `db:seed --force` se rejoue sans risque.
+En production, les lignes n'ont pas d'auteur (`created_by` nul) : un site neuf n'a encore aucun compte,
+et la liste de référence n'est la décision de personne. En local, rien ne change (auteur de test, tarifs).
+
 ---
 
 # ADR-087 — Retrait des variables `{{code}}` du canevas au profit d'une page 1 saisie par le RH et de l'import DOCX/PDF

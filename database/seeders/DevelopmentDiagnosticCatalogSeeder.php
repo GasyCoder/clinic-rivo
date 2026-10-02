@@ -50,12 +50,6 @@ class DevelopmentDiagnosticCatalogSeeder extends Seeder
 
     public function run(): void
     {
-        if (! app()->environment('local', 'testing')) {
-            throw new LogicException(
-                'DevelopmentDiagnosticCatalogSeeder est strictement interdit hors des environnements local et testing.',
-            );
-        }
-
         if (config('rivo.site.type') !== 'clinic') {
             throw new LogicException(
                 'Le catalogue local des diagnostics doit être seedé dans une base de site clinique.',

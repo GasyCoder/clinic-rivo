@@ -465,6 +465,9 @@ réservé à `local/testing`, jamais appelé par `DatabaseSeeder` et refusé en
 production. Voir ADR-022. En production, le premier Super Admin du portail vient de
 `ProductionSuperAdminSeeder` (RIVO_SUPER_ADMIN_EMAIL / _NAME / _PASSWORD, une seule fois,
 `BootstrapSuperAdminAction` partagée avec `rivo:provision-super-admin`).
+Sur un site clinique en production, `ReferenceDataSeeder` (via `DatabaseSeeder`) charge les référentiels
+— désignations sans tarif, analyses, examens, microbiologie, prélèvements, diagnostics, mutuelles — sans
+auteur et sans rien réécrire ; jamais comptes de test, tarifs, caisses ni stock (ADR-086, amendement).
 
 La compatibilité compte/déploiement est contrôlée à la connexion et sur chaque
 session : `SUPER_ADMIN` uniquement sur `admin`, tout rôle opérationnel uniquement

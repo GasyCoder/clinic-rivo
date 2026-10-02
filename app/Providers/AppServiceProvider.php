@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\Permission;
 use App\Models\User;
 use App\Services\Assistant\AssistantConfiguration;
+use App\Services\Pharmacy\ProductSynonyms;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\SiteMaintenanceState;
 use App\Services\StaffDebts\StaffDebtDeparture;
@@ -41,6 +42,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(WebmailAccess::class);
         // ADR-222 — la configuration de l'assistant : une lecture de ses réglages par requête.
         $this->app->scoped(AssistantConfiguration::class);
+        // ADR-241 — le dictionnaire des abréviations du site, lu une fois par requête.
+        $this->app->scoped(ProductSynonyms::class);
     }
 
     /**

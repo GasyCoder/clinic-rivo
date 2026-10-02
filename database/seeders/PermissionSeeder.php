@@ -330,6 +330,7 @@ class PermissionSeeder extends Seeder
         'medicine_supplier_offers.view' => 'Voir les prix proposés par les fournisseurs',
         'medicine_supplier_offers.create' => 'Enregistrer un premier prix fournisseur',
         'medicine_supplier_offers.update' => 'Réviser un prix fournisseur',
+        'supplier_equivalences.manage' => 'Dire si deux produits fournisseurs sont le même (comparateur), régler le dictionnaire des abréviations et lancer le rapprochement par l’IA',
         'purchase_orders.view' => 'Voir les commandes fournisseurs',
         'purchase_orders.create' => 'Créer une commande fournisseur',
         'purchase_orders.update' => 'Modifier une commande fournisseur en brouillon',

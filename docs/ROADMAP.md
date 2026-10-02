@@ -668,6 +668,12 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Règle de rapprochement corrigée : un libellé doit dire tout ce que dit l'autre, mots et nombres dans le même sens — « Alcool 125ml 70° » n'est plus proposé pour « Alcool iodé salicylé 125 ml » (ADR-181, amendement du 2026-09-24)
 - [x] Comparateur filtré par couverture (« Chez les deux fournisseurs », « Seulement chez X », chaque produit dans une seule case) et par famille, liste rangée par famille (ADR-181, amendement du 2026-09-24)
 - [x] Mettre un catalogue ou une ligne fournisseur à la corbeille clôt les prix d'achat qu'ils avaient fournis ; restaurer les rétablit sans écraser un prix fixé depuis ; reprise des catalogues déjà à la corbeille, auditée (ADR-183)
+- [x] Le même produit sous deux noms : abréviations, unités et ordre des mots ramenés à une forme canonique ; même produit réuni sur une ligne du comparateur et jamais créé deux fois (ADR-241)
+- [x] Dictionnaire des abréviations par site, réglé depuis le comparateur du portail (ADR-241)
+- [x] « C'est le même produit » / « Ce n'est pas le même » / « Séparer » mémorisés, réversibles, audités ; rien n'est créé au catalogue de la clinique (ADR-241)
+- [x] Propositions entre fournisseurs différents, par la règle et par « Rapprocher avec l'IA » (libellés seulement, à confirmer) (ADR-241)
+- [x] « Générer le prompt » d'un catalogue fournisseur : structure exacte du fichier, prompt qui la tient pour source de vérité, « Copier » (ADR-241)
+- [ ] Dictionnaire commun poussé à tous les sites ; IA face au catalogue de la clinique — à décider (ADR-241)
 - [ ] Transfert stock
 - [ ] Rapports
 

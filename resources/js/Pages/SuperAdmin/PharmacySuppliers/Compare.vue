@@ -1,7 +1,7 @@
 <script setup>
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, ref, watch } from 'vue';
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
@@ -13,8 +13,9 @@ import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
+import ProductMatchingSettings from '@/Components/Pharmacy/ProductMatchingSettings.vue';
 import {
-    Check, Layers, Link2, PackageCheck, Scale, Search, ShoppingCart, Store, TriangleAlert, Trash2, X,
+    BookA, Check, GitMerge, Layers, Link2, PackageCheck, Scale, Search, ShoppingCart, Sparkles, Split, Store, TriangleAlert, Trash2, Unlink, X,
 } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import { formatMoney } from '@/utilities/pharmacyStatus';
@@ -34,6 +35,10 @@ const props = defineProps({
     suppliers: { type: Array, default: () => [] },
     medicines: { type: Array, default: () => [] },
     toReconcile: { type: Number, default: 0 },
+    // ADR-241 — propositions de l'IA en attente, droit de décider, IA configurée.
+    proposedByAi: { type: Number, default: 0 },
+    canManageEquivalences: { type: Boolean, default: false },
+    aiAvailable: { type: Boolean, default: false },
     selectedSuppliers: { type: Array, default: () => [] },
     error: { type: String, default: null },
 });
@@ -71,7 +76,7 @@ const matchesSearch = (medicine) => {
 
     return !needle || `${medicine.name} ${medicine.code} ${medicine.quotes.map((quote) => quote.reference ?? '').join(' ')}`.toLowerCase().includes(needle);
 };
-const matchesReconcile = (medicine) => !onlyToReconcile.value || Boolean(medicine.suggestions?.length);
+const matchesReconcile = (medicine) => !onlyToReconcile.value || Boolean(medicine.suggestions?.length || medicine.peers?.length);
 const matchesCoverage = (medicine) => coverage.value === 'ALL' || coverageOf(medicine) === coverage.value;
 const matchesFamily = (medicine) => !family.value || familyOf(medicine) === family.value;
 
@@ -175,6 +180,65 @@ const submitReconcile = () => {
     });
 };
 
+/*
+ * ADR-241 — dire de deux produits fournisseurs qu'ils sont le même, ou deux.
+ * « Le même » réunit leurs prix sur une ligne, sans rien créer au catalogue
+ * de la clinique ; « deux produits » les sépare et fait taire la proposition.
+ * C'est le site qui mémorise et qui audite.
+ */
+const equivalenceBase = computed(() => `/super-admin/pharmacy-suppliers/${props.targetSite.code}/equivalences`);
+const deciding = ref(false);
+const decide = (payload, onSuccess = null) => {
+    deciding.value = true;
+    router.post(equivalenceBase.value, payload, {
+        preserveScroll: true,
+        onSuccess: () => { onSuccess?.(); },
+        onFinish: () => { deciding.value = false; },
+    });
+};
+
+const samePair = ref(null);
+const openSame = (medicine, peer) => { samePair.value = { medicine, peer }; };
+const confirmSame = () => {
+    const { medicine, peer } = samePair.value;
+    decide({ item_uuid: medicine.members.item_uuids[0], status: 'SAME', other_item_uuids: [peer.item_uuid] }, () => { samePair.value = null; });
+};
+const refusePeer = (medicine, peer) => decide({ item_uuid: medicine.members.item_uuids[0], status: 'DIFFERENT', other_item_uuids: [peer.item_uuid] });
+const refuseSuggestion = (medicine, suggestion) => decide({ item_uuid: medicine.members.item_uuids[0], status: 'DIFFERENT', medicine_uuids: [suggestion.medicine_uuid] });
+
+// Une ligne réunit plusieurs produits fournisseurs (règle ou décision) : on
+// peut en séparer un, qui redevient sa propre ligne.
+const memberCount = (medicine) => (medicine.members?.item_uuids?.length ?? 0) + (medicine.members?.medicine_uuid ? 1 : 0);
+const canSeparate = (medicine, quote) => props.canManageEquivalences && Boolean(quote.supplier_catalog_item_uuid) && memberCount(medicine) > 1;
+const separate = (medicine, quote) => decide({
+    item_uuid: quote.supplier_catalog_item_uuid,
+    status: 'DIFFERENT',
+    other_item_uuids: medicine.members.item_uuids.filter((uuid) => uuid !== quote.supplier_catalog_item_uuid),
+    medicine_uuids: medicine.members.medicine_uuid ? [medicine.members.medicine_uuid] : [],
+});
+
+const settingsOpen = ref(false);
+const supplierNames = (medicine) => [...new Set(medicine.quotes.map((quote) => quote.supplier_name).filter(Boolean))].join(', ');
+
+// Les refus du site sur une décision ou sur l'IA, dits en tête de page.
+const page = usePage();
+const decisionErrors = computed(() => Object.fromEntries(
+    Object.entries(page.props.errors ?? {}).filter(([key]) => ['ai', 'site', 'status', 'item_uuid', 'other_item_uuids', 'medicine_uuids', 'actor'].includes(key)),
+));
+
+// « Rapprocher avec l'IA » : seuls les libellés non rapprochés partent, jamais un prix ni un patient.
+const aiRunning = ref(false);
+const runAi = () => {
+    aiRunning.value = true;
+    router.post(`/super-admin/pharmacy-suppliers/${props.targetSite.code}/commander/ia`, {
+        suppliers: chosen.value,
+        family: family.value || null,
+    }, {
+        preserveScroll: true,
+        onFinish: () => { aiRunning.value = false; },
+    });
+};
+
 // key: `${row}|${supplier}` — the same product can be ordered from two
 // suppliers at once, each with its own quantity. A supplier listing the same
 // product under two references gets one line only: an order takes a product
@@ -259,6 +323,7 @@ const stockTone = (medicine) => {
 
         <template v-else>
             <ValidationErrorSummary :errors="form.errors" />
+            <ValidationErrorSummary :errors="decisionErrors" />
 
             <section class="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <h2 class="font-heading text-base font-bold text-foreground">1 · Fournisseurs à comparer</h2>
@@ -291,11 +356,17 @@ const stockTone = (medicine) => {
                             type="button"
                             :class="['inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
                                      onlyToReconcile ? 'border-amber-500 bg-amber-500 text-white' : 'border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/30']"
-                            :title="'Des lignes de catalogue ressemblent à un produit que la clinique tient déjà sous un autre nom : leurs prix ne se comparent pas tant qu’ils ne sont pas rapprochés.'"
+                            :title="'Des lignes ressemblent à un produit que la clinique tient déjà, ou à celui d’un autre fournisseur, sous un autre nom : leurs prix ne se comparent pas tant qu’ils ne sont pas rapprochés.'"
                             @click="onlyToReconcile = !onlyToReconcile"
                         >
-                            <Link2 class="h-3.5 w-3.5" />À rapprocher · {{ toReconcile }}
+                            <Link2 class="h-3.5 w-3.5" />À rapprocher · {{ toReconcile }}<span v-if="proposedByAi" class="opacity-80">(dont {{ proposedByAi }} par l’IA)</span>
                         </button>
+                        <Button v-if="canManageEquivalences && aiAvailable" type="button" variant="outline" size="sm" :disabled="aiRunning" title="Envoie à l’IA les seuls libellés que la règle n’a pas rapprochés — jamais un prix ni un patient. Ses propositions attendent votre confirmation." @click="runAi">
+                            <Sparkles class="h-4 w-4" />{{ aiRunning ? 'L’IA compare…' : 'Rapprocher avec l’IA' }}
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" title="Abréviations et décisions mémorisées" @click="settingsOpen = true">
+                            <BookA class="h-4 w-4" />Dictionnaire
+                        </Button>
                         <IconInput v-model="search" :icon="Search" placeholder="Rechercher un médicament…" class="w-full sm:w-72" />
                     </div>
                 </header>
@@ -387,7 +458,32 @@ const stockTone = (medicine) => {
                                             <p v-else class="px-1.5 text-xs text-muted-foreground">
                                                 « {{ suggestion.name }} » — prix non communiqué par ce fournisseur : renseignez-le dans son catalogue pour pouvoir rapprocher.
                                             </p>
+                                            <button
+                                                v-if="canManageEquivalences && medicine.members?.item_uuids?.length"
+                                                type="button"
+                                                class="ms-5 inline-flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-destructive"
+                                                :disabled="deciding"
+                                                @click="refuseSuggestion(medicine, suggestion)"
+                                            ><Unlink class="h-3 w-3" />Ce n’est pas le même</button>
                                         </template>
+                                    </div>
+
+                                    <!-- ADR-241 — le même produit chez un autre fournisseur, écrit
+                                         autrement : la règle ou l'IA le propose, un humain décide. -->
+                                    <div v-if="medicine.peers?.length" class="mt-2 space-y-1.5 border-s-2 border-sky-300 ps-2.5 dark:border-sky-800">
+                                        <p class="text-[11px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-400">Peut-être le même produit</p>
+                                        <div v-for="peer in medicine.peers" :key="peer.row_key" class="rounded-md px-1.5 py-1 text-xs">
+                                            <p class="text-foreground">
+                                                « {{ peer.name }} »
+                                                <span class="text-muted-foreground">· {{ peer.suppliers.join(', ') }}<span v-if="peer.best_price"> · {{ formatMoney(peer.best_price) }}</span></span>
+                                                <Badge v-if="peer.source === 'AI'" variant="secondary" class="ms-1 align-middle"><Sparkles class="h-3 w-3" />IA</Badge>
+                                            </p>
+                                            <p v-if="peer.reason" class="text-[11px] italic text-muted-foreground">{{ peer.reason }}</p>
+                                            <div v-if="canManageEquivalences" class="mt-1 flex flex-wrap gap-3">
+                                                <button type="button" class="inline-flex items-center gap-1 font-semibold text-sky-700 hover:underline dark:text-sky-400" :disabled="deciding" @click="openSame(medicine, peer)"><GitMerge class="h-3 w-3" />C’est le même produit</button>
+                                                <button type="button" class="inline-flex items-center gap-1 font-semibold text-muted-foreground hover:text-destructive" :disabled="deciding" @click="refusePeer(medicine, peer)"><Unlink class="h-3 w-3" />Ce n’est pas le même</button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
                                 <td class="px-5 py-4">
@@ -396,9 +492,8 @@ const stockTone = (medicine) => {
                                 </td>
                                 <td class="px-5 py-4">
                                     <div class="flex flex-wrap gap-2">
+                                        <div v-for="quote in medicine.quotes" :key="quote.key" class="flex flex-col">
                                         <button
-                                            v-for="quote in medicine.quotes"
-                                            :key="quote.key"
                                             type="button"
                                             :class="['group flex min-w-44 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-start transition',
                                                      inBasket(medicine, quote) ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40']"
@@ -413,6 +508,13 @@ const stockTone = (medicine) => {
                                             </span>
                                             <component :is="inBasket(medicine, quote) ? Check : ShoppingCart" class="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" />
                                         </button>
+                                        <!-- ADR-241 — réunie sur cette ligne sous un autre nom : on relit
+                                             le libellé du fournisseur, et on peut la séparer. -->
+                                        <p v-if="quote.label" class="mt-1 max-w-56 truncate px-1 text-[11px] text-muted-foreground" :title="quote.label">« {{ quote.label }} »</p>
+                                        <button v-if="canSeparate(medicine, quote)" type="button" class="mt-0.5 inline-flex items-center gap-1 self-start px-1 text-[11px] font-semibold text-muted-foreground hover:text-destructive" :disabled="deciding" @click="separate(medicine, quote)">
+                                            <Split class="h-3 w-3" />Séparer
+                                        </button>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>
@@ -557,5 +659,39 @@ const stockTone = (medicine) => {
                 <p v-if="reconcileForm.errors.medicine_uuid" class="mt-1 text-xs font-medium text-red-600">{{ reconcileForm.errors.medicine_uuid }}</p>
             </template>
         </ConfirmModal>
+
+        <!-- ADR-241 — deux libellés de deux fournisseurs : on les relit avant de
+             dire que c'est le même produit. Rien n'est créé au catalogue. -->
+        <ConfirmModal
+            :open="Boolean(samePair)"
+            title="C’est le même produit ?"
+            confirm-label="Oui, c’est le même produit"
+            tone="warning"
+            :processing="deciding"
+            @update:open="(value) => { if (!value) samePair = null; }"
+            @confirm="confirmSame"
+        >
+            <template v-if="samePair">
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <div class="rounded-lg border border-border p-3">
+                        <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{{ supplierNames(samePair.medicine) }}</p>
+                        <p class="mt-1 font-semibold text-foreground">{{ samePair.medicine.name }}</p>
+                        <p class="font-mono text-xs text-muted-foreground">{{ samePair.medicine.code }}<span v-if="samePair.medicine.unit"> · {{ samePair.medicine.unit }}</span></p>
+                    </div>
+                    <div class="rounded-lg border border-border p-3">
+                        <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{{ samePair.peer.suppliers.join(', ') }}</p>
+                        <p class="mt-1 font-semibold text-foreground">{{ samePair.peer.name }}</p>
+                        <p class="font-mono text-xs text-muted-foreground">{{ samePair.peer.code }}<span v-if="samePair.peer.unit"> · {{ samePair.peer.unit }}</span></p>
+                    </div>
+                </div>
+                <p class="mt-3 text-sm text-muted-foreground">
+                    Un dosage, un volume ou un calibre différent en fait deux produits. Confirmé, leurs prix se comparent sur une seule ligne ;
+                    rien n’est ajouté au catalogue de la clinique, et « Séparer » défait la décision.
+                </p>
+                <p v-if="samePair.peer.source === 'AI'" class="mt-2 text-xs text-muted-foreground">Proposé par l’IA<span v-if="samePair.peer.reason"> : {{ samePair.peer.reason }}</span></p>
+            </template>
+        </ConfirmModal>
+
+        <ProductMatchingSettings v-model:open="settingsOpen" :site-code="targetSite.code" :can-manage="canManageEquivalences" />
     </div>
 </template>

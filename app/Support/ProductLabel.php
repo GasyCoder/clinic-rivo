@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Services\Pharmacy\ProductSynonyms;
 use Illuminate\Support\Str;
 
 /**
@@ -56,28 +57,21 @@ final class ProductLabel
      */
     public static function looksLikeSameProduct(?string $first, ?string $second): bool
     {
-        $left = self::normalize($first);
-        $right = self::normalize($second);
+        [$leftNumbers, $leftWords] = self::parts($first);
+        [$rightNumbers, $rightWords] = self::parts($second);
 
-        if ($left === '' || $right === '') {
+        if (($leftNumbers === [] && $leftWords === []) || ($rightNumbers === [] && $rightWords === [])) {
             return false;
         }
 
-        if ($left === $right) {
+        if (self::key($first) === self::key($second)) {
             return true;
         }
-
-        [$leftNumbers, $leftWords] = self::split($left);
-        [$rightNumbers, $rightWords] = self::split($right);
 
         foreach (self::NEGATIONS as $negation) {
             if (in_array($negation, $leftWords, true) !== in_array($negation, $rightWords, true)) {
                 return false;
             }
-        }
-
-        if (! self::oneHoldsTheOther($leftNumbers, $rightNumbers)) {
-            return false;
         }
 
         // Un libellé réduit à des nombres ne dit pas quel produit c'est.
@@ -90,41 +84,218 @@ final class ProductLabel
         // « ALCOOL IODE SALICYLE IMRA 125ML » passaient : le premier seul dit
         // 70°, le second seul dit iodé salicylé — deux produits différents,
         // rapprochés sur Ambondromamy le 2026-09-24.
-        return self::oneHoldsTheOther([...$leftNumbers, ...$leftWords], [...$rightNumbers, ...$rightWords]);
+        //
+        // Les nombres se comptent : « 10x10 » n'est pas « 10x20 », bien que le
+        // second contienne le premier nombre (ADR-241).
+        return (self::contains($rightNumbers, $leftNumbers) && array_diff($leftWords, $rightWords) === [])
+            || (self::contains($leftNumbers, $rightNumbers) && array_diff($rightWords, $leftWords) === []);
     }
 
     /**
-     * Les morceaux d'un libellé normalisé : « 500mg » et « 500 mg » donnent
-     * les mêmes, sans quoi la même dose écrite de deux façons se lirait comme
-     * deux produits.
+     * ADR-241 — la forme canonique d'un libellé : ses mots et ses nombres une
+     * fois les abréviations dépliées (« cp » = « comprimé »), les unités
+     * ramenées à la plus petite (« 1 g » = « 1000 mg »), les pluriels et les
+     * mots vides retirés, dans l'ordre alphabétique. Deux libellés qui ont la
+     * même clé désignent le même produit : seul l'ordre des mots, une
+     * abréviation ou une unité les séparait.
+     */
+    public static function key(?string $value): string
+    {
+        [$numbers, $words] = self::parts($value);
+
+        $tokens = [...$numbers, ...$words];
+        sort($tokens, SORT_STRING);
+
+        return implode(' ', $tokens);
+    }
+
+    /**
+     * Les mots canoniques d'un libellé, sans les nombres — ce qu'un index par
+     * mot partage entre deux libellés.
+     *
+     * @return array<int, string>
+     */
+    public static function words(?string $value): array
+    {
+        return self::parts($value)[1];
+    }
+
+    /** Les abréviations livrées avec RIVO (ADR-241) : terme => forme canonique. */
+    public const BUILT_IN_SYNONYMS = [
+        // Formes
+        'cp' => 'comprime', 'cpr' => 'comprime', 'cps' => 'comprime',
+        'comprimes' => 'comprime', 'tab' => 'comprime', 'tabs' => 'comprime', 'tablet' => 'comprime', 'tablets' => 'comprime',
+        'gelules' => 'gelule', 'gelu' => 'gelule', 'cap' => 'gelule', 'caps' => 'gelule', 'capsule' => 'gelule', 'capsules' => 'gelule',
+        'inj' => 'injectable', 'injection' => 'injectable', 'injections' => 'injectable', 'inject' => 'injectable', 'injectables' => 'injectable',
+        'amp' => 'ampoule', 'amps' => 'ampoule', 'ampoules' => 'ampoule',
+        'sol' => 'solution', 'solutions' => 'solution',
+        'sir' => 'sirop', 'syr' => 'sirop', 'syrup' => 'sirop', 'sirops' => 'sirop',
+        'susp' => 'suspension', 'suspensions' => 'suspension',
+        'fl' => 'flacon', 'flc' => 'flacon', 'fla' => 'flacon', 'flacons' => 'flacon',
+        'pdre' => 'poudre', 'pdr' => 'poudre', 'poudres' => 'poudre',
+        'cr' => 'creme', 'crm' => 'creme', 'cremes' => 'creme',
+        'pom' => 'pommade', 'pde' => 'pommade', 'pommades' => 'pommade',
+        'ovl' => 'ovule', 'ovules' => 'ovule',
+        'supp' => 'suppositoire', 'suppo' => 'suppositoire', 'suppositoires' => 'suppositoire',
+        'gtte' => 'goutte', 'gtt' => 'goutte', 'gttes' => 'goutte', 'gouttes' => 'goutte',
+        'sach' => 'sachet', 'sachets' => 'sachet',
+        'coll' => 'collyre', 'collyres' => 'collyre',
+        'eff' => 'effervescent', 'efferv' => 'effervescent', 'effervescents' => 'effervescent',
+        'perf' => 'perfusion', 'perfusions' => 'perfusion',
+        'ser' => 'seringue', 'seringues' => 'seringue',
+        // Conditionnement
+        'bt' => 'boite', 'bte' => 'boite', 'btes' => 'boite', 'bts' => 'boite', 'boites' => 'boite',
+        'pqt' => 'paquet', 'paquets' => 'paquet',
+        'pce' => 'piece', 'pcs' => 'piece', 'pieces' => 'piece',
+        'rlx' => 'rouleau', 'rlo' => 'rouleau', 'rouleaux' => 'rouleau',
+        // Unités
+        'gr' => 'g', 'grs' => 'g', 'gramme' => 'g', 'grammes' => 'g',
+        'milligramme' => 'mg', 'milligrammes' => 'mg',
+        'ug' => 'mcg', 'microgramme' => 'mcg', 'microgrammes' => 'mcg',
+        'iu' => 'ui',
+        'lt' => 'l', 'ltr' => 'l', 'litre' => 'l', 'litres' => 'l',
+        'millilitre' => 'ml', 'millilitres' => 'ml',
+    ];
+
+    /** Des mots qui relient sans rien dire du produit. */
+    private const STOP_WORDS = ['de', 'du', 'des', 'd', 'la', 'le', 'les', 'en', 'et', 'pour', 'avec', 'par', 'au', 'aux', 'x', 'un', 'une'];
+
+    /**
+     * Une unité ramenée à la plus petite de sa famille, quand un nombre la
+     * précède : « 1 g » et « 1000 mg » sont la même dose.
+     */
+    private const UNIT_SCALES = [
+        'kg' => ['mg', 1_000_000], 'g' => ['mg', 1000],
+        'l' => ['ml', 1000], 'dl' => ['ml', 100], 'cl' => ['ml', 10],
+    ];
+
+    /** @var array<string, array{0: array<int, string>, 1: array<int, string>}> */
+    private static array $cache = [];
+
+    /** Oublie les formes déjà calculées : le dictionnaire du site a changé. */
+    public static function flush(): void
+    {
+        self::$cache = [];
+    }
+
+    /**
+     * Les nombres (comptés, dans l'ordre) et les mots canoniques (une fois
+     * chacun) d'un libellé.
      *
      * @return array{0: array<int, string>, 1: array<int, string>}
      */
-    private static function split(string $normalized): array
+    private static function parts(?string $value): array
     {
-        preg_match_all('/\d+|[a-z]+/', $normalized, $matches);
+        $value = (string) $value;
 
+        if (isset(self::$cache[$value])) {
+            return self::$cache[$value];
+        }
+
+        if (count(self::$cache) > 20_000) {
+            self::$cache = [];
+        }
+
+        $text = Str::of($value)->ascii()->lower()->toString();
+        // « 0,5 » et « 0.5 » sont un nombre, pas deux.
+        preg_match_all('/\d+(?:[.,]\d+)?|[a-z]+/', $text, $matches);
+
+        $dictionary = self::dictionary();
         $numbers = [];
         $words = [];
+        $previousNumber = null;
 
         foreach ($matches[0] as $token) {
-            if (ctype_digit($token)) {
-                // « 05 » et « 5 » sont le même nombre.
-                $numbers[] = ltrim($token, '0') ?: '0';
-            } else {
-                $words[] = $token;
+            if (preg_match('/^\d/', $token)) {
+                $previousNumber = (float) str_replace(',', '.', $token);
+                $numbers[] = self::number($previousNumber);
+
+                continue;
+            }
+
+            $word = self::canonicalWord($token, $dictionary);
+
+            if ($previousNumber !== null && isset(self::UNIT_SCALES[$word])) {
+                [$unit, $scale] = self::UNIT_SCALES[$word];
+                array_pop($numbers);
+                $numbers[] = self::number($previousNumber * $scale);
+                $word = $unit;
+            }
+
+            $previousNumber = null;
+
+            // Une abréviation du site peut se déplier en plusieurs mots :
+            // « aas » = « acide acetylsalicylique ».
+            foreach (explode(' ', $word) as $part) {
+                if ($part === '' || in_array($part, self::STOP_WORDS, true)) {
+                    continue;
+                }
+
+                $words[] = $part;
             }
         }
 
-        return [array_values(array_unique($numbers)), array_values(array_unique($words))];
+        return self::$cache[$value] = [$numbers, array_values(array_unique($words))];
+    }
+
+    /** @param  array<string, string>  $dictionary */
+    private static function canonicalWord(string $token, array $dictionary): string
+    {
+        if (isset($dictionary[$token])) {
+            return $dictionary[$token];
+        }
+
+        // Un pluriel simple : « gants » est « gant ». Les mots courts et ceux
+        // en -ss, -us, -is ne changent pas (« sans », « virus »).
+        if (strlen($token) >= 5 && str_ends_with($token, 's') && ! preg_match('/(ss|us|is)$/', $token)) {
+            $stem = substr($token, 0, -1);
+
+            return $dictionary[$stem] ?? $stem;
+        }
+
+        return $token;
+    }
+
+    private static function number(float $value): string
+    {
+        $formatted = rtrim(rtrim(number_format($value, 4, '.', ''), '0'), '.');
+
+        return $formatted === '' || $formatted === '-0' ? '0' : $formatted;
     }
 
     /**
-     * @param  array<int, string>  $first
-     * @param  array<int, string>  $second
+     * Les abréviations du site, réglées depuis le portail, l'emportent sur
+     * celles de RIVO.
+     *
+     * @return array<string, string>
      */
-    private static function oneHoldsTheOther(array $first, array $second): bool
+    private static function dictionary(): array
     {
-        return array_diff($first, $second) === [] || array_diff($second, $first) === [];
+        $site = [];
+
+        if (function_exists('app') && app()->bound(ProductSynonyms::class)) {
+            $site = app(ProductSynonyms::class)->map();
+        }
+
+        return [...self::BUILT_IN_SYNONYMS, ...$site];
+    }
+
+    /**
+     * Le multiensemble $needles est-il contenu dans $haystack ?
+     *
+     * @param  array<int, string>  $haystack
+     * @param  array<int, string>  $needles
+     */
+    private static function contains(array $haystack, array $needles): bool
+    {
+        $available = array_count_values($haystack);
+
+        foreach (array_count_values($needles) as $needle => $count) {
+            if (($available[$needle] ?? 0) < $count) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

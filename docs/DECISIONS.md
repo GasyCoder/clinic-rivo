@@ -23420,3 +23420,119 @@ fiche           les changements sont gardés au fil de la saisie et partent au s
 
 Présentation seulement : ni route, ni permission, ni règle serveur ne change.
 
+---
+
+# ADR-241 — Le même produit sous deux noms : règle, dictionnaire, décisions, IA ; prompt d'un catalogue
+
+**Status:** ACCEPTED (2026-10-02 — demande explicite du propriétaire : « fournisseur A : paracetamol cp,
+fournisseur B : comprimé paracetamol 500mg, c'est le même mais la nomenclature est différente : mettre plus
+intelligent le système, genre IA ou paramètre intelligent » ; deux arbitrages : « Règles + dictionnaire + IA »
+et « Mémoriser l'équivalence » ; et, sur la page des catalogues d'un fournisseur, un bouton « Générer le
+prompt » avec son bloc et « Copier », selon la spécification que le propriétaire a collée)
+
+**Complète l'ADR-181** (rapprocher deux libellés) et **l'ADR-098** (un produit, plusieurs fournisseurs). Le CDC
+ne décrit pas la comparaison des fournisseurs : les règles ci-dessous sont celles du propriétaire.
+
+## La règle lit ce que les fournisseurs écrivent
+
+`ProductLabel::key()` donne la forme canonique d'un libellé : accents, casse et ponctuation ignorés, ordre des
+mots indifférent, abréviations dépliées (`cp`, `cpr` = comprimé ; `inj` = injectable ; `amp`, `sol`, `fl`,
+`pdre`, `gtte`, `bte`, `supp`…, liste `BUILT_IN_SYNONYMS`), unités ramenées à la plus petite (1 g = 1000 mg,
+0,5 L = 500 ml), « 0,9 » = « 0.9 », pluriels simples et mots vides retirés. Deux libellés de même clé sont le
+même produit : le comparateur les met sur une ligne, et la création d'un médicament depuis une ligne de
+catalogue réutilise le produit de même clé (`CreateMedicineFromSupplierCatalogAction`, `ProcurementFormOptions`
+— ADR-181 : écran et serveur jugent pareil).
+
+`looksLikeSameProduct()` reste la règle prudente qui **propose** sans décider ; elle compte désormais les nombres
+(« 10x10 » n'est pas « 10x20 »). « Paracetamol cp » face à « Comprimé paracetamol 500mg » n'a pas la même clé
+(la dose manque d'un côté) : c'est une proposition.
+
+## Le dictionnaire du site
+
+`product_synonyms` (terme d'un mot → forme canonique d'un ou plusieurs mots : « pcm » = « paracetamol »), réglé
+depuis le comparateur du portail (« Dictionnaire »), par l'API du site ; il s'ajoute à celui de RIVO et
+l'emporte. Un nombre n'est jamais une abréviation. `ProductSynonyms` (scoped) le lit une fois par requête.
+
+## Les propositions, et ce qu'un humain en dit
+
+Le comparateur propose, sur une ligne :
+
+```text
+Peut-être déjà au catalogue   un produit de la clinique (ADR-181) — « le même » = rattacher (prix d'achat)
+Peut-être le même produit     la ligne d'un AUTRE fournisseur, par la règle ou par l'IA
+```
+
+Deux lignes du même fournisseur ne se proposent jamais l'une à l'autre (ADR-098 traite déjà les doublons d'un
+catalogue). La recherche des candidats passe par un index du mot le plus rare : 5 000 lignes en ~1 s.
+
+`supplier_product_equivalences` mémorise les décisions (`SupplierEquivalenceStatus` SAME / DIFFERENT / PROPOSED,
+source HUMAN / AI, motif, auteur local ou distant, audit). Un produit fournisseur y est désigné par son
+fournisseur et sa référence (son libellé normalisé à défaut), jamais par une ligne : relire un catalogue
+recrée ses lignes. `DecideSupplierProductEquivalenceAction` (droit `supplier_equivalences.manage`, aucun rôle
+d'un site, le Super Admin du portail l'a — ADR-186) :
+
+```text
+C'est le même produit   les deux lignes partagent une ligne du comparateur ; RIEN n'est créé au
+                        catalogue de la clinique (arbitrage) ; commander l'une puis l'autre réutilise
+                        le même médicament (`linkedMedicineFor`)
+Ce n'est pas le même    sépare, même ce que la règle avait réuni, et fait taire la proposition
+Séparer                 sur une ligne réunie : « deux produits » avec chacun des autres membres
+Face à un produit de    seul « ce n'est pas le même » s'écrit ici ; « le même » reste le rattachement
+la clinique             de l'ADR-181, qui crée un prix d'achat
+Oublier                 depuis « Dictionnaire › Décisions » : la paire redevient ce que la règle en dit
+```
+
+Une décision se réécrit, elle ne s'accumule pas (une ligne par paire). Deux produits de la clinique ne se
+fondent jamais en une ligne.
+
+## Rapprocher avec l'IA
+
+Bouton du comparateur (portail, `supplier_equivalences.manage`, IA configurée — ADR-222). Le portail relit le
+comparateur du site, n'envoie que les **libellés** des lignes que la règle n'a pas rapprochées (150 au plus,
+chacune d'un seul fournisseur ; jamais un prix, jamais un patient) à l'agent `SupplierProductMatcher` (sans
+outil ni conversation, température 0), lit sa réponse JSON avec prudence (`SupplierProductAiMatcher::pairs` :
+deux lignes existantes, de deux fournisseurs) et confie les paires au site, enregistrées **PROPOSED** — jamais
+par-dessus une décision humaine. Elles s'affichent « IA » avec leur raison ; un humain confirme ou refuse.
+Consommation comptée dans `ai_assistant_usages`, quotas de l'assistant appliqués.
+
+## Générer le prompt d'un catalogue
+
+Page « Catalogues » d'un fournisseur (portail) : choisir un catalogue (l'actif d'abord), « Générer le prompt »,
+le bloc l'affiche, « Copier » ne copie que lui, « Fichier à joindre » télécharge le fichier du fournisseur.
+
+Le prompt commence par **les consignes de la clinique, reprises telles qu'elles les ont écrites**
+(`SupplierCatalogPrompt::INSTRUCTIONS`, amendement du 2026-10-02) : l'autre IA produit un canevas Excel `.xlsx`
+qui reproduit exactement le catalogue joint — mêmes feuilles, colonnes, ordre et intitulés ; rien renommé, ajouté,
+fusionné ni supprimé ; aucune structure d'un autre système imposée ; écart signalé, jamais corrigé ; aucune donnée
+inventée ; ligne 1 en gras blanc sur `#334155`, panneau figé, 3 exemples tirés du document, listes déroulantes et
+validations numériques seulement quand elles sont sûres ; réponse = le fichier et au plus 3 lignes de notes.
+**Le document joint fait foi.** Suivent, à titre de vérification, les repères que le site a lus dans le fichier
+(`SupplierCatalogStructure` : feuilles, ligne d'en-têtes, texte au-dessus, colonnes avec type observé, remplissage,
+valeurs distinctes, exemples, listes de choix, plages, rubriques, cellules fusionnées ; 5 000 lignes par feuille au
+plus). Les colonnes d'import de RIVO n'y figurent pas. Un catalogue PDF n'est pas lu : le prompt demande de lire les
+colonnes dans le document joint au lieu de les supposer. Droit : celui de voir les catalogues
+(`supplier_catalogs.view` ou `medicine_suppliers.view`). Une lecture, rien n'est écrit. Déterministe.
+
+## Routes et données
+
+```text
+site    GET|POST /api/v1/super-admin/pharmacy/product-synonyms, DELETE …/{uuid}
+        GET|POST /api/v1/super-admin/pharmacy/product-equivalences, POST …/proposals, DELETE …/{uuid}
+        GET /api/v1/super-admin/pharmacy/suppliers/{s}/catalogs/{c}/structure
+portail /super-admin/pharmacy-suppliers/{site}/equivalences|synonyms (JSON pour la fenêtre),
+        POST …/{site}/commander/ia, GET …/{site}/{supplier}/catalogs/{catalog}/prompt
+```
+
+Migration `2026_12_09_090000_create_supplier_product_equivalences`, sur chaque site et sur le portail.
+
+## Signalé, non tranché
+
+```text
+transitivité        A = C et B = C mais A ≠ B : A et B restent sur une ligne (le refus direct n'est pas
+                    prioritaire sur une chaîne de « même »)
+même produit        deux lignes dites « le même » commandées dans une même commande : le serveur refuse
+dans une commande   la seconde (un produit une fois par commande), l'écran ne le sait pas d'avance
+IA                  seulement entre lignes de catalogue de fournisseurs différents, pas face au catalogue
+                    de la clinique (ce serait un rattachement, qui crée un prix)
+dictionnaire        par site ; une liste commune poussée à tous les sites reste à décider
+```

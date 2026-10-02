@@ -28,8 +28,10 @@ use App\Models\SupplierInvoice;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Pharmacy\MedicineSupplierImportService;
 use App\Services\Pharmacy\SupplierCatalogImportService;
+use App\Services\Pharmacy\SupplierCatalogStructure;
 use App\Services\Pharmacy\SupplierOfferComparison;
 use App\Services\Pharmacy\SupplierPresenter;
+use App\Support\Pharmacy\SupplierCatalogPrompt;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -271,6 +273,25 @@ class PharmacySupplierController extends Controller
                     ->values(),
             ],
         ]);
+    }
+
+    /**
+     * ADR-241 — « Générer le prompt » : la structure exacte du fichier du
+     * fournisseur, et le prompt qu'une autre IA suit pour recréer son
+     * formulaire. Une lecture : rien n'est écrit.
+     */
+    public function catalogStructure(Request $request, string $supplierUuid, string $catalogUuid, SupplierCatalogStructure $structure): JsonResponse
+    {
+        $this->authorizeActor($request, ['supplier_catalogs.view', 'medicine_suppliers.view']);
+        $catalog = $this->supplier($supplierUuid, withArchived: true)
+            ->catalogs()->withTrashed()->where('uuid', $catalogUuid)->firstOrFail();
+
+        $described = $structure->describe($catalog);
+
+        return response()->json(['data' => [
+            'structure' => $described,
+            'prompt' => SupplierCatalogPrompt::build($described),
+        ]]);
     }
 
     /** The only site endpoint receiving a binary file from the portal. */

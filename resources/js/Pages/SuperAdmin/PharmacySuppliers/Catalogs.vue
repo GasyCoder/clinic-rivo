@@ -5,6 +5,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import { Info, TriangleAlert } from 'lucide-vue-next';
 import SupplierCatalogFiles from '@/Components/Pharmacy/SupplierCatalogFiles.vue';
+import CatalogPromptGenerator from '@/Components/Pharmacy/CatalogPromptGenerator.vue';
 
 defineOptions({ layout: AppLayout });
 
@@ -54,6 +55,13 @@ const catalogCan = computed(() => (props.supplier?.archived
                 :can-open-file="false"
                 :download-url="(catalog) => `${folderHref}/catalogs/${catalog.uuid}/download?name=${encodeURIComponent(catalog.original_name)}`"
                 template-url="/super-admin/pharmacy-suppliers/catalog-template"
+            />
+
+            <!-- ADR-241 — la structure du fichier, en prompt pour une autre IA. -->
+            <CatalogPromptGenerator
+                :catalogs="catalogs"
+                :prompt-url="(catalog) => `${folderHref}/catalogs/${catalog.uuid}/prompt`"
+                :download-url="(catalog) => `${folderHref}/catalogs/${catalog.uuid}/download?name=${encodeURIComponent(catalog.original_name)}`"
             />
         </template>
     </div>

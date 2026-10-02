@@ -88,6 +88,7 @@ use App\Http\Controllers\SuperAdmin\SitePartnersController;
 use App\Http\Controllers\SuperAdmin\SitePharmacyController;
 use App\Http\Controllers\SuperAdmin\SiteStaffDebtsController;
 use App\Http\Controllers\SuperAdmin\StaffAccessController as SuperAdminStaffAccessController;
+use App\Http\Controllers\SuperAdmin\SupplierEquivalenceController;
 use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
 use App\Http\Controllers\SuperAdmin\UserController as SuperAdminUserController;
 use App\Http\Controllers\SuperAdminController;
@@ -261,6 +262,14 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         // Before /{site}/{supplier}: preparing an order spans every supplier.
         Route::get('/pharmacy-suppliers/{site}/commander', [SuperAdminPharmacyProcurementController::class, 'compare'])->name('pharmacy-suppliers.compare')->middleware('can:view-supplier-offers');
         Route::post('/pharmacy-suppliers/{site}/commander', [SuperAdminPharmacyProcurementController::class, 'storeOrders'])->name('pharmacy-suppliers.orders.store-many')->middleware('can:purchase_orders.create');
+        // ADR-241 — même produit sous deux noms : décisions, dictionnaire, IA, prompt d'un catalogue.
+        Route::post('/pharmacy-suppliers/{site}/equivalences', [SupplierEquivalenceController::class, 'decide'])->name('pharmacy-suppliers.equivalences.decide')->middleware('can:supplier_equivalences.manage');
+        Route::get('/pharmacy-suppliers/{site}/equivalences', [SupplierEquivalenceController::class, 'decisions'])->name('pharmacy-suppliers.equivalences.index')->middleware('can:view-supplier-offers');
+        Route::delete('/pharmacy-suppliers/{site}/equivalences/{equivalence}', [SupplierEquivalenceController::class, 'forget'])->name('pharmacy-suppliers.equivalences.forget')->middleware('can:supplier_equivalences.manage');
+        Route::get('/pharmacy-suppliers/{site}/synonyms', [SupplierEquivalenceController::class, 'synonyms'])->name('pharmacy-suppliers.synonyms.index')->middleware('can:view-supplier-offers');
+        Route::post('/pharmacy-suppliers/{site}/synonyms', [SupplierEquivalenceController::class, 'storeSynonym'])->name('pharmacy-suppliers.synonyms.store')->middleware('can:supplier_equivalences.manage');
+        Route::delete('/pharmacy-suppliers/{site}/synonyms/{synonym}', [SupplierEquivalenceController::class, 'destroySynonym'])->name('pharmacy-suppliers.synonyms.destroy')->middleware('can:supplier_equivalences.manage');
+        Route::post('/pharmacy-suppliers/{site}/commander/ia', [SupplierEquivalenceController::class, 'aiMatch'])->name('pharmacy-suppliers.equivalences.ai')->middleware('can:supplier_equivalences.manage')->middleware('throttle:10,1');
         Route::get('/pharmacy-suppliers/{site}/{supplier}', [SuperAdminPharmacySupplierController::class, 'show'])->name('pharmacy-suppliers.show')->middleware('can:medicine_suppliers.view');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/catalogs', [SuperAdminPharmacySupplierController::class, 'catalogs'])->name('pharmacy-suppliers.catalogs.index')->middleware('can:view-supplier-catalogs');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/orders', [SuperAdminPharmacySupplierController::class, 'orders'])->name('pharmacy-suppliers.orders')->middleware('can:view-supplier-orders');
@@ -291,6 +300,7 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::delete('/pharmacy-suppliers/{site}/{supplier}', [SuperAdminPharmacySupplierController::class, 'archive'])->name('pharmacy-suppliers.archive')->middleware('can:medicine_suppliers.delete');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/restore', [SuperAdminPharmacySupplierController::class, 'restore'])->name('pharmacy-suppliers.restore')->middleware('can:medicine_suppliers.restore');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/catalogs', [SuperAdminPharmacySupplierController::class, 'uploadCatalog'])->name('pharmacy-suppliers.catalogs.store')->middleware('can:supplier_catalogs.create');
+        Route::get('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/prompt', [SupplierEquivalenceController::class, 'catalogPrompt'])->name('pharmacy-suppliers.catalogs.prompt')->middleware('can:view-supplier-catalogs');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/download', [SuperAdminPharmacySupplierController::class, 'downloadCatalog'])->name('pharmacy-suppliers.catalogs.download')->middleware('can:view-supplier-catalogs');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items', [SuperAdminPharmacySupplierController::class, 'catalogItems'])->name('pharmacy-suppliers.catalogs.items')->middleware('can:view-supplier-catalogs');
         Route::put('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items/{item}', [SuperAdminPharmacySupplierController::class, 'updateCatalogItem'])->name('pharmacy-suppliers.catalogs.items.update')->middleware('can:supplier_catalogs.update');

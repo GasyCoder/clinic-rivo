@@ -2,8 +2,9 @@
 import { hrUrl } from '@/utilities/hrUrl';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import HrPageHeader from '../Partials/HrPageHeader.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import PageHeader from '@/Components/UI/PageHeader.vue';
+import { ArrowLeft, CalendarPlus } from 'lucide-vue-next';
 import LeaveForm from './LeaveForm.vue';
 
 defineOptions({ layout: AppLayout });
@@ -18,9 +19,9 @@ const submit = () => form.post(hrUrl('/administration/leave'), { forceFormData: 
 <template>
     <Head title="Nouvelle demande de congé" />
     <div class="space-y-5">
-        <HrPageHeader eyebrow="Congés · Calcul guidé" title="Créer une demande de congé" description="Choisissez le type et la période : la date de demande, la durée et les soldes sont calculés automatiquement selon les règles RH configurées." icon="calendar" tone="amber">
-            <template #actions><Link :href="hrUrl('/administration/leave')" class="inline-flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm font-bold text-slate-600 hover:border-amber-300 hover:text-amber-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200"><Icon name="arrow-left" /> Retour aux congés</Link></template>
-        </HrPageHeader>
+        <PageHeader eyebrow="Congés · Calcul guidé" title="Créer une demande de congé" description="Choisissez le type et la période : la date de demande, la durée et les soldes sont calculés selon les règles RH du site." :icon="CalendarPlus" tone="amber">
+            <template #actions><Button :as="Link" :href="hrUrl('/administration/leave')" variant="outline"><ArrowLeft class="h-4 w-4" />Retour aux congés</Button></template>
+        </PageHeader>
         <LeaveForm :form="form" :employees="employees" :leave-types="leaveTypes" :default-requested-on="defaultRequestedOn" :cancel-href="hrUrl('/administration/leave')" submit-label="Enregistrer la demande" @submit="submit" />
     </div>
 </template>

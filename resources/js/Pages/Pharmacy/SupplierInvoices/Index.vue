@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import ExplorerTile from '@/Components/UI/ExplorerTile.vue';
 import ExplorerView from '@/Components/UI/ExplorerView.vue';
 import { Paperclip, Pencil, Plus, Search } from 'lucide-vue-next';
@@ -29,7 +29,7 @@ const submitSearch = () => router.get(pharmacyUrl('/pharmacy/supplier-invoices')
         <PurchasesHeader active="invoices" :purchases="purchases">
             <template #actions>
                 <Button v-if="can.create" :as="Link" :href="pharmacyUrl('/pharmacy/supplier-invoices/create')" size="rg">
-                    <Plus class="h-4 w-4" /><span class="ms-2">Enregistrer une facture</span>
+                    <Plus class="h-4 w-4" />Enregistrer une facture
                 </Button>
             </template>
         </PurchasesHeader>

@@ -634,6 +634,7 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [ ] Automatiser le n° de lot et la péremption eux-mêmes — **refusé** : ils sont imprimés sur la boîte, les inventer fausserait le FEFO et rendrait un rappel de lot intraçable (ADR-175, ADR-036)
 - [x] Les quinze écrans Pharmacie passent aux icônes lucide comme Médecine et Hospitalisation ; 19 noms ajoutés à la table partagée, sans quoi `lucideIcon()` retombait sur `Inbox` (ADR-176, ADR-099)
 - [ ] Reste ~65 fichiers sur la police d'icônes DashWind, dont 46 dans Administration/RH — écran par écran (ADR-091, ADR-099)
+- [x] Pharmacie : boutons des écrans Stock, Inventaire, Ajustement, Délivrance, Fournisseurs et Factures passés à shadcn ; ancienne vente comptoir anonyme (code mort depuis l'ADR-104) supprimée
 - [x] Confirmation du fournisseur enregistrée comme une trace (date, référence, document), corrigeable et retirable — jamais un passage obligé : une commande sans elle se réceptionne comme avant (ADR-179)
 - [x] Un article commandé mais jamais livré se signale « en rupture » avec motif : son reliquat cesse d'être attendu, et la commande peut enfin se clore — une seule ligne la bloquait à vie (ADR-179)
 - [x] Statut « Clôturée » distinct de « Reçue » et d'« Annulée » : plus rien n'est attendu, mais la commande n'a pas été livrée en entier (ADR-179)
@@ -662,7 +663,7 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Réceptionner suffit à faire entrer au catalogue un produit livré depuis le catalogue du fournisseur (délégation étroite, DENY prioritaire, sans famille ni prix de vente) — amende ADR-024/098 pour la réception (ADR-182)
 - [x] Entrée en stock restructurée : livraisons à gauche (la plus ancienne d'abord), cartes-filtres À ranger / Nouveaux produits / Sans prix de vente, « Ranger cette livraison » (ADR-182)
 - [x] Date de facture et échéances fournisseur calculées en heure locale : « 30 jours » tombait un jour trop tôt à Madagascar (ADR-182)
-- [ ] Autres champs date encore calculés par toISOString() (5 écrans hors facture fournisseur) — même correctif à appliquer
+- [x] Autres champs date calculés par toISOString() corrigés (commande, confirmation fournisseur, entrée en stock) ; test garde-fou sur les écrans Pharmacie et RH (ADR-182)
 - [ ] Don et dépannage d'un confrère : plus aucun chemin local — à décider si le cas se présente ; le stock de départ passe par l'import central (ADR-182, ADR-042)
 - [x] Rapprocher deux libellés que les fournisseurs n'écrivent pas pareil : proposition, fenêtre « C'est le même produit ? », rattachement depuis le portail (ADR-181)
 - [x] Règle de rapprochement corrigée : un libellé doit dire tout ce que dit l'autre, mots et nombres dans le même sens — « Alcool 125ml 70° » n'est plus proposé pour « Alcool iodé salicylé 125 ml » (ADR-181, amendement du 2026-09-24)
@@ -824,7 +825,9 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Aperçu du badge dans son porte-badge, au tour de cou, sur la page d'impression et dans les paramètres ; page d'impression en pleine largeur avec « Modifier le modèle » (ADR-209, amendement bis)
 - [ ] Verso du badge (consignes, « en cas de perte »), polices livrées avec l'application, icône par fonction — à décider (ADR-209)
 - [ ] Badge d'un dossier inactif, lecture du QR pour un contrôle d'accès, registre des badges remis, porte-badge rigide ou à pince dans l'aperçu — à décider (ADR-209)
-- [ ] Autres écrans RH à passer en shadcn-vue (contrats, présences, congés, planning, rapports, paramètres, documents, crédit Bloc) — seules leurs adresses ont été touchées (ADR-187)
+- [x] RH en shadcn : import des employés (explications à jour : matricule automatique, email non importé, liens vers Départements et Fonctions), formulaire de congé (dates en clair), formulaire de présence (alerte avant l'envoi pour une heure à venir ou une sortie avant l'entrée), rapports RH (période invalide signalée, lien vers « Paie du mois » au lieu du bandeau « paie non activée »), impressions (libellés et dates lisibles)
+- [x] Rapport RH : les stagiaires ne comptent plus dans « Employés actifs » ni dans l'effectif par département, comme partout ailleurs (ADR-207)
+- [ ] Autres écrans RH à passer en shadcn-vue (listes des contrats, présences, congés, planning, paramètres, documents, crédit Bloc ; écrans Caisses et Diagnostics de l'Administration) — seules leurs adresses ont été touchées (ADR-187)
 - [x] Espace RH : menu latéral en groupe, panneau « à traiter » sur la Vue d'ensemble, accueil et liste des employés refondus
 - [x] Présences et congés : chevauchements refusés pour un même employé
 - [x] Fiche Employé reliée au compte de connexion (un compte, une fiche) : son planning RH dit quand la personne est disponible, sans créer de compte ni donner de droit (ADR-168)

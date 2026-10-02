@@ -385,6 +385,23 @@ class HrDepartmentsPhotosInternshipsPlanningTest extends TestCase
         $this->actingAs($reception)->get('/administration/internships')->assertForbidden();
     }
 
+    public function test_the_hr_report_counts_no_intern_as_an_active_employee(): void
+    {
+        $department = $this->ref(HrReferenceType::Department, 'Laboratoire');
+        $staff = $this->employee('EMP-001', 'Rakoto');
+        $intern = $this->employee('EMP-002', 'Rabe');
+        $staff->forceFill(['department_id' => $department->id])->save();
+        $intern->forceFill(['department_id' => $department->id])->save();
+        $this->internship($intern, 'Laboratoire', now()->subMonth()->toDateString(), now()->addMonth()->toDateString());
+
+        $this->actingAs($this->administration)
+            ->get('/administration/reports')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('report.summary.active_employees', 1)
+                ->where('report.by_department', fn ($rows) => collect($rows)->firstWhere('label', 'Laboratoire')['count'] === 1));
+    }
+
     public function test_a_contract_type_is_marked_as_internship_in_settings(): void
     {
         $cdd = $this->ref(HrReferenceType::ContractType, 'CDD');

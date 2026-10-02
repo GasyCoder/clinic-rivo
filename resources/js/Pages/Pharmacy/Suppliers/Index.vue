@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { Head, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
 import FolderCard from '@/Components/UI/FolderCard.vue';
 import { lucideIcon } from '@/lib/icons';
@@ -55,7 +55,7 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-wh
                     <input v-model="search" type="search" class="h-10 w-full rounded-lg border border-gray-200 bg-white ps-10 pe-3 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white" placeholder="Nom du fournisseur…">
                 </label>
                 <Button v-if="can.create" size="rg" @click="creating = !creating">
-                    <component :is="lucideIcon(creating ? 'cross' : 'folder-plus')" class="h-4 w-4" /><span class="ms-2">{{ creating ? 'Fermer' : 'Ajouter un fournisseur' }}</span>
+                    <component :is="lucideIcon(creating ? 'cross' : 'folder-plus')" class="h-4 w-4" />{{ creating ? 'Fermer' : 'Ajouter un fournisseur' }}
                 </Button>
             </template>
         </PageHeader>
@@ -73,7 +73,7 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-wh
             </div>
             <div class="flex justify-end gap-2">
                 <Button type="button" size="rg" variant="white-outline" @click="creating = false">Annuler</Button>
-                <Button type="submit" size="rg" :disabled="form.processing"><FolderPlus class="h-4 w-4" /><span class="ms-2">Créer le dossier</span></Button>
+                <Button type="submit" size="rg" :disabled="form.processing"><FolderPlus class="h-4 w-4" />Créer le dossier</Button>
             </div>
         </form>
 

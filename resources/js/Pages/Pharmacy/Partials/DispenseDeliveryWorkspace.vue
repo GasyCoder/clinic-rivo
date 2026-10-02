@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import { CircleCheck, Package, User, X } from 'lucide-vue-next';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatDate } from '@/utilities/date';
@@ -162,7 +162,7 @@ const plannedLots = (item) => {
                     </div>
                     <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                         <Button variant="white-outline" size="lg" type="button" @click="emit('close')">Annuler</Button>
-                        <Button size="lg" type="submit" :disabled="form.processing || selectedQuantity < 1"><CircleCheck class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Confirmer la remise' }}</span></Button>
+                        <Button size="lg" type="submit" :disabled="form.processing || selectedQuantity < 1"><CircleCheck class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : 'Confirmer la remise' }}</Button>
                     </div>
                 </footer>
             </form>

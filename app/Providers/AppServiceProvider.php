@@ -167,6 +167,8 @@ class AppServiceProvider extends ServiceProvider
 
         // ADR-172 — le dossier chirurgical imprimable s'ouvre au bloc comme à l'anesthésie ;
         // chaque feuille reste gardée par son propre droit (SurgicalDossierSheet).
+        // ADR-245 — « Mes dettes » : lire les siennes, ou pouvoir encore en demander une.
+        Gate::define('view-own-staff-debts', fn (User $user): bool => $user->can('staff_debts.view_own') || $user->can('staff_debts.request'));
         Gate::define('view-surgical-dossier', fn (User $user): bool => $user->can('surgery.view') || $user->can('anesthesia.view'));
 
         // ADR-098 — « Achats » opens on whichever of its tabs the account may see.

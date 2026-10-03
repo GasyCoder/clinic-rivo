@@ -155,7 +155,10 @@ class PermissionSeeder extends Seeder
         'salary_settings.update' => 'Modifier les paramètres de paie (cotisations, barème IRSA)',
         'salary_payments.cancel' => 'Annuler une paie marquée payée',
         // ADR-228 — les dettes du personnel : demandées depuis son compte, décidées par le DG.
-        'staff_debts.request' => 'Demander une dette depuis son compte : le montant, les règles acceptées (dettes du personnel)',
+        'staff_debts.request' => 'Demander une dette depuis son compte (fermé par défaut : seul le Super Admin crée une dette)',
+        // ADR-245 — la dette est créée et validée par le Super Admin ; chacun lit les siennes.
+        'staff_debts.create' => 'Créer une dette pour un membre du personnel (Super Admin)',
+        'staff_debts.view_own' => 'Voir ses propres dettes (Mes dettes)',
         'staff_debts.request_additional' => 'Demander une nouvelle dette alors qu’une dette est déjà en cours (autorisation du Super Admin)',
         'staff_debts.view' => 'Voir les dettes du personnel (Finance, et relances des retards sur le site)',
         'staff_debts.decide' => 'Accorder, ajuster, refuser ou annuler une dette du personnel (DG)',

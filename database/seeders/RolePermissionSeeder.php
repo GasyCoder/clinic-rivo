@@ -22,8 +22,8 @@ class RolePermissionSeeder extends Seeder
         'ADMINISTRATION' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
-            // ADR-228 — demander une dette depuis son compte.
-            'staff_debts.request',
+            // ADR-245 — lire ses propres dettes (la demande est fermée : le Super Admin crée).
+            'staff_debts.view_own',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             // ADR-192 — une remise durable accordée à un patient est une dérogation habilitée.
@@ -107,8 +107,8 @@ class RolePermissionSeeder extends Seeder
         'LOGISTICS' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
-            // ADR-228 — demander une dette depuis son compte.
-            'staff_debts.request',
+            // ADR-245 — lire ses propres dettes (la demande est fermée : le Super Admin crée).
+            'staff_debts.view_own',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'logistics.view', 'logistics.manage',
@@ -127,8 +127,8 @@ class RolePermissionSeeder extends Seeder
         'RECEPTION' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
-            // ADR-228 — demander une dette depuis son compte.
-            'staff_debts.request',
+            // ADR-245 — lire ses propres dettes (la demande est fermée : le Super Admin crée).
+            'staff_debts.view_own',
             // ADR-228 — seule la Caisse encaisse un remboursement en espèces.
             'staff_debts.collect',
             // Amendement ADR-216 quater — les résultats validés par le médecin, à remettre au patient.
@@ -189,8 +189,8 @@ class RolePermissionSeeder extends Seeder
         'MEDICINE' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
-            // ADR-228 — demander une dette depuis son compte.
-            'staff_debts.request',
+            // ADR-245 — lire ses propres dettes (la demande est fermée : le Super Admin crée).
+            'staff_debts.view_own',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'medical_record.view',
@@ -262,8 +262,8 @@ class RolePermissionSeeder extends Seeder
         'NURSE' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
-            // ADR-228 — demander une dette depuis son compte.
-            'staff_debts.request',
+            // ADR-245 — lire ses propres dettes (la demande est fermée : le Super Admin crée).
+            'staff_debts.view_own',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'care.view', 'care.create', 'care.update', 'care.complete',
@@ -295,8 +295,8 @@ class RolePermissionSeeder extends Seeder
         'SURGERY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
-            // ADR-228 — demander une dette depuis son compte.
-            'staff_debts.request',
+            // ADR-245 — lire ses propres dettes (la demande est fermée : le Super Admin crée).
+            'staff_debts.view_own',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule', 'surgery.reset',
@@ -317,8 +317,8 @@ class RolePermissionSeeder extends Seeder
         'PHARMACY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
-            // ADR-228 — demander une dette depuis son compte.
-            'staff_debts.request',
+            // ADR-245 — lire ses propres dettes (la demande est fermée : le Super Admin crée).
+            'staff_debts.view_own',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'pharmacy.view', 'pharmacy.dispense', 'pharmacy.dispense.prepare_invoice', 'pharmacy.dispense.print',
@@ -365,8 +365,8 @@ class RolePermissionSeeder extends Seeder
         'LABORATORY' => [
             // ADR-195 — la messagerie : sa propre boîte professionnelle.
             'webmail.view',
-            // ADR-228 — demander une dette depuis son compte.
-            'staff_debts.request',
+            // ADR-245 — lire ses propres dettes (la demande est fermée : le Super Admin crée).
+            'staff_debts.view_own',
             // ADR-222 — l'assistant d'aide au logiciel.
             'ai_assistant.use',
             'paraclinical_requests.view',

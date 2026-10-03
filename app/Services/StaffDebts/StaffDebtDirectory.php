@@ -83,7 +83,8 @@ final class StaffDebtDirectory
                 'in_post' => $employee->active && ! $employee->trashed(),
             ],
             'can_request' => $user->can('staff_debts.request') && $blocker === null,
-            'request_blocker' => $user->can('staff_debts.request') ? $blocker : 'Demander une dette demande le droit « staff_debts.request ».',
+            // ADR-245 — sans droit de demander, la dette est créée par le Super Admin : on le dit.
+            'request_blocker' => $user->can('staff_debts.request') ? $blocker : 'Les dettes du personnel sont créées et validées par le Super Admin : adressez-vous à la direction. Vous suivez ici celles enregistrées à votre nom.',
             'current_month' => now()->format('Y-m'),
             // Les règles du site, pour l'aperçu pendant la saisie ; le serveur revérifie tout.
             // Le plafond de mensualité est tiré de son propre salaire : jamais le salaire lui-même.
@@ -527,8 +528,8 @@ final class StaffDebtDirectory
     private function timeline(StaffDebt $debt): array
     {
         $events = [[
-            'key' => 'requested', 'at' => $debt->requested_at?->toIso8601String(), 'by' => $debt->requester?->name,
-            'label' => 'Demandée', 'detail' => StaffDebtNotifier::money($debt->requested_amount)
+            'key' => 'requested', 'at' => $debt->requested_at?->toIso8601String(), 'by' => RemoteActorAttribution::name($debt->requester?->name, $debt->external_requested_by_name),
+            'label' => $debt->external_requested_by_name !== null ? 'Créée par le Super Admin' : 'Demandée', 'detail' => StaffDebtNotifier::money($debt->requested_amount)
                 .($debt->requested_installment !== null ? ' — '.StaffDebtNotifier::money($debt->requested_installment).' par mois' : ''),
         ]];
 

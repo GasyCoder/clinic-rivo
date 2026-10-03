@@ -772,6 +772,39 @@ class StaffDebtTest extends TestCase
     }
 
     /** @return array{0: User, 1: Employee} */
+    public function test_the_super_admin_creates_a_debt_then_validates_it_and_the_employee_only_follows_it(): void
+    {
+        [$user, $employee] = $this->staff(500000);
+        $reader = $this->user(['staff_debts.view_own'], 'MEDICINE');
+        Employee::query()->create(['employee_number' => 'EMP-9', 'first_name' => 'Lova', 'last_name' => 'RAKOTO', 'sex' => 'F', 'active' => true, 'user_id' => $reader->id]);
+        $create = [...self::DG, 'staff_debts.create'];
+
+        // Sans le droit de créer, le portail est refusé ; le site sert la liste des personnes en poste.
+        $this->portal('GET', 'nouvelle')->assertForbidden();
+        $this->portal('GET', 'nouvelle', [], $create)->assertOk()
+            ->assertJsonPath('component', 'Finance/StaffDebts/Create');
+
+        $this->portal('POST', '', ['employee_uuid' => $employee->uuid, 'amount' => '250000', 'reason' => 'Avance'], $create)->assertOk();
+        $debt = StaffDebt::query()->latest('id')->firstOrFail();
+        $this->assertSame(StaffDebtStatus::Requested, $debt->status);
+        $this->assertNull($debt->requested_by);
+        $this->assertSame('Direction générale', $debt->external_requested_by_name);
+        $this->assertTrue(AuditLog::query()->where('action', 'staff_debt.create')->exists());
+
+        // Une seule en attente par personne.
+        $this->portal('POST', '', ['employee_uuid' => $employee->uuid, 'amount' => '1000'], $create)->assertStatus(422);
+
+        // Il la valide par le circuit habituel.
+        $this->portal('POST', "{$debt->uuid}/accorder", $this->terms(250000, 50000, '2026-10'))->assertOk();
+        $this->assertSame(StaffDebtStatus::Approved, $debt->fresh()->status);
+
+        // L'employé la suit, ne demande plus rien sans le droit du Super Admin.
+        $this->actingAs($reader)->get('/mes-dettes')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('space.can_request', false)->etc());
+        $this->actingAs($reader)->post('/mes-dettes', $this->ask(10000))->assertForbidden();
+        $this->actingAs($this->user([], 'LABORATORY'))->get('/mes-dettes')->assertForbidden();
+    }
+
     private function staff(?int $salary, string $number = 'EMP-1'): array
     {
         // ADR-229 (amendement du 2026-09-30) — sans montant minimum et maximum, le site

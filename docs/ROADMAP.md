@@ -890,6 +890,7 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] La demande de dette ne porte que le montant, l'acceptation des règles et conditions du site (gardées sur la demande telles qu'elles ont été lues) et un motif facultatif ; le DG fixe la mensualité et le premier mois (ADR-234)
 - [x] Une dette en cours (accordée ou en remboursement) ferme les demandes, sauf autorisation du Super Admin (`staff_debts.request_additional`, aucun rôle par défaut) (ADR-234)
 - [x] Fiche du DG : « à fixer par vous », durées proposées dans la limite du site, « Au plus permis » par le salaire, dettes en cours à la demande, règles acceptées (ADR-234)
+- [x] Dettes du personnel créées et validées par le Super Admin seul (« Nouvelle dette » au portail) ; « Mes dettes » en lecture, demande depuis son compte fermée par défaut et réouvrable par droit (ADR-245)
 - [x] Dossier employé : le parcours à étapes reste (Identité, Contact, Poste, Compléments, Rémunération, Avantages, Banque, Récapitulatif), chaque étape s'enregistre seule (~1 s après la dernière saisie), plus aucun bouton « Enregistrer » ; Précédent / Continuer, clic direct dans la barre (ADR-221)
 - [x] Création : l'étape Identité seule, « Continuer » crée le dossier et poursuit dans la fiche ; même parcours pour un stagiaire, qui finit sur son contrat de stage (ADR-221)
 - [x] Module Banques (RH) : liste, ajout, correction, désactivation, archivage avec motif, restauration, doublons refusés et nommés ; BOA, BNI, BMOI, SBM livrées ; la fiche choisit sa banque dans la liste (ADR-221)

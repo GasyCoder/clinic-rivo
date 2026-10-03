@@ -33,7 +33,7 @@ use LogicException;
  */
 #[Fillable([
     'number', 'employee_id', 'employee_name', 'employee_number',
-    'requested_amount', 'requested_installment', 'requested_first_period', 'requested_interest_amount', 'reason', 'requested_at', 'requested_by',
+    'requested_amount', 'requested_installment', 'requested_first_period', 'requested_interest_amount', 'reason', 'requested_at', 'requested_by', 'external_requested_by_uuid', 'external_requested_by_name',
     'terms_accepted_at', 'accepted_terms', 'engaged_at_request',
     'status', 'pending_key',
     'amount', 'installment_amount', 'interest_amount', 'interest_mode', 'interest_value', 'interest_waived',

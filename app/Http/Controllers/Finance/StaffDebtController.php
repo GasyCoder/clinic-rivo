@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Finance;
 
+use App\Actions\StaffDebts\CreateStaffDebtAction;
 use App\Actions\StaffDebts\DecideStaffDebtAction;
 use App\Actions\StaffDebts\DisburseStaffDebtAction;
 use App\Actions\StaffDebts\SettleStaffDebtDepartureAction;
@@ -9,6 +10,7 @@ use App\Actions\StaffDebts\UpdateStaffDebtSettingsAction;
 use App\Enums\SalaryPaymentMode;
 use App\Enums\StaffDebtRepaymentMode;
 use App\Http\Controllers\Controller;
+use App\Models\Employee;
 use App\Models\StaffDebt;
 use App\Models\StaffDebtPenalty;
 use App\Services\Audit\Auditor;
@@ -21,6 +23,7 @@ use App\Services\StaffDebts\StaffDebtReminder;
 use App\Services\StaffDebts\StaffDebtRules;
 use App\Support\Authorization\RemoteActorAttribution;
 use App\Support\StaffDebts\StaffDebtInterest;
+use Illuminate\Support\Str;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -67,12 +70,58 @@ class StaffDebtController extends Controller
                 'has_interest' => $present['interest_tiers'] !== [],
             ],
             'can' => [
+                'create' => $user->can('staff_debts.create'),
                 'decide' => $user->can('staff_debts.decide'),
                 'disburse' => $user->can('staff_debts.disburse'),
                 'export' => $user->can('staff_debts.export'),
                 'settings' => $user->can('staff_debts.settings'),
             ],
         ]);
+    }
+
+    /** ADR-245 — le Super Admin crée une dette pour un membre du personnel en poste. */
+    public function create(Request $request, StaffDebtRules $rules): Response
+    {
+        $pending = StaffDebt::query()->whereNotNull('pending_key')->pluck('employee_id')->flip();
+
+        return Inertia::render('Finance/StaffDebts/Create', [
+            'employees' => Employee::query()->where('active', true)
+                ->with(['department:id,label', 'jobTitle:id,label'])
+                ->orderBy('last_name')->orderBy('first_name')->get()
+                ->map(fn (Employee $employee) => [
+                    'uuid' => $employee->uuid,
+                    'name' => Str::squish("{$employee->last_name} {$employee->first_name}"),
+                    'employee_number' => $employee->employee_number,
+                    'job_title' => $employee->jobTitle?->label,
+                    'department' => $employee->department?->label,
+                    'pending' => $pending->has($employee->getKey()),
+                    'engaged' => $rules->engagedDebts($employee)->count(),
+                ])->values(),
+            'rules' => $rules->present(),
+            'preselected' => $request->string('employe')->toString() ?: null,
+        ]);
+    }
+
+    public function store(Request $request, CreateStaffDebtAction $action): RedirectResponse
+    {
+        $data = $request->validate([
+            'employee_uuid' => ['required', 'uuid'],
+            'amount' => ['required', 'numeric', 'gt:0', 'max:999999999.99', 'decimal:0,2'],
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ], [], ['employee_uuid' => 'employé', ...self::NAMES]);
+
+        $employee = Employee::query()->where('uuid', $data['employee_uuid'])->first();
+        if ($employee === null) {
+            return back()->withErrors(['employee_uuid' => 'Cet employé n’existe pas sur ce site.']);
+        }
+
+        $debt = $action->execute($request->user(), $employee, [
+            'amount' => (string) $data['amount'],
+            'reason' => $data['reason'] ?? null,
+        ]);
+
+        return to_route('api.v1.super-admin.site-staff-debts.show', $debt)
+            ->with('status', "Dette {$debt->number} créée pour {$debt->employee_name} : fixez le remboursement, puis validez-la.");
     }
 
     public function show(Request $request, StaffDebt $staffDebt, StaffDebtDirectory $directory): Response

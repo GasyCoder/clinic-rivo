@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { AlarmClock, ArrowRight, Download, Gavel, HandCoins, Landmark, Lock, Percent, Scale, Search, Settings2, ShieldAlert, Wallet } from 'lucide-vue-next';
+import { AlarmClock, ArrowRight, Download, Plus, Gavel, HandCoins, Landmark, Lock, Percent, Scale, Search, Settings2, ShieldAlert, Wallet } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
@@ -82,6 +82,7 @@ const exportUrl = computed(() => {
             :icon="HandCoins"
         >
             <template #actions>
+                <Button v-if="can.create" :as="Link" :href="staffDebtUrl('/finance/dettes/nouvelle')"><Plus class="h-4 w-4" />Nouvelle dette</Button>
                 <Button v-if="can.export" :as="'a'" :href="exportUrl" variant="outline"><Download class="h-4 w-4" />Exporter en Excel</Button>
                 <Button v-if="can.settings" :as="Link" :href="staffDebtUrl('/finance/dettes/reglages')" variant="outline"><Settings2 class="h-4 w-4" />Réglages</Button>
             </template>
@@ -114,7 +115,8 @@ const exportUrl = computed(() => {
         <Card v-if="! listing.debts.length" class="flex flex-col items-center gap-3 px-6 py-12 text-center">
             <span class="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary"><HandCoins class="h-6 w-6" /></span>
             <p class="text-sm font-semibold text-foreground">{{ listing.search ? 'Aucune dette ne correspond à cette recherche' : 'Rien dans cette vue' }}</p>
-            <p class="max-w-md text-sm text-muted-foreground">Le personnel demande une dette depuis « Mes dettes », sur son site ; elle se décide ici.</p>
+            <p class="max-w-md text-sm text-muted-foreground">Une dette se crée ici pour un membre du personnel, puis se valide : il la suit dans « Mes dettes », sur son site.</p>
+            <Button v-if="can.create && ! listing.search" :as="Link" :href="staffDebtUrl('/finance/dettes/nouvelle')"><Plus class="h-4 w-4" />Nouvelle dette</Button>
         </Card>
 
         <Card v-else class="overflow-hidden">

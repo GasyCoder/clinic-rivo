@@ -23723,3 +23723,30 @@ reprise       aucune : les modèles existants restent généraux
 
 Les types eux-mêmes (ajouter « Congé paternité », « Contrat d'apprentissage »…) se règlent dans RH ›
 Paramètres, comme avant. Aucune permission nouvelle. Migration `2026_12_12_090000`.
+
+---
+
+# ADR-245 — Une dette du personnel est créée et validée par le Super Admin
+
+**Status:** ACCEPTED (2026-10-03 — exigence explicite du propriétaire : « la gestion des dettes doit être
+réservée au SuperAdmin : il crée la demande, il la valide ; les utilisateurs classiques n'ont accès ni à la
+création ni à la validation » ; arbitrage : il s'agit des dettes du personnel, pas des créances patient)
+
+**Amende l'ADR-228 et l'ADR-234** : l'employé ne demande plus de dette depuis son compte. Le reste du
+circuit (validation, versement, retenue sur la paie, Caisse, pénalités, départ — ADR-229/230) est inchangé.
+
+```text
+créer        Finance › Dettes du personnel › « Nouvelle dette » (portail, par l'API du site) :
+             une personne en poste, un montant, un motif facultatif — CreateStaffDebtAction,
+             `staff_debts.create` (Super Admin seulement), audit `staff_debt.create`, l'employé prévenu
+valider      la fiche s'ouvre : le Super Admin fixe mensualité, premier mois et mode, puis accorde
+             (DecideStaffDebtAction, inchangé) ; les limites du site restent des dérogations à confirmer
+une à la fois une seule dette en attente de décision par personne
+auteur       signée du Super Admin (`external_requested_by_uuid/name`), « Créée par le Super Admin »
+             dans l'historique
+Mes dettes   lecture seule par défaut : `staff_debts.view_own`, reprise de qui pouvait demander
+             (socles et ALLOW nominatifs) ; `staff_debts.request` retirée de tous les socles —
+             le Super Admin peut la rouvrir à un rôle ou à un compte (règle configurable)
+```
+
+Migration `2026_12_13_090000_staff_debts_created_by_super_admin`, à jouer sur chaque site et sur le portail.

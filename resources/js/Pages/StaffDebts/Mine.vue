@@ -154,8 +154,8 @@ const nextRepayment = (debt) => (['ACTIVE', 'APPROVED'].includes(debt.status) ? 
 const owesArrears = (debt) => (toMinor(debt.arrears) ?? 0) > 0;
 
 const HOW_IT_WORKS = [
-    { icon: FileText, title: 'Vous demandez', text: 'Le montant, un motif si vous le voulez, et vous acceptez les règles du site. Retirable tant que le DG n’a pas décidé.' },
-    { icon: Gavel, title: 'Le DG décide', text: 'Il accorde, ajuste le montant ou refuse. Il fixe le remboursement par mois, le premier mois, et la retenue sur la paie ou les espèces à la Caisse.' },
+    { icon: FileText, title: 'La direction l’enregistre', text: 'Le Super Admin crée la dette à votre nom, avec le montant convenu.' },
+    { icon: Gavel, title: 'Il la valide', text: 'Il fixe le remboursement par mois, le premier mois, et la retenue sur la paie ou les espèces à la Caisse.' },
     { icon: Wallet, title: 'Elle vous est versée', text: 'L’argent vous est remis hors RIVO, puis marqué versé. Rien n’est retenu avant le versement.' },
     { icon: Landmark, title: 'Vous remboursez', text: 'Chaque mois, retenu sur votre paie ou remis à la Caisse contre un reçu.' },
 ];
@@ -205,7 +205,7 @@ onMounted(async () => {
         <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
             <div class="min-w-0 space-y-4">
                 <div v-if="space.debts.length" class="flex flex-wrap items-center gap-3">
-                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><ListChecks class="h-4 w-4 text-muted-foreground" />Mes demandes</h2>
+                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><ListChecks class="h-4 w-4 text-muted-foreground" />Mes dettes</h2>
                     <div v-if="openDebts.length && closedDebts.length" class="ms-auto inline-flex rounded-lg border border-border bg-muted/40 p-0.5" role="group" aria-label="Filtrer mes dettes">
                         <button
                             v-for="item in FILTERS"
@@ -226,7 +226,7 @@ onMounted(async () => {
                 <Card v-if="space.employee && ! space.debts.length" class="flex flex-col items-center gap-3 px-6 py-14 text-center">
                     <span class="grid h-14 w-14 place-items-center rounded-2xl bg-primary/10 text-primary"><HandCoins class="h-7 w-7" /></span>
                     <p class="text-base font-semibold text-foreground">Aucune dette pour l’instant</p>
-                    <p class="max-w-lg text-sm text-muted-foreground">Une demande part au DG, qui l’accorde, l’ajuste ou la refuse. Vous êtes prévenu à chaque étape dans la cloche des notifications.</p>
+                    <p class="max-w-lg text-sm text-muted-foreground">Une dette enregistrée à votre nom par la direction s’affiche ici. Vous êtes prévenu à chaque étape dans la cloche des notifications.</p>
                     <Button v-if="space.can_request" type="button" @click="openRequest"><Plus class="h-4 w-4" />Faire une demande</Button>
                 </Card>
 
@@ -250,12 +250,12 @@ onMounted(async () => {
                                 <StaffDebtStatusBadge :status="debt.status" :label="debt.status_label" :tone="debt.status_tone" />
                             </p>
                             <p class="text-xs text-muted-foreground">
-                                Demandée le {{ formatDateTime(debt.requested_at) }}<template v-if="debt.repayment_mode_label"> · {{ debt.repayment_mode_label }}</template>
+                                Enregistrée le {{ formatDateTime(debt.requested_at) }}<template v-if="debt.repayment_mode_label"> · {{ debt.repayment_mode_label }}</template>
                             </p>
                         </div>
                         <div class="ms-auto text-end">
                             <p class="text-lg font-bold leading-tight tabular-nums text-foreground">{{ formatMoney(debt.amount ?? debt.requested_amount) }}</p>
-                            <p class="text-xs text-muted-foreground">{{ debt.granted ? 'accordé' : 'demandé' }}</p>
+                            <p class="text-xs text-muted-foreground">{{ debt.granted ? 'accordé' : 'enregistré' }}</p>
                         </div>
                         <Button
                             type="button"

@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Route;
  * ADR-229 — les dettes du personnel d'un site, gérées depuis le portail
  * (Finance › Dettes du personnel). Ces routes ne sont montées que sur l'API du
  * site (`/api/v1/super-admin/site-staff-debts`), derrière son jeton : le site
- * n'a plus d'écran de gestion. L'employé demande depuis « Mes dettes », la
+ * n'a plus d'écran de gestion. ADR-245 — le Super Admin crée la dette ; l'employé la suit dans « Mes dettes », la
  * Caisse encaisse, la paie retient ; le reste se décide et se verse au portail.
  */
 
@@ -15,6 +15,10 @@ Route::get('/', [StaffDebtController::class, 'index'])->name('index')->middlewar
 Route::get('/export', [StaffDebtController::class, 'export'])->name('export')->middleware('can:staff_debts.export');
 Route::get('/reglages', [StaffDebtController::class, 'settings'])->name('settings')->middleware('can:staff_debts.settings');
 Route::put('/reglages', [StaffDebtController::class, 'updateSettings'])->name('settings.update')->middleware('can:staff_debts.settings');
+
+// ADR-245 — le Super Admin crée la dette, puis la valide par le circuit habituel.
+Route::get('/nouvelle', [StaffDebtController::class, 'create'])->name('create')->middleware('can:staff_debts.create');
+Route::post('/', [StaffDebtController::class, 'store'])->name('store')->middleware('can:staff_debts.create');
 
 Route::get('/{staffDebt}', [StaffDebtController::class, 'show'])->name('show')->middleware('can:staff_debts.view');
 Route::post('/{staffDebt}/accorder', [StaffDebtController::class, 'approve'])->name('approve')->middleware('can:staff_debts.decide');

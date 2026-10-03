@@ -149,8 +149,8 @@ export function buildClinicMenu({ roleCode, can, stored = {}, overviewLabel = 'V
         { heading: 'Principal' },
         { icon: TrendingUp, text: overviewLabel, link: '/' },
         ...(webmail ? [{ key: 'webmail', icon: Mail, text: 'Messagerie', link: '/messagerie', warm: WEBMAIL_MENU_WARM }] : []),
-        // ADR-228 — ses propres dettes : demander, suivre ce qui reste dû. Filtré par visibleMenu.
-        { key: 'my-debts', icon: HandCoins, text: 'Mes dettes', link: '/mes-dettes', permission: 'staff_debts.request' },
+        // ADR-228 / ADR-245 — ses propres dettes : suivre ce qui reste dû. Filtré par visibleMenu.
+        { key: 'my-debts', icon: HandCoins, text: 'Mes dettes', link: '/mes-dettes', anyPermission: ['staff_debts.view_own', 'staff_debts.request'] },
         ...Object.entries(WORKSPACE_GROUPS).flatMap(([group, heading]) => [
             { heading, group },
             ...orderGroup(items.filter((item) => item.group === group), stored[group]),
@@ -178,6 +178,7 @@ export function visibleMenu(rawMenu, can) {
         }
 
         if (rawItem.permission && !can(rawItem.permission)) continue;
+        if (rawItem.anyPermission && !rawItem.anyPermission.some((permission) => can(permission))) continue;
 
         let item = rawItem.children
             ? {

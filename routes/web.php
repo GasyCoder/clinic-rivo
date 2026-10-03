@@ -172,8 +172,9 @@ Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.
     // ADR-242 — couleurs et marquage des prix du comparateur des fournisseurs.
     Route::put('/profil/comparateur-prix', [ProfileController::class, 'updatePriceComparison'])->name('profile.price-comparison.update');
 
-    // ADR-228 — « Mes dettes » : chacun demande une dette au DG et suit la sienne.
-    Route::get('/mes-dettes', [StaffDebtController::class, 'index'])->name('my-debts.index')->middleware('can:staff_debts.request');
+    // ADR-228 — « Mes dettes » : chacun suit les siennes. ADR-245 — la demande depuis son
+    // compte est fermée par défaut (staff_debts.request) : le Super Admin crée la dette.
+    Route::get('/mes-dettes', [StaffDebtController::class, 'index'])->name('my-debts.index')->middleware('can:view-own-staff-debts');
     Route::post('/mes-dettes', [StaffDebtController::class, 'store'])->name('my-debts.store')->middleware(['can:staff_debts.request', 'throttle:10,1']);
     Route::post('/mes-dettes/{staffDebt}/retirer', [StaffDebtController::class, 'withdraw'])->name('my-debts.withdraw')->middleware('can:staff_debts.request');
 });
